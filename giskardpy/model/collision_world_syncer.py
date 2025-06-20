@@ -162,7 +162,8 @@ class Collision:
 
     @property
     def map_P_pa(self) -> np.ndarray:
-        return np.append(self.data[self.map_P_pa_idx:self.map_P_pa_idx + 3], 1)
+        a = self.data[self.map_P_pa_idx:self.map_P_pa_idx + 3]
+        return np.array([a[0], a[1], a[2], 1])
 
     @map_P_pa.setter
     def map_P_pa(self, value: np.ndarray):
@@ -170,7 +171,8 @@ class Collision:
 
     @property
     def map_P_pb(self) -> np.ndarray:
-        return np.append(self.data[self.map_P_pb_idx:self.map_P_pb_idx + 3], 1)
+        a = self.data[self.map_P_pb_idx:self.map_P_pb_idx + 3]
+        return np.array([a[0], a[1], a[2], 1])
 
     @map_P_pb.setter
     def map_P_pb(self, value: np.ndarray):
@@ -178,7 +180,8 @@ class Collision:
 
     @property
     def map_V_n(self) -> np.ndarray:
-        return np.append(self.data[self.map_V_n_idx:self.map_V_n_idx + 3], 0)
+        a = self.data[self.map_V_n_idx:self.map_V_n_idx + 3]
+        return np.array([a[0], a[1], a[2], 0])
 
     @map_V_n.setter
     def map_V_n(self, value: np.ndarray):
@@ -186,7 +189,8 @@ class Collision:
 
     @property
     def a_P_pa(self) -> np.ndarray:
-        return np.append(self.data[self.a_P_pa_idx:self.a_P_pa_idx + 3], 1)
+        a = self.data[self.a_P_pa_idx:self.a_P_pa_idx + 3]
+        return np.array([a[0], a[1], a[2], 1])
 
     @a_P_pa.setter
     def a_P_pa(self, value: np.ndarray):
@@ -194,7 +198,8 @@ class Collision:
 
     @property
     def b_P_pb(self) -> np.ndarray:
-        return np.append(self.data[self.b_P_pb_idx:self.b_P_pb_idx + 3], 1)
+        a = self.data[self.b_P_pb_idx:self.b_P_pb_idx + 3]
+        return np.array([a[0], a[1], a[2], 1])
 
     @b_P_pb.setter
     def b_P_pb(self, value: np.ndarray):
@@ -202,7 +207,8 @@ class Collision:
 
     @property
     def new_a_P_pa(self):
-        return np.append(self.data[self.new_a_P_pa_idx: self.new_a_P_pa_idx + 3], 1)
+        a = self.data[self.new_a_P_pa_idx: self.new_a_P_pa_idx + 3]
+        return np.array([a[0], a[1], a[2], 1])
 
     @new_a_P_pa.setter
     def new_a_P_pa(self, value: np.ndarray):
@@ -210,7 +216,8 @@ class Collision:
 
     @property
     def new_b_P_pb(self):
-        return np.append(self.data[self.new_b_P_pb_idx: self.new_b_P_pb_idx + 3], 1)
+        a = self.data[self.new_b_P_pb_idx: self.new_b_P_pb_idx + 3]
+        return np.array([a[0], a[1], a[2], 1])
 
     @new_b_P_pb.setter
     def new_b_P_pb(self, value: np.ndarray):
@@ -218,7 +225,8 @@ class Collision:
 
     @property
     def new_b_V_n(self):
-        return np.append(self.data[self.new_b_V_n_idx: self.new_b_V_n_idx + 3], 0)
+        a = self.data[self.new_b_V_n_idx: self.new_b_V_n_idx + 3]
+        return np.array([a[0], a[1], a[2], 0])
 
     @new_b_V_n.setter
     def new_b_V_n(self, value: np.ndarray):
@@ -440,6 +448,8 @@ class CollisionWorldSynchronizer:
         self.collision_matrix = {}
         self.external_monitored_links = {}
         self.self_monitored_links = {}
+        self.external_collision_data = np.zeros(1)
+        self.self_collision_data = np.zeros(1)
 
     def clear_collision_matrix(self):
         self.collision_matrix = {}
@@ -1100,16 +1110,24 @@ class CollisionWorldSynchronizer:
                 symbols.extend([p.x.free_symbols()[0], p.y.free_symbols()[0], p.z.free_symbols()[0]])
 
             symbols.append(self.external_number_of_collisions_symbol(link_name))
+        if len(symbols) != self.external_collision_data.shape[0]:
+            self.external_collision_data = np.zeros(len(symbols), dtype=float)
         return symbols
 
     @profile
     def get_external_collision_data(self) -> np.ndarray:
-        data = []
+        offset = 0
         for link_name, max_idx in self.external_monitored_links.items():
+            collisions = self.closest_points.get_external_collisions(link_name)
+
             for idx in range(max_idx + 1):
-                data.append(self.closest_points.get_external_collisions(link_name)[idx].external_data)
-            data.append(np.array([self.closest_points.get_number_of_external_collisions(link_name)]))
-        return np.concatenate(data)
+                np.copyto(self.external_collision_data[offset:offset + 8], collisions[idx].external_data)
+                offset += 8
+
+            self.external_collision_data[offset] = self.closest_points.get_number_of_external_collisions(link_name)
+            offset += 1
+
+        return self.external_collision_data
 
     def external_map_V_n_symbol(self, link_name: PrefixName, idx: int) -> cas.Vector3:
         provider = lambda n=link_name, i=idx: self.closest_points.get_external_collisions(n)[i].map_V_n
@@ -1156,16 +1174,25 @@ class CollisionWorldSynchronizer:
                 symbols.extend([p.x.free_symbols()[0], p.y.free_symbols()[0], p.z.free_symbols()[0]])
 
             symbols.append(self.self_number_of_collisions_symbol(link_a, link_b))
+        if len(symbols) != self.self_collision_data.shape[0]:
+            self.self_collision_data = np.zeros(len(symbols), dtype=float)
         return symbols
 
     @profile
     def get_self_collision_data(self) -> np.ndarray:
-        data = []
+
+        offset = 0
         for (link_a, link_b), max_idx in self.self_monitored_links.items():
+            collisions = self.closest_points.get_self_collisions(link_a, link_b)
+
             for idx in range(max_idx + 1):
-                data.append(self.closest_points.get_self_collisions(link_a, link_b)[idx].self_data)
-            data.append(np.array([self.closest_points.get_number_of_self_collisions(link_a, link_b)]))
-        return np.concatenate(data)
+                np.copyto(self.self_collision_data[offset:offset + 10], collisions[idx].self_data)
+                offset += 10
+
+            self.self_collision_data[offset] = self.closest_points.get_number_of_self_collisions(link_a, link_b)
+            offset += 1
+
+        return self.self_collision_data
 
     def self_new_b_V_n_symbol(self, link_a: PrefixName, link_b: PrefixName, idx: int) -> cas.Vector3:
         provider = lambda a=link_a, b=link_b, i=idx: self.closest_points.get_self_collisions(a, b)[i].new_b_V_n
