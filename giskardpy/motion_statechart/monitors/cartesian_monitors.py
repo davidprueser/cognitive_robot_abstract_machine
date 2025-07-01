@@ -1,9 +1,33 @@
-from typing import Optional
+from typing import Optional, List
 
 import giskardpy.casadi_wrapper as cas
 from giskardpy.data_types.data_types import PrefixName
 from giskardpy.god_map import god_map
+from giskardpy.model.joints import OmniDrive
 from giskardpy.motion_statechart.monitors.monitors import Monitor
+
+
+class InWorldSpace(Monitor):
+
+    def __init__(self, tip_link: PrefixName, xyz: List[float],
+                 name: Optional[str] = None, plot: bool = True):
+        super().__init__(name=name, plot=plot)
+        self.joint: OmniDrive = god_map.world.get_drive_joint()
+        self.drive_link = self.joint.child_link_name
+        self.tip_link = tip_link
+        self.map = self.joint.parent_link_name
+
+        map_T_tip = god_map.world.compose_fk_expression(self.map, tip_link)
+        map_T_drive = god_map.world.compose_fk_expression(self.map, self.drive_link)
+
+        # project to floor
+        map_T_tip.z = 0
+
+        error = map_T_tip.to_position() - map_T_drive.to_position()
+        error.vis_frame = self.drive_link
+        god_map.debug_expression_manager.add_debug_expression(f'{self.name}/error', error)
+        self.observation_expression = cas.logic_and(cas.less_equal(cas.abs(error.x), xyz[0]),
+                                                   cas.less_equal(cas.abs(error.y), xyz[1]))
 
 
 class PoseReached(Monitor):

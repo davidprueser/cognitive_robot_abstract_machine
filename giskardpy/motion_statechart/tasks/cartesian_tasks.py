@@ -4,46 +4,74 @@ from giskardpy.data_types.data_types import Derivatives
 from giskardpy import casadi_wrapper as cas
 from giskardpy.data_types.data_types import PrefixName, ColorRGBA
 from giskardpy.god_map import god_map
+from giskardpy.model.joints import OmniDrive
 from giskardpy.motion_statechart.monitors.cartesian_monitors import PositionReached, OrientationReached
 from giskardpy.motion_statechart.tasks.task import Task, WEIGHT_ABOVE_CA
 from giskardpy.symbol_manager import symbol_manager
 import numpy as np
 
 
-class MoveBase(Task):
+class KeepInWorkspace(Task):
     def __init__(self,
-                 drive_link: PrefixName,
-                 tip_links: List[PrefixName],
+                 tip_link: PrefixName,
                  xyz: List[float],
+                 weight: float = WEIGHT_ABOVE_CA,
                  name: Optional[str] = None, plot: bool = True):
         super().__init__(name=name, plot=plot)
-        self.drive_link = drive_link
-        self.tip_links = tip_links
-        self.map = god_map.world.root_link_name
+        self.joint: OmniDrive = god_map.world.get_drive_joint()
+        self.drive_link = self.joint.child_link_name
+        self.tip_link = tip_link
+        self.map = self.joint.parent_link_name
 
-        for tip_link in tip_links:
-            drive_T_tip = god_map.world.compose_fk_expression(self.drive_link, tip_link)
-            map_T_drive = god_map.world.compose_fk_expression(self.map, self.drive_link)
-            map_T_drive_eval = god_map.world.compose_fk_evaluated_expression(self.map, self.drive_link)
-            drive_P_tip_projected = cas.project_to_plane(cas.Vector3([1, 0, 0], self.drive_link),
-                                                         cas.Vector3([0, 1, 0], self.drive_link),
-                                                         drive_T_tip.to_position())
+        drive_T_tip = god_map.world.compose_fk_expression(self.drive_link, tip_link)
+        map_T_drive = god_map.world.compose_fk_expression(self.map, self.drive_link)
+        map_T_drive_eval = god_map.world.compose_fk_evaluated_expression(self.map, self.drive_link)
+        drive_P_tip_projected = cas.project_to_plane(cas.Vector3([1, 0, 0], self.drive_link),
+                                                     cas.Vector3([0, 1, 0], self.drive_link),
+                                                     drive_T_tip.to_position())
 
-            map_P_tip_projected = map_T_drive_eval @ drive_P_tip_projected
-            error = map_T_drive.to_position() - map_P_tip_projected
-            error.vis_frame = self.drive_link
-            self.add_position_range_constraint(reference_velocity=CartesianPosition.default_reference_velocity,
-                                               expr_min=-xyz[0],
-                                               expr_max=xyz[0],
-                                               weight=WEIGHT_ABOVE_CA,
-                                               expr_current=error.x,
-                                               name=f'keep {tip_link} in circle/x')
-            self.add_position_range_constraint(reference_velocity=CartesianPosition.default_reference_velocity,
-                                               expr_min=-xyz[1],
-                                               expr_max=xyz[1],
-                                               weight=WEIGHT_ABOVE_CA,
-                                               expr_current=error.y,
-                                               name=f'keep {tip_link} in circle/y')
+        map_P_tip_projected = map_T_drive_eval @ drive_P_tip_projected
+        error = map_T_drive.to_position() - map_P_tip_projected
+        error.vis_frame = self.drive_link
+        self.add_position_range_constraint(reference_velocity=CartesianPosition.default_reference_velocity,
+                                           expr_min=-xyz[0],
+                                           expr_max=xyz[0],
+                                           weight=weight,
+                                           expr_current=error.x,
+                                           name=f'keep {tip_link} in circle/x')
+        self.add_position_range_constraint(reference_velocity=CartesianPosition.default_reference_velocity,
+                                           expr_min=-xyz[1],
+                                           expr_max=xyz[1],
+                                           weight=weight,
+                                           expr_current=error.y,
+                                           name=f'keep {tip_link} in circle/y')
+
+
+class NoBase(Task):
+    def __init__(self, weight: float = WEIGHT_ABOVE_CA, name: Optional[str] = None, plot: bool = True):
+        super().__init__(name=name, plot=plot)
+        self.joint: OmniDrive = god_map.world.get_drive_joint()
+        self.add_velocity_eq_constraint(velocity_goal=0.0,
+                                        velocity_limit=CartesianPosition.default_reference_velocity,
+                                        weight=weight,
+                                        task_expression=self.joint.x_vel.position_symbol,
+                                        name='x_vel=0',
+                                        lower_slack_limit=0,
+                                        upper_slack_limit=0)
+        self.add_velocity_eq_constraint(velocity_goal=0.0,
+                                        velocity_limit=CartesianPosition.default_reference_velocity,
+                                        weight=weight,
+                                        task_expression=self.joint.y_vel.position_symbol,
+                                        name='y_vel=0',
+                                        lower_slack_limit=0,
+                                        upper_slack_limit=0)
+        self.add_velocity_eq_constraint(velocity_goal=0.0,
+                                        velocity_limit=CartesianPosition.default_reference_velocity,
+                                        weight=weight,
+                                        task_expression=self.joint.yaw.position_symbol,
+                                        name='yaw=0',
+                                        lower_slack_limit=0,
+                                        upper_slack_limit=0)
 
 
 class CartesianPosition(Task):

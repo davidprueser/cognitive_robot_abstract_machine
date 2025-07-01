@@ -1,6 +1,6 @@
 from __future__ import division
 
-from typing import Optional
+from typing import Optional, List
 
 import numpy as np
 
@@ -8,11 +8,36 @@ from giskardpy import casadi_wrapper as cas
 from giskardpy.data_types.data_types import Derivatives, ColorRGBA, PrefixName
 from giskardpy.motion_statechart.goals.goal import Goal
 from giskardpy.god_map import god_map
-from giskardpy.model.joints import DiffDrive
+from giskardpy.model.joints import DiffDrive, OmniDrive
+from giskardpy.motion_statechart.monitors.cartesian_monitors import InWorldSpace
 from giskardpy.motion_statechart.tasks.cartesian_tasks import CartesianPosition, CartesianOrientation, \
-    CartesianPositionStraight, CartesianPose
+    CartesianPositionStraight, CartesianPose, NoBase, KeepInWorkspace
 from giskardpy.symbol_manager import symbol_manager
 from giskardpy.motion_statechart.tasks.task import WEIGHT_ABOVE_CA, Task
+
+
+class ToDriveOrNotToDrive(Goal):
+    def __init__(self,
+                 tip_link: PrefixName,
+                 xyz: List[float],
+                 weight: float = WEIGHT_ABOVE_CA,
+                 name: Optional[str] = None):
+        super().__init__(name=name)
+        self.tip_link = tip_link
+        self.joint: OmniDrive = god_map.world.get_drive_joint()
+        no_base = NoBase(weight=weight, name=f'{name}/no base')
+        keep_in_workspace = KeepInWorkspace(tip_link=tip_link, xyz=xyz, weight=weight,
+                                            name=f'{name}/keep in workspace')
+        is_in_workspace = InWorldSpace(tip_link=tip_link, xyz=xyz,
+                                       name=f'{name}/in workspace')
+        self.add_task(no_base)
+        self.add_task(keep_in_workspace)
+        self.add_monitor(is_in_workspace)
+
+        no_base.pause_condition = f'not {is_in_workspace}'
+        keep_in_workspace.pause_condition = f'{is_in_workspace}'
+
+        self.observation_expression = is_in_workspace.observation_expression
 
 
 class DiffDriveBaseGoal(Goal):
