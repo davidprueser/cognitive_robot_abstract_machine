@@ -17,9 +17,6 @@ class CollisionAvoidanceConfig(abc.ABC):
     def __init__(self, collision_checker: CollisionCheckerLib = CollisionCheckerLib.bpb):
         self._create_collision_checker(collision_checker)
 
-    def set_defaults(self):
-        pass
-
     @property
     def collision_scene(self) -> CollisionWorldSynchronizer:
         return god_map.collision_scene
