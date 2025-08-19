@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from typing import Optional, Dict, List, Tuple, Union
 
 import semantic_world.spatial_types.spatial_types as cas
@@ -10,29 +11,23 @@ from semantic_world.prefixed_name import PrefixedName
 from semantic_world.spatial_types.derivatives import Derivatives
 
 
+@dataclass
 class JointPositionList(Task):
-    def __init__(self, *,
-                 name: str,
-                 goal_state: Dict[Union[PrefixedName, str], float],
-                 threshold: float = 0.01,
-                 weight: Optional[float] = None,
-                 max_velocity: Optional[float] = None,
-                 plot: bool = True):
-        super().__init__(name=name, plot=plot)
-        if weight is None:
-            weight = WEIGHT_BELOW_CA
-        if max_velocity is None:
-            max_velocity = 1.0
+    name: str
+    goal_state: Dict[Union[PrefixedName, str], float]
+    threshold: float = 0.01
+    weight: float = WEIGHT_BELOW_CA
+    max_velocity: float = 1.0
+
+    def __post_init__(self):
         self.current_positions = []
         self.goal_positions = []
         self.velocity_limits = []
         self.connections = []
-        self.max_velocity = max_velocity
-        self.weight = weight
-        if len(goal_state) == 0:
+        if len(self.goal_state) == 0:
             raise GoalInitalizationException(f'Can\'t initialize {self} with no joints.')
 
-        for joint_name, goal_position in goal_state.items():
+        for joint_name, goal_position in self.goal_state.items():
             connection = god_map.world.get_connection_by_name(joint_name)
             self.connections.append(connection)
             if not isinstance(connection, Has1DOFState):
@@ -45,7 +40,7 @@ class JointPositionList(Task):
 
             ul_vel = connection.dof.upper_limits.velocity
             ll_vel = connection.dof.lower_limits.velocity
-            velocity_limit = cas.limit(max_velocity, ll_vel, ul_vel)
+            velocity_limit = cas.limit(self.max_velocity, ll_vel, ul_vel)
 
             self.current_positions.append(connection.dof.symbols.position)
             self.goal_positions.append(goal_position)
@@ -64,8 +59,8 @@ class JointPositionList(Task):
                                          equality_bound=error,
                                          weight=self.weight,
                                          task_expression=current)
-        joint_monitor = JointGoalReached(goal_state=goal_state,
-                                         threshold=threshold)
+        joint_monitor = JointGoalReached(goal_state=self.goal_state,
+                                         threshold=self.threshold)
         self.observation_expression = joint_monitor.observation_expression
 
 class MirrorJointPosition(Task):
