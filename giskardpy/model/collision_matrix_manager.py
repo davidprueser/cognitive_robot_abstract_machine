@@ -474,10 +474,15 @@ class CollisionMatrixManager:
                                        env_body.collision_config.buffer_zone_distance or 0.0)
                     else:
                         distance = collision_request.distance
-                    collision_check = CollisionCheck.create_and_validate(body_a=robot_body,
-                                                                         body_b=env_body,
-                                                                         distance=distance,
-                                                                         world=god_map.world)
+                    if collision_request.is_allow_collision():
+                        collision_check = CollisionCheck(body_a=robot_body,
+                                                         body_b=env_body,
+                                                         distance=0)
+                    else:
+                        collision_check = CollisionCheck.create_and_validate(body_a=robot_body,
+                                                                             body_b=env_body,
+                                                                             distance=distance,
+                                                                             world=god_map.world)
                     if collision_request.is_allow_collision():
                         if collision_check in collision_matrix:
                             collision_matrix.remove(collision_check)
