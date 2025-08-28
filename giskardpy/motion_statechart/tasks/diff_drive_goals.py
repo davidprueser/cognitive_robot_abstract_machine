@@ -40,7 +40,7 @@ class DiffDriveTangentialToPoint(Task):
         map_V_up = cas.Expression([0, 0, 1, 0])
         map_V_tangent = cas.cross(map_V_base_to_center, map_V_up)
         tip_V_pointing_axis = cas.Vector3(self.tip_V_pointing_axis)
-        map_V_forward = cas.dot(map_T_base, tip_V_pointing_axis)
+        map_V_forward = map_T_base @ tip_V_pointing_axis
 
         if self.drive:
             angle = cas.abs(cas.angle_between_vector(map_V_forward, map_V_tangent))
@@ -96,7 +96,7 @@ class KeepHandInWorkspace(Task):
         weight = WEIGHT_ABOVE_CA
         base_footprint_V_pointing_axis = cas.Vector3(self.map_V_pointing_axis)
         map_T_base_footprint = god_map.world.compose_fk_expression(self.map_frame, self.base_footprint)
-        map_V_pointing_axis = cas.dot(map_T_base_footprint, base_footprint_V_pointing_axis)
+        map_V_pointing_axis = map_T_base_footprint @ base_footprint_V_pointing_axis
         map_T_tip = god_map.world.compose_fk_expression(self.map_frame, self.tip_link)
         map_V_tip = cas.Vector3(map_T_tip.to_position())
         map_V_tip.y = 0

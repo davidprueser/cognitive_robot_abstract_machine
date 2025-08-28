@@ -49,9 +49,9 @@ class AlignToPushDoor(Goal):
 
         root_T_tip = god_map.world.compose_fk_expression(self.root, self.tip)
         root_T_door_expr = god_map.world.compose_fk_expression(self.root, self.door_object)
-        tip_V_tip_grasp_axis = cas.Vector3(self.tip_gripper_axis)
-        root_V_object_rotation_axis = cas.dot(root_T_door_expr, object_V_object_rotation_axis)
-        root_V_tip_grasp_axis = cas.dot(root_T_tip, tip_V_tip_grasp_axis)
+        tip_V_tip_grasp_axis = cas.Vector3.from_iterable(self.tip_gripper_axis)
+        root_V_object_rotation_axis = root_T_door_expr @ object_V_object_rotation_axis
+        root_V_tip_grasp_axis = root_T_tip @ tip_V_tip_grasp_axis
         door_P_handle = god_map.world.compute_fk_point(self.door_object, self.handle)
         temp_point = np.asarray([door_P_handle.x.to_np(), door_P_handle.y.to_np(), door_P_handle.z.to_np()])
         door_P_intermediate_point = np.zeros(3)
@@ -71,8 +71,8 @@ class AlignToPushDoor(Goal):
         door_T_door_rotated = cas.TransformationMatrix(door_R_door_rotated)
         # as the root_T_door is already pointing to a completely rotated door, we invert desired angle to get to the
         # intermediate point
-        door_rotated_P_top = cas.dot(door_T_door_rotated.inverse(), door_P_intermediate_point)
-        root_P_top = cas.dot(cas.TransformationMatrix(root_T_door_expr), door_rotated_P_top)
+        door_rotated_P_top = door_T_door_rotated.inverse() @ door_P_intermediate_point
+        root_P_top = cas.TransformationMatrix(root_T_door_expr) @ door_rotated_P_top
 
         minimum_angle_to_push_door = joint_limit[1] / 4
 

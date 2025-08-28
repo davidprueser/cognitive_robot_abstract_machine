@@ -63,7 +63,7 @@ class GraspBar(Task):
         root_P_bar_center = self.bar_center
 
         root_T_tip = god_map.world.compose_fk_expression(self.root, self.tip)
-        root_V_tip_normal = cas.dot(root_T_tip, tip_V_tip_grasp_axis)
+        root_V_tip_normal = root_T_tip @ tip_V_tip_grasp_axis
 
         self.add_vector_goal_constraints(frame_V_current=root_V_tip_normal,
                                          frame_V_goal=root_V_bar_axis,

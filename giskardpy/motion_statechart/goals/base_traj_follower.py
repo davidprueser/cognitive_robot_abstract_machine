@@ -67,13 +67,13 @@ class BaseTrajFollower(Goal):
     def make_map_T_base_footprint_goal(self, t_in_s: float, derivative: Derivatives = Derivatives.position):
         odom_T_base_footprint_goal = self.make_odom_T_base_footprint_goal(t_in_s, derivative)
         map_T_odom = god_map.world.compose_fk_evaluated_expression(god_map.world.root_link_name, self.odom_link)
-        return cas.dot(map_T_odom, odom_T_base_footprint_goal)
+        return map_T_odom @ odom_T_base_footprint_goal
 
     @profile
     def trans_error_at(self, t_in_s: float):
         odom_T_base_footprint_goal = self.make_odom_T_base_footprint_goal(t_in_s)
         map_T_odom = god_map.world.compose_fk_evaluated_expression(god_map.world.root_link_name, self.odom_link)
-        map_T_base_footprint_goal = cas.dot(map_T_odom, odom_T_base_footprint_goal)
+        map_T_base_footprint_goal = map_T_odom @ odom_T_base_footprint_goal
         map_T_base_footprint_current = god_map.world.compose_fk_expression(god_map.world.root_link_name,
                                                                            self.base_footprint_link)
 
@@ -97,7 +97,7 @@ class BaseTrajFollower(Goal):
             else:
                 y = 0
             base_footprint_P_vel = cas.Vector3((x, y, 0))
-            map_P_vel = cas.dot(map_T_base_footprint, base_footprint_P_vel)
+            map_P_vel = map_T_base_footprint @ base_footprint_P_vel
             if t == 0 and not self.track_only_velocity:
                 actual_error_x, actual_error_y = self.trans_error_at(0)
                 errors_x.append(map_P_vel[0] + actual_error_x)

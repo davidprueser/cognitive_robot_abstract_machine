@@ -66,7 +66,7 @@ class PerpendicularMonitor(FeatureMonitor):
                          controlled_feature=tip_normal,
                          name=name)
 
-        expr = cas.dot(self.root_V_reference_feature[:3], self.root_V_controlled_feature[:3])
+        expr = self.root_V_reference_feature[:3] @ self.root_V_controlled_feature[:3]
         self.observation_expression = cas.less_equal(cas.abs(expr), threshold)
 
 

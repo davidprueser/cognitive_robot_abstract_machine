@@ -72,7 +72,7 @@ class AlignPerpendicular(FeatureFunctionGoal):
                          reference_feature=reference_normal,
                          controlled_feature=tip_normal, name=name)
 
-        expr = cas.dot(self.root_V_reference_feature[:3], self.root_V_controlled_feature[:3])
+        expr = cas.angle_between_vector(self.root_V_reference_feature, self.root_V_controlled_feature)
 
         self.add_equality_constraint(reference_velocity=max_vel,
                                      equality_bound=0 - expr,

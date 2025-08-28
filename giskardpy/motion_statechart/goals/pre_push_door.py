@@ -60,14 +60,14 @@ class PrePushDoor(Goal):
                                                            door_V_v2,
                                                            door_V_v1)
 
-        root_P_nearest_in_rotated_door = cas.dot(cas.TransformationMatrix(root_T_door), cas.Point3(door_P_nearest))
+        root_P_nearest_in_rotated_door = cas.TransformationMatrix(root_T_door) @ cas.Point3.from_iterable(door_P_nearest)
 
         god_map.debug_expression_manager.add_debug_expression('goal_point_on_plane',
-                                                              cas.Point3(root_P_nearest_in_rotated_door))
+                                                              cas.Point3.from_iterable(root_P_nearest_in_rotated_door))
 
         push_door_task = Task(name='pre push door')
         self.add_task(push_door_task)
         push_door_task.add_point_goal_constraints(frame_P_current=root_T_tip.to_position(),
-                                                  frame_P_goal=cas.Point3(root_P_nearest_in_rotated_door),
+                                                  frame_P_goal=cas.Point3.from_iterable(root_P_nearest_in_rotated_door),
                                                   reference_velocity=self.reference_linear_velocity,
                                                   weight=self.weight)
