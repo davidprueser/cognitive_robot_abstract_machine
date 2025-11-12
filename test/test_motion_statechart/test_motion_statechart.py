@@ -5,6 +5,7 @@ import numpy as np
 import pytest
 
 import semantic_digital_twin.spatial_types.spatial_types as cas
+from giskardpy.executor import Executor
 from giskardpy.motion_statechart.binding_policy import GoalBindingPolicy
 from giskardpy.motion_statechart.data_types import (
     LifeCycleValues,
@@ -47,7 +48,7 @@ from semantic_digital_twin.world_description.world_entity import Body
 
 
 def test_condition_to_str():
-    msc = MotionStatechart(World())
+    msc = MotionStatechart()
     node1 = TrueMonitor(name=PrefixedName("muh"))
     msc.add_node(node1)
     node2 = TrueMonitor(name=PrefixedName("muh2"))
@@ -69,7 +70,7 @@ def test_condition_to_str():
 
 
 def test_motion_statechart_to_dot():
-    msc = MotionStatechart(World())
+    msc = MotionStatechart()
     node1 = TrueMonitor(name=PrefixedName("muh"))
     msc.add_node(node1)
     node2 = TrueMonitor(name=PrefixedName("muh2"))
@@ -119,7 +120,7 @@ def test_state_deletion():
 
 
 def test_motion_statechart():
-    msc = MotionStatechart(World())
+    msc = MotionStatechart()
 
     node1 = TrueMonitor(name=PrefixedName("muh"))
     msc.add_node(node1)
@@ -134,11 +135,13 @@ def test_motion_statechart():
         node3.observation_variable, node2.observation_variable
     )
     end.start_condition = node1.observation_variable
-    msc.compile()
+
+    kin_sim = Executor(motion_statechart=msc, world=World())
+    kin_sim.compile()
 
     assert len(msc.nodes) == 4
     assert len(msc.edges) == 3
-    msc.tick_until_end()
+    kin_sim.tick_until_end()
 
     assert len(msc.history) == 5
     # %% node1
@@ -204,7 +207,7 @@ def test_motion_statechart():
 
 
 def test_duplicate_name():
-    msc = MotionStatechart(World())
+    msc = MotionStatechart()
 
     with pytest.raises(ValueError):
         cas.FloatVariable(name=PrefixedName("muh"))
@@ -213,7 +216,7 @@ def test_duplicate_name():
 
 
 def test_print():
-    msc = MotionStatechart(World())
+    msc = MotionStatechart()
     print_node1 = Print(name=PrefixedName("cow"), message="muh")
     msc.add_node(print_node1)
     print_node2 = Print(name=PrefixedName("cow2"), message="muh")
@@ -227,7 +230,9 @@ def test_print():
     node1.start_condition = print_node1.observation_variable
     print_node2.start_condition = node1.observation_variable
     end.start_condition = print_node2.observation_variable
-    msc.compile()
+
+    kin_sim = Executor(motion_statechart=msc, world=World())
+    kin_sim.compile()
 
     assert len(msc.nodes) == 4
     assert len(msc.edges) == 3
@@ -243,7 +248,7 @@ def test_print():
     assert end.life_cycle_state == LifeCycleValues.NOT_STARTED
     assert not msc.is_end_motion()
 
-    msc.tick()
+    kin_sim.tick()
     assert print_node1.observation_state == ObservationStateValues.UNKNOWN
     assert node1.observation_state == ObservationStateValues.UNKNOWN
     assert print_node2.observation_state == ObservationStateValues.UNKNOWN
@@ -255,7 +260,7 @@ def test_print():
     assert end.life_cycle_state == LifeCycleValues.NOT_STARTED
     assert not msc.is_end_motion()
 
-    msc.tick()
+    kin_sim.tick()
     assert print_node1.observation_state == ObservationStateValues.TRUE
     assert node1.observation_state == ObservationStateValues.UNKNOWN
     assert print_node2.observation_state == ObservationStateValues.UNKNOWN
@@ -267,7 +272,7 @@ def test_print():
     assert end.life_cycle_state == LifeCycleValues.NOT_STARTED
     assert not msc.is_end_motion()
 
-    msc.tick()
+    kin_sim.tick()
     assert print_node1.observation_state == ObservationStateValues.TRUE
     assert node1.observation_state == ObservationStateValues.TRUE
     assert print_node2.observation_state == ObservationStateValues.UNKNOWN
@@ -279,7 +284,7 @@ def test_print():
     assert end.life_cycle_state == LifeCycleValues.NOT_STARTED
     assert not msc.is_end_motion()
 
-    msc.tick()
+    kin_sim.tick()
     assert print_node1.observation_state == ObservationStateValues.TRUE
     assert node1.observation_state == ObservationStateValues.TRUE
     assert print_node2.observation_state == ObservationStateValues.TRUE
@@ -291,7 +296,7 @@ def test_print():
     assert end.life_cycle_state == LifeCycleValues.RUNNING
     assert not msc.is_end_motion()
 
-    msc.tick()
+    kin_sim.tick()
     assert print_node1.observation_state == ObservationStateValues.TRUE
     assert node1.observation_state == ObservationStateValues.TRUE
     assert print_node2.observation_state == ObservationStateValues.TRUE
@@ -305,18 +310,20 @@ def test_print():
 
 
 def test_cancel_motion():
-    msc = MotionStatechart(World())
+    msc = MotionStatechart()
     node1 = TrueMonitor(name=PrefixedName("muh"))
     msc.add_node(node1)
     cancel = CancelMotion(name=PrefixedName("done"), exception=Exception("test"))
     msc.add_node(cancel)
     cancel.start_condition = node1.observation_variable
 
-    msc.compile()
-    msc.tick()  # first tick, cancel motion node1 turns true
-    msc.tick()  # second tick, cancel goes into running
+    kin_sim = Executor(motion_statechart=msc, world=World())
+    kin_sim.compile()
+
+    kin_sim.tick()  # first tick, cancel motion node1 turns true
+    kin_sim.tick()  # second tick, cancel goes into running
     with pytest.raises(Exception):
-        msc.tick()  # third tick, cancel goes true and triggers
+        kin_sim.tick()  # third tick, cancel goes true and triggers
     msc.draw("muh.pdf")
 
 
@@ -348,7 +355,7 @@ def test_joint_goal():
         )
         world.add_connection(root_C_tip2)
 
-    msc = MotionStatechart(world)
+    msc = MotionStatechart()
 
     task1 = JointPositionList(
         name=PrefixedName("task1"), goal_state=JointState({root_C_tip: 1})
@@ -364,14 +371,19 @@ def test_joint_goal():
         task1.observation_variable, always_true.observation_variable
     )
 
-    msc.compile(QPControllerConfig.create_default_with_50hz())
+    kin_sim = Executor(
+        motion_statechart=msc,
+        world=world,
+        controller_config=QPControllerConfig.create_default_with_50hz(),
+    )
+    kin_sim.compile()
 
     assert task1.observation_state == ObservationStateValues.UNKNOWN
     assert end.observation_state == ObservationStateValues.UNKNOWN
     assert task1.life_cycle_state == LifeCycleValues.NOT_STARTED
     assert end.life_cycle_state == LifeCycleValues.NOT_STARTED
     msc.draw("muh.pdf")
-    msc.tick_until_end()
+    kin_sim.tick_until_end()
     msc.draw("muh.pdf")
     assert len(msc.history) == 6
     assert (
@@ -391,7 +403,7 @@ def test_joint_goal():
 
 
 def test_reset():
-    msc = MotionStatechart(World())
+    msc = MotionStatechart()
     node1 = TrueMonitor(name=PrefixedName("muh"))
     msc.add_node(node1)
     node2 = TrueMonitor(name=PrefixedName("muh2"))
@@ -410,9 +422,10 @@ def test_reset():
         node3.observation_variable,
     )
 
-    msc.compile()
+    kin_sim = Executor(motion_statechart=msc, world=World())
+    kin_sim.compile()
 
-    msc.tick()
+    kin_sim.tick()
     assert node1.observation_state == ObservationStateValues.UNKNOWN
     assert node2.observation_state == ObservationStateValues.UNKNOWN
     assert end.observation_state == ObservationStateValues.UNKNOWN
@@ -421,7 +434,7 @@ def test_reset():
     assert end.life_cycle_state == LifeCycleValues.NOT_STARTED
     assert not msc.is_end_motion()
 
-    msc.tick()
+    kin_sim.tick()
     assert node1.observation_state == ObservationStateValues.TRUE
     assert node2.observation_state == ObservationStateValues.UNKNOWN
     assert end.observation_state == ObservationStateValues.UNKNOWN
@@ -430,7 +443,7 @@ def test_reset():
     assert end.life_cycle_state == LifeCycleValues.NOT_STARTED
     assert not msc.is_end_motion()
 
-    msc.tick()
+    kin_sim.tick()
     assert node1.observation_state == ObservationStateValues.TRUE
     assert node2.observation_state == ObservationStateValues.TRUE
     assert end.observation_state == ObservationStateValues.UNKNOWN
@@ -440,7 +453,7 @@ def test_reset():
     assert end.life_cycle_state == LifeCycleValues.NOT_STARTED
     assert not msc.is_end_motion()
 
-    msc.tick()
+    kin_sim.tick()
     assert node1.observation_state == ObservationStateValues.UNKNOWN
     assert node2.observation_state == ObservationStateValues.TRUE
     assert node3.observation_state == ObservationStateValues.TRUE
@@ -451,7 +464,7 @@ def test_reset():
     assert end.life_cycle_state == LifeCycleValues.NOT_STARTED
     assert not msc.is_end_motion()
 
-    msc.tick()
+    kin_sim.tick()
     assert node1.observation_state == ObservationStateValues.TRUE
     assert node2.observation_state == ObservationStateValues.TRUE
     assert node3.observation_state == ObservationStateValues.TRUE
@@ -462,7 +475,7 @@ def test_reset():
     assert end.life_cycle_state == LifeCycleValues.RUNNING
     assert not msc.is_end_motion()
 
-    msc.tick()
+    kin_sim.tick()
     assert node1.observation_state == ObservationStateValues.UNKNOWN
     assert node2.observation_state == ObservationStateValues.TRUE
     assert node3.observation_state == ObservationStateValues.TRUE
@@ -475,7 +488,7 @@ def test_reset():
 
 
 def test_nested_goals():
-    msc = MotionStatechart(World())
+    msc = MotionStatechart()
 
     node1 = TrueMonitor(name=PrefixedName("start"))
     msc.add_node(node1)
@@ -505,8 +518,10 @@ def test_nested_goals():
     msc.add_node(end)
     end.start_condition = outer.observation_variable
 
+    kin_sim = Executor(motion_statechart=msc, world=World())
+
     # compile and check initial states
-    msc.compile()
+    kin_sim.compile()
     msc.draw("muh.pdf")
     assert node1.observation_state == ObservationStateValues.UNKNOWN
     assert sub_node1.observation_state == ObservationStateValues.UNKNOWN
@@ -524,7 +539,7 @@ def test_nested_goals():
     assert not msc.is_end_motion()
 
     # tick 1: start trigger begins running
-    msc.tick()
+    kin_sim.tick()
     msc.draw("muh.pdf")
     assert node1.observation_state == ObservationStateValues.UNKNOWN
     assert sub_node1.observation_state == ObservationStateValues.UNKNOWN
@@ -542,7 +557,7 @@ def test_nested_goals():
     assert not msc.is_end_motion()
 
     # tick 2: start trigger turns true; inner sub_node1 already resolves to True and sub_node2 starts
-    msc.tick()
+    kin_sim.tick()
     msc.draw("muh.pdf")
     assert node1.observation_state == ObservationStateValues.TRUE
     assert sub_node1.observation_state == ObservationStateValues.UNKNOWN
@@ -560,7 +575,7 @@ def test_nested_goals():
     assert not msc.is_end_motion()
 
     # tick 3: inner sub_node2 turns true (inner goal still evaluating)
-    msc.tick()
+    kin_sim.tick()
     msc.draw("muh.pdf")
     assert node1.observation_state == ObservationStateValues.TRUE
     assert sub_node1.observation_state == ObservationStateValues.TRUE
@@ -578,7 +593,7 @@ def test_nested_goals():
     assert not msc.is_end_motion()
 
     # tick 4: inner sub_node2 turns true
-    msc.tick()
+    kin_sim.tick()
     msc.draw("muh.pdf")
     assert node1.observation_state == ObservationStateValues.TRUE
     assert sub_node1.observation_state == ObservationStateValues.TRUE
@@ -596,7 +611,7 @@ def test_nested_goals():
     assert not msc.is_end_motion()
 
     # tick 5: inner goal becomes true, outer still running, end starts running
-    msc.tick()
+    kin_sim.tick()
     msc.draw("muh.pdf")
     assert node1.observation_state == ObservationStateValues.TRUE
     assert sub_node1.observation_state == ObservationStateValues.TRUE
@@ -614,7 +629,7 @@ def test_nested_goals():
     assert not msc.is_end_motion()
 
     # tick 6: outer goal becomes true; end still running
-    msc.tick()
+    kin_sim.tick()
     msc.draw("muh.pdf")
     assert node1.observation_state == ObservationStateValues.TRUE
     assert sub_node1.observation_state == ObservationStateValues.TRUE
@@ -632,7 +647,7 @@ def test_nested_goals():
     assert not msc.is_end_motion()
 
     # tick 7: end motion becomes true
-    msc.tick()
+    kin_sim.tick()
     msc.draw("muh.pdf")
     assert end.observation_state == ObservationStateValues.TRUE
     assert msc.is_end_motion()
@@ -649,7 +664,7 @@ class _TestThreadMonitor(ThreadPayloadMonitor):
 
 
 def test_thread_payload_monitor_non_blocking_and_caching():
-    msc = MotionStatechart(World())
+    msc = MotionStatechart()
     mon = _TestThreadMonitor(
         name=PrefixedName("thread_mon"),
         delay=0.05,
@@ -670,7 +685,7 @@ def test_thread_payload_monitor_non_blocking_and_caching():
 
 @pytest.mark.skip(reason="Not working yet")
 def test_thread_payload_monitor_integration():
-    msc = MotionStatechart(World())
+    msc = MotionStatechart()
     mon = _TestThreadMonitor(
         name=PrefixedName("thread_mon2"),
         delay=0.03,
@@ -681,33 +696,35 @@ def test_thread_payload_monitor_integration():
     msc.add_node(end)
     end.start_condition = mon.observation_variable
 
-    msc.compile()
+    kin_sim = Executor(motion_statechart=msc, world=World())
+
+    kin_sim.compile()
 
     # tick 1: monitor not started yet becomes RUNNING; end not started
-    msc.tick()
+    kin_sim.tick()
     assert mon.observation_state == ObservationStateValues.UNKNOWN
     assert mon.life_cycle_state == LifeCycleValues.RUNNING
     assert end.life_cycle_state == LifeCycleValues.NOT_STARTED
 
     # tick 2: compute_observation is triggered asynchronously; still Unknown immediately
-    msc.tick()
+    kin_sim.tick()
     assert mon.observation_state == ObservationStateValues.UNKNOWN
     assert mon.life_cycle_state == LifeCycleValues.RUNNING
     assert end.life_cycle_state == LifeCycleValues.NOT_STARTED
 
     # allow background to finish and propagate on next tick
     time.sleep(mon.delay * 2)
-    msc.tick()
+    kin_sim.tick()
     assert mon.observation_state == ObservationStateValues.TRUE
     assert end.life_cycle_state == LifeCycleValues.RUNNING
 
     # next tick the EndMotion should turn true
-    msc.tick()
+    kin_sim.tick()
     assert end.observation_state == ObservationStateValues.TRUE
 
 
 def test_goal():
-    msc = MotionStatechart(World())
+    msc = MotionStatechart()
 
     node1 = TrueMonitor(name=PrefixedName("muh"))
     msc.add_node(node1)
@@ -731,7 +748,9 @@ def test_goal():
     msc.add_node(end)
     end.start_condition = goal.observation_variable
 
-    msc.compile()
+    kin_sim = Executor(motion_statechart=msc, world=World())
+
+    kin_sim.compile()
     assert node1.observation_state == ObservationStateValues.UNKNOWN
     assert sub_node1.observation_state == ObservationStateValues.UNKNOWN
     assert sub_node2.observation_state == ObservationStateValues.UNKNOWN
@@ -744,7 +763,7 @@ def test_goal():
     assert end.life_cycle_state == LifeCycleValues.NOT_STARTED
     assert not msc.is_end_motion()
 
-    msc.tick()
+    kin_sim.tick()
     assert node1.observation_state == ObservationStateValues.UNKNOWN
     assert sub_node1.observation_state == ObservationStateValues.UNKNOWN
     assert sub_node2.observation_state == ObservationStateValues.UNKNOWN
@@ -757,7 +776,7 @@ def test_goal():
     assert end.life_cycle_state == LifeCycleValues.NOT_STARTED
     assert not msc.is_end_motion()
 
-    msc.tick()
+    kin_sim.tick()
     assert node1.observation_state == ObservationStateValues.TRUE
     assert sub_node1.observation_state == ObservationStateValues.UNKNOWN
     assert sub_node2.observation_state == ObservationStateValues.UNKNOWN
@@ -770,7 +789,7 @@ def test_goal():
     assert end.life_cycle_state == LifeCycleValues.NOT_STARTED
     assert not msc.is_end_motion()
 
-    msc.tick()
+    kin_sim.tick()
     assert node1.observation_state == ObservationStateValues.TRUE
     assert sub_node1.observation_state == ObservationStateValues.TRUE
     assert sub_node2.observation_state == ObservationStateValues.UNKNOWN
@@ -783,7 +802,7 @@ def test_goal():
     assert end.life_cycle_state == LifeCycleValues.NOT_STARTED
     assert not msc.is_end_motion()
 
-    msc.tick()
+    kin_sim.tick()
     assert node1.observation_state == ObservationStateValues.TRUE
     assert sub_node1.observation_state == ObservationStateValues.TRUE
     assert sub_node2.observation_state == ObservationStateValues.TRUE
@@ -796,7 +815,7 @@ def test_goal():
     assert end.life_cycle_state == LifeCycleValues.NOT_STARTED
     assert not msc.is_end_motion()
 
-    msc.tick()
+    kin_sim.tick()
     assert node1.observation_state == ObservationStateValues.TRUE
     assert sub_node1.observation_state == ObservationStateValues.TRUE
     assert sub_node2.observation_state == ObservationStateValues.TRUE
@@ -809,7 +828,7 @@ def test_goal():
     assert end.life_cycle_state == LifeCycleValues.RUNNING
     assert not msc.is_end_motion()
 
-    msc.tick()
+    kin_sim.tick()
     assert node1.observation_state == ObservationStateValues.TRUE
     assert sub_node1.observation_state == ObservationStateValues.TRUE
     assert sub_node2.observation_state == ObservationStateValues.TRUE
@@ -825,7 +844,7 @@ def test_goal():
 
 
 def test_set_seed_configuration(pr2_world):
-    msc = MotionStatechart(pr2_world)
+    msc = MotionStatechart()
     goal = 0.1
 
     connection: ActiveConnection1DOF = pr2_world.get_connection_by_name(
@@ -841,9 +860,10 @@ def test_set_seed_configuration(pr2_world):
     node1.end_condition = node1.observation_variable
     end.start_condition = node1.observation_variable
 
-    msc.compile()
+    kin_sim = Executor(motion_statechart=msc, world=pr2_world)
+    kin_sim.compile()
 
-    msc.tick_until_end()
+    kin_sim.tick_until_end()
     assert node1.observation_state == ObservationStateValues.TRUE
     assert node1.life_cycle_state == LifeCycleValues.DONE
     assert end.observation_state == ObservationStateValues.TRUE
@@ -853,7 +873,7 @@ def test_set_seed_configuration(pr2_world):
 
 
 def test_set_seed_odometry(pr2_world):
-    msc = MotionStatechart(pr2_world)
+    msc = MotionStatechart()
 
     goal = TransformationMatrix.from_xyz_rpy(
         x=1, y=-1, z=1, roll=1, pitch=1, yaw=1, reference_frame=pr2_world.root
@@ -872,9 +892,10 @@ def test_set_seed_odometry(pr2_world):
     node1.end_condition = node1.observation_variable
     end.start_condition = node1.observation_variable
 
-    msc.compile()
+    kin_sim = Executor(motion_statechart=msc, world=pr2_world)
+    kin_sim.compile()
 
-    msc.tick_until_end()
+    kin_sim.tick_until_end()
     assert node1.observation_state == ObservationStateValues.TRUE
     assert node1.life_cycle_state == LifeCycleValues.DONE
     assert end.observation_state == ObservationStateValues.TRUE
@@ -889,7 +910,7 @@ def test_set_seed_odometry(pr2_world):
 
 
 def test_continuous_joint(pr2_world):
-    msc = MotionStatechart(pr2_world)
+    msc = MotionStatechart()
     joint_goal = JointPositionList(
         name=PrefixedName("joint_goal"),
         goal_state=JointState.from_str_dict(
@@ -904,12 +925,18 @@ def test_continuous_joint(pr2_world):
     end = EndMotion(name=PrefixedName("end"))
     msc.add_node(end)
     end.start_condition = joint_goal.observation_variable
-    msc.compile(QPControllerConfig.create_default_with_50hz())
-    msc.tick_until_end()
+
+    kin_sim = Executor(
+        motion_statechart=msc,
+        world=pr2_world,
+        controller_config=QPControllerConfig.create_default_with_50hz(),
+    )
+    kin_sim.compile()
+    kin_sim.tick_until_end()
 
 
 def test_revolute_joint(pr2_world):
-    msc = MotionStatechart(pr2_world)
+    msc = MotionStatechart()
     joint_goal = JointPositionList(
         name=PrefixedName("joint_goal"),
         goal_state=JointState.from_str_dict(
@@ -924,8 +951,14 @@ def test_revolute_joint(pr2_world):
     end = EndMotion(name=PrefixedName("end"))
     msc.add_node(end)
     end.start_condition = joint_goal.observation_variable
-    msc.compile(QPControllerConfig.create_default_with_50hz())
-    msc.tick_until_end()
+
+    kin_sim = Executor(
+        motion_statechart=msc,
+        world=pr2_world,
+        controller_config=QPControllerConfig.create_default_with_50hz(),
+    )
+    kin_sim.compile()
+    kin_sim.tick_until_end()
 
 
 def test_cart_goal_1eef(pr2_world: World):
@@ -933,7 +966,7 @@ def test_cart_goal_1eef(pr2_world: World):
     root = pr2_world.get_kinematic_structure_entity_by_name("base_footprint")
     tip_goal = TransformationMatrix.from_xyz_quaternion(pos_x=-0.2, reference_frame=tip)
 
-    msc = MotionStatechart(pr2_world)
+    msc = MotionStatechart()
     cart_goal = CartesianPose(
         name=PrefixedName("cart_goal"),
         root_link=root,
@@ -945,8 +978,13 @@ def test_cart_goal_1eef(pr2_world: World):
     msc.add_node(end)
     end.start_condition = cart_goal.observation_variable
 
-    msc.compile(QPControllerConfig.create_default_with_50hz())
-    msc.tick_until_end()
+    kin_sim = Executor(
+        motion_statechart=msc,
+        world=pr2_world,
+        controller_config=QPControllerConfig.create_default_with_50hz(),
+    )
+    kin_sim.compile()
+    kin_sim.tick_until_end()
 
 
 def test_cart_goal_sequence_at_build(pr2_world: World):
@@ -958,7 +996,7 @@ def test_cart_goal_sequence_at_build(pr2_world: World):
     )
     tip_goal2 = TransformationMatrix.from_xyz_quaternion(pos_x=0.2, reference_frame=tip)
 
-    msc = MotionStatechart(pr2_world)
+    msc = MotionStatechart()
     cart_goal1 = CartesianPose(
         name=PrefixedName("cart_goal1"),
         root_link=root,
@@ -984,8 +1022,15 @@ def test_cart_goal_sequence_at_build(pr2_world: World):
     end.start_condition = cas.trinary_logic_and(
         cart_goal1.observation_variable, cart_goal2.observation_variable
     )
-    msc.compile(QPControllerConfig.create_default_with_50hz())
-    msc.tick_until_end()
+
+    kin_sim = Executor(
+        motion_statechart=msc,
+        world=pr2_world,
+        controller_config=QPControllerConfig.create_default_with_50hz(),
+    )
+
+    kin_sim.compile()
+    kin_sim.tick_until_end()
 
     fk = pr2_world.compute_forward_kinematics_np(root, tip)
     assert np.allclose(fk, tip_goal2.to_np(), atol=cart_goal2.threshold)
@@ -1000,7 +1045,7 @@ def test_cart_goal_sequence_on_start(pr2_world: World):
     )
     tip_goal2 = TransformationMatrix.from_xyz_quaternion(pos_x=0.2, reference_frame=tip)
 
-    msc = MotionStatechart(pr2_world)
+    msc = MotionStatechart()
     cart_goal1 = CartesianPose(
         name=PrefixedName("cart_goal1"),
         root_link=root,
@@ -1025,8 +1070,14 @@ def test_cart_goal_sequence_on_start(pr2_world: World):
     end.start_condition = cas.trinary_logic_and(
         cart_goal1.observation_variable, cart_goal2.observation_variable
     )
-    msc.compile(QPControllerConfig.create_default_with_50hz())
-    msc.tick_until_end()
+
+    kin_sim = Executor(
+        world=pr2_world,
+        motion_statechart=msc,
+        controller_config=QPControllerConfig.create_default_with_50hz(),
+    )
+    kin_sim.compile()
+    kin_sim.tick_until_end()
 
     fk = pr2_world.compute_forward_kinematics_np(root, tip)
     expected = np.eye(4)
@@ -1041,7 +1092,7 @@ def test_CartesianOrientation(pr2_world: World):
         cas.Vector3.Z(), 4.0, reference_frame=tip
     )
 
-    msc = MotionStatechart(pr2_world)
+    msc = MotionStatechart()
     cart_goal = CartesianOrientation(
         name=PrefixedName("cart_goal"),
         root_link=root,
@@ -1052,8 +1103,14 @@ def test_CartesianOrientation(pr2_world: World):
     end = EndMotion(name=PrefixedName("end"))
     msc.add_node(end)
     end.start_condition = cart_goal.observation_variable
-    msc.compile(QPControllerConfig.create_default_with_50hz())
-    msc.tick_until_end()
+
+    kin_sim = Executor(
+        motion_statechart=msc,
+        world=pr2_world,
+        controller_config=QPControllerConfig.create_default_with_50hz(),
+    )
+    kin_sim.compile()
+    kin_sim.tick_until_end()
 
     fk = pr2_world.compute_forward_kinematics_np(root, tip)
     assert np.allclose(fk, tip_goal.to_np(), atol=cart_goal.threshold)
@@ -1063,7 +1120,7 @@ def test_pointing(pr2_world: World):
     tip = pr2_world.get_kinematic_structure_entity_by_name("r_gripper_tool_frame")
     root = pr2_world.get_kinematic_structure_entity_by_name("odom_combined")
 
-    msc = MotionStatechart(pr2_world)
+    msc = MotionStatechart()
 
     goal_point = cas.Point3(2, 0, 0, reference_frame=root)
     pointing_axis = cas.Vector3.X(reference_frame=tip)
@@ -1079,12 +1136,18 @@ def test_pointing(pr2_world: World):
     end = EndMotion(name=PrefixedName("end"))
     msc.add_node(end)
     end.start_condition = pointing.observation_variable
-    msc.compile(QPControllerConfig.create_default_with_50hz())
-    msc.tick_until_end()
+
+    kin_sim = Executor(
+        motion_statechart=msc,
+        world=pr2_world,
+        controller_config=QPControllerConfig.create_default_with_50hz(),
+    )
+    kin_sim.compile()
+    kin_sim.tick_until_end()
 
 
 def test_transition_triggers():
-    msc = MotionStatechart(World())
+    msc = MotionStatechart()
 
     changer = ChangeStateOnEvents(name=PrefixedName("changer"))
     msc.add_node(changer)
@@ -1112,33 +1175,34 @@ def test_transition_triggers():
     changer.end_condition = node3.observation_variable
     changer.reset_condition = node4.observation_variable
 
-    msc.compile()
+    kin_sim = Executor(motion_statechart=msc, world=World())
+    kin_sim.compile()
 
     assert changer.state is None
 
-    msc.tick()
+    kin_sim.tick()
     msc.draw("muh.pdf")
-    msc.tick()
+    kin_sim.tick()
     msc.draw("muh.pdf")
     assert changer.life_cycle_state == LifeCycleValues.RUNNING
     assert changer.state == "on_start"
 
-    msc.tick()
+    kin_sim.tick()
     msc.draw("muh.pdf")
     assert changer.life_cycle_state == LifeCycleValues.PAUSED
     assert changer.state == "on_pause"
 
-    msc.tick()
+    kin_sim.tick()
     msc.draw("muh.pdf")
     assert changer.life_cycle_state == LifeCycleValues.RUNNING
     assert changer.state == "on_unpause"
 
-    msc.tick()
+    kin_sim.tick()
     msc.draw("muh.pdf")
     assert changer.life_cycle_state == LifeCycleValues.DONE
     assert changer.state == "on_end"
 
-    msc.tick()
+    kin_sim.tick()
     msc.draw("muh.pdf")
     assert changer.life_cycle_state == LifeCycleValues.NOT_STARTED
     assert changer.state == "on_reset"

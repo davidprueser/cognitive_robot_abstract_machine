@@ -1,19 +1,15 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from dataclasses import dataclass, field, InitVar
+from dataclasses import dataclass, field
 from typing import Dict, Any
 
 import numpy as np
 import rustworkx as rx
 from krrood.adapters.json_serializer import SubclassJSONSerializer
-from typing_extensions import List, MutableMapping, ClassVar, Self, Type, Optional
+from typing_extensions import List, MutableMapping, ClassVar, Self, Type
 
 import semantic_digital_twin.spatial_types.spatial_types as cas
-from giskardpy.data_types.exceptions import EmptyProblemException
-from giskardpy.motion_statechart.auxilary_variable_manager import (
-    AuxiliaryVariableManager,
-)
 from giskardpy.motion_statechart.context import BuildContext, ExecutionContext
 from giskardpy.motion_statechart.data_types import (
     LifeCycleValues,
@@ -31,8 +27,6 @@ from giskardpy.motion_statechart.graph_node import (
 )
 from giskardpy.motion_statechart.plotters.graphviz import MotionStatechartGraphviz
 from giskardpy.qp.constraint_collection import ConstraintCollection
-from giskardpy.qp.qp_controller import QPController
-from giskardpy.qp.qp_controller_config import QPControllerConfig
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.world import World
 
@@ -203,7 +197,7 @@ class ObservationState(State):
 
     _compiled_updater: cas.CompiledFunction = field(init=False)
 
-    def compile(self):
+    def compile(self, context: BuildContext):
         observation_state_updater = []
         for node in self.motion_statechart.nodes:
             state_f = cas.if_eq_cases(
@@ -225,8 +219,8 @@ class ObservationState(State):
             parameters=[
                 self.observation_symbols(),
                 self.life_cycle_symbols(),
-                self.motion_statechart.world.state.get_variables(),
-                self.motion_statechart.auxiliary_variable_manager.variables,
+                context.world.state.get_variables(),
+                context.auxiliary_variable_manager.variables,
             ],
             sparse=False,
         )
@@ -331,16 +325,6 @@ class MotionStatechart(SubclassJSONSerializer):
         6. call is_end_motion() to check if the motion is done.
     """
 
-    world: World
-    """
-    Reference to the world, where the motion statechart is defined.
-    Symbols to the degree of freedom of the world can be used by nodes.
-    """
-
-    auxiliary_variable_manager: AuxiliaryVariableManager = field(
-        default_factory=AuxiliaryVariableManager, init=False
-    )
-
     rx_graph: rx.PyDiGraph[MotionStatechartNode] = field(
         default_factory=lambda: rx.PyDAG(multigraph=True), init=False, repr=False
     )
@@ -358,25 +342,12 @@ class MotionStatechart(SubclassJSONSerializer):
     Combined representation of the life cycle state of the motion statechart, to enable an efficient tick().
     """
 
-    qp_controller: Optional[QPController] = field(default=None, init=False)
-
     control_cycle_counter: int = field(default=0, init=False)
     history: StateHistory = field(default_factory=StateHistory, init=False)
 
     def __post_init__(self):
         self.life_cycle_state = LifeCycleState(self)
         self.observation_state = ObservationState(self)
-
-    @property
-    def build_context(self) -> BuildContext:
-        return BuildContext(
-            world=self.world,
-            auxiliary_variable_manager=self.auxiliary_variable_manager,
-        )
-
-    @property
-    def execution_context(self) -> ExecutionContext:
-        return ExecutionContext(world=self.world)
 
     @property
     def nodes(self) -> List[MotionStatechartNode]:
@@ -421,9 +392,9 @@ class MotionStatechart(SubclassJSONSerializer):
         for parent_node in condition.variables:
             self.rx_graph.add_edge(owner.index, parent_node.index, condition)
 
-    def _build_nodes(self):
+    def _build_nodes(self, context: BuildContext):
         for node in self.nodes:
-            artifacts = node.build(context=self.build_context)
+            artifacts = node.build(context=context)
             node._constraint_collection = artifacts.constraints
             node._constraint_collection.link_to_motion_statechart_node(node)
             node._observation_expression = artifacts.observation
@@ -433,18 +404,12 @@ class MotionStatechart(SubclassJSONSerializer):
         for goal in self.get_nodes_by_type(Goal):
             goal.apply_goal_conditions_to_children()
 
-    def compile(self, controller_config: Optional[QPControllerConfig] = None):
-        """
-
-        :param controller_config: If not None, the QP controller will be compiled.
-        """
+    def compile(self, context: BuildContext):
         self._apply_goal_conditions_to_their_children()
-        self._build_nodes()
+        self._build_nodes(context=context)
         self._add_transitions()
-        self.observation_state.compile()
+        self.observation_state.compile(context=context)
         self.life_cycle_state.compile()
-        if controller_config is not None:
-            self._compile_qp_controller(controller_config)
         self.history.append(
             next_item=StateHistoryItem(
                 control_cycle=self.control_cycle_counter,
@@ -453,56 +418,38 @@ class MotionStatechart(SubclassJSONSerializer):
             )
         )
 
-    def _combine_constraint_collections_of_nodes(self) -> ConstraintCollection:
+    def combine_constraint_collections_of_nodes(self) -> ConstraintCollection:
         combined_constraint_collection = ConstraintCollection()
         for node in self.nodes:
             combined_constraint_collection.merge(node._constraint_collection)
         return combined_constraint_collection
 
-    def _compile_qp_controller(self, controller_config: QPControllerConfig):
-        ordered_dofs = sorted(
-            self.world.active_degrees_of_freedom,
-            key=lambda dof: self.world.state._index[dof.name],
-        )
-        constraint_collection = self._combine_constraint_collections_of_nodes()
-        if len(constraint_collection.constraints) == 0:
-            self.qp_controller = None
-            # to not build controller, if there are no constraints
-            return
-        self.qp_controller = QPController(
-            config=controller_config,
-            degrees_of_freedom=ordered_dofs,
-            constraint_collection=constraint_collection,
-            world_state_symbols=self.world.state.get_variables(),
-            life_cycle_variables=self.life_cycle_state.life_cycle_symbols(),
-            auxiliary_variables=self.auxiliary_variable_manager.variables,
-        )
-        if self.qp_controller.has_not_free_variables():
-            raise EmptyProblemException(
-                "Tried to compile a QPController without free variables."
-            )
-
-    def _update_observation_state(self):
+    def _update_observation_state(self, context: BuildContext):
         self.observation_state.update_state(
             self.life_cycle_state.data,
-            self.world.state.data,
-            self.auxiliary_variable_manager.resolve_auxiliary_variables(),
+            context.world.state.data,
+            context.auxiliary_variable_manager.resolve_auxiliary_variables(),
         )
         for node in self.nodes:
             if self.life_cycle_state[node] == LifeCycleValues.RUNNING:
-                observation_overwrite = node.on_tick(context=self.execution_context)
+                observation_overwrite = node.on_tick(
+                    context=context.to_execution_context()
+                )
                 if observation_overwrite is not None:
                     self.observation_state[node] = observation_overwrite
 
-    def _update_life_cycle_state(self):
+    def _update_life_cycle_state(self, context: ExecutionContext):
         previous = self.life_cycle_state.data.copy()
         self.life_cycle_state.update_state(self.observation_state.data)
-        self._trigger_life_cycle_callbacks(previous, self.life_cycle_state.data)
+        self._trigger_life_cycle_callbacks(
+            previous, self.life_cycle_state.data, context
+        )
 
     def _trigger_life_cycle_callbacks(
         self,
         previous_state: np.ndarray,
         current_state: np.ndarray,
+        context: ExecutionContext,
     ) -> None:
         for node in self.nodes:
             prev = LifeCycleValues(int(previous_state[node.index]))
@@ -513,25 +460,25 @@ class MotionStatechart(SubclassJSONSerializer):
 
             match (prev, curr):
                 case (_, LifeCycleValues.NOT_STARTED):
-                    node.on_reset(context=self.execution_context)
+                    node.on_reset(context=context)
                 case (LifeCycleValues.NOT_STARTED, LifeCycleValues.RUNNING):
-                    node.on_start(context=self.execution_context)
+                    node.on_start(context=context)
                 case (LifeCycleValues.RUNNING, LifeCycleValues.PAUSED):
-                    node.on_pause(context=self.execution_context)
+                    node.on_pause(context=context)
                 case (LifeCycleValues.PAUSED, LifeCycleValues.RUNNING):
-                    node.on_unpause(context=self.execution_context)
+                    node.on_unpause(context=context)
                 case (
                     (LifeCycleValues.RUNNING | LifeCycleValues.PAUSED),
                     LifeCycleValues.DONE,
                 ):
-                    node.on_end(context=self.execution_context)
+                    node.on_end(context=context)
                 case _:
                     pass
 
-    def tick(self):
+    def tick(self, context: BuildContext):
         self.control_cycle_counter += 1
-        self._update_observation_state()
-        self._update_life_cycle_state()
+        self._update_observation_state(context)
+        self._update_life_cycle_state(context.to_execution_context())
         self._raise_if_cancel_motion()
         self.history.append(
             next_item=StateHistoryItem(
@@ -540,31 +487,6 @@ class MotionStatechart(SubclassJSONSerializer):
                 observation_state=self.observation_state,
             )
         )
-        if self.qp_controller is None:
-            return
-        next_cmd = self.qp_controller.get_cmd(
-            world_state=self.world.state.data,
-            life_cycle_state=self.life_cycle_state.data,
-            external_collisions=np.array([], dtype=np.float64),
-            self_collisions=np.array([], dtype=np.float64),
-            auxiliary_variables=self.auxiliary_variable_manager.resolve_auxiliary_variables(),
-        )
-        self.world.apply_control_commands(
-            next_cmd,
-            self.qp_controller.config.control_dt or self.qp_controller.config.mpc_dt,
-            self.qp_controller.config.max_derivative,
-        )
-
-    def tick_until_end(self, timeout: int = 1_000):
-        """
-        Calls tick until is_end_motion() returns True.
-        :param timeout: Max number of ticks to perform.
-        """
-        for i in range(timeout):
-            self.tick()
-            if self.is_end_motion():
-                return
-        raise TimeoutError("Timeout reached while waiting for end of motion.")
 
     def get_nodes_by_type(
         self, node_type: Type[GenericMotionStatechartNode]
@@ -588,16 +510,13 @@ class MotionStatechart(SubclassJSONSerializer):
     def to_json(self) -> Dict[str, Any]:
         self._add_transitions()
         result = super().to_json()
-        result["world_name"] = self.world.name
         result["nodes"] = [node.to_json() for node in self.nodes]
         result["unique_edges"] = [edge.to_json() for edge in self.unique_edges]
         return result
 
     @classmethod
     def _from_json(cls, data: Dict[str, Any], **kwargs) -> Self:
-        world = kwargs["world"]
-        assert world.name == data["world_name"]
-        motion_statechart = cls(world=world)
+        motion_statechart = cls()
         for json_data in data["nodes"]:
             node = MotionStatechartNode.from_json(json_data, **kwargs)
             motion_statechart.add_node(node)

@@ -1,7 +1,9 @@
 from dataclasses import dataclass, field, InitVar
 from enum import Enum
+from typing import Dict, Any, Self
 
 import numpy as np
+from krrood.adapters.json_serializer import SubclassJSONSerializer
 
 import semantic_digital_twin.spatial_types.spatial_types as cas
 from giskardpy.motion_statechart.auxilary_variable_manager import (
@@ -15,7 +17,7 @@ from semantic_digital_twin.world_description.world_entity import (
 )
 
 
-class GoalBindingPolicy(Enum):
+class GoalBindingPolicy(SubclassJSONSerializer, Enum):
     """
     This policy should be used together with ForwardKinematicsBinding.
     """
@@ -24,6 +26,13 @@ class GoalBindingPolicy(Enum):
     """Forward kinematics is only computed once at build time."""
     Bind_on_start = 2
     """Forward kinematics is computed during on_start of the MotionStatechartNode."""
+
+    @classmethod
+    def _from_json(cls, data: Dict[str, Any], **kwargs) -> Self:
+        return cls(data["value"])
+
+    def to_json(self) -> Dict[str, Any]:
+        return {**super().to_json(), "value": self.value}
 
 
 @dataclass

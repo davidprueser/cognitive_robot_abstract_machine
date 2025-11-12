@@ -2,7 +2,11 @@ import json
 
 import pytest
 
-from giskardpy.motion_statechart.data_types import LifeCycleValues
+from giskardpy.executor import Executor
+from giskardpy.motion_statechart.data_types import (
+    LifeCycleValues,
+    ObservationStateValues,
+)
 from giskardpy.motion_statechart.graph_node import TrinaryCondition, EndMotion
 from giskardpy.motion_statechart.monitors.monitors import TrueMonitor
 from giskardpy.motion_statechart.motion_statechart import (
@@ -55,7 +59,7 @@ def test_TrueMonitor():
 
 
 def test_trinary_transition():
-    msc = MotionStatechart(World())
+    msc = MotionStatechart()
     node1 = TrueMonitor(name=PrefixedName("muh1"))
     node2 = TrueMonitor(name=PrefixedName("muh2"))
     node3 = TrueMonitor(name=PrefixedName("muh3"))
@@ -96,7 +100,7 @@ def test_to_json_joint_position_list(mini_world):
 
 
 def test_start_condition(mini_world):
-    msc = MotionStatechart(mini_world)
+    msc = MotionStatechart()
     node1 = TrueMonitor(name=PrefixedName("muh"))
     msc.add_node(node1)
     node2 = TrueMonitor(name=PrefixedName("muh2"))
@@ -117,7 +121,9 @@ def test_start_condition(mini_world):
     json_str = json.dumps(json_data)
     new_json_data = json.loads(json_str)
     msc_copy = MotionStatechart.from_json(new_json_data, world=mini_world)
-    msc_copy.compile()
+
+    kin_sim = Executor(motion_statechart=msc_copy, world=mini_world)
+    kin_sim.compile()
     for index, node in enumerate(msc.nodes):
         assert node.name == msc_copy.nodes[index].name
     assert len(msc.edges) == len(msc_copy.edges)
@@ -153,7 +159,7 @@ def test_executing_json_parsed_statechart():
         )
         world.add_connection(root_C_tip2)
 
-    msc = MotionStatechart(world)
+    msc = MotionStatechart()
 
     task1 = JointPositionList(
         name=PrefixedName("task1"), goal_state=JointState({root_C_tip: 0.5})
@@ -174,24 +180,24 @@ def test_executing_json_parsed_statechart():
     new_json_data = json.loads(json_str)
     msc_copy = MotionStatechart.from_json(new_json_data, world=world)
 
-    msc_copy.compile(QPControllerConfig.create_default_with_50hz())
+    kin_sim = Executor(
+        motion_statechart=msc_copy,
+        world=world,
+        controller_config=QPControllerConfig.create_default_with_50hz(),
+    )
+    kin_sim.compile()
 
     task1_copy = msc_copy.get_node_by_name(task1.name)
     end_copy = msc_copy.get_node_by_name(end.name)
-    assert task1_copy.observation_state == msc_copy.observation_state.TrinaryUnknown
-    assert end_copy.observation_state == msc_copy.observation_state.TrinaryUnknown
+    assert task1_copy.observation_state == ObservationStateValues.UNKNOWN
+    assert end_copy.observation_state == ObservationStateValues.UNKNOWN
     assert task1_copy.life_cycle_state == LifeCycleValues.NOT_STARTED
     assert end_copy.life_cycle_state == LifeCycleValues.NOT_STARTED
     msc_copy.draw("muh.pdf")
-    for i in range(100):
-        msc_copy.tick()
-        if msc_copy.is_end_motion():
-            break
-    else:
-        raise Exception("Did not finish motion")
+    kin_sim.tick_until_end()
     msc_copy.draw("muh.pdf")
-    assert task1_copy.observation_state == msc_copy.observation_state.TrinaryTrue
-    assert end_copy.observation_state == msc_copy.observation_state.TrinaryTrue
+    assert task1_copy.observation_state == ObservationStateValues.TRUE
+    assert end_copy.observation_state == ObservationStateValues.TRUE
     assert task1_copy.life_cycle_state == LifeCycleValues.RUNNING
     assert end_copy.life_cycle_state == LifeCycleValues.RUNNING
 
@@ -217,7 +223,7 @@ def test_cart_goal_simple(pr2_world: World):
     root = pr2_world.get_kinematic_structure_entity_by_name("odom_combined")
     tip_goal = TransformationMatrix.from_xyz_quaternion(pos_x=-0.2, reference_frame=tip)
 
-    msc = MotionStatechart(pr2_world)
+    msc = MotionStatechart()
     cart_goal = CartesianPose(
         name=PrefixedName("cart_goal"),
         root_link=root,
@@ -235,11 +241,16 @@ def test_cart_goal_simple(pr2_world: World):
 
     tracker = KinematicStructureEntityKwargsTracker.from_world(pr2_world)
     kwargs = tracker.create_kwargs()
-    kwargs["world"] = pr2_world
     msc_copy = MotionStatechart.from_json(new_json_data, **kwargs)
 
-    msc_copy.compile(QPControllerConfig.create_default_with_50hz())
-    msc_copy.tick_until_end()
+    kin_sim = Executor(
+        motion_statechart=msc_copy,
+        world=pr2_world,
+        controller_config=QPControllerConfig.create_default_with_50hz(),
+    )
+
+    kin_sim.compile()
+    kin_sim.tick_until_end()
 
     fk = pr2_world.compute_forward_kinematics_np(root, tip)
     assert np.allclose(fk, tip_goal.to_np(), atol=cart_goal.threshold)
