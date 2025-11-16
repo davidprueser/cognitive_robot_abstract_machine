@@ -32,8 +32,6 @@ class GodMap:
 
     # %% managers
     debug_expression_manager: DebugExpressionManager
-    model_synchronizer: ModelSynchronizer
-    state_synchronizer: StateSynchronizer
 
     # %% controller datatypes
     trajectory: Trajectory
