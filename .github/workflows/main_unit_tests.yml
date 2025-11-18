@@ -57,7 +57,7 @@ jobs:
       fail-fast: false
       matrix:
         tests: [ "test_motion_statechart"]
-        ubuntu_version: [ "20.04", "24.04"]
+        ubuntu_version: [ "24.04"]
         qp_solver: [ qpSWIFT ]
     runs-on: ubuntu-latest
     container: # Login and start specified container image. Ubuntu20.04 isn't supported on GitHub-Workflow as of 04.2025
