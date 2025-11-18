@@ -80,7 +80,7 @@ jobs:
         with:
           path: 'semantic_digital_twin'
           repository: ichumuh/semantic_digital_twin
-          ref: symbol_update
+          ref: main
       - name: build semdt
         run: |
           cd semantic_digital_twin
