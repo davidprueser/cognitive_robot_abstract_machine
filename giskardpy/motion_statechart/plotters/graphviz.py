@@ -44,7 +44,6 @@ from giskardpy.motion_statechart.plotters.styles import (
 )
 
 if TYPE_CHECKING:
-
     from giskardpy.motion_statechart.motion_statechart import MotionStatechart
 
 

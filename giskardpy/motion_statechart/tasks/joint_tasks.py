@@ -378,21 +378,6 @@ class JointVelocity(Task):
 
 
 @dataclass
-class UnlimitedJointGoal(Task):
-    connection: ActiveConnection1DOF = field(kw_only=True)
-    goal_position: float = field(kw_only=True)
-
-    def __post_init__(self):
-        connection_symbol = self.connection.dof.variables.position
-        self.add_position_constraint(
-            expr_current=connection_symbol,
-            expr_goal=self.goal_position,
-            reference_velocity=2,
-            weight=DefaultWeights.WEIGHT_BELOW_CA,
-        )
-
-
-@dataclass
 class AvoidJointLimits(Task):
     """
     Calls AvoidSingleJointLimits for each joint in joint_list

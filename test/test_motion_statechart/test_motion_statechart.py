@@ -14,7 +14,10 @@ from giskardpy.motion_statechart.data_types import (
     LifeCycleValues,
     ObservationStateValues,
 )
-from giskardpy.motion_statechart.exceptions import NotInMotionStatechartError
+from giskardpy.motion_statechart.exceptions import (
+    NotInMotionStatechartError,
+    InvalidConditionError,
+)
 from giskardpy.motion_statechart.goals.collision_avoidance import (
     CollisionAvoidance,
 )
@@ -1293,3 +1296,11 @@ def test_counting():
 
     actual = time.time() - current_time
     assert np.isclose(actual, seconds * 2, rtol=0.01)
+
+
+def test_InvalidConditionError():
+    msc = MotionStatechart()
+    node = ConstTrueNode()
+    msc.add_node(node)
+    with pytest.raises(InvalidConditionError):
+        node.end_condition = node

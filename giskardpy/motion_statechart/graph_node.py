@@ -27,6 +27,7 @@ from giskardpy.motion_statechart.data_types import (
 )
 from giskardpy.motion_statechart.exceptions import (
     NotInMotionStatechartError,
+    InvalidConditionError,
 )
 from giskardpy.motion_statechart.plotters.plot_specs import NodePlotSpec
 from giskardpy.qp.constraint_collection import ConstraintCollection
@@ -96,6 +97,8 @@ class TrinaryCondition(SubclassJSONSerializer):
     def update_expression(
         self, new_expression: cas.Expression, child: MotionStatechartNode
     ) -> None:
+        if not isinstance(new_expression, (cas.FloatVariable, cas.Expression)):
+            raise InvalidConditionError(new_expression)
         self.expression = new_expression
         self._child = child
 

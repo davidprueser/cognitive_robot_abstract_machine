@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
+from uno import Any
 
 
 class MotionStatechartError(Exception):
@@ -22,4 +22,14 @@ class NotInMotionStatechartError(MotionStatechartError):
     def __post_init__(self):
         super().__init__(
             f"Operation can't be performed because node '{self.name}' does not belong to a MotionStatechart."
+        )
+
+
+@dataclass
+class InvalidConditionError(MotionStatechartError):
+    expression: Any
+
+    def __post_init__(self):
+        super().__init__(
+            f"Invalid condition: {self.expression}. Did you forget '.observation_variable'?"
         )
