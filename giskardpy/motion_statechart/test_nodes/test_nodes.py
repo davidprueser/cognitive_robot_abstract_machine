@@ -18,7 +18,7 @@ class ConstTrueNode(MotionStatechartNode):
 
 
 @dataclass(eq=False, repr=False)
-class FalseMonitor(MotionStatechartNode):
+class ConstFalseNode(MotionStatechartNode):
     def build(self, context: BuildContext) -> NodeArtifacts:
         return NodeArtifacts(observation=cas.TrinaryFalse)
 

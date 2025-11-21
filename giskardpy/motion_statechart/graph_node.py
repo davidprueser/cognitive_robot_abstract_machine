@@ -285,7 +285,7 @@ class NodeArtifacts:
     """
     A collection of constraints that describe a motion task. 
     """
-    observation: Optional[cas.Expression] = field(default=None)
+    observation: Optional[cas.Expression | cas.FloatVariable] = field(default=None)
     """
     A symbolic expression that describes the observation state of this node.
     Instead of setting this attribute directly, you may also implement the `on_tick` method of a node.
@@ -361,6 +361,18 @@ class MotionStatechartNode(SubclassJSONSerializer):
     def __post_init__(self):
         if self.name is None:
             self.name = self.__class__.__name__
+        self._start_condition = TrinaryCondition.create_true(
+            kind=TransitionKind.START, owner=self
+        )
+        self._pause_condition = TrinaryCondition.create_false(
+            kind=TransitionKind.PAUSE, owner=self
+        )
+        self._end_condition = TrinaryCondition.create_false(
+            kind=TransitionKind.END, owner=self
+        )
+        self._reset_condition = TrinaryCondition.create_false(
+            kind=TransitionKind.RESET, owner=self
+        )
 
     def _post_add_to_motion_statechart(self):
         """
@@ -374,18 +386,6 @@ class MotionStatechartNode(SubclassJSONSerializer):
         self._life_cycle_variable = LifeCycleVariable(
             name=PrefixedName("life_cycle", self.unique_name),
             motion_statechart_node=self,
-        )
-        self._start_condition = TrinaryCondition.create_true(
-            kind=TransitionKind.START, owner=self
-        )
-        self._pause_condition = TrinaryCondition.create_false(
-            kind=TransitionKind.PAUSE, owner=self
-        )
-        self._end_condition = TrinaryCondition.create_false(
-            kind=TransitionKind.END, owner=self
-        )
-        self._reset_condition = TrinaryCondition.create_false(
-            kind=TransitionKind.RESET, owner=self
         )
 
     @property
@@ -660,7 +660,8 @@ class Goal(MotionStatechartNode):
         Adds a node to this goal and the motion statechart this goal belongs to.
         Should be used in expand().
         """
-        self.nodes.append(node)
+        if node not in self.nodes:
+            self.nodes.append(node)
         node.parent_node = self
         self.motion_statechart.add_node(node)
 
@@ -795,6 +796,28 @@ class EndMotion(MotionStatechartNode):
 
     def build(self, context: BuildContext) -> NodeArtifacts:
         return NodeArtifacts(observation=cas.TrinaryTrue)
+
+    @classmethod
+    def when_true(cls, node: MotionStatechartNode) -> Self:
+        end = cls()
+        end.start_condition = node.observation_variable
+        return end
+
+    @classmethod
+    def when_all_true(cls, nodes: List[MotionStatechartNode]) -> Self:
+        end = cls()
+        end.start_condition = cas.trinary_logic_and(
+            *[node.observation_variable for node in nodes]
+        )
+        return end
+
+    @classmethod
+    def when_any_true(cls, nodes: List[MotionStatechartNode]) -> Self:
+        end = cls()
+        end.start_condition = cas.trinary_logic_or(
+            *[node.observation_variable for node in nodes]
+        )
+        return end
 
 
 @dataclass(eq=False, repr=False)
