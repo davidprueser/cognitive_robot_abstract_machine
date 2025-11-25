@@ -5,9 +5,8 @@ import re
 import threading
 from abc import ABC
 from dataclasses import field, dataclass, fields
-from enum import Enum
 
-from krrood.adapters.json_serializer import SubclassJSONSerializer
+from krrood.adapters.json_serializer import SubclassJSONSerializer, JSON_TYPE_NAME
 from typing_extensions import (
     Dict,
     Any,
@@ -580,9 +579,9 @@ class MotionStatechartNode(SubclassJSONSerializer):
     def _from_json(cls, data: Dict[str, Any], **kwargs) -> Self:
         node_kwargs = {}
         for field_name, field_data in data.items():
-            if field_name == "type":
+            if field_name == JSON_TYPE_NAME:
                 continue
-            if isinstance(field_data, dict) and "type" in field_data:
+            if isinstance(field_data, dict) and JSON_TYPE_NAME in field_data:
                 field_data = SubclassJSONSerializer.from_json(field_data, **kwargs)
             if isinstance(field_data, list):
                 field_data = [
