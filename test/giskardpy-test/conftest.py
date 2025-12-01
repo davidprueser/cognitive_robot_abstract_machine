@@ -65,6 +65,8 @@ def pr2_world():
     urdf_dir = os.path.join(
         os.path.dirname(os.path.abspath(__file__)),
         "..",
+        "..",
+        "giskardpy",
         "resources",
         "urdf",
     )
