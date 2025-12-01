@@ -98,7 +98,7 @@ class BulletCollisionDetector(CollisionDetector):
         self.objects_in_order = []
 
         for body in sorted(
-            self._world.bodies_with_enabled_collision, key=lambda b: b.name
+            self._world.bodies_with_enabled_collision, key=lambda b: b.id
         ):
             self.add_object(body)
             self.objects_in_order.append(self.body_to_bpb_obj[body])

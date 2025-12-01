@@ -263,7 +263,7 @@ class Collisions:
         new_link_a, new_link_b = world.compute_chain_reduced_to_controlled_connections(
             link_a, link_b
         )
-        if new_link_a.name > new_link_b.name:
+        if new_link_a.id > new_link_b.id:
             collision = collision.reverse()
             new_link_a, new_link_b = new_link_b, new_link_a
         collision.body_a = new_link_a

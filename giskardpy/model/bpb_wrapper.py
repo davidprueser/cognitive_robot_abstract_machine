@@ -1,6 +1,7 @@
 import os
 import tempfile
 from typing import List, Tuple, Optional
+from uuid import UUID
 
 import giskardpy_bullet_bindings as pb
 import trimesh
@@ -27,8 +28,8 @@ CollisionObject = pb.CollisionObject
 
 def create_collision(pb_collision: pb.Collision, world: World) -> GiskardCollision:
     collision = GiskardCollision(
-        body_a=world.get_kinematic_structure_entity_by_name(pb_collision.obj_a.name),
-        body_b=world.get_kinematic_structure_entity_by_name(pb_collision.obj_b.name),
+        body_a=world.get_kinematic_structure_entity_by_id(pb_collision.obj_a.name),
+        body_b=world.get_kinematic_structure_entity_by_id(pb_collision.obj_b.name),
         contact_distance_input=pb_collision.contact_distance,
         map_P_pa=pb_collision.map_P_pa,
         map_P_pb=pb_collision.map_P_pb,
@@ -123,7 +124,7 @@ def create_shape_from_link(
     shape = create_compound_shape(shapes_poses=shapes)
     # else:
     #     shape = create_shape_from_geometry(link.collisions[0])
-    return create_object(link.name, shape, pb.Transform.identity())
+    return create_object(link.id, shape, pb.Transform.identity())
 
 
 def create_compound_shape(
@@ -189,7 +190,7 @@ def convert_to_decomposed_obj_and_save_in_tmp(
 
 
 def create_object(
-    name: PrefixedName,
+    name: UUID,
     shape: pb.CollisionShape,
     transform: Optional[pb.Transform] = None,
 ) -> pb.CollisionObject:
