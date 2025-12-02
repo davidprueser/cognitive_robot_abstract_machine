@@ -692,11 +692,11 @@ A function that maps the results of a query object descriptor to a new set of re
 
 
 @dataclass(frozen=True)
-class OrderByParams(Generic[T]):
+class OrderByParams:
     """
     Parameters for ordering the results of a query object descriptor.
     """
-    variable: CanBehaveLikeAVariable[T]
+    variable: Selectable
     """
     The variable to order by.
     """
@@ -720,15 +720,24 @@ class QueryObjectDescriptor(SymbolicExpression[T], ABC):
 
     _child_: Optional[SymbolicExpression[T]] = field(default=None)
     _selected_variables: List[CanBehaveLikeAVariable[T]] = field(default_factory=list)
+    """
+    The variables that are selected by the query object descriptor.
+    """
     _results_mapping: List[ResultMapping] = field(init=False, default_factory=list)
+    """
+    Mapping functions that map the results of the query object descriptor to a new set of results.
+    """
     _order_by: Optional[OrderByParams] = field(default=None, init=False)
+    """
+    Parameters for ordering the results of the query object descriptor.
+    """
 
     def __post_init__(self):
         super().__post_init__()
         for variable in self._selected_variables:
             variable._var_._node_.enclosed = True
 
-    def order_by(self, variable, descending: bool = False, key: Optional[Callable] = None) -> Self:
+    def order_by(self, variable: Selectable, descending: bool = False, key: Optional[Callable] = None) -> Self:
         """
         Order the results by the given variable, using the given key function in descending or ascending order.
 
