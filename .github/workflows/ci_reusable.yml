@@ -21,12 +21,12 @@ jobs:
       - name: Install dependencies
         run: |
           cd cognitive_robot_abstract_machine
-          source /opt/ros/cram-venv/bin/activate
+          source /opt/ros/cram-env/bin/activate
           poetry install
 
       - name: Run tests
         run: |
           source /opt/ros/overlay_ws/install/setup.bash
-          source /opt/ros/cram-venv/bin/activate
+          source /opt/ros/cram-env/bin/activate
           cd /opt/ros/cognitive_robot_abstract_machine
           python -m pytest -sv test/
