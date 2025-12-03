@@ -37,6 +37,8 @@ pre-commit install
 
 ### Code of Conduct
 
+> Any code added to the repository must have at least an 85% test coverage.
+
 🚀 How to Create a Pull Request (PR) in Our System
 
 This guide outlines the best practices for creating a Pull Request in our system to ensure high-quality, maintainable, and robust code.
