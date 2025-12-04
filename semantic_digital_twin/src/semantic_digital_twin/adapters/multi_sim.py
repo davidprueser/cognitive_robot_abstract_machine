@@ -4,7 +4,7 @@ import shutil
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import IntEnum
 from types import NoneType
 from typing_extensions import Dict, List, Any, ClassVar, Type, Optional, Union, Self
 
@@ -71,7 +71,7 @@ def cas_pose_to_list(pose: TransformationMatrix) -> List[float]:
     return [px, py, pz, qw, qx, qy, qz]
 
 
-class GeomVisibilityAndCollisionType(int, Enum):
+class GeomVisibilityAndCollisionType(IntEnum):
     """
     Enum values representing different types of geometric visibility and collision properties.
     """
