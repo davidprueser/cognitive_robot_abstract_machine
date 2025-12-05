@@ -69,7 +69,7 @@ class MotionExecutor:
         executor = Executor(
             self.world,
             controller_config=QPControllerConfig(
-                control_dt=0.02, mpc_dt=0.02, prediction_horizon=4, verbose=False
+                target_frequency=50, prediction_horizon=4, verbose=False
             ),
         )
         executor.compile(self.motion_state_chart)
