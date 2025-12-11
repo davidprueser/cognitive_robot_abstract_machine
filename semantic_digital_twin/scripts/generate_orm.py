@@ -71,9 +71,7 @@ all_classes |= set([HasBody] + recursive_subclasses(HasBody))
 all_classes |= set(classes_of_module(semantic_digital_twin.reasoning.predicates))
 all_classes |= set(classes_of_module(semantic_digital_twin.semantic_annotations.mixins))
 all_classes |= set(
-    classes_of_module(
-        semantic_digital_twin.adapters.procthor.procthor_semantic_annotations
-    )
+    classes_of_module(semantic_digital_twin.adapters.procthor.procthor_resolver)
 )
 all_classes |= set(
     classes_of_module(semantic_digital_twin.world_description.world_modification)
@@ -87,7 +85,7 @@ all_classes -= {
     HasUpdateState,
     ForwardKinematicsManager,
     WorldModelManager,
-    semantic_digital_twin.adapters.procthor.procthor_semantic_annotations.ProcthorResolver,
+    semantic_digital_twin.adapters.procthor.procthor_resolver.ProcthorResolver,
     ContainsType,
 }
 # keep only dataclasses that are NOT AlternativeMapping subclasses

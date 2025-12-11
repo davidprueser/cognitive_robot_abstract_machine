@@ -53,7 +53,7 @@ def parse_procthor_worlds_and_calculate_containment_ratio():
             [
                 cls
                 for cls in classes_of_module(
-                    semantic_digital_twin.adapters.procthor.procthor_semantic_annotations
+                    semantic_digital_twin.adapters.procthor.procthor_resolver
                 )
                 if issubclass(cls, SemanticAnnotation)
             ]
