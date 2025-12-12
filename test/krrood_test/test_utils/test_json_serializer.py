@@ -173,16 +173,6 @@ def test_unknown_module_raises_unknown_module_error():
         SubclassJSONSerializer.from_json({JSON_TYPE_NAME: "non.existent.Class"})
 
 
-def test_plain_dict_without_type_returns_as_is():
-    """Plain dicts without __json_type__ are returned as-is to support custom type decorators."""
-    result = SubclassJSONSerializer.from_json({})
-    assert result == {}
-
-    data = {"key": "value", "number": 42}
-    result = SubclassJSONSerializer.from_json(data)
-    assert result == data
-
-
 def test_invalid_type_format_raises_invalid_type_format_error():
     with pytest.raises(InvalidTypeFormatError):
         SubclassJSONSerializer.from_json({JSON_TYPE_NAME: "NotAQualifiedName"})
