@@ -116,7 +116,7 @@ class TestRunAfterStop(Goal):
 class TestEndBeforeStart(Goal):
     """
     Test if a child node can end before it was started.
-    node1 waits 1 tick, the starts node 3.
+    node1 waits 1 tick, then starts node 3.
     node2 fulfills the end condition of node 3 immediately.
     node3 should start when node1 is True and transition to RUNNING with Observationstate UNKNOWN.
     On the next tick, node3 should end because its end condition is already fulfilled by node2.
@@ -154,7 +154,6 @@ class TestRunAfterStopFromPause(Goal):
     ticking3: CountTicks = field(init=False)
     pulse: Pulse = field(init=False)
     cancel: CancelMotion = field(init=False)
-    constFalse: ConstFalseNode = field(init=False)
 
     def expand(self, context: BuildContext) -> None:
         self.ticking1 = CountTicks(name="3ticks", ticks=3)
