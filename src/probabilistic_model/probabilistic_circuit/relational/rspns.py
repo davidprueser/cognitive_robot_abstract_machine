@@ -1,11 +1,19 @@
 from __future__ import annotations
-from typing import Dict
+import os
+from dataclasses import is_dataclass
+from krrood.class_diagrams.class_diagram import ClassDiagram
+from krrood.ormatic.dao import AlternativeMapping
+from krrood.ormatic.ormatic import ORMatic
+from krrood.ormatic.utils import classes_of_module
+from krrood.utils import recursive_subclasses
+
+from typing import Dict, Optional, Type, Iterable
 
 from dataclasses import dataclass, field
 from typing import List
 
 from matplotlib import pyplot as plt
-from random_events.variable import Continuous, Integer
+from random_events.variable import Continuous, Integer, Symbolic
 from typing_extensions import Any
 
 from krrood.entity_query_language.entity import let, an, entity
@@ -73,38 +81,32 @@ class Person(Symbol):
 
 @dataclass
 class DecomposedClass:
-    attributes: List[Any] = field(default_factory=list)
     unique_parts: List[Any] = field(default_factory=list)
     exchangeable_parts: List[Any] = field(default_factory=list)
 
 
     def copy(self):
         return DecomposedClass(
-            attributes=self.attributes,
             unique_parts=self.unique_parts,
             exchangeable_parts=self.exchangeable_parts,
         )
 
 person_part_decomposition = DecomposedClass(
-    attributes=["age"],
     unique_parts=[],
     exchangeable_parts=[],
 )
 
 government_part_decomposition = DecomposedClass(
-    attributes=["funny"],
     unique_parts=[],
     exchangeable_parts=[],
 )
 
 nation_part_decomposition = DecomposedClass(
-    attributes=["gdp", "supporters"],
     unique_parts=["government"],
     exchangeable_parts=["persons"],
 )
 
 region_part_decomposition = DecomposedClass(
-    attributes=["adjacency", "conflicts"],
     unique_parts=[],
     exchangeable_parts=["nations"],
 )
@@ -120,145 +122,187 @@ univariate_attribute_distributions = {
     "age": GaussianDistribution(Continuous("age"), 1, 1),
     "funny": GaussianDistribution(Continuous("funny"), 1, 1),
     "gdp": GaussianDistribution(Continuous("gdp"), 1, 1),
+    # remove name later
+    "name": GaussianDistribution(Continuous("name"), 1, 1),
 }
+
+@dataclass
+class ExchangeableDistributionTemplate:
+    """
+    EDT is a function that returns a joint probability distribution over a set of variables.
+    """
+
+    variables: List[Continuous] = field(default_factory=list)
+    """
+    Random Variables that the EDT is defined over.
+    """
+
+    base_distribution: Type[UnivariateDistribution] = field(default_factory=GaussianDistribution)
+    """
+    The base distribution for the EDT
+    """
+
+    def __init__(self, variables: List[Continuous], base_distribution: Type[UnivariateDistribution], probabilistic_circuit, **kwargs):
+        self.variables = variables
+        self.base_distribution = base_distribution
+        self.kwargs = kwargs
+        self.probabilistic_circuit = probabilistic_circuit
+
+
+    def __call__(self, *args, **kwargs):
+        if len(self.variables) == 0:
+            raise ValueError("ExchangeableDistributionTemplate requires at least one variable.")
+
+        # Build a product of identical univariate distributions (i.i.d.), which is exchangeable.
+        product = ProductUnit(probabilistic_circuit=self.probabilistic_circuit)
+
+        for v in self.variables:
+            # Use a shared-parameter Gaussian(0, 1) for all continuous variables to ensure identical marginals.
+            dist = self.base_distribution(v, **kwargs)
+            unit = leaf(dist, probabilistic_circuit=self.probabilistic_circuit)
+            product.add_subcircuit(unit)
+
+        return product
+
 
 
 @dataclass
 class RSPNTemplate:
+    """
+    Class "C" in an RSPN consists of
+    1. A set "A" of unary predicates applicable to individuals of C
+    2. A vector "U_C"= (P_1,...,P_n) of unique parts.
+    3. A vector "E_C"= (P_1,...,P_n) of exchangeable parts.
+    4. A set of predicates (relations) of form R_1(P_1, P_2).
+    5. A tractable univariate class distribution where leaves fall into one of three categories:
+        5.1 L^C_A: univariate distribution over A of C
+        5.2 L^C_R: EDT over predicate R involving C, E_C or U_C,
+        5.3 L^C_P: Sub-SPN for part class P
+    """
 
     probabilistic_circuit: ProbabilisticCircuit
 
-    # For each attribute name provide a univariate distribution template to use during grounding
-    univariate_attribute_distributions: Dict[str, UnivariateDistribution] = field(
-        default_factory=lambda: univariate_attribute_distributions.copy()
-    )
+    attributes: List[Any] = field(default_factory=list)
+    """
+    Unary predicates
+    """
 
-    # Optional per-relation-type Bernoulli parameter p. Defaults to 0.5 if not specified.
-    relation_bernoulli_p: Dict[type, float] = field(default_factory=dict)
+    unique_parts: List[Any] = field(default_factory=list)
+    """
+    Unique parts
+    """
 
-    def _clone_univariate(self, instance: Any, attribute: str, template: UnivariateDistribution) -> UnivariateDistribution:
-        """
-        Create a fresh univariate distribution for the given attribute based on a template.
-        Ensures decomposability by assigning a unique variable per object-instance and attribute.
-        Currently supports Gaussian explicitly; otherwise falls back to a standard normal.
-        """
-        # Unique variable name per instance-attribute to guarantee disjoint scopes in products
-        var_name = f"{type(instance).__name__}.{attribute}:{id(instance)}"
-        variable = Continuous(name=var_name)
-        if isinstance(template, GaussianDistribution):
-            return GaussianDistribution(variable, template.location, template.scale)
-        # Safe minimal default
-        return GaussianDistribution(variable, 0.0, 1.0)
+    exchangeable_parts: List[Any] = field(default_factory=list)
+    """
+    Exchangeable parts
+    """
 
-    def _clone_relation_distribution(self, instance: RSPNPredicate) -> UnivariateDistribution:
-        """
-        Create a fresh Bernoulli distribution leaf for a relationship instance.
-        Uses BernoulliDistribution over {0,1} with a unique variable name per instance.
-        """
-        # Create a new variable name including the instance id to avoid name clashes
-        var_name = f"{type(instance).__name__}:{id(instance)}"
-        p = self.relation_bernoulli_p.get(type(instance), 0.5)
-        return BernoulliDistribution(Integer(var_name), p=p)
+    relations: List[RSPNPredicate] = field(default_factory=list)
+    """
+    Predicates(Relations) of form R_n(P_n, P_n)
+    """
 
-    def _predicate_leaf(self, instance: RSPNPredicate):
-        distribution = self._clone_relation_distribution(instance)
-        return leaf(distribution, probabilistic_circuit=self.probabilistic_circuit)
+    univariate_attribute_distributions: Optional[Dict[str, UnivariateDistribution]] = field(default_factory=dict)
+    """
+    L^C_A: Dict of univariate distributions over all A of C
+    """
 
-    def _relationship_leaves_from_value(self, value):
-        """
-        If the provided value encodes relationships (predicate or list of predicates),
-        return a list of leaf units for them; otherwise return an empty list.
-        """
-        # Single predicate
-        if isinstance(value, RSPNPredicate):
-            return [self._predicate_leaf(value)]
+    edt_over_relations: Optional[List[ExchangeableDistributionTemplate]] = field(default_factory=list)
+    """
+    L^C_R: List of EDTs over predicates R involving C, E_C or U_C
+    """
 
-        # List of predicates
-        if isinstance(value, list):
-            leaves = []
-            for v in value:
-                if isinstance(v, RSPNPredicate):
-                    leaves.append(self._predicate_leaf(v))
-            return leaves
+    sub_rspns: Optional[List[Any]] = None
+    """
+    L^C_P: List of part classes P of C
+    """
 
-        return []
+    def _ground_part_classes(self, product: ProductUnit, instance: Any):
+        for part_class_name in self.sub_rspns:
+            part_class = getattr(instance, part_class_name)
+            if not isinstance(part_class, list):
+                part_class = [part_class]
+            for part in part_class:
+                product.add_subcircuit(self.ground(part))
 
-    def _ground_attribute(self, instance, attribute: str):
-        """
-        Ground a single attribute. If it's a relationship (or list of), create the
-        corresponding relation leaves. Otherwise, if a univariate template exists,
-        create a standard univariate leaf. Returns a list of units (may be empty).
-        """
-        if not hasattr(instance, attribute):
-            return []
+    def _prepare_structure(self, instance):
+        # reset all class attributes
+        self.attributes = []
+        self.unique_parts = []
+        self.exchangeable_parts = []
+        self.relations = []
+        self.univariate_attribute_distributions = {}
+        self.edt_over_relations = []
+        self.sub_rspns = []
 
-        value = getattr(instance, attribute)
+        schema = CLASS_SCHEMA.get(type(instance))
+        if schema is None:
+            raise ValueError(f"No schema registered for instances of type {type(instance).__name__}")
 
-        # Relationship handling takes precedence
-        rel_leaves = self._relationship_leaves_from_value(value)
-        if rel_leaves:
-            return rel_leaves
+        self.unique_parts = schema.unique_parts
 
-        template = self.univariate_attribute_distributions.get(attribute)
-        if template is None:
-            return []
+        self.exchangeable_parts = schema.exchangeable_parts
 
-        distribution = self._clone_univariate(instance, attribute, template)
-        return [leaf(distribution, probabilistic_circuit=self.probabilistic_circuit)]
-
-    def _ground_attributes(self, instance, schema: DecomposedClass, product: ProductUnit):
-        for attribute in schema.attributes:
-            for unit in self._ground_attribute(instance, attribute):
-                product.add_subcircuit(unit)
-
-    def _ground_unique_parts(self, instance, schema: DecomposedClass, product: ProductUnit):
-        for up_field in schema.unique_parts:
-            if not hasattr(instance, up_field):
+        for attribute in instance.__dataclass_fields__:
+            if attribute in self.unique_parts or attribute in self.exchangeable_parts:
                 continue
-            child = getattr(instance, up_field)
-            if child is None:
-                continue
-            product.add_subcircuit(self.ground(child))
+            else:
+                if not isinstance(getattr(instance, attribute), Iterable) and not isinstance(getattr(instance, attribute), RSPNPredicate):
+                    self.attributes.append(attribute)
+                elif not isinstance(getattr(instance, attribute), Iterable) and isinstance(getattr(instance, attribute), RSPNPredicate):
+                    self.relations.append(getattr(instance, attribute))
+                elif isinstance(getattr(instance, attribute), (str, bytes)):
+                    self.attributes.append(attribute)
+                else:
+                    for value in getattr(instance, attribute):
+                        if not isinstance(value, RSPNPredicate):
+                            raise ValueError(f"Attribute {attribute} must be a list of predicates (a relation) or a single predicate (an attribute), but found {value}.")
+                        self.relations.append(value)
 
-    def _ground_exchangeable_parts(self, instance, schema: DecomposedClass, product: ProductUnit):
-        for ep_field in schema.exchangeable_parts:
-            if not hasattr(instance, ep_field):
-                continue
-            children = getattr(instance, ep_field) or []
-            if not isinstance(children, list):
-                children = [children]
-            for child in children:
-                product.add_subcircuit(self.ground(child))
+        for attribute in self.attributes:
+            if attribute in univariate_attribute_distributions:
+                self.univariate_attribute_distributions[attribute] = univariate_attribute_distributions[attribute]
+
+        for relation in self.relations:
+            fields = relation.__dataclass_fields__
+            if len(fields) != 2:
+                raise ValueError(f"Relation {relation} must be of the form R(P1, P2) or R(C, P1) where P1, P2 are part classes of class C.")
+            first = Continuous(list(fields.keys())[0])
+            second = Continuous(list(fields.keys())[1])
+
+            #TODO dont assume gaussian
+            self.edt_over_relations.append(ExchangeableDistributionTemplate([first, second], GaussianDistribution, self.probabilistic_circuit))
+
+        self.sub_rspns = self.exchangeable_parts + self.unique_parts
+
 
     def ground(self, instance):
         """
         Ground the given instance into a probabilistic circuit and return the root Unit
         of the grounded subcircuit representing this instance.
         """
-        # Relationship instances are modeled as binary attributes (leaves)
-        if isinstance(instance, RSPNPredicate):
-            return self._predicate_leaf(instance)
 
-        schema = CLASS_SCHEMA.get(type(instance))
-        if schema is None:
-            raise ValueError(f"No schema registered for instances of type {type(instance).__name__}")
+        self._prepare_structure(instance)
 
         # Combine all components using a product unit
         product = ProductUnit(probabilistic_circuit=self.probabilistic_circuit)
 
-        # Attributes as leaves (univariate or relation-derived)
-        self._ground_attributes(instance, schema, product)
+        # Ground L_C^A: attributes
+        for distribution in self.univariate_attribute_distributions.values():
+            product.add_subcircuit(leaf(distribution, self.probabilistic_circuit))
 
-        # Unique parts: a single object per field
-        self._ground_unique_parts(instance, schema, product)
+        # Ground L_C^R: relations
+        for relation_template in self.edt_over_relations:
+            #TODO dont assume gaussian
+            edt_product = relation_template(location=0, scale=0)
+            product.add_subcircuit(edt_product)
 
-        # Exchangeable parts: a list of objects per field
-        self._ground_exchangeable_parts(instance, schema, product)
+        # Ground L_C^P: Part classes
+        self._ground_part_classes(product, instance)
 
         return product
 
-
-if __name__ == "__main__":  # quick demo if this file is run
+def example():
     david = Person("David", 25)
     tom = Person("Tom", 27)
     checker_chan = Person("Simon Wallukat", 28)
@@ -296,7 +340,6 @@ if __name__ == "__main__":  # quick demo if this file is run
             n2.persons == [david, tom, p3],
             )
     )
-
     rspn = RSPNTemplate(ProbabilisticCircuit())
     ground_region = rspn.ground(region)
     # pretty_print_ground(ground_region)
