@@ -1,3 +1,22 @@
+"""
+Symbolic math utilities built on top of CasADi.
+
+This module provides small, object oriented wrappers around symbolic arrays
+and functions. It aims to make operations on scalars, vectors and matrices
+feel similar to NumPy, while keeping expressions symbolic so they can be
+compiled and evaluated efficiently.
+
+The public API centers around the following types:
+
+- Scalar: symbolic scalar values
+- Vector: symbolic equivalent to numpy 1d arrays
+- Matrix: symbolic matrices of arbitrary 2d shape
+
+There are helpers to create variables, to compile expressions for fast
+numerical evaluation, and to perform common operations such as stacking,
+logical composition, and conditional selection.
+"""
+
 from __future__ import annotations
 
 import builtins
@@ -729,6 +748,10 @@ class SymbolicMathType(ABC):
 
 @dataclass(eq=False, init=False)
 class Scalar(SymbolicMathType):
+    """
+    A symbolic type representing a scalar value.
+    """
+
     def __init__(self, data: ScalarData = 0):
         self.casadi_sx = to_sx(data)
 
@@ -906,7 +929,7 @@ class Scalar(SymbolicMathType):
 class FloatVariable(Scalar):
     """
     A symbolic expression representing a single float variable.
-    No matrix and no numbers.
+    Applying any operation on a FloatVariable results in a Scalar.
     """
 
     name: str = field(kw_only=True)
@@ -1071,6 +1094,10 @@ class Vector(SymbolicMathType):
 
 @dataclass(eq=False)
 class Matrix(SymbolicMathType):
+    """
+    A matrix of symbolic expressions.
+    Should behave like a 2d numpy array.
+    """
 
     def __init__(
         self,
@@ -1192,8 +1219,7 @@ class Matrix(SymbolicMathType):
 
         Rules:
         - Scalar: allowed without change.
-        - Vector with shape (1, n) and self has n columns: broadcast across rows.
-        - Vector with shape (n, 1) and self has n rows: broadcast across columns.
+        - Vector: broadcast across rows, mirroring numpy behavior.
         - Matrix with identical shape: allowed.
         Otherwise, raise WrongDimensionsError.
         """
@@ -1211,22 +1237,37 @@ class Matrix(SymbolicMathType):
 
     @classmethod
     def zeros(cls, rows: int, columns: int) -> Self:
+        """
+        See numpy.zeros.
+        """
         return cls.from_casadi_sx(casadi_sx=ca.SX.zeros(rows, columns))
 
     @classmethod
     def ones(cls, x: int, y: int) -> Self:
+        """
+        See numpy.ones.
+        """
         return cls.from_casadi_sx(casadi_sx=ca.SX.ones(x, y))
 
     @classmethod
     def tri(cls, dimension: int) -> Self:
+        """
+        See numpy.tri.
+        """
         return cls(data=np.tri(dimension))
 
     @classmethod
     def eye(cls, size: int) -> Self:
+        """
+        See numpy.eye.
+        """
         return cls.from_casadi_sx(casadi_sx=ca.SX.eye(size))
 
     @classmethod
     def diag(cls, args: VectorData) -> Self:
+        """
+        See numpy.diag.
+        """
         return cls.from_casadi_sx(casadi_sx=ca.diag(to_sx(args)))
 
     @classmethod
@@ -1234,6 +1275,9 @@ class Matrix(SymbolicMathType):
         cls,
         list_of_matrices: VectorData | MatrixData,
     ) -> Self:
+        """
+        See numpy.vstack.
+        """
         if len(list_of_matrices) == 0:
             return cls(data=[])
         return cls.from_casadi_sx(
@@ -1245,6 +1289,9 @@ class Matrix(SymbolicMathType):
         cls,
         list_of_matrices: VectorData | MatrixData,
     ) -> Self:
+        """
+        See numpy.hstack.
+        """
         if len(list_of_matrices) == 0:
             return cls(data=[])
         return cls.from_casadi_sx(
@@ -1256,6 +1303,9 @@ class Matrix(SymbolicMathType):
         cls,
         list_of_matrices: VectorData | MatrixData,
     ) -> Self:
+        """
+        See numpy.diag_stack.
+        """
         num_rows = int(math.fsum(e.shape[0] for e in list_of_matrices))
         num_columns = int(math.fsum(e.shape[1] for e in list_of_matrices))
         combined_matrix = Matrix.zeros(num_rows, num_columns)
@@ -1271,6 +1321,11 @@ class Matrix(SymbolicMathType):
         return combined_matrix
 
     def remove(self, rows: List[int], columns: List[int]):
+        """
+        Removes the specified rows and columns from the matrix.
+        :param rows: Row ids to be removed
+        :param columns: Column ids to be removed
+        """
         self.casadi_sx.remove(rows, columns)
 
     def sum(self) -> Scalar:
@@ -1292,6 +1347,9 @@ class Matrix(SymbolicMathType):
         return Vector.from_casadi_sx(ca.sum2(self.casadi_sx))
 
     def trace(self) -> Scalar:
+        """
+        See numpy.trace.
+        """
         if not self.is_square():
             raise NotSquareMatrixError(actual_dimensions=self.casadi_sx.shape)
         s = 0
@@ -1301,19 +1359,13 @@ class Matrix(SymbolicMathType):
 
     def det(self) -> Scalar:
         """
-        Calculate the determinant of the given expression.
-
-        This function computes the determinant of the provided mathematical expression.
-        The input can be an instance of either `SymbolicMathType`, `RotationMatrix`, or
-        `TransformationMatrix`. The result is returned as an `SymbolicMathType`.
-
-        :return: An `SymbolicMathType` representing the determinant of the input.
+        See numpy.linalg.det.
         """
         if not self.is_square():
             raise NotSquareMatrixError(actual_dimensions=self.casadi_sx.shape)
         return Scalar(ca.det(self.casadi_sx))
 
-    def is_square(self):
+    def is_square(self) -> bool:
         return self.casadi_sx.shape[0] == self.casadi_sx.shape[1]
 
     @property
@@ -1324,6 +1376,9 @@ class Matrix(SymbolicMathType):
         return Matrix(self.casadi_sx.T)
 
     def reshape(self, new_shape: Tuple[int, int]) -> Self:
+        """
+        See numpy.reshape.
+        """
         return Matrix.from_casadi_sx(self.casadi_sx.reshape(new_shape))
 
     def inverse(self) -> Matrix:
@@ -1354,6 +1409,20 @@ class Matrix(SymbolicMathType):
 
 
 def _create_return_type(input_type: SymbolicMathType) -> Type[SymbolicMathType]:
+    """
+    Determines the return type based on the given input type.
+
+    This function analyzes the `input_type` parameter to decide the appropriate
+    return type. If `input_type` is an instance of specific types such as
+    `FloatVariable`, `int`, `float`, `bool`, or `IntEnum`, the function
+    returns the `Scalar` type. For any other type, it returns the
+    type of the given `input_type`.
+
+    :param input_type: The input symbolic math type object to determine the
+        corresponding return type.
+    :return: The determined return type, either `Scalar` for specific
+        input types or the same type as `input_type` for others.
+    """
     if isinstance(input_type, (FloatVariable, int, float, bool, IntEnum)):
         return Scalar
     else:
@@ -1369,6 +1438,11 @@ def to_sx(
         | SymbolicMathType
     ),
 ) -> ca.SX:
+    """
+    Tries to turn anything into a casadi SX object.
+    :param data: input data to be converted to SX
+    :return: casadi SX object
+    """
     if isinstance(data, ca.SX):
         return data
     if isinstance(data, SymbolicMathType):
@@ -1379,6 +1453,16 @@ def to_sx(
 
 
 def array_like_to_casadi_sx(data: VectorData) -> ca.SX:
+    """
+    Converts a given array-like data structure into a CasADi SX matrix. The input
+    data can be a list, tuple, or numpy array. Based on the structure of the input
+    data, the function determines the dimensions of the resulting CasADi SX object
+    and populates it with values using the `to_sx` function.
+
+    :param data: Input array-like data. It can be a 1D or 2D array-like structure,
+        such as a list, tuple, or numpy array.
+    :return: A CasADi SX object representation of the input data.
+    """
     x = len(data)
     if x == 0:
         return ca.SX()
@@ -1400,8 +1484,20 @@ def array_like_to_casadi_sx(data: VectorData) -> ca.SX:
     return casadi_sx
 
 
-def _unary_function_wrapper(casadi_fn: Callable[[ca.SX], ca.SX]):
-    """Creates a unary math wrapper that preserves the return type."""
+def _unary_function_wrapper(
+    casadi_fn: Callable[[ca.SX], ca.SX],
+) -> Callable[[GenericSymbolicType], GenericSymbolicType]:
+    """
+    Wraps a unary CasADi function to allow it to operate on symbolic types while maintaining
+    compatibility with the associated symbolic structure. This function converts the input
+    to a CasADi symbolic expression, applies the provided CasADi function, and reconverts
+    the result back to the symbolic type of the input.
+
+    :param casadi_fn: A CasADi function that transforms a symbolic expression (ca.SX)
+        into another symbolic expression of the same type.
+    :return: A callable function that applies the CasADi function to an input of type
+        GenericSymbolicType and returns an output of the same type.
+    """
 
     def f(x: GenericSymbolicType) -> GenericSymbolicType:
         return _create_return_type(x).from_casadi_sx(casadi_fn(to_sx(x)))
@@ -1416,7 +1512,17 @@ def _unary_function_wrapper(casadi_fn: Callable[[ca.SX], ca.SX]):
 def _binary_function_wrapper(
     casadi_fn: Callable[[ca.SX, ca.SX], ca.SX],
 ) -> Callable[[GenericSymbolicType, GenericSymbolicType], GenericSymbolicType]:
-    """Creates a unary math wrapper that preserves the return type."""
+    """
+    Wraps a CasADi callable into a function that operates with a given symbolic type.
+    The returned function applies the CasADi operation to two symbolic arguments,
+    while handling their conversion to and from CasADi types as needed.
+
+    :param casadi_fn: The CasADi function to be wrapped. It should accept two CasADi SX
+                      symbolic expressions and return a CasADi SX symbolic expression.
+    :return: A callable function that accepts two symbolic arguments of a generic
+             symbolic type and returns a result of the same type after applying the
+             wrapped CasADi operation.
+    """
 
     def f(x: GenericSymbolicType, y: GenericSymbolicType) -> GenericSymbolicType:
         return _create_return_type(x).from_casadi_sx(casadi_fn(to_sx(x), to_sx(y)))
@@ -1449,22 +1555,52 @@ def create_float_variables(
 
 
 def diag(args: VectorData | MatrixData) -> Matrix:
+    """
+    Places the input along the diagonal of a matrix.
+
+    :param args: A vector, list of scalars, or nested lists representing a matrix.
+    :return: A square matrix with the input values on its main diagonal.
+    """
     return Matrix.diag(args)
 
 
 def vstack(args: VectorData | MatrixData) -> Matrix:
+    """
+    Stacks vectors or matrices vertically into a single matrix.
+
+    :param args: A sequence of vectors or matrices with matching column sizes.
+    :return: A new matrix containing the inputs stacked by rows.
+    """
     return Matrix.vstack(args)
 
 
 def hstack(args: VectorData | MatrixData) -> Matrix:
+    """
+    Stacks vectors or matrices horizontally into a single matrix.
+
+    :param args: A sequence of vectors or matrices with matching row sizes.
+    :return: A new matrix containing the inputs stacked by columns.
+    """
     return Matrix.hstack(args)
 
 
 def diag_stack(args: VectorData | MatrixData) -> Matrix:
+    """
+    Builds a block diagonal matrix from the provided inputs.
+
+    :param args: A sequence of vectors or matrices to place on the block diagonal.
+    :return: A block diagonal matrix.
+    """
     return Matrix.diag_stack(args)
 
 
 def concatenate(*vectors: Vector) -> Vector:
+    """
+    Concatenates multiple vectors into a single vector.
+
+    :param vectors: The vectors to concatenate in order.
+    :return: A new vector with all inputs concatenated.
+    """
     return Vector.from_casadi_sx(ca.vertcat(*[to_sx(v) for v in vectors]))
 
 
@@ -1475,6 +1611,16 @@ abs = _unary_function_wrapper(ca.fabs)
 def max(
     arg1: GenericSymbolicType, arg2: Optional[GenericSymbolicType] = None
 ) -> GenericSymbolicType:
+    """
+    Returns the maximum element-wise value.
+
+    - With one argument, returns the maximum value across all elements.
+    - With two arguments, returns the element-wise maximum.
+
+    :param arg1: The first expression.
+    :param arg2: Optional second expression.
+    :return: The resulting expression with maximum values.
+    """
     if arg2 is None:
         return Scalar.from_casadi_sx(ca.mmax(to_sx(arg1)))
     return _create_return_type(arg1).from_casadi_sx(ca.fmax(to_sx(arg1), to_sx(arg2)))
@@ -1483,6 +1629,16 @@ def max(
 def min(
     arg1: GenericSymbolicType, arg2: Optional[GenericSymbolicType] = None
 ) -> GenericSymbolicType:
+    """
+    Returns the minimum element-wise value.
+
+    - With one argument, returns the minimum value across all elements.
+    - With two arguments, returns the element-wise minimum.
+
+    :param arg1: The first expression.
+    :param arg2: Optional second expression.
+    :return: The resulting expression with minimum values.
+    """
     if arg2 is None:
         return Scalar.from_casadi_sx(ca.mmin(to_sx(arg1)))
     return _create_return_type(arg1).from_casadi_sx(ca.fmin(to_sx(arg1), to_sx(arg2)))
@@ -1491,16 +1647,37 @@ def min(
 def limit(
     x: GenericSymbolicType, lower_limit: ScalarData, upper_limit: ScalarData
 ) -> GenericSymbolicType:
+    """
+    Clamps values to the closed interval [lower_limit, upper_limit].
+
+    :param x: The expression to clamp.
+    :param lower_limit: The lower bound.
+    :param upper_limit: The upper bound.
+    :return: The clamped expression.
+    """
     return max(lower_limit, min(upper_limit, x))
 
 
 def dot(
     e1: GenericVectorOrMatrixType, e2: GenericVectorOrMatrixType
 ) -> GenericVectorOrMatrixType:
+    """
+    Computes the dot product following NumPy semantics.
+
+    :param e1: The left vector or matrix.
+    :param e2: The right vector or matrix.
+    :return: The dot product result.
+    """
     return e1.dot(e2)
 
 
 def sum(*expressions: ScalarData) -> Scalar:
+    """
+    Sums the provided scalar expressions.
+
+    :param expressions: The values to add.
+    :return: The total as a scalar expression.
+    """
     return Scalar(ca.sum(to_sx(expressions)))
 
 
@@ -1621,30 +1798,74 @@ def gauss(n: ScalarData) -> Scalar:
 
 # %% binary logic
 def is_const_true(expression: Scalar) -> bool:
+    """
+    Checks whether a scalar expression is the constant truth value.
+
+    :param expression: The scalar expression to test.
+    :return: True if the expression is exactly the constant 1, otherwise False.
+    """
     return bool(expression == 1)
 
 
 def is_const_false(expression: Scalar) -> bool:
+    """
+    Checks whether a scalar expression is the constant false value.
+
+    :param expression: The scalar expression to test.
+    :return: True if the expression is exactly the constant 0, otherwise False.
+    """
     return bool(expression == 0)
 
 
 def logic_and(left: ScalarData, right: ScalarData) -> Scalar:
+    """
+    Logical conjunction on symbolic scalars.
+
+    :param left: The left operand.
+    :param right: The right operand.
+    :return: The symbolic result of left AND right.
+    """
     return left & right
 
 
 def logic_or(left: ScalarData, right: ScalarData) -> Scalar:
+    """
+    Logical disjunction on symbolic scalars.
+
+    :param left: The left operand.
+    :param right: The right operand.
+    :return: The symbolic result of left OR right.
+    """
     return left | right
 
 
 def logic_not(expression: ScalarData) -> Scalar:
+    """
+    Logical negation on a symbolic scalar.
+
+    :param expression: The operand to negate.
+    :return: The symbolic result of NOT expression.
+    """
     return ~expression
 
 
 def logic_any(args: VectorData | MatrixData) -> Scalar:
+    """
+    Returns True if any element evaluates to True.
+
+    :param args: A vector or matrix of logical scalars.
+    :return: A scalar truth value.
+    """
     return Scalar.from_casadi_sx(ca.logic_any(args.casadi_sx))
 
 
 def logic_all(args: GenericVectorOrMatrixType) -> Scalar:
+    """
+    Returns True if all elements evaluate to True.
+
+    :param args: A vector or matrix of logical scalars.
+    :return: A scalar truth value.
+    """
     return Scalar.from_casadi_sx(ca.logic_all(to_sx(args)))
 
 
