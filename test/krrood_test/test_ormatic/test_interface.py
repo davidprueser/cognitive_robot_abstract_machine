@@ -8,8 +8,8 @@ from krrood.ormatic.dao import (
     NoDAOFoundError,
     ToDAOState,
 )
-from ..dataset.example_classes import *
-from ..dataset.ormatic_interface import *
+from .._dataset.example_classes import *
+from .._dataset.ormatic_interface import *
 
 
 def test_position(session, database):
@@ -622,4 +622,8 @@ def test_list_of_enum(session, database):
     queried = session.scalars(select(ListOfEnumDAO)).one()
     reconstructed = queried.from_dao()
     assert reconstructed == obj
-    assert reconstructed.list_of_enum == [TestEnum.OPTION_A, TestEnum.OPTION_B, TestEnum.OPTION_C]
+    assert reconstructed.list_of_enum == [
+        TestEnum.OPTION_A,
+        TestEnum.OPTION_B,
+        TestEnum.OPTION_C,
+    ]
