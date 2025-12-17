@@ -4,6 +4,8 @@ import itertools
 import logging
 from dataclasses import dataclass, field
 from functools import cached_property
+
+from line_profiler.explicit_profiler import profile
 from typing_extensions import Dict, Any, Self, Optional, List, Iterator
 
 import numpy as np
@@ -235,6 +237,7 @@ class BoundingBoxCollection(ShapeCollection):
             self.reference_frame,
         )
 
+    @profile
     @classmethod
     def from_simple_event(
         cls,
@@ -264,14 +267,12 @@ class BoundingBoxCollection(ShapeCollection):
                 x.upper,
                 y.upper,
                 z.upper,
-                HomogeneousTransformationMatrix.from_xyz_quaternion(
-                    x.upper - (x.upper - x.lower) / 2,
-                    y.upper - (y.upper - y.lower) / 2,
-                    z.upper - (z.upper - z.lower) / 2,
-                    0,
-                    0,
-                    0,
-                    1,
+                HomogeneousTransformationMatrix.from_point_rotation_matrix(
+                    point=Point3(
+                        x.upper - (x.upper - x.lower) / 2,
+                        y.upper - (y.upper - y.lower) / 2,
+                        z.upper - (z.upper - z.lower) / 2,
+                    ),
                     reference_frame=reference_frame,
                 ),
             )
