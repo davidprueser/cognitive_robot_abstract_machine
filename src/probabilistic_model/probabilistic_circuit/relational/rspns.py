@@ -189,7 +189,11 @@ class RSPNTemplate:
     The instance of class C to create the RSPN for.
     """
 
-    probabilistic_circuit: Optional[ProbabilisticCircuit] = field(default=None, init=False)
+    probabilistic_circuit: Optional[ProbabilisticCircuit] = field(default=None)
+    """
+    The circuit this component is part of. 
+    """
+
 
     attributes: List[Any] = field(default_factory=list, init=False)
     """
@@ -232,16 +236,8 @@ class RSPNTemplate:
     def __post_init__(self):
         self._prepare_structure(self.instance)
 
-    def _ground_part_classes(self, product: ProductUnit):
-        for part_class in self.sub_rspns:
-            if not isinstance(part_class, list):
-                part_class = [part_class]
-            for part in part_class:
-                product.add_subcircuit(part.ground())
-
     def _prepare_structure(self, instance):
-        # reset all class attributes
-        self.probabilistic_circuit = ProbabilisticCircuit()
+        self.probabilistic_circuit = self.probabilistic_circuit or ProbabilisticCircuit()
         self.attributes = []
         self.unique_parts = []
         self.exchangeable_parts = []
@@ -255,42 +251,53 @@ class RSPNTemplate:
             raise ValueError(
                 f"No schema registered for instances of type {type(instance).__name__}"
             )
-        for attribute in instance.__dataclass_fields__:
-            if attribute in self.unique_parts or attribute in self.exchangeable_parts:
+
+        blacklist = []
+        for part in schema.unique_parts:
+            new_instance = getattr(instance, part)
+            if isinstance(new_instance, list):
+                for new_instance_part in new_instance:
+                    blacklist.append(part)
+                    self.unique_parts.append(RSPNTemplate(new_instance_part))
+            else:
+                blacklist.append(part)
+                self.unique_parts.append(RSPNTemplate(new_instance))
+
+        for part in schema.exchangeable_parts:
+            new_instance = getattr(instance, part)
+            if isinstance(new_instance, list):
+                for new_instance_part in new_instance:
+                    blacklist.append(part)
+                    self.exchangeable_parts.append(RSPNTemplate(new_instance_part))
+            else:
+                blacklist.append(part)
+                self.exchangeable_parts.append(RSPNTemplate(new_instance))
+
+        for schema_attribute in instance.__dataclass_fields__:
+            attribute = getattr(instance, schema_attribute)
+            if schema_attribute in blacklist:
                 continue
             else:
-                if not isinstance(
-                    getattr(instance, attribute), Iterable
-                ) and not isinstance(getattr(instance, attribute), RSPNPredicate):
-                    self.attributes.append(attribute)
+                if not isinstance( attribute, Iterable ) and not isinstance(attribute, RSPNPredicate):
+                    self.attributes.append(schema_attribute)
                 elif not isinstance(
-                    getattr(instance, attribute), Iterable
-                ) and isinstance(getattr(instance, attribute), RSPNPredicate):
-                    self.relations.append(getattr(instance, attribute))
-                elif isinstance(getattr(instance, attribute), (str, bytes)):
-                    self.attributes.append(attribute)
+                    getattr(instance, schema_attribute), Iterable
+                ) and isinstance(getattr(instance, schema_attribute), RSPNPredicate):
+                    self.relations.append(getattr(instance, schema_attribute))
+                elif isinstance(getattr(instance, schema_attribute), (str, bytes)):
+                    self.attributes.append(schema_attribute)
                 else:
-                    for value in getattr(instance, attribute):
+                    for value in getattr(instance, schema_attribute):
                         if not isinstance(value, RSPNPredicate):
                             raise ValueError(
-                                f"Attribute {attribute} must be a list of predicates (a relation) or a single predicate (an attribute), but found {value}."
+                                f"Attribute {schema_attribute} must be a list of predicates (a relation) or a single predicate (an attribute), but found {value}."
                             )
                         self.relations.append(value)
 
-        for part in schema.unique_parts:
-            self.unique_parts.append(RSPNTemplate(getattr(instance, part)))
-
-        for part in schema.exchangeable_parts:
-            self.exchangeable_parts.append(RSPNTemplate(getattr(instance, part)))
-
-        # self.unique_parts = schema.unique_parts
-        #
-        # self.exchangeable_parts = schema.exchangeable_parts
-        #
-        for attribute in self.attributes:
-            if attribute in univariate_attribute_distributions:
-                self.univariate_attribute_distributions[attribute] = (
-                    univariate_attribute_distributions[attribute]
+        for schema_attribute in self.attributes:
+            if schema_attribute in univariate_attribute_distributions:
+                self.univariate_attribute_distributions[schema_attribute] = (
+                    univariate_attribute_distributions[schema_attribute]
                 )
 
         for relation in self.relations:
@@ -310,6 +317,17 @@ class RSPNTemplate:
             )
 
         self.sub_rspns = self.exchangeable_parts + self.unique_parts
+
+    def _ground_part_classes(self, product: ProductUnit):
+        for part_class in self.sub_rspns:
+            if not isinstance(part_class, list):
+                part_class = [part_class]
+            for part in part_class:
+                ground = part.ground()
+                index_remap = product.probabilistic_circuit.mount(ground)
+                root_index = ground.index
+                product.add_subcircuit(index_remap[root_index])
+
 
     def ground(self):
         """
