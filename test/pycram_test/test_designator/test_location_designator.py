@@ -1,5 +1,7 @@
 import unittest
 
+import rclpy
+
 from semantic_digital_twin.adapters.viz_marker import VizMarkerPublisher
 
 from pycram.designator import ObjectDesignatorDescription

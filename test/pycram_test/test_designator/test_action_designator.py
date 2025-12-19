@@ -11,6 +11,7 @@ from pycram.process_module import simulated_robot
 from pycram.robot_plans.actions import *
 from pycram.robot_plans.motions import MoveTCPWaypointsMotion
 from pycram.testing import ApartmentWorldTestCase
+from semantic_digital_twin.adapters.viz_marker import VizMarkerPublisher
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Milk,
 )
@@ -231,8 +232,10 @@ def test_look_at(immutable_model_world):
 def test_detect(immutable_model_world):
     world, robot_view, context = immutable_model_world
     milk_body = world.get_body_by_name("milk.stl")
-    robot_view.root.parent_connection.origin = TransformationMatrix.from_xyz_rpy(
-        1.5, 2, 0, reference_frame=world.root
+    with world.modify_world():
+        world.add_semantic_annotation(Milk(body=milk_body))
+    milk_body.parent_connection.origin = TransformationMatrix.from_xyz_rpy(
+        2.5, 2, 1.2, reference_frame=world.root
     )
 
     description = DetectActionDescription(
@@ -288,7 +291,7 @@ def test_close(immutable_model_world):
         world.get_degree_of_freedom_by_name("cabinet10_drawer_top_joint").id
     ].position == pytest.approx(0, abs=0.1)
 
-@pytest.mark.skip
+
 def test_transport(mutable_model_world):
     world, robot_view, context = mutable_model_world
     description = TransportActionDescription(
@@ -343,7 +346,9 @@ def test_facing(immutable_model_world):
 def test_move_tcp_waypoints(immutable_model_world):
     world, robot_view, context = immutable_model_world
     with world.modify_world():
-        world.state[world.get_degree_of_freedom_by_name("torso_lift_joint").id].position = 0.1
+        world.state[
+            world.get_degree_of_freedom_by_name("torso_lift_joint").id
+        ].position = 0.1
     world.notify_state_change()
 
     gripper_pose = PoseStamped.from_spatial_type(

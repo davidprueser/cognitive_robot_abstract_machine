@@ -1353,10 +1353,10 @@ class ProbabilisticCostmapLocation(LocationDesignatorDescription):
                     target_position.x + search_distance,
                     target_position.y + search_distance,
                     target_position.z + 0.35,
-                    origin=self.world.root.global_pose,
+                    origin=world.root.global_pose,
                 )
             ],
-            reference_frame=self.world.root,
+            reference_frame=world.root,
         )
 
         free_space_nav = GraphOfConvexSets.navigation_map_from_world(
@@ -1374,7 +1374,7 @@ class ProbabilisticCostmapLocation(LocationDesignatorDescription):
                 target_position.x,
                 target_position.y,
                 target_position.z + 0.2,
-                reference_frame=self.world.root,
+                reference_frame=world.root,
             )
         )
 
@@ -1462,7 +1462,7 @@ class ProbabilisticCostmapLocation(LocationDesignatorDescription):
 
             # Calculate the conditions for the free space around the target position and combine them into one event
             reachable_space_condition, navigation_space_condition, room_condition = (
-                self._create_free_space_conditions(self.world, target_position)
+                self._create_free_space_conditions(self.test_world, target_position)
             )
 
             stand_on_ground = SimpleEvent(

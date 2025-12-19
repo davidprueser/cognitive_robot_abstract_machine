@@ -780,7 +780,6 @@ class SemanticAnnotation(WorldEntity, SubclassJSONSerializer):
         collections = iter(
             entity.collision.as_bounding_box_collection_at_origin(origin)
             for entity in self.kinematic_structure_entities
-            for entity in self.kinematic_structure_entities
             if isinstance(entity, Body) and entity.has_collision()
         )
         bbs = BoundingBoxCollection([], origin.reference_frame)
