@@ -461,12 +461,10 @@ class Connection6DoF(Connection):
             z=self.qz.variables.position,
             w=self.qw.variables.position,
         ).to_rotation_matrix()
-        self._kinematics = (
-            HomogeneousTransformationMatrix.from_point_rotation_matrix(
-                point=parent_P_child,
-                rotation_matrix=parent_R_child,
-                child_frame=self.child,
-            )
+        self._kinematics = HomogeneousTransformationMatrix.from_point_rotation_matrix(
+            point=parent_P_child,
+            rotation_matrix=parent_R_child,
+            child_frame=self.child,
         )
 
     @classmethod
@@ -831,9 +829,9 @@ class OmniDrive(ActiveConnection, HasUpdateState):
             transformation = HomogeneousTransformationMatrix(data=transformation)
         position = transformation.to_position()
         roll, pitch, yaw = transformation.to_rotation_matrix().to_rpy()
-        self._world.state[self.x.id].position = position.x.to_np()
-        self._world.state[self.y.id].position = position.y.to_np()
-        self._world.state[self.yaw.id].position = yaw.to_np()
+        self._world.state[self.x.id].position = position.x
+        self._world.state[self.y.id].position = position.y
+        self._world.state[self.yaw.id].position = yaw
         self._world.notify_state_change()
 
     def get_free_variable_names(self) -> List[UUID]:
