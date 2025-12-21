@@ -1935,7 +1935,7 @@ def test_counting():
     msc = MotionStatechart()
     seconds = 1
     msc.add_nodes(
-        [counter := CountSeconds(seconds=seconds, now=clock.time), pulse := Pulse()]
+        [counter := CountSeconds(seconds=seconds, _now=clock.time), pulse := Pulse()]
     )
 
     pulse.start_condition = counter.observation_variable

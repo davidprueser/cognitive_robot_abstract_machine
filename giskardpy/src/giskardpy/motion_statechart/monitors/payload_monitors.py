@@ -46,17 +46,17 @@ class CountSeconds(MotionStatechartNode):
     """
 
     seconds: float = field(kw_only=True)
-    now: Callable[[], float] = field(default=time.monotonic, kw_only=True, repr=False)
+    _now: Callable[[], float] = field(default=time.monotonic, kw_only=True, repr=False)
     _start_time: float = field(init=False)
 
     def on_tick(self, context: ExecutionContext) -> Optional[ObservationStateValues]:
-        difference = self.now() - self._start_time
+        difference = self._now() - self._start_time
         if difference >= self.seconds - 1e-5:
             return ObservationStateValues.TRUE
         return None
 
     def on_start(self, context: ExecutionContext):
-        self._start_time = self.now()
+        self._start_time = self._now()
 
 
 @dataclass(repr=False, eq=False)
