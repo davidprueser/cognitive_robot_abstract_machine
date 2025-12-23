@@ -23,7 +23,8 @@ from probabilistic_model.probabilistic_circuit.rx.probabilistic_circuit import (
     leaf,
 )
 
-from probabilistic_model.probabilistic_circuit.relational.rspns import CLASS_SCHEMA, DecomposedClass, RSPNPredicate, ExchangeableDistributionTemplate
+from probabilistic_model.probabilistic_circuit.relational.rspns import CLASS_SCHEMA, DecomposedClass, RSPNPredicate, \
+    ExchangeableDistributionTemplate, RSPNTemplate
 from ...learning.jpt.jpt import JPT
 from ...learning.jpt.variables import infer_variables_from_dataframe
 
@@ -58,7 +59,7 @@ def get_aggregate_statistics(instance):
 
 
 
-def LearnRSPN(part_decompositions, instances, probabilistic_circuit: Optional[ProbabilisticCircuit] = ProbabilisticCircuit()) -> ProductUnit | SumUnit:
+def LearnRSPN(part_decompositions, instance) -> RSPNTemplate:
     """
     Learn an RSPN for class C from instances T over variables V, implementing Algorithm 1.
 
@@ -69,48 +70,46 @@ def LearnRSPN(part_decompositions, instances, probabilistic_circuit: Optional[Pr
 
     Returns the root node (ProductUnit or SumUnit) within a ProbabilisticCircuit.
     """
-    prod = ProductUnit(probabilistic_circuit=probabilistic_circuit)
-    schema = CLASS_SCHEMA
 
     # Collect a flat table (df_data) of attributes and aggregation statistics
     df_data: Dict[str, List[float]] = {}
 
-    for instance in instances:
-        fields = getattr(instance, "__dataclass_fields__", {})
-        for attribute in fields.keys():
-            if _is_attribute(attribute, part_decompositions):
-                attribute_value = getattr(instance, attribute)
-                if isinstance(attribute_value, list):
-                    assert len(attribute_value) >= 0
-                    values = [get_aggregate_statistics(instance) for instance in instances]
-                    df_data[attribute] = values
-                    continue
+    # for instance in instance:
+    fields = getattr(instance, "__dataclass_fields__", {})
+    for attribute in fields.keys():
+        if _is_attribute(attribute, part_decompositions):
+            attribute_value = getattr(instance, attribute)
+            if isinstance(attribute_value, list):
+                assert len(attribute_value) >= 0
+                values = [get_aggregate_statistics(instance) for instance in instance]
+                df_data[attribute] = values
+                continue
+            else:
+                if isinstance(attribute_value, bool):
+                    values = [float(getattr(instance, attribute)) for instance in instance]
                 else:
-                    if isinstance(attribute_value, bool):
-                        values = [float(getattr(instance, attribute)) for instance in instances]
-                    else:
-                        values = [getattr(instance, attribute) for instance in instances]
-                    df_data[attribute] = values
-                    continue
+                    values = [getattr(instance, attribute) for instance in instance]
+                df_data[attribute] = values
                 continue
-                # try:
-                #     val = getattr(instance, attribute)
-                # except Exception:
-                #     continue
-                # _append_value(attribute, val)
-            elif _is_part(attribute, part_decompositions):
-                # values = [getattr(instance, attribute) for instance in instances]
-                # df_data[attribute] = values
-                continue
-                # instancesss = [getattr(inst, attribute) for inst in instances]
-                # if instancesss:
-                #     classa = getattr(instance, attribute)
-                #     classsaa = classa.__class__
-                #     schem = schema.get(classsaa)
-                #     prod.add_subcircuit(LearnRSPN(schem, instancesss, probabilistic_circuit=probabilistic_circuit))
-                #     x =0
-                # else:
-                #     continue
+            continue
+            # try:
+            #     val = getattr(instance, attribute)
+            # except Exception:
+            #     continue
+            # _append_value(attribute, val)
+        elif _is_part(attribute, part_decompositions):
+            # values = [getattr(instance, attribute) for instance in instances]
+            # df_data[attribute] = values
+            continue
+            # instancesss = [getattr(inst, attribute) for inst in instances]
+            # if instancesss:
+            #     classa = getattr(instance, attribute)
+            #     classsaa = classa.__class__
+            #     schem = schema.get(classsaa)
+            #     prod.add_subcircuit(LearnRSPN(schem, instancesss, probabilistic_circuit=probabilistic_circuit))
+            #     x =0
+            # else:
+            #     continue
     df = pd.DataFrame(df_data)
     print(df)
     variables = infer_variables_from_dataframe(df)

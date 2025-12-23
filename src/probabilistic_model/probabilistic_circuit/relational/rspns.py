@@ -2,6 +2,7 @@ from __future__ import annotations
 from typing import Dict, Optional, Type, Iterable
 from dataclasses import dataclass, field
 from typing import List
+import copy
 from random_events.variable import Continuous, Integer, Symbolic
 from typing_extensions import Any
 from krrood.entity_query_language.predicate import Symbol
@@ -14,6 +15,7 @@ from probabilistic_model.probabilistic_circuit.rx.probabilistic_circuit import (
     ProbabilisticCircuit,
     leaf,
     ProductUnit,
+    Unit, SumUnit,
 )
 
 
@@ -50,14 +52,16 @@ class Region(Symbol):
     nations: List[Nation]
     adjacency: List[Adjacent]
     conflicts: List[Conflict]
+    name: str = "World"
 
 
 @dataclass
 class Nation(Symbol):
-    government: Government
-    persons: List[Person]
-    supporters: List[Supports]
+    government: Government = None
+    persons: List[Person] = field(default_factory=list)
+    supporters: List[Supports] = field(default_factory=list)
     gdp: float = 500
+    name: str = "Germany"
 
     @aggregation_statistic
     def mean_age_of_supporters(self):
@@ -98,13 +102,13 @@ government_part_decomposition = DecomposedClass(
 )
 
 nation_part_decomposition = DecomposedClass(
-    unique_parts=["government"],
-    exchangeable_parts=["persons"],
+    unique_parts=[("government", Government)],
+    exchangeable_parts=[("persons", Person)],
 )
 
 region_part_decomposition = DecomposedClass(
     unique_parts=[],
-    exchangeable_parts=["nations"],
+    exchangeable_parts=[("nations", Nation)],
 )
 
 CLASS_SCHEMA = {
@@ -145,13 +149,11 @@ class ExchangeableDistributionTemplate:
         self,
         variables: List[Continuous],
         base_distribution: Type[UnivariateDistribution],
-        probabilistic_circuit,
         **kwargs,
     ):
         self.variables = variables
         self.base_distribution = base_distribution
         self.kwargs = kwargs
-        self.probabilistic_circuit = probabilistic_circuit
 
     def __call__(self, *args, **kwargs):
         if len(self.variables) == 0:
@@ -159,16 +161,48 @@ class ExchangeableDistributionTemplate:
                 "ExchangeableDistributionTemplate requires at least one variable."
             )
 
-        # Build a product of identical univariate distributions (i.i.d.), which is exchangeable.
-        product = ProductUnit(probabilistic_circuit=self.probabilistic_circuit)
+        circuit = ProbabilisticCircuit()
+        product = ProductUnit(probabilistic_circuit=circuit)
 
         for v in self.variables:
-            # Use a shared-parameter Gaussian(0, 1) for all continuous variables to ensure identical marginals.
             dist = self.base_distribution(v, **kwargs)
-            unit = leaf(dist, probabilistic_circuit=self.probabilistic_circuit)
+            unit = leaf(dist, probabilistic_circuit=circuit)
             product.add_subcircuit(unit)
 
         return product
+
+class_spec_nation = {
+    "exchangeable_parts": [("persons", Person)],
+    "unique_parts": [("government", Government)],
+    "attributes": ["gdp"],
+    "relations": [Supports]
+}
+class_spec_gov = {
+    "attributes": ["funny"],
+    "relations": [],
+    "exchangeable_parts": [],
+    "unique_parts": []
+
+}
+class_spec_region = {
+    "exchangeable_parts": [("nations", Nation)],
+    "unique_parts": [],
+    "relations": [Adjacent, Conflict],
+    "attributes": []
+}
+class_spec_person = {
+    "attributes": ["age", "name"],
+    "relations": [],
+    "exchangeable_parts": [],
+    "unique_parts": []
+}
+
+classes = {
+    Nation: class_spec_nation,
+    Government: class_spec_gov,
+    Region: class_spec_region,
+    Person: class_spec_person
+}
 
 
 @dataclass
@@ -184,39 +218,35 @@ class RSPNTemplate:
         5.2 L^C_R: EDT over predicate R involving C, E_C or U_C,
         5.3 L^C_P: Sub-SPN for part class P
     """
-    instance: Any
-    """
-    The instance of class C to create the RSPN for.
-    """
 
-    probabilistic_circuit: Optional[ProbabilisticCircuit] = field(default=None)
+    class_spec: Dict[str, List] = field(init=True)
+
+    probabilistic_circuit: Optional[ProbabilisticCircuit] = field(default=None, init=False)
     """
     The circuit this component is part of. 
     """
 
+    # attributes: Optional[List[Any]] = field(default_factory=list)
+    # """
+    # Unary predicates
+    # """
+    #
+    # unique_parts: Optional[List[Any]] = field(default_factory=list)
+    # """
+    # Unique parts
+    # """
+    #
+    # exchangeable_parts: Optional[List[Any]] = field(default_factory=list)
+    # """
+    # Exchangeable parts
+    # """
+    #
+    # relations: Optional[List[Any]] = field(default_factory=list)
+    # """
+    # Predicates(Relations) of form R_n(P_n, P_n)
+    # """
 
-    attributes: List[Any] = field(default_factory=list, init=False)
-    """
-    Unary predicates
-    """
-
-    unique_parts: List[Any] = field(default_factory=list, init=False)
-    """
-    Unique parts
-    """
-
-    exchangeable_parts: List[Any] = field(default_factory=list, init=False)
-    """
-    Exchangeable parts
-    """
-
-    relations: List[RSPNPredicate] = field(default_factory=list, init=False)
-    """
-    Predicates(Relations) of form R_n(P_n, P_n)
-    """
-
-    univariate_attribute_distributions: Optional[Dict[str, UnivariateDistribution]] = field(default_factory=dict, init=False)
-
+    univariate_attribute_distributions: Optional[Dict[str, UnivariateDistribution]] = field(default_factory=dict)
     """
     L^C_A: Dict of univariate distributions over all A of C
     """
@@ -234,72 +264,41 @@ class RSPNTemplate:
     """
 
     def __post_init__(self):
-        self._prepare_structure(self.instance)
-
-    def _prepare_structure(self, instance):
-        self.probabilistic_circuit = self.probabilistic_circuit or ProbabilisticCircuit()
-        self.attributes = []
+        self.attributes = self.class_spec["attributes"]
         self.unique_parts = []
+        for part_name, unique_part in self.class_spec["unique_parts"]:
+            self.unique_parts.append((part_name, RSPNTemplate(classes[unique_part])))
+
         self.exchangeable_parts = []
-        self.relations = []
+        for part_name, exchangeable_part in self.class_spec["exchangeable_parts"]:
+            self.exchangeable_parts.append((part_name, RSPNTemplate(classes[exchangeable_part])))
+
+        self.relations = self.class_spec["relations"]
+        self._prepare_structure()
+
+    def _prepare_structure(self):
+        self.probabilistic_circuit = self.probabilistic_circuit or ProbabilisticCircuit()
         self.univariate_attribute_distributions = {}
         self.edt_over_relations = []
         self.sub_rspns = []
+        self.edt_products = []
 
-        schema = CLASS_SCHEMA.get(type(instance))
-        if schema is None:
-            raise ValueError(
-                f"No schema registered for instances of type {type(instance).__name__}"
-            )
+        product = ProductUnit(probabilistic_circuit=self.probabilistic_circuit)
+        self.fix_attribute_distributions(product)
+        self.fix_edt_over_relations(product)
+        self.fix_sub_spns(product)
 
-        blacklist = []
-        for part in schema.unique_parts:
-            new_instance = getattr(instance, part)
-            if isinstance(new_instance, list):
-                for new_instance_part in new_instance:
-                    blacklist.append(part)
-                    self.unique_parts.append(RSPNTemplate(new_instance_part))
-            else:
-                blacklist.append(part)
-                self.unique_parts.append(RSPNTemplate(new_instance))
-
-        for part in schema.exchangeable_parts:
-            new_instance = getattr(instance, part)
-            if isinstance(new_instance, list):
-                for new_instance_part in new_instance:
-                    blacklist.append(part)
-                    self.exchangeable_parts.append(RSPNTemplate(new_instance_part))
-            else:
-                blacklist.append(part)
-                self.exchangeable_parts.append(RSPNTemplate(new_instance))
-
-        for schema_attribute in instance.__dataclass_fields__:
-            attribute = getattr(instance, schema_attribute)
-            if schema_attribute in blacklist:
-                continue
-            else:
-                if not isinstance( attribute, Iterable ) and not isinstance(attribute, RSPNPredicate):
-                    self.attributes.append(schema_attribute)
-                elif not isinstance(
-                    getattr(instance, schema_attribute), Iterable
-                ) and isinstance(getattr(instance, schema_attribute), RSPNPredicate):
-                    self.relations.append(getattr(instance, schema_attribute))
-                elif isinstance(getattr(instance, schema_attribute), (str, bytes)):
-                    self.attributes.append(schema_attribute)
-                else:
-                    for value in getattr(instance, schema_attribute):
-                        if not isinstance(value, RSPNPredicate):
-                            raise ValueError(
-                                f"Attribute {schema_attribute} must be a list of predicates (a relation) or a single predicate (an attribute), but found {value}."
-                            )
-                        self.relations.append(value)
-
+    def fix_attribute_distributions(self, product):
         for schema_attribute in self.attributes:
             if schema_attribute in univariate_attribute_distributions:
                 self.univariate_attribute_distributions[schema_attribute] = (
                     univariate_attribute_distributions[schema_attribute]
                 )
 
+        for distribution in self.univariate_attribute_distributions.values():
+            product.add_subcircuit(leaf(distribution, self.probabilistic_circuit))
+
+    def fix_edt_over_relations(self, product):
         for relation in self.relations:
             fields = relation.__dataclass_fields__
             if len(fields) != 2:
@@ -309,48 +308,90 @@ class RSPNTemplate:
             first = Continuous(list(fields.keys())[0])
             second = Continuous(list(fields.keys())[1])
 
-            # TODO dont assume gaussian
             self.edt_over_relations.append(
                 ExchangeableDistributionTemplate(
-                    [first, second], GaussianDistribution, self.probabilistic_circuit
+                    [first, second], GaussianDistribution
                 )
             )
-
-        self.sub_rspns = self.exchangeable_parts + self.unique_parts
-
-    def _ground_part_classes(self, product: ProductUnit):
-        for part_class in self.sub_rspns:
-            if not isinstance(part_class, list):
-                part_class = [part_class]
-            for part in part_class:
-                ground = part.ground()
-                index_remap = product.probabilistic_circuit.mount(ground)
-                root_index = ground.index
-                product.add_subcircuit(index_remap[root_index])
-
-
-    def ground(self):
-        """
-        Ground the given instance into a probabilistic circuit and return the root Unit
-        of the grounded subcircuit representing this instance.
-        """
-
-        # Combine all components using a product unit
-        product = ProductUnit(probabilistic_circuit=self.probabilistic_circuit)
-
-        # Ground L_C^A: attributes
-        for distribution in self.univariate_attribute_distributions.values():
-            product.add_subcircuit(leaf(distribution, self.probabilistic_circuit))
-
-        # Ground L_C^R: relations
         for relation_template in self.edt_over_relations:
             # TODO dont assume gaussian
             edt_product = relation_template(location=0, scale=0)
-            product.add_subcircuit(edt_product)
+            self.edt_products.append(edt_product)
+            index_remap = product.probabilistic_circuit.mount(edt_product)
+            root_index = edt_product.index
+            product.add_subcircuit(index_remap[root_index])
 
-        # Ground L_C^P: Part classes
-        self._ground_part_classes(product)
+    def fix_sub_spns(self, product):
+        self.sub_rspns = [p[1] for p in self.exchangeable_parts + self.unique_parts]
 
-        return product
+        for part_class in self.sub_rspns:
+            index_remap = product.probabilistic_circuit.mount(part_class.probabilistic_circuit.root)
+            root_index = part_class.probabilistic_circuit.root.index
+            product.add_subcircuit(index_remap[root_index])
+
+    def ground(self, instance: Any) -> Unit:
+        """
+        Ground the RSPN template for a specific instance.
+        :param instance: The object to ground the template for.
+        :return: A grounded SPN as a Unit.
+        """
+        # Create a product unit for this grounding
+        grounded_product = ProductUnit(probabilistic_circuit=ProbabilisticCircuit())
+
+        instance_repr = getattr(instance, "name", str(id(instance)))
+
+        # 1. Ground attributes (L^C_A)
+        for attr_name, distribution in self.univariate_attribute_distributions.items():
+            # Create a grounded variable name, e.g., "age(O)"
+            grounded_var_name = f"{attr_name}({instance_repr})"
+
+            # Create a new variable of the same type
+            original_var = distribution.variable
+            grounded_var = original_var.__class__(grounded_var_name)
+
+            # Create a grounded distribution
+            import copy
+            grounded_dist = copy.deepcopy(distribution)
+            grounded_dist.variable = grounded_var
+
+            grounded_product.add_subcircuit(leaf(grounded_dist, grounded_product.probabilistic_circuit))
+
+        # 2. Ground relations (L^C_R)
+        for relation, relation_template in zip(self.relations, self.edt_over_relations):
+            # Instantiate the EDT for this instance.
+            grounded_edt = relation_template(location=0, scale=1)
+
+            # Ground the variables in the EDT product
+            for l in grounded_edt.leaves:
+                orig_var = l.distribution.variable
+                new_var_name = f"{orig_var.name}({instance_repr})"
+                l.distribution.variable = orig_var.__class__(new_var_name)
+
+            # Mount the grounded_edt into our current circuit
+            # We use the fact that grounded_edt already has a circuit from relation_template call.
+            index_remap = grounded_product.probabilistic_circuit.mount(grounded_edt)
+            grounded_product.add_subcircuit(index_remap[grounded_edt.index])
+
+        # 3. Ground parts (L^C_P)
+        # Unique parts
+        for part_name, part_template in self.unique_parts:
+            part_instance = getattr(instance, part_name, None)
+            if part_instance is not None:
+                grounded_part = part_template.ground(part_instance)
+                # Mount the grounded part into our current circuit
+                index_remap = grounded_product.probabilistic_circuit.mount(grounded_part)
+                grounded_product.add_subcircuit(index_remap[grounded_part.index])
+
+        # Exchangeable parts
+        for part_name, part_template in self.exchangeable_parts:
+            part_instances = getattr(instance, part_name, [])
+            for p_inst in part_instances:
+                grounded_part = part_template.ground(p_inst)
+                # Mount the grounded part into our current circuit
+                index_remap = grounded_product.probabilistic_circuit.mount(grounded_part)
+                grounded_product.add_subcircuit(index_remap[grounded_part.index])
+
+        return grounded_product
+
 
 
