@@ -1193,27 +1193,6 @@ class DataAccessObject(HasGeneric[T]):
         """
         state.apply_circular_fixes(result, circular_refs)
 
-    def __eq__(self, other: object) -> bool:
-        """
-        Check equality based on data columns.
-
-        :param other: The other object to compare.
-        :return: True if all data columns are equal.
-        """
-        if not isinstance(other, self.__class__):
-            return False
-        try:
-            mapper: sqlalchemy.orm.Mapper = sqlalchemy.inspection.inspect(type(self))
-            # Compare only data columns, ignoring PK/FK/polymorphic columns
-            return all(
-                getattr(self, column.name) == getattr(other, column.name)
-                for column in mapper.columns
-                if is_data_column(column)
-            )
-        except Exception:
-            # Fallback to identity comparison if we cannot inspect
-            return self is other
-
     def __repr__(self) -> str:
         """
         Return a string representation including columns and relationships.

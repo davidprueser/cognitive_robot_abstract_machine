@@ -5,9 +5,9 @@ from ..dataset.example_classes import Person
 
 
 def test_deep_person_chain_to_dao():
-    # Increase recursion limit just to be sure we can create the objects if needed,
-    # though iterative creation doesn't need it.
-    # But the goal is to show that to_dao doesn't hit it.
+    """
+    Test if to_dao hits recursion limits
+    """
     python_recursion_limit = sys.getrecursionlimit()
     limit = 1500
     sys.setrecursionlimit(limit)
@@ -35,6 +35,9 @@ def test_deep_person_chain_to_dao():
 
 
 def test_deep_person_chain_from_dao():
+    """
+    Test if to_dao hits recursion limits
+    """
     python_recursion_limit = sys.getrecursionlimit()
     limit = 1500
     sys.setrecursionlimit(limit)
