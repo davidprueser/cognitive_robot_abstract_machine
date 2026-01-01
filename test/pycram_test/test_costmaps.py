@@ -481,7 +481,7 @@ def test_sample_highest_first(immutable_model_world):
     assert poses[2].position.y < poses[1].position.y < poses[0].position.y
 
 
- def test_segment_highest_first(immutable_model_world):
+def test_segment_highest_first(immutable_model_world):
     world, robot_view, context = immutable_model_world
     np_map = np.zeros((200, 200))
     np_map[40:45, 40:45] = 1
