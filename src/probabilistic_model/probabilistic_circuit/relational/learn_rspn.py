@@ -30,7 +30,9 @@ from ...learning.jpt.variables import infer_variables_from_dataframe
 
 
 def _is_part(attribute, part_decomposition) -> bool:
-    return attribute in (part_decomposition.unique_parts) or attribute in (part_decomposition.exchangeable_parts)
+    unique_parts_keys = [x for x, _ in part_decomposition.unique_parts]
+    exchangeable_parts_keys = [x for x, _ in part_decomposition.exchangeable_parts]
+    return attribute in unique_parts_keys or attribute in exchangeable_parts_keys
 
 # def _learn_child(C_child: Type, T: Sequence[Any], cfg: LearnConfig) -> ProductUnit | SumUnit:
 #     # Recursively learn for child class using its full scope V_child
@@ -47,6 +49,7 @@ def is_aggregate_statistics(func):
     return getattr(func, "_is_aggregate_statistics", False)
 
 def get_aggregate_statistics(instance):
+    statistics = []
     for name in dir(instance):
         if name.startswith("__"):
             continue
@@ -55,7 +58,10 @@ def get_aggregate_statistics(instance):
         except Exception:
             continue
         if callable(attr) and is_aggregate_statistics(attr):
-            return attr()
+            statistics.append(attr())
+            continue
+
+    return statistics
 
 
 
@@ -81,40 +87,29 @@ def LearnRSPN(part_decompositions, instance) -> RSPNTemplate:
             attribute_value = getattr(instance, attribute)
             if isinstance(attribute_value, list):
                 assert len(attribute_value) >= 0
-                values = [get_aggregate_statistics(instance) for instance in instance]
-                df_data[attribute] = values
+                values = get_aggregate_statistics(instance)
+                for value, type in values:
+                    if type == attribute:
+                        df_data[attribute] = [value]
+                # df_data[attribute] = values
                 continue
             else:
                 if isinstance(attribute_value, bool):
-                    values = [float(getattr(instance, attribute)) for instance in instance]
+                    values = float(getattr(instance, attribute))
                 else:
-                    values = [getattr(instance, attribute) for instance in instance]
-                df_data[attribute] = values
+                    values = getattr(instance, attribute)
+                df_data[attribute] = [values]
                 continue
-            continue
-            # try:
-            #     val = getattr(instance, attribute)
-            # except Exception:
-            #     continue
-            # _append_value(attribute, val)
+
         elif _is_part(attribute, part_decompositions):
-            # values = [getattr(instance, attribute) for instance in instances]
-            # df_data[attribute] = values
             continue
-            # instancesss = [getattr(inst, attribute) for inst in instances]
-            # if instancesss:
-            #     classa = getattr(instance, attribute)
-            #     classsaa = classa.__class__
-            #     schem = schema.get(classsaa)
-            #     prod.add_subcircuit(LearnRSPN(schem, instancesss, probabilistic_circuit=probabilistic_circuit))
-            #     x =0
-            # else:
-            #     continue
+
     df = pd.DataFrame(df_data)
     print(df)
     variables = infer_variables_from_dataframe(df)
     jpt = JPT(variables)
     jpt = jpt.fit(df)
+    rspn = RSPNTemplate(jpt)
     # jpt.plot_structure()
     # plt.show()
     return jpt

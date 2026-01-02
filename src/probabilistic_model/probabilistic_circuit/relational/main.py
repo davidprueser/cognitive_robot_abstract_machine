@@ -64,9 +64,9 @@ def example():
     # grounded.probabilistic_circuit.plot_structure()
     # plt.show()
 
-    # learned_nation = LearnRSPN(region_part_decomposition, region)
-    # learned_nation.probabilistic_circuit.plot_structure()
-    # plt.show()
+    learned_nation = LearnRSPN(region_part_decomposition, region)
+    learned_nation.plot_structure()
+    plt.show()
 
 
 

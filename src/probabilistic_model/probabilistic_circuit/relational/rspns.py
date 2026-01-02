@@ -54,6 +54,14 @@ class Region(Symbol):
     conflicts: List[Conflict]
     name: str = "World"
 
+    @aggregation_statistic
+    def adjacency_density(self):
+        return len(self.adjacency) / len(self.nations), "adjacency"
+
+    @aggregation_statistic
+    def conflict_density(self):
+        return len(self.conflicts) / len(self.nations), "conflicts"
+
 
 @dataclass
 class Nation(Symbol):
@@ -65,7 +73,7 @@ class Nation(Symbol):
 
     @aggregation_statistic
     def mean_age_of_supporters(self):
-        return sum(s.person.age for s in self.supporters) / len(self.supporters)
+        return sum(s.person.age for s in self.supporters) / len(self.supporters), "supporters"
 
 
 @dataclass
