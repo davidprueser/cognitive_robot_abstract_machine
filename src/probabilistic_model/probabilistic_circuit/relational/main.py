@@ -53,20 +53,28 @@ def example():
     )
 
 
-    template = RSPNTemplate(class_spec_region)
-    # template.probabilistic_circuit.plot_structure()
-    # plt.show()
+    template = RSPNTemplate(class_spec=class_spec_region)
+    template.probabilistic_circuit.plot_structure()
+    plt.show()
     # for part in template.sub_rspns:
     #     part.probabilistic_circuit.plot_structure()
     #     plt.show()
-    #
+
     grounded = template.ground(region)
     # grounded.probabilistic_circuit.plot_structure()
     # plt.show()
 
-    learned_nation = LearnRSPN(region_part_decomposition, region)
-    learned_nation.plot_structure()
+    learned_nation = LearnRSPN(Region, region, class_spec_region)
+    # learned_nation.probabilistic_circuit.plot_structure()
+    # plt.show()
+
+    # learned_nation = LearnRSPN(Nation, [n1, knowrob_nation], class_spec_nation)
+    learned_nation.probabilistic_circuit.plot_structure()
     plt.show()
+
+    grounded_learned_nation = learned_nation.ground(region)
+    # grounded_learned_nation.probabilistic_circuit.plot_structure()
+    # plt.show()
 
 
 

@@ -52,7 +52,6 @@ class Region(Symbol):
     nations: List[Nation]
     adjacency: List[Adjacent]
     conflicts: List[Conflict]
-    name: str = "World"
 
     @aggregation_statistic
     def adjacency_density(self):
@@ -62,6 +61,18 @@ class Region(Symbol):
     def conflict_density(self):
         return len(self.conflicts) / len(self.nations), "conflicts"
 
+    @aggregation_statistic
+    def average_nation_age(self):
+        total_age = 0
+        total_persons = 0
+        for nation in self.nations:
+            for person in nation.persons:
+                total_age += person.age
+                total_persons += 1
+        if total_persons == 0:
+            return 0, "nations"
+        return total_age / total_persons, "nations"
+
 
 @dataclass
 class Nation(Symbol):
@@ -69,11 +80,18 @@ class Nation(Symbol):
     persons: List[Person] = field(default_factory=list)
     supporters: List[Supports] = field(default_factory=list)
     gdp: float = 500
-    name: str = "Germany"
 
     @aggregation_statistic
     def mean_age_of_supporters(self):
         return sum(s.person.age for s in self.supporters) / len(self.supporters), "supporters"
+
+    @aggregation_statistic
+    def mean_age_of_persons(self):
+        return sum(p.age for p in self.persons) / len(self.persons), "person"
+
+    @aggregation_statistic
+    def government_type(self):
+        return float(self.government.funny), "government"
 
 
 @dataclass
@@ -180,10 +198,10 @@ class ExchangeableDistributionTemplate:
         return product
 
 class_spec_nation = {
-    "exchangeable_parts": [("persons", Person)],
-    "unique_parts": [("government", Government)],
+    "exchangeable_parts": ["person"],
+    "unique_parts": ["government"],
     "attributes": ["gdp"],
-    "relations": [Supports]
+    "relations": ["supporters"]
 }
 class_spec_gov = {
     "attributes": ["funny"],
@@ -193,9 +211,9 @@ class_spec_gov = {
 
 }
 class_spec_region = {
-    "exchangeable_parts": [("nations", Nation)],
+    "exchangeable_parts": ["nations"],
     "unique_parts": [],
-    "relations": [Adjacent, Conflict],
+    "relations": ["adjacency", "conflicts"],
     "attributes": []
 }
 class_spec_person = {
@@ -206,10 +224,16 @@ class_spec_person = {
 }
 
 classes = {
-    Nation: class_spec_nation,
-    Government: class_spec_gov,
-    Region: class_spec_region,
-    Person: class_spec_person
+    "nations": class_spec_nation,
+    "government": class_spec_gov,
+    "region": class_spec_region,
+    "person" : class_spec_person
+}
+
+relation_mapping = {
+    "supporters": Supports,
+    "adjacency": Adjacent,
+    "conflicts": Conflict
 }
 
 
@@ -229,7 +253,7 @@ class RSPNTemplate:
 
     class_spec: Dict[str, List] = field(init=True)
 
-    probabilistic_circuit: Optional[ProbabilisticCircuit] = field(default=None, init=False)
+    probabilistic_circuit: Optional[ProbabilisticCircuit] = field(default=None)
     """
     The circuit this component is part of. 
     """
@@ -274,12 +298,12 @@ class RSPNTemplate:
     def __post_init__(self):
         self.attributes = self.class_spec["attributes"]
         self.unique_parts = []
-        for part_name, unique_part in self.class_spec["unique_parts"]:
-            self.unique_parts.append((part_name, RSPNTemplate(classes[unique_part])))
+        for unique_part in self.class_spec["unique_parts"]:
+            self.unique_parts.append(RSPNTemplate(classes[unique_part]))
 
         self.exchangeable_parts = []
-        for part_name, exchangeable_part in self.class_spec["exchangeable_parts"]:
-            self.exchangeable_parts.append((part_name, RSPNTemplate(classes[exchangeable_part])))
+        for exchangeable_part in self.class_spec["exchangeable_parts"]:
+            self.exchangeable_parts.append(RSPNTemplate(classes[exchangeable_part]))
 
         self.relations = self.class_spec["relations"]
         self._prepare_structure()
@@ -291,10 +315,11 @@ class RSPNTemplate:
         self.sub_rspns = []
         self.edt_products = []
 
-        product = ProductUnit(probabilistic_circuit=self.probabilistic_circuit)
-        self.fix_attribute_distributions(product)
-        self.fix_edt_over_relations(product)
-        self.fix_sub_spns(product)
+        if len(self.probabilistic_circuit) == 0:
+            product = ProductUnit(probabilistic_circuit=self.probabilistic_circuit)
+            self.fix_attribute_distributions(product)
+            self.fix_edt_over_relations(product)
+            self.fix_sub_spns(product)
 
     def fix_attribute_distributions(self, product):
         for schema_attribute in self.attributes:
@@ -308,7 +333,7 @@ class RSPNTemplate:
 
     def fix_edt_over_relations(self, product):
         for relation in self.relations:
-            fields = relation.__dataclass_fields__
+            fields = relation_mapping[relation].__dataclass_fields__
             if len(fields) != 2:
                 raise ValueError(
                     f"Relation {relation} must be of the form R(P1, P2) or R(C, P1) where P1, P2 are part classes of class C."
@@ -330,7 +355,7 @@ class RSPNTemplate:
             product.add_subcircuit(index_remap[root_index])
 
     def fix_sub_spns(self, product):
-        self.sub_rspns = [p[1] for p in self.exchangeable_parts + self.unique_parts]
+        self.sub_rspns = self.exchangeable_parts + self.unique_parts
 
         for part_class in self.sub_rspns:
             index_remap = product.probabilistic_circuit.mount(part_class.probabilistic_circuit.root)
@@ -382,8 +407,8 @@ class RSPNTemplate:
 
         # 3. Ground parts (L^C_P)
         # Unique parts
-        for part_name, part_template in self.unique_parts:
-            part_instance = getattr(instance, part_name, None)
+        for idx, part_template in enumerate(self.unique_parts):
+            part_instance = getattr(instance, self.class_spec["unique_parts"][idx], None)
             if part_instance is not None:
                 grounded_part = part_template.ground(part_instance)
                 # Mount the grounded part into our current circuit
@@ -391,8 +416,8 @@ class RSPNTemplate:
                 grounded_product.add_subcircuit(index_remap[grounded_part.index])
 
         # Exchangeable parts
-        for part_name, part_template in self.exchangeable_parts:
-            part_instances = getattr(instance, part_name, [])
+        for idx, part_template in enumerate(self.exchangeable_parts):
+            part_instances = getattr(instance, self.class_spec["exchangeable_parts"][idx], [])
             for p_inst in part_instances:
                 grounded_part = part_template.ground(p_inst)
                 # Mount the grounded part into our current circuit
