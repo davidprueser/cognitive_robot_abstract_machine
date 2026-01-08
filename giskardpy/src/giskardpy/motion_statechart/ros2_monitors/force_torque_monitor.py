@@ -53,5 +53,3 @@ class ForceImpactMonitor(ForceTorqueNode):
         if self.force_magnitude() > self.threshold:
             return ObservationStateValues.TRUE
         return ObservationStateValues.FALSE
-
-
