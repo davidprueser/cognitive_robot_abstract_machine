@@ -1,9 +1,9 @@
-doc/build
+probabilistic_model/doc/build
 .idea
 
-src/probabilistic_model.egg-info
+probabilistic_model/src/probabilistic_model.egg-info
 build
-doc/_build
+probabilistic_model/doc/_build
 
 mlruns
 mlartifacts
