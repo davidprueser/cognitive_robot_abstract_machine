@@ -15,7 +15,8 @@ from probabilistic_model.probabilistic_circuit.rx.probabilistic_circuit import (
     ProbabilisticCircuit,
     leaf,
     ProductUnit,
-    Unit, SumUnit,
+    Unit,
+    SumUnit,
 )
 
 
@@ -23,6 +24,7 @@ def aggregation_statistic(func):
     func._is_aggregate_statistics = True
 
     return func
+
 
 @dataclass
 class RSPNPredicate:
@@ -83,7 +85,10 @@ class Nation(Symbol):
 
     @aggregation_statistic
     def mean_age_of_supporters(self):
-        return sum(s.person.age for s in self.supporters) / len(self.supporters), "supporters"
+        return (
+            sum(s.person.age for s in self.supporters) / len(self.supporters),
+            "supporters",
+        )
 
     @aggregation_statistic
     def mean_age_of_persons(self):
@@ -197,43 +202,43 @@ class ExchangeableDistributionTemplate:
 
         return product
 
+
 class_spec_nation = {
     "exchangeable_parts": ["person"],
     "unique_parts": ["government"],
     "attributes": ["gdp"],
-    "relations": ["supporters"]
+    "relations": ["supporters"],
 }
 class_spec_gov = {
     "attributes": ["funny"],
     "relations": [],
     "exchangeable_parts": [],
-    "unique_parts": []
-
+    "unique_parts": [],
 }
 class_spec_region = {
     "exchangeable_parts": ["nations"],
     "unique_parts": [],
     "relations": ["adjacency", "conflicts"],
-    "attributes": []
+    "attributes": [],
 }
 class_spec_person = {
     "attributes": ["age", "name"],
     "relations": [],
     "exchangeable_parts": [],
-    "unique_parts": []
+    "unique_parts": [],
 }
 
 classes = {
     "nations": class_spec_nation,
     "government": class_spec_gov,
     "region": class_spec_region,
-    "person" : class_spec_person
+    "person": class_spec_person,
 }
 
 relation_mapping = {
     "supporters": Supports,
     "adjacency": Adjacent,
-    "conflicts": Conflict
+    "conflicts": Conflict,
 }
 
 
@@ -278,7 +283,9 @@ class RSPNTemplate:
     # Predicates(Relations) of form R_n(P_n, P_n)
     # """
 
-    univariate_attribute_distributions: Optional[Dict[str, UnivariateDistribution]] = field(default_factory=dict)
+    univariate_attribute_distributions: Optional[Dict[str, UnivariateDistribution]] = (
+        field(default_factory=dict)
+    )
     """
     L^C_A: Dict of univariate distributions over all A of C
     """
@@ -309,7 +316,9 @@ class RSPNTemplate:
         self._prepare_structure()
 
     def _prepare_structure(self):
-        self.probabilistic_circuit = self.probabilistic_circuit or ProbabilisticCircuit()
+        self.probabilistic_circuit = (
+            self.probabilistic_circuit or ProbabilisticCircuit()
+        )
         self.univariate_attribute_distributions = {}
         self.edt_over_relations = []
         self.sub_rspns = []
@@ -342,9 +351,7 @@ class RSPNTemplate:
             second = Continuous(list(fields.keys())[1])
 
             self.edt_over_relations.append(
-                ExchangeableDistributionTemplate(
-                    [first, second], GaussianDistribution
-                )
+                ExchangeableDistributionTemplate([first, second], GaussianDistribution)
             )
         for relation_template in self.edt_over_relations:
             # TODO dont assume gaussian
@@ -358,7 +365,9 @@ class RSPNTemplate:
         self.sub_rspns = self.exchangeable_parts + self.unique_parts
 
         for part_class in self.sub_rspns:
-            index_remap = product.probabilistic_circuit.mount(part_class.probabilistic_circuit.root)
+            index_remap = product.probabilistic_circuit.mount(
+                part_class.probabilistic_circuit.root
+            )
             root_index = part_class.probabilistic_circuit.root.index
             product.add_subcircuit(index_remap[root_index])
 
@@ -384,10 +393,13 @@ class RSPNTemplate:
 
             # Create a grounded distribution
             import copy
+
             grounded_dist = copy.deepcopy(distribution)
             grounded_dist.variable = grounded_var
 
-            grounded_product.add_subcircuit(leaf(grounded_dist, grounded_product.probabilistic_circuit))
+            grounded_product.add_subcircuit(
+                leaf(grounded_dist, grounded_product.probabilistic_circuit)
+            )
 
         # 2. Ground relations (L^C_R)
         for relation, relation_template in zip(self.relations, self.edt_over_relations):
@@ -408,23 +420,28 @@ class RSPNTemplate:
         # 3. Ground parts (L^C_P)
         # Unique parts
         for idx, part_template in enumerate(self.unique_parts):
-            part_instance = getattr(instance, self.class_spec["unique_parts"][idx], None)
+            part_instance = getattr(
+                instance, self.class_spec["unique_parts"][idx], None
+            )
             if part_instance is not None:
                 grounded_part = part_template.ground(part_instance)
                 # Mount the grounded part into our current circuit
-                index_remap = grounded_product.probabilistic_circuit.mount(grounded_part)
+                index_remap = grounded_product.probabilistic_circuit.mount(
+                    grounded_part
+                )
                 grounded_product.add_subcircuit(index_remap[grounded_part.index])
 
         # Exchangeable parts
         for idx, part_template in enumerate(self.exchangeable_parts):
-            part_instances = getattr(instance, self.class_spec["exchangeable_parts"][idx], [])
+            part_instances = getattr(
+                instance, self.class_spec["exchangeable_parts"][idx], []
+            )
             for p_inst in part_instances:
                 grounded_part = part_template.ground(p_inst)
                 # Mount the grounded part into our current circuit
-                index_remap = grounded_product.probabilistic_circuit.mount(grounded_part)
+                index_remap = grounded_product.probabilistic_circuit.mount(
+                    grounded_part
+                )
                 grounded_product.add_subcircuit(index_remap[grounded_part.index])
 
         return grounded_product
-
-
-

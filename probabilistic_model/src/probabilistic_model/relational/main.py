@@ -7,10 +7,23 @@ from matplotlib import pyplot as plt
 
 from probabilistic_model.learning.jpt.jpt import JPT
 from probabilistic_model.learning.jpt.variables import infer_variables_from_dataframe
-from probabilistic_model.probabilistic_circuit.relational.rspns import Person, Government, Supports, Nation, Region, \
-    Adjacent, Conflict, nation_part_decomposition, RSPNTemplate, region_part_decomposition, class_spec_nation, \
-    class_spec_region
-from probabilistic_model.probabilistic_circuit.rx.probabilistic_circuit import ProbabilisticCircuit
+from probabilistic_model.probabilistic_circuit.relational.rspns import (
+    Person,
+    Government,
+    Supports,
+    Nation,
+    Region,
+    Adjacent,
+    Conflict,
+    nation_part_decomposition,
+    RSPNTemplate,
+    region_part_decomposition,
+    class_spec_nation,
+    class_spec_region,
+)
+from probabilistic_model.probabilistic_circuit.rx.probabilistic_circuit import (
+    ProbabilisticCircuit,
+)
 
 
 def example():
@@ -49,9 +62,8 @@ def example():
             n2,
             n2.government.funny == True,
             n2.persons == [david, tom, p3],
-            )
+        )
     )
-
 
     template = RSPNTemplate(class_spec=class_spec_region)
     template.probabilistic_circuit.plot_structure()
@@ -75,7 +87,6 @@ def example():
     grounded_learned_nation = learned_nation.ground(region)
     # grounded_learned_nation.probabilistic_circuit.plot_structure()
     # plt.show()
-
 
 
 if __name__ == "__main__":

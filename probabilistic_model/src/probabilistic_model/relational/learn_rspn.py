@@ -23,8 +23,13 @@ from probabilistic_model.probabilistic_circuit.rx.probabilistic_circuit import (
     leaf,
 )
 
-from probabilistic_model.probabilistic_circuit.relational.rspns import CLASS_SCHEMA, DecomposedClass, RSPNPredicate, \
-    ExchangeableDistributionTemplate, RSPNTemplate
+from probabilistic_model.probabilistic_circuit.relational.rspns import (
+    CLASS_SCHEMA,
+    DecomposedClass,
+    RSPNPredicate,
+    ExchangeableDistributionTemplate,
+    RSPNTemplate,
+)
 from ...learning.jpt.jpt import JPT
 from ...learning.jpt.variables import infer_variables_from_dataframe
 
@@ -34,6 +39,7 @@ def _is_part(attribute, part_decomposition) -> bool:
     exchangeable_parts_keys = [x for x, _ in part_decomposition.exchangeable_parts]
     return attribute in unique_parts_keys or attribute in exchangeable_parts_keys
 
+
 # def _learn_child(C_child: Type, T: Sequence[Any], cfg: LearnConfig) -> ProductUnit | SumUnit:
 #     # Recursively learn for child class using its full scope V_child
 #     schema = CLASS_SCHEMA.get(C_child)
@@ -42,11 +48,14 @@ def _is_part(attribute, part_decomposition) -> bool:
 #     V_child: List[str] = list(schema.attributes) + list(schema.unique_parts) + list(schema.exchangeable_parts)
 #     return LearnRSPN(C_child, T, V_child, cfg)
 
+
 def _is_attribute(attribute, part_decomp) -> bool:
     return not _is_part(attribute, part_decomp)
 
+
 def is_aggregate_statistics(func):
     return getattr(func, "_is_aggregate_statistics", False)
+
 
 def get_aggregate_statistics(instance):
     statistics = []
@@ -62,7 +71,6 @@ def get_aggregate_statistics(instance):
             continue
 
     return statistics
-
 
 
 def LearnRSPN(cls, instances, class_spec) -> RSPNTemplate:
@@ -94,33 +102,53 @@ def LearnRSPN(cls, instances, class_spec) -> RSPNTemplate:
                 if attribute not in df_data:
                     df_data[attribute] = [getattr(instance, attribute)]
                 else:
-                # attribute_values[attribute] += getattr(instance, attribute)
+                    # attribute_values[attribute] += getattr(instance, attribute)
                     df_data[attribute].append(getattr(instance, attribute))
 
         if len(class_spec["relations"]) > 0:
             for relation in class_spec["relations"]:
                 # relation_values += [value for value, type in aggregation_values if type == relation]
                 if relation not in df_data:
-                    df_data[relation] = [value for value, type in aggregation_values if type == relation]
+                    df_data[relation] = [
+                        value for value, type in aggregation_values if type == relation
+                    ]
                 else:
-                    df_data[relation] += [value for value, type in aggregation_values if type == relation]
+                    df_data[relation] += [
+                        value for value, type in aggregation_values if type == relation
+                    ]
 
         if len(class_spec["unique_parts"]) > 0:
             for unique_part in class_spec["unique_parts"]:
                 # unique_values += [value for value, type in aggregation_values if type == unique_part]
                 if unique_part not in df_data:
-                    df_data[unique_part] = [value for value, type in aggregation_values if type == unique_part]
+                    df_data[unique_part] = [
+                        value
+                        for value, type in aggregation_values
+                        if type == unique_part
+                    ]
                 else:
-                    df_data[unique_part] += [value for value, type in aggregation_values if type == unique_part]
+                    df_data[unique_part] += [
+                        value
+                        for value, type in aggregation_values
+                        if type == unique_part
+                    ]
 
         if len(class_spec["exchangeable_parts"]) > 0:
             for exchangeable_part in class_spec["exchangeable_parts"]:
                 # exchangeable_values += [value for value, type in aggregation_values if type == exchangeable_part]
                 if exchangeable_part not in df_data:
-                    df_data[exchangeable_part] = [value for value, type in aggregation_values if type == exchangeable_part]
+                    df_data[exchangeable_part] = [
+                        value
+                        for value, type in aggregation_values
+                        if type == exchangeable_part
+                    ]
                 else:
-                    df_data[exchangeable_part] += [value for value, type in aggregation_values if type == exchangeable_part]
-                x=0
+                    df_data[exchangeable_part] += [
+                        value
+                        for value, type in aggregation_values
+                        if type == exchangeable_part
+                    ]
+                x = 0
 
     df = pd.DataFrame(df_data)
     variables = infer_variables_from_dataframe(df)
@@ -157,6 +185,3 @@ def LearnRSPN(cls, instances, class_spec) -> RSPNTemplate:
     #
     #     elif _is_part(attribute, cls):
     #         continue
-
-
-
