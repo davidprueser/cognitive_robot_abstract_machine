@@ -302,7 +302,7 @@ class DiscreteDistribution(UnivariateDistribution):
         probabilities = MissingDict(float)
         for key, value in data["probabilities"]:
             probabilities[key] = value
-        return cls(variable, probabilities)
+        return cls(variable, probabilities=probabilities)
 
     def normalize(self):
         """
@@ -531,6 +531,62 @@ class IntegerDistribution(ContinuousDistribution, DiscreteDistribution):
         for key, value in self.probabilities.items():
             new_probabilities[key * scaling[self.variable]] = value
         self.probabilities = new_probabilities
+
+
+class BernoulliDistribution(IntegerDistribution):
+    """
+    Bernoulli distribution over the integer domain {0, 1}.
+
+    Parameters
+    ----------
+    variable: Integer
+        The integer variable this distribution is defined on. Expected domain includes 0 and 1.
+    p: float, optional
+        Probability of outcome 1. Must be in [0, 1]. If provided, `probabilities` must be None.
+    probabilities: MissingDict[int, float], optional
+        Low-level probabilities map. If provided, it takes precedence and `p` is ignored.
+    """
+
+    variable: Integer
+
+    def __init__(self,
+                 variable: Integer,
+                 p: Optional[float] = None,
+                 probabilities: Optional[MissingDict[Union[int, SetElement], float]] = None):
+        if probabilities is None:
+            if p is None:
+                p = 0.5
+            if not (0.0 <= p <= 1.0):
+                raise ValueError("Parameter p must be in [0, 1].")
+            probs = MissingDict(float)
+            probs[0] = 1.0 - p
+            probs[1] = p
+            probabilities = probs
+
+        super().__init__(variable, probabilities)
+
+    @property
+    def p(self) -> float:
+        """Return probability of 1."""
+        return float(self.probabilities[1])
+
+    @property
+    def representation(self) -> str:
+        return f"B({self.variable.name} | p={self.p})"
+
+    @property
+    def abbreviated_symbol(self) -> str:
+        return "B"
+
+    def __repr__(self):
+        return f"B({self.variable.name})"
+
+    def to_json(self) -> Dict[str, Any]:
+        return super().to_json()
+
+    @classmethod
+    def _from_json(cls, data: Dict[str, Any]) -> Self:
+        return super()._from_json(data)
 
 
 class DiracDeltaDistribution(ContinuousDistribution):

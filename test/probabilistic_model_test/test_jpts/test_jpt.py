@@ -13,11 +13,14 @@ from jpt import infer_from_dataframe as old_infer_from_dataframe
 from jpt.learning.impurity import Impurity
 from jpt.trees import JPT as OldJPT
 from matplotlib import pyplot as plt
-from random_events.interval import closed
-from random_events.product_algebra import SimpleEvent
-from random_events.variable import Variable, Continuous
+from random_events.interval import closed, SimpleInterval
+from random_events.product_algebra import SimpleEvent, VariableSet
+from random_events.variable import Variable, Continuous, Integer as IntegerVariable
 
-from probabilistic_model.distributions import GaussianDistribution
+from probabilistic_model.distributions import (
+    GaussianDistribution,
+    BernoulliDistribution,
+)
 from probabilistic_model.learning.jpt.jpt import JPT
 from probabilistic_model.learning.jpt.variables import (
     ScaledContinuous,
@@ -34,6 +37,9 @@ from probabilistic_model.probabilistic_circuit.rx.probabilistic_circuit import (
     SymbolicDistribution,
     UnivariateContinuousLeaf,
     leaf,
+)
+from probabilistic_model.probabilistic_circuit.relational.rspns import (
+    ExchangeableDistributionTemplate,
 )
 
 
@@ -411,3 +417,28 @@ class GaussianJPTTestCase(unittest.TestCase):
             self.multivariate_normal.plotly_layout(),
         )
         # fig.show()
+
+
+class RSPNTestCase(unittest.TestCase):
+
+    def test_edt(self):
+        variables = [
+            IntegerVariable("X1"),
+            IntegerVariable("X2"),
+            IntegerVariable("X3"),
+            IntegerVariable("X4"),
+        ]
+        pc = ExchangeableDistributionTemplate(variables, BernoulliDistribution, p=0.7)()
+
+        assignment = {
+            variables[0]: 1,
+            variables[1]: 1,
+            variables[2]: 1,
+            variables[3]: 1,
+        }
+        p = pc.probability_of_simple_event(SimpleEvent(assignment))
+
+        # pc.plot_structure()
+        # plt.show()
+
+        self.assertAlmostEqual(p, 0.2401)  # 0.7**4
