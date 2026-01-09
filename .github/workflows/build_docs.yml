@@ -26,6 +26,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
+          sudo apt-get install -y pandoc
           pip install -U pip
           pip install jupyter-book jupytext nbconvert
           
@@ -68,8 +69,7 @@ jobs:
       - name: Prepare staging area
         run: |
           mkdir -p staging
-          cp doc/index.html staging/
-          cp doc/README.md staging/
+          pandoc --standalone doc/index.md -o staging/index.html --metadata title="CRAM Documentation" --css doc/style.css --self-contained
           cp -r krrood/doc/_build/html staging/krrood
           cp -r semantic_digital_twin/doc/_build/html staging/semantic_digital_twin
 
