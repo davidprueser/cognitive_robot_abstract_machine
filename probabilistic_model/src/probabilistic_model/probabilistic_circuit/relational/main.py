@@ -2,7 +2,8 @@ import pandas as pd
 from probabilistic_model.probabilistic_circuit.relational.learn_rspn import (
     LearnRSPN,
 )
-from krrood.entity_query_language.entity import let, an, entity
+
+# from krrood.entity_query_language.entity import let, an, entity
 from matplotlib import pyplot as plt
 
 from probabilistic_model.learning.jpt.jpt import JPT
@@ -55,15 +56,15 @@ def example():
         conflicts=[Conflict(n1, knowrob_nation)],
     )
 
-    n2 = let(Nation, [])
-    p3 = let(Person, [])
-    q = an(
-        entity(
-            n2,
-            n2.government.funny == True,
-            n2.persons == [david, tom, p3],
-        )
-    )
+    # n2 = let(Nation, [])
+    # p3 = let(Person, [])
+    # q = an(
+    #     entity(
+    #         n2,
+    #         n2.government.funny == True,
+    #         n2.persons == [david, tom, p3],
+    #     )
+    # )
 
     template = RSPNTemplate(class_spec=class_spec_region)
     template.probabilistic_circuit.plot_structure()
@@ -76,17 +77,17 @@ def example():
     # grounded.probabilistic_circuit.plot_structure()
     # plt.show()
 
-    learned_nation = LearnRSPN(Region, region, class_spec_region)
+    # learned_nation = LearnRSPN(Region, region, class_spec_region)
     # learned_nation.probabilistic_circuit.plot_structure()
     # plt.show()
 
-    # learned_nation = LearnRSPN(Nation, [n1, knowrob_nation], class_spec_nation)
+    learned_nation = LearnRSPN(Nation, [n1, knowrob_nation], class_spec_nation)
     learned_nation.probabilistic_circuit.plot_structure()
     plt.show()
 
-    grounded_learned_nation = learned_nation.ground(region)
-    # grounded_learned_nation.probabilistic_circuit.plot_structure()
-    # plt.show()
+    grounded_learned_nation = learned_nation.ground(n1)
+    grounded_learned_nation.probabilistic_circuit.plot_structure()
+    plt.show()
 
 
 if __name__ == "__main__":
