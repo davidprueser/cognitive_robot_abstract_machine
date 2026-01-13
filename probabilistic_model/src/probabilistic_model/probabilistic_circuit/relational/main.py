@@ -74,8 +74,8 @@ def example():
     #     plt.show()
 
     grounded = template.ground(region)
-    # grounded.probabilistic_circuit.plot_structure()
-    # plt.show()
+    grounded.probabilistic_circuit.plot_structure()
+    plt.show()
 
     # learned_nation = LearnRSPN(Region, region, class_spec_region)
     # learned_nation.probabilistic_circuit.plot_structure()

@@ -45,7 +45,7 @@ class Conflict(RSPNPredicate):
 
 @dataclass
 class Supports(RSPNPredicate):
-    person: Person
+    supporting_person: Person
     government: Government
 
 
@@ -86,13 +86,14 @@ class Nation(Symbol):
     @aggregation_statistic
     def mean_age_of_supporters(self):
         return (
-            sum(s.person.age for s in self.supporters) / len(self.supporters),
+            sum(s.supporting_person.age for s in self.supporters)
+            / len(self.supporters),
             "supporters",
         )
 
     @aggregation_statistic
     def mean_age_of_persons(self):
-        return sum(p.age for p in self.persons) / len(self.persons), "person"
+        return sum(p.age for p in self.persons) / len(self.persons), "persons"
 
     @aggregation_statistic
     def government_type(self):
@@ -204,7 +205,7 @@ class ExchangeableDistributionTemplate:
 
 
 class_spec_nation = {
-    "exchangeable_parts": ["person"],
+    "exchangeable_parts": ["persons"],
     "unique_parts": ["government"],
     "attributes": ["gdp"],
     "relations": ["supporters"],
@@ -232,7 +233,7 @@ classes = {
     "nations": class_spec_nation,
     "government": class_spec_gov,
     "region": class_spec_region,
-    "person": class_spec_person,
+    "persons": class_spec_person,
 }
 
 relation_mapping = {
@@ -353,6 +354,7 @@ class RSPNTemplate:
             self.edt_over_relations.append(
                 ExchangeableDistributionTemplate([first, second], GaussianDistribution)
             )
+
         for relation_template in self.edt_over_relations:
             # TODO dont assume gaussian
             edt_product = relation_template(location=0, scale=0)
@@ -378,12 +380,28 @@ class RSPNTemplate:
         :return: A grounded SPN as a Unit.
         """
         # Create a product unit for this grounding
-        grounded_product = ProductUnit(probabilistic_circuit=ProbabilisticCircuit())
+        grounded_root = type(self.probabilistic_circuit.root)(
+            probabilistic_circuit=ProbabilisticCircuit()
+        )
 
         instance_repr = getattr(instance, "name", str(id(instance)))
 
         # 1. Ground attributes (L^C_A)
+        # Use distributions from the template's circuit if it was learned
+        learned_distributions = {}
+        if (
+            len(self.probabilistic_circuit) > 1
+        ):  # if it has more than just the root product
+            for leaf_node in self.probabilistic_circuit.leaves:
+                dist = leaf_node.distribution
+                if dist.variable.name in self.attributes:
+                    learned_distributions[dist.variable.name] = dist
+
         for attr_name, distribution in self.univariate_attribute_distributions.items():
+            # If we have a learned distribution for this attribute, use it
+            if attr_name in learned_distributions:
+                distribution = learned_distributions[attr_name]
+
             # Create a grounded variable name, e.g., "age(O)"
             grounded_var_name = f"{attr_name}({instance_repr})"
 
@@ -397,14 +415,33 @@ class RSPNTemplate:
             grounded_dist = copy.deepcopy(distribution)
             grounded_dist.variable = grounded_var
 
-            grounded_product.add_subcircuit(
-                leaf(grounded_dist, grounded_product.probabilistic_circuit)
+            grounded_root.add_subcircuit(
+                leaf(grounded_dist, grounded_root.probabilistic_circuit)
             )
 
         # 2. Ground relations (L^C_R)
+        # Find learned EDTs if any
+        learned_relation_distributions = {}
+        if len(self.probabilistic_circuit) > 1:
+            for leaf_node in self.probabilistic_circuit.leaves:
+                dist = leaf_node.distribution
+                if dist.variable.name in self.relations:
+                    learned_relation_distributions[dist.variable.name] = dist
+
         for relation, relation_template in zip(self.relations, self.edt_over_relations):
             # Instantiate the EDT for this instance.
-            grounded_edt = relation_template(location=0, scale=1)
+            if relation in learned_relation_distributions:
+                dist = learned_relation_distributions[relation]
+                if hasattr(dist, "probabilities"):
+                    grounded_edt = relation_template(probabilities=dist.probabilities)
+                elif hasattr(dist, "location") and hasattr(dist, "scale"):
+                    grounded_edt = relation_template(
+                        location=dist.location, scale=dist.scale
+                    )
+                else:
+                    grounded_edt = relation_template()
+            else:
+                grounded_edt = relation_template(location=0, scale=1)
 
             # Ground the variables in the EDT product
             for l in grounded_edt.leaves:
@@ -414,8 +451,8 @@ class RSPNTemplate:
 
             # Mount the grounded_edt into our current circuit
             # We use the fact that grounded_edt already has a circuit from relation_template call.
-            index_remap = grounded_product.probabilistic_circuit.mount(grounded_edt)
-            grounded_product.add_subcircuit(index_remap[grounded_edt.index])
+            index_remap = grounded_root.probabilistic_circuit.mount(grounded_edt)
+            grounded_root.add_subcircuit(index_remap[grounded_edt.index])
 
         # 3. Ground parts (L^C_P)
         # Unique parts
@@ -426,10 +463,8 @@ class RSPNTemplate:
             if part_instance is not None:
                 grounded_part = part_template.ground(part_instance)
                 # Mount the grounded part into our current circuit
-                index_remap = grounded_product.probabilistic_circuit.mount(
-                    grounded_part
-                )
-                grounded_product.add_subcircuit(index_remap[grounded_part.index])
+                index_remap = grounded_root.probabilistic_circuit.mount(grounded_part)
+                grounded_root.add_subcircuit(index_remap[grounded_part.index])
 
         # Exchangeable parts
         for idx, part_template in enumerate(self.exchangeable_parts):
@@ -439,9 +474,7 @@ class RSPNTemplate:
             for p_inst in part_instances:
                 grounded_part = part_template.ground(p_inst)
                 # Mount the grounded part into our current circuit
-                index_remap = grounded_product.probabilistic_circuit.mount(
-                    grounded_part
-                )
-                grounded_product.add_subcircuit(index_remap[grounded_part.index])
+                index_remap = grounded_root.probabilistic_circuit.mount(grounded_part)
+                grounded_root.add_subcircuit(index_remap[grounded_part.index])
 
-        return grounded_product
+        return grounded_root
