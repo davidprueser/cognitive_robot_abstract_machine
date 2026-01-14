@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Self
 
 from .robot_mixins import HasNeck, SpecifiesLeftRightArm
+from ..datastructures.definitions import StaticJointState, GripperState, TorsoState
 from ..datastructures.prefixed_name import PrefixedName
 from ..robots.abstract_robot import (
     Neck,
@@ -20,19 +21,11 @@ from ..spatial_types import Quaternion, Vector3
 from ..world import World
 
 
-@dataclass
+@dataclass(eq=False)
 class Armar(AbstractRobot, SpecifiesLeftRightArm, HasNeck):
     """
     Class that describes the Armar Robot.
     """
-
-    def __hash__(self):
-        return hash(
-            tuple(
-                [self.__class__]
-                + sorted([kse.name for kse in self.kinematic_structure_entities])
-            )
-        )
 
     def load_srdf(self):
         """
@@ -160,26 +153,26 @@ class Armar(AbstractRobot, SpecifiesLeftRightArm, HasNeck):
 
             left_arm_park = JointState(
                 name=PrefixedName("left_arm_park", prefix=armar.name.name),
-                joint_names=[world.get_body_by_name("torso_joint"), world.get_body_by_name("arm_t12_joint_r0"),
+                joints=[world.get_body_by_name("torso_joint"), world.get_body_by_name("arm_t12_joint_r0"),
                              world.get_body_by_name("arm_t23_joint_r0"), world.get_body_by_name("arm_t34_joint_r0"),
                              world.get_body_by_name("arm_t45_joint_r0"), world.get_body_by_name("arm_t56_joint_r0"),
                              world.get_body_by_name("arm_t67_joint_r0"), world.get_body_by_name("arm_t78_joint_r0"),
                              world.get_body_by_name("arm_t8_joint_r0")],
                 joint_positions=[-0.15, 0.0, 0.0, 1.5, 0.5, 2.0, 1.5, 0.0, 0.0],
-                state_type="Park",
+                state_type=StaticJointState.PARK,
                 kinematic_chains=[left_arm],
                 _world=world,
             )
 
             right_arm_park = JointState(
                 name=PrefixedName("right_arm_park", prefix=armar.name.name),
-                joint_names=[world.get_body_by_name("torso_joint"), world.get_body_by_name("arm_t12_joint_r1"),
+                joints=[world.get_body_by_name("torso_joint"), world.get_body_by_name("arm_t12_joint_r1"),
                              world.get_body_by_name("arm_t23_joint_r1"), world.get_body_by_name("arm_t34_joint_r1"),
                              world.get_body_by_name("arm_t45_joint_r1"), world.get_body_by_name("arm_t56_joint_r1"),
                              world.get_body_by_name("arm_t67_joint_r1"), world.get_body_by_name("arm_t78_joint_r1"),
                              world.get_body_by_name("arm_t8_joint_r1")],
                 joint_positions=[-0.15, 0.0, 0.0, 1.5, 2.64, 2.0, 1.6415, 0.0, 0.0],
-                state_type="Park",
+                state_type=StaticJointState.PARK,
                 kinematic_chains=[left_arm],
                 _world=world,
             )
@@ -194,18 +187,18 @@ class Armar(AbstractRobot, SpecifiesLeftRightArm, HasNeck):
 
             left_gripper_open = JointState(
                 name=PrefixedName("left_gripper_open", prefix=armar.name.name),
-                joint_names=left_gripper_joints,
+                joints=left_gripper_joints,
                 joint_positions=[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-                state_type="Open",
+                state_type=GripperState.OPEN,
                 kinematic_chains=[left_gripper],
                 _world=world,
             )
 
             left_gripper_close = JointState(
                 name=PrefixedName("left_gripper_close", prefix=armar.name.name),
-                joint_names=left_gripper_joints,
+                joints=left_gripper_joints,
                 joint_positions=[1.57, 1.57, 1.57, 1.57, 1.57, 1.57, 1.57, 1.57, 1.57, 1.57, 1.57, 1.57, 1.57, 1.57],
-                state_type="Close",
+                state_type=GripperState.CLOSE,
                 kinematic_chains=[left_gripper],
                 _world=world,
             )
@@ -220,18 +213,18 @@ class Armar(AbstractRobot, SpecifiesLeftRightArm, HasNeck):
 
             right_gripper_open = JointState(
                 name=PrefixedName("right_gripper_open", prefix=armar.name.name),
-                joint_names=right_gripper_joints,
+                joints=right_gripper_joints,
                 joint_positions=[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-                state_type="Open",
+                state_type=GripperState.OPEN,
                 kinematic_chains=[right_gripper],
                 _world=world,
             )
 
             right_gripper_close = JointState(
                 name=PrefixedName("right_gripper_close", prefix=armar.name.name),
-                joint_names=right_gripper_joints,
+                joints=right_gripper_joints,
                 joint_positions=[1.57, 1.57, 1.57, 1.57, 1.57, 1.57, 1.57, 1.57, 1.57, 1.57, 1.57, 1.57, 1.57, 1.57],
-                state_type="Close",
+                state_type=GripperState.CLOSE,
                 kinematic_chains=[right_gripper],
                 _world=world,
             )
@@ -240,27 +233,27 @@ class Armar(AbstractRobot, SpecifiesLeftRightArm, HasNeck):
 
             torso_low = JointState(
                 name=PrefixedName("torso_low", prefix=armar.name.name),
-                joint_names=torso_joint,
+                joints=torso_joint,
                 joint_positions=[-0.365],
-                state_type="Low",
+                state_type=TorsoState.LOW,
                 kinematic_chains=[torso],
                 _world=world,
             )
 
             torso_mid = JointState(
                 name=PrefixedName("torso_mid", prefix=armar.name.name),
-                joint_names=torso_joint,
+                joints=torso_joint,
                 joint_positions=[-0.185],
-                state_type="Mid",
+                state_type=TorsoState.MID,
                 kinematic_chains=[torso],
                 _world=world,
             )
 
             torso_high = JointState(
                 name=PrefixedName("torso_high", prefix=armar.name.name),
-                joint_names=torso_joint,
+                joints=torso_joint,
                 joint_positions=[0.0],
-                state_type="High",
+                state_type=TorsoState.HIGH,
                 kinematic_chains=[torso],
                 _world=world,
             )

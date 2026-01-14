@@ -11,7 +11,8 @@ from .abstract_robot import (
     Torso,
     JointState,
 )
-from .robot_mixins import HasNeck, SpecifiesLeftRightArm, HasArms
+from .robot_mixins import HasNeck, HasArms
+from ..datastructures.definitions import StaticJointState, GripperState, TorsoState
 from ..datastructures.prefixed_name import PrefixedName
 from ..spatial_types import Quaternion
 from ..spatial_types.spatial_types import Vector3
@@ -23,14 +24,6 @@ class Stretch(AbstractRobot, HasArms, HasNeck):
     """
     Class that describes the Stretch Robot.
     """
-
-    def __hash__(self):
-        return hash(
-            tuple(
-                [self.__class__]
-                + sorted([kse.name for kse in self.kinematic_structure_entities])
-            )
-        )
 
     def load_srdf(self):
         """
@@ -151,12 +144,12 @@ class Stretch(AbstractRobot, HasArms, HasNeck):
             # Create states
             arm_park = JointState(
                 name=PrefixedName("arm_park", prefix=stretch.name.name),
-                joint_names=[world.get_body_by_name("joint_lift"), world.get_body_by_name("joint_arm_l3"),
+                joints=[world.get_body_by_name("joint_lift"), world.get_body_by_name("joint_arm_l3"),
                              world.get_body_by_name("joint_arm_l2"), world.get_body_by_name("joint_arm_l1"),
                              world.get_body_by_name("joint_arm_l0"), world.get_body_by_name("joint_wrist_yaw"),
                              world.get_body_by_name("joint_wrist_pitch"), world.get_body_by_name("joint_wrist_roll")],
                 joint_positions=[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-                state_type="Park",
+                state_type=StaticJointState.PARK,
                 kinematic_chains=[arm],
                 _world=world,
             )
@@ -166,18 +159,18 @@ class Stretch(AbstractRobot, HasArms, HasNeck):
 
             gripper_open = JointState(
                 name=PrefixedName("gripper_open", prefix=stretch.name.name),
-                joint_names=gripper_joints,
+                joints=gripper_joints,
                 joint_positions=[0.59, 0.59],
-                state_type="Open",
+                state_type=GripperState.OPEN,
                 kinematic_chains=[gripper],
                 _world=world,
             )
 
             gripper_close = JointState(
                 name=PrefixedName("gripper_close", prefix=stretch.name.name),
-                joint_names=gripper_joints,
+                joints=gripper_joints,
                 joint_positions=[0.0, 0.0],
-                state_type="Close",
+                state_type=GripperState.CLOSE,
                 kinematic_chains=[gripper],
                 _world=world,
             )
@@ -186,27 +179,27 @@ class Stretch(AbstractRobot, HasArms, HasNeck):
 
             torso_low = JointState(
                 name=PrefixedName("torso_low", prefix=stretch.name.name),
-                joint_names=torso_joint,
+                joints=torso_joint,
                 joint_positions=[0.0],
-                state_type="Low",
+                state_type=TorsoState.LOW,
                 kinematic_chains=[torso],
                 _world=world,
             )
 
             torso_mid = JointState(
                 name=PrefixedName("torso_mid", prefix=stretch.name.name),
-                joint_names=torso_joint,
+                joints=torso_joint,
                 joint_positions=[0.5],
-                state_type="Mid",
+                state_type=TorsoState.MID,
                 kinematic_chains=[torso],
                 _world=world,
             )
 
             torso_high = JointState(
                 name=PrefixedName("torso_high", prefix=stretch.name.name),
-                joint_names=torso_joint,
+                joints=torso_joint,
                 joint_positions=[1.0],
-                state_type="High",
+                state_type=TorsoState.HIGH,
                 kinematic_chains=[torso],
                 _world=world,
             )

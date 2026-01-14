@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Self
 
 from .robot_mixins import HasNeck, SpecifiesLeftRightArm
+from ..datastructures.definitions import StaticJointState, GripperState, TorsoState
 from ..datastructures.prefixed_name import PrefixedName
 from ..robots.abstract_robot import (
     Neck,
@@ -20,19 +21,11 @@ from ..spatial_types import Quaternion, Vector3
 from ..world import World
 
 
-@dataclass
+@dataclass(eq=False)
 class Boxy(AbstractRobot, SpecifiesLeftRightArm, HasNeck):
     """
     Class that describes the Boxy Robot.
     """
-
-    def __hash__(self):
-        return hash(
-            tuple(
-                [self.__class__]
-                + sorted([kse.name for kse in self.kinematic_structure_entities])
-            )
-        )
 
     def load_srdf(self):
         """
@@ -57,7 +50,6 @@ class Boxy(AbstractRobot, SpecifiesLeftRightArm, HasNeck):
                 _world=world,
             )
 
-            # TODO: not sure ask for names of links for arm and gripper
             # Create left arm
             left_gripper_thumb = Finger(
                 name=PrefixedName("left_gripper_thumb", prefix=boxy.name.name),
@@ -159,24 +151,24 @@ class Boxy(AbstractRobot, SpecifiesLeftRightArm, HasNeck):
             #Create states
             left_arm_park = JointState(
                 name=PrefixedName("left_arm_park", prefix=boxy.name.name),
-                joint_names=[world.get_body_by_name("left_arm_0_joint"), world.get_body_by_name("left_arm_1_joint"),
+                joints=[world.get_body_by_name("left_arm_0_joint"), world.get_body_by_name("left_arm_1_joint"),
                              world.get_body_by_name("left_arm_2_joint"), world.get_body_by_name("left_arm_3_joint"),
                              world.get_body_by_name("left_arm_4_joint"), world.get_body_by_name("left_arm_5_joint"),
                              world.get_body_by_name("left_arm_6_joint")],
                 joint_positions=[-1.858, 0.70571, 0.9614, -0.602, -2.5922, -1.94065, -1.28735],
-                state_type="Park",
+                state_type=StaticJointState.PARK,
                 kinematic_chains=[left_arm],
                 _world=world,
             )
 
             right_arm_park = JointState(
                 name=PrefixedName("right_arm_park", prefix=boxy.name.name),
-                joint_names=[world.get_body_by_name("right_arm_0_joint"), world.get_body_by_name("right_arm_1_joint"),
+                joints=[world.get_body_by_name("right_arm_0_joint"), world.get_body_by_name("right_arm_1_joint"),
                              world.get_body_by_name("right_arm_2_joint"), world.get_body_by_name("right_arm_3_joint"),
                              world.get_body_by_name("right_arm_4_joint"), world.get_body_by_name("right_arm_5_joint"),
                              world.get_body_by_name("right_arm_6_joint")],
                 joint_positions=[1.858, -0.70571, -0.9614, 0.602, 2.5922, 1.94065, 1.28735],
-                state_type="Park",
+                state_type=StaticJointState.PARK,
                 kinematic_chains=[right_arm],
                 _world=world,
             )
@@ -185,18 +177,18 @@ class Boxy(AbstractRobot, SpecifiesLeftRightArm, HasNeck):
 
             left_gripper_open = JointState(
                 name=PrefixedName("left_gripper_open", prefix=boxy.name.name),
-                joint_names=left_gripper_joint,
+                joints=left_gripper_joint,
                 joint_positions=[0.548],
-                state_type="Open",
+                state_type=GripperState.OPEN,
                 kinematic_chains=[left_gripper],
                 _world=world,
             )
 
             left_gripper_close = JointState(
                 name=PrefixedName("left_gripper_close", prefix=boxy.name.name),
-                joint_names=left_gripper_joint,
+                joints=left_gripper_joint,
                 joint_positions=[0.0],
-                state_type="Close",
+                state_type=GripperState.CLOSE,
                 kinematic_chains=[left_gripper],
                 _world=world,
             )
@@ -205,18 +197,18 @@ class Boxy(AbstractRobot, SpecifiesLeftRightArm, HasNeck):
 
             right_gripper_open = JointState(
                 name=PrefixedName("right_gripper_open", prefix=boxy.name.name),
-                joint_names=right_gripper_joint,
+                joints=right_gripper_joint,
                 joint_positions=[0.548],
-                state_type="Open",
+                state_type=GripperState.OPEN,
                 kinematic_chains=[right_gripper],
                 _world=world,
             )
 
             right_gripper_close = JointState(
                 name=PrefixedName("right_gripper_close", prefix=boxy.name.name),
-                joint_names=right_gripper_joint,
+                joints=right_gripper_joint,
                 joint_positions=[0.0],
-                state_type="Close",
+                state_type=GripperState.CLOSE,
                 kinematic_chains=[right_gripper],
                 _world=world,
             )
@@ -225,27 +217,27 @@ class Boxy(AbstractRobot, SpecifiesLeftRightArm, HasNeck):
 
             torso_low = JointState(
                 name=PrefixedName("torso_low", prefix=boxy.name.name),
-                joint_names=torso_joint,
+                joints=torso_joint,
                 joint_positions=[-0.58],
-                state_type="Low",
+                state_type=TorsoState.LOW,
                 kinematic_chains=[torso],
                 _world=world,
             )
 
             torso_mid = JointState(
                 name=PrefixedName("torso_mid", prefix=boxy.name.name),
-                joint_names=torso_joint,
+                joints=torso_joint,
                 joint_positions=[0.29],
-                state_type="Mid",
+                state_type=TorsoState.MID,
                 kinematic_chains=[torso],
                 _world=world,
             )
 
             torso_high = JointState(
                 name=PrefixedName("torso_high", prefix=boxy.name.name),
-                joint_names=torso_joint,
+                joints=torso_joint,
                 joint_positions=[0.0],
-                state_type="High",
+                state_type=TorsoState.HIGH,
                 kinematic_chains=[torso],
                 _world=world,
             )

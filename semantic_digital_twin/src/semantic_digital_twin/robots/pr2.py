@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Self
 
 from .robot_mixins import HasNeck, SpecifiesLeftRightArm
+from ..datastructures.definitions import StaticJointState, GripperState, TorsoState
 from ..datastructures.prefixed_name import PrefixedName
 from ..robots.abstract_robot import (
     Neck,
@@ -28,14 +29,6 @@ class PR2(AbstractRobot, SpecifiesLeftRightArm, HasNeck):
     Represents the Personal Robot 2 (PR2), which was originally created by Willow Garage.
     The PR2 robot consists of two arms, each with a parallel gripper, a head with a camera, and a prismatic torso
     """
-
-    def __hash__(self):
-        return hash(
-            tuple(
-                [self.__class__]
-                + sorted([kse.name for kse in self.kinematic_structure_entities])
-            )
-        )
 
     def load_srdf(self):
         """
@@ -172,7 +165,7 @@ class PR2(AbstractRobot, SpecifiesLeftRightArm, HasNeck):
             # Create states
             right_arm_park = JointState(
                 name=PrefixedName("right_park", prefix=robot.name.name),
-                joint_names=[world.get_body_by_name("r_shoulder_pan_joint"),
+                joints=[world.get_body_by_name("r_shoulder_pan_joint"),
                              world.get_body_by_name("r_shoulder_lift_joint"),
                              world.get_body_by_name("r_upper_arm_roll_joint"),
                              world.get_body_by_name("r_elbow_flex_joint"),
@@ -180,14 +173,14 @@ class PR2(AbstractRobot, SpecifiesLeftRightArm, HasNeck):
                              world.get_body_by_name("r_wrist_flex_joint"),
                              world.get_body_by_name("r_wrist_roll_joint")],
                 joint_positions=[-1.712, -0.256, -1.463, -2.12, 1.766, -0.07, 0.051],
-                state_type="Park",
+                state_type=StaticJointState.PARK,
                 kinematic_chains=[right_arm],
                 _world=world,
             )
 
             left_arm_park = JointState(
                 name=PrefixedName("left_park", prefix=robot.name.name),
-                joint_names=[world.get_body_by_name("l_shoulder_pan_joint"),
+                joints=[world.get_body_by_name("l_shoulder_pan_joint"),
                              world.get_body_by_name("l_shoulder_lift_joint"),
                              world.get_body_by_name("l_upper_arm_roll_joint"),
                              world.get_body_by_name("l_elbow_flex_joint"),
@@ -195,14 +188,14 @@ class PR2(AbstractRobot, SpecifiesLeftRightArm, HasNeck):
                              world.get_body_by_name("l_wrist_flex_joint"),
                              world.get_body_by_name("l_wrist_roll_joint")],
                 joint_positions=[1.712, -0.264, 1.38, -2.12, 16.996 + 3.14159, -0.073, 0.0],
-                state_type="Park",
+                state_type=StaticJointState.PARK,
                 kinematic_chains=[left_arm],
                 _world=world,
             )
 
             both_arms_park = JointState(
                 name=PrefixedName("both_park", prefix=robot.name.name),
-                joint_names=[world.get_body_by_name("l_shoulder_pan_joint"),
+                joints=[world.get_body_by_name("l_shoulder_pan_joint"),
                              world.get_body_by_name("l_shoulder_lift_joint"),
                              world.get_body_by_name("l_upper_arm_roll_joint"),
                              world.get_body_by_name("l_elbow_flex_joint"),
@@ -218,7 +211,7 @@ class PR2(AbstractRobot, SpecifiesLeftRightArm, HasNeck):
                              world.get_body_by_name("r_wrist_roll_joint")],
                 joint_positions=[1.712, -0.264, 1.38, -2.12, 16.996 + 3.14159, -0.073, 0.0,
                      -1.712, -0.256, -1.463, -2.12, 1.766, -0.07, 0.051],
-                state_type="Park",
+                state_type=StaticJointState.PARK,
                 kinematic_chains=[left_arm, right_arm],
                 _world=world,
             )
@@ -228,18 +221,18 @@ class PR2(AbstractRobot, SpecifiesLeftRightArm, HasNeck):
 
             left_gripper_open = JointState(
                 name=PrefixedName("left_gripper_open", prefix=robot.name.name),
-                joint_names=left_gripper_joints,
+                joints=left_gripper_joints,
                 joint_positions=[0.548, 0.548],
-                state_type="Open",
+                state_type=GripperState.OPEN,
                 kinematic_chains=[left_gripper],
                 _world=world,
             )
 
             left_gripper_close = JointState(
                 name=PrefixedName("left_gripper_close", prefix=robot.name.name),
-                joint_names=left_gripper_joints,
+                joints=left_gripper_joints,
                 joint_positions=[0.0, 0.0],
-                state_type="Close",
+                state_type=GripperState.CLOSE,
                 kinematic_chains=[left_gripper],
                 _world=world,
             )
@@ -249,18 +242,18 @@ class PR2(AbstractRobot, SpecifiesLeftRightArm, HasNeck):
 
             right_gripper_open = JointState(
                 name=PrefixedName("right_gripper_open", prefix=robot.name.name),
-                joint_names=right_gripper_joints,
+                joints=right_gripper_joints,
                 joint_positions=[0.548, 0.548],
-                state_type="Open",
+                state_type=GripperState.OPEN,
                 kinematic_chains=[right_gripper],
                 _world=world,
             )
 
             right_gripper_close = JointState(
                 name=PrefixedName("right_gripper_close", prefix=robot.name.name),
-                joint_names=right_gripper_joints,
+                joints=right_gripper_joints,
                 joint_positions=[0.0, 0.0],
-                state_type="Close",
+                state_type=GripperState.CLOSE,
                 kinematic_chains=[right_gripper],
                 _world=world,
             )
@@ -269,27 +262,27 @@ class PR2(AbstractRobot, SpecifiesLeftRightArm, HasNeck):
 
             torso_low = JointState(
                 name=PrefixedName("torso_low", prefix=robot.name.name),
-                joint_names=torso_joint,
+                joints=torso_joint,
                 joint_positions=[0.0],
-                state_type="Low",
+                state_type=TorsoState.LOW,
                 kinematic_chains=[torso],
                 _world=world,
             )
 
             torso_mid = JointState(
                 name=PrefixedName("torso_mid", prefix=robot.name.name),
-                joint_names=torso_joint,
+                joints=torso_joint,
                 joint_positions=[0.15],
-                state_type="Mid",
+                state_type=TorsoState.MID,
                 kinematic_chains=[torso],
                 _world=world,
             )
 
             torso_high = JointState(
                 name=PrefixedName("torso_high", prefix=robot.name.name),
-                joint_names=torso_joint,
+                joints=torso_joint,
                 joint_positions=[0.3],
-                state_type="High",
+                state_type=TorsoState.HIGH,
                 kinematic_chains=[torso],
                 _world=world,
             )

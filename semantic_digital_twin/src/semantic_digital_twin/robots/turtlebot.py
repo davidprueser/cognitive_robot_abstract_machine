@@ -12,14 +12,6 @@ class Turtlebot(AbstractRobot):
     Class that describes the Turtlebot Robot.
     """
 
-    def __hash__(self):
-        return hash(
-            tuple(
-                [self.__class__]
-                + sorted([kse.name for kse in self.kinematic_structure_entities])
-            )
-        )
-
     def load_srdf(self):
         """
         Loads the SRDF file for the Turtlebot robot, if it exists.

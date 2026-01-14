@@ -9,6 +9,7 @@ from .abstract_robot import (
     JointState
 )
 from .robot_mixins import HasArms
+from ..datastructures.definitions import StaticJointState, GripperState
 from ..datastructures.prefixed_name import PrefixedName
 from ..spatial_types import Quaternion
 from ..spatial_types.spatial_types import Vector3
@@ -20,14 +21,6 @@ class Panda(AbstractRobot, HasArms):
     """
     Class that describes the Panda Robot.
     """
-
-    def __hash__(self):
-        return hash(
-            tuple(
-                [self.__class__]
-                + sorted([kse.name for kse in self.kinematic_structure_entities])
-            )
-        )
 
     def load_srdf(self):
         """
@@ -90,12 +83,12 @@ class Panda(AbstractRobot, HasArms):
 
             arm_park = JointState(
                 name=PrefixedName("arm_park", prefix=panda.name.name),
-                joint_names=[world.get_body_by_name("joint1"), world.get_body_by_name("joint2"),
+                joints=[world.get_body_by_name("joint1"), world.get_body_by_name("joint2"),
                              world.get_body_by_name("joint3"), world.get_body_by_name("joint4"),
                              world.get_body_by_name("joint5"), world.get_body_by_name("joint6"),
                              world.get_body_by_name("joint7"), world.get_body_by_name("joint8")],
                 joint_positions=[0.0, 0.0, 0.0, -1.57079, 0.0, 1.57079, -0.7853],
-                state_type="Park",
+                state_type=StaticJointState.PARK,
                 kinematic_chains=[arm],
                 _world=world,
             )
@@ -104,18 +97,18 @@ class Panda(AbstractRobot, HasArms):
 
             gripper_open = JointState(
                 name=PrefixedName("gripper_open", prefix=panda.name.name),
-                joint_names=gripper_joints,
+                joints=gripper_joints,
                 joint_positions=[0.04, 0.04],
-                state_type="Open",
+                state_type=GripperState.OPEN,
                 kinematic_chains=[gripper],
                 _world=world,
             )
 
             gripper_close = JointState(
                 name=PrefixedName("gripper_close", prefix=panda.name.name),
-                joint_names=gripper_joints,
+                joints=gripper_joints,
                 joint_positions=[0.0, 0.0],
-                state_type="Close",
+                state_type=GripperState.CLOSE,
                 kinematic_chains=[gripper],
                 _world=world,
             )

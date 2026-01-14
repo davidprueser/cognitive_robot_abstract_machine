@@ -13,6 +13,7 @@ from .abstract_robot import (
     JointState,
 )
 from .robot_mixins import HasNeck, SpecifiesLeftRightArm
+from ..datastructures.definitions import StaticJointState, GripperState, TorsoState
 from ..datastructures.prefixed_name import PrefixedName
 from ..spatial_types import Quaternion
 from ..spatial_types.spatial_types import Vector3
@@ -24,14 +25,6 @@ class Tiago(AbstractRobot, SpecifiesLeftRightArm, HasNeck):
     """
     Class that describes the Take It And Go Robot (TIAGo).
     """
-
-    def __hash__(self):
-        return hash(
-            tuple(
-                [self.__class__]
-                + sorted([kse.name for kse in self.kinematic_structure_entities])
-            )
-        )
 
     def load_srdf(self):
         """
@@ -160,24 +153,24 @@ class Tiago(AbstractRobot, SpecifiesLeftRightArm, HasNeck):
             # Create states
             left_arm_park = JointState(
                 name=PrefixedName("left_arm_park", prefix=tiago.name.name),
-                joint_names=[world.get_body_by_name("arm_left_1_joint"), world.get_body_by_name("arm_left_2_joint"),
+                joints=[world.get_body_by_name("arm_left_1_joint"), world.get_body_by_name("arm_left_2_joint"),
                              world.get_body_by_name("arm_left_3_joint"), world.get_body_by_name("arm_left_4_joint"),
                              world.get_body_by_name("arm_left_5_joint"), world.get_body_by_name("arm_left_6_joint"),
                              world.get_body_by_name("arm_left_7_joint")],
                 joint_positions=[0.27, -1.07, 1.5, 1.96, -2.0, 1.2, 0.5],
-                state_type="Park",
+                state_type=StaticJointState.PARK,
                 kinematic_chains=[left_arm],
                 _world=world,
             )
 
             right_arm_park = JointState(
                 name=PrefixedName("right_arm_park", prefix=tiago.name.name),
-                joint_names=[world.get_body_by_name("arm_right_1_joint"), world.get_body_by_name("arm_right_2_joint"),
+                joints=[world.get_body_by_name("arm_right_1_joint"), world.get_body_by_name("arm_right_2_joint"),
                              world.get_body_by_name("arm_right_3_joint"), world.get_body_by_name("arm_right_4_joint"),
                              world.get_body_by_name("arm_right_5_joint"), world.get_body_by_name("arm_right_6_joint"),
                              world.get_body_by_name("arm_right_7_joint")],
                 joint_positions=[0.27, -1.07, 1.5, 1.96, -2.0, 1.2, 0.5],
-                state_type="Park",
+                state_type=StaticJointState.PARK,
                 kinematic_chains=[right_arm],
                 _world=world,
             )
@@ -187,18 +180,18 @@ class Tiago(AbstractRobot, SpecifiesLeftRightArm, HasNeck):
 
             left_gripper_open = JointState(
                 name=PrefixedName("left_gripper_open", prefix=tiago.name.name),
-                joint_names=left_gripper_joints,
+                joints=left_gripper_joints,
                 joint_positions=[0.048, 0.048],
-                state_type="Open",
+                state_type=GripperState.OPEN,
                 kinematic_chains=[left_gripper],
                 _world=world,
             )
 
             left_gripper_close = JointState(
                 name=PrefixedName("left_gripper_close", prefix=tiago.name.name),
-                joint_names=left_gripper_joints,
+                joints=left_gripper_joints,
                 joint_positions=[0.0, 0.0],
-                state_type="Close",
+                state_type=GripperState.CLOSE,
                 kinematic_chains=[left_gripper],
                 _world=world,
             )
@@ -208,18 +201,18 @@ class Tiago(AbstractRobot, SpecifiesLeftRightArm, HasNeck):
 
             right_gripper_open = JointState(
                 name=PrefixedName("right_gripper_open", prefix=tiago.name.name),
-                joint_names=right_gripper_joints,
+                joints=right_gripper_joints,
                 joint_positions=[0.048, 0.048],
-                state_type="Open",
+                state_type=GripperState.OPEN,
                 kinematic_chains=[right_gripper],
                 _world=world,
             )
 
             right_gripper_close = JointState(
                 name=PrefixedName("right_gripper_close", prefix=tiago.name.name),
-                joint_names=right_gripper_joints,
+                joints=right_gripper_joints,
                 joint_positions=[0.0, 0.0],
-                state_type="Close",
+                state_type=GripperState.CLOSE,
                 kinematic_chains=[right_gripper],
                 _world=world,
             )
@@ -228,27 +221,27 @@ class Tiago(AbstractRobot, SpecifiesLeftRightArm, HasNeck):
 
             torso_low = JointState(
                 name=PrefixedName("torso_low", prefix=tiago.name.name),
-                joint_names=torso_joint,
+                joints=torso_joint,
                 joint_positions=[0.3],
-                state_type="Low",
+                state_type=TorsoState.LOW,
                 kinematic_chains=[torso],
                 _world=world,
             )
 
             torso_mid = JointState(
                 name=PrefixedName("torso_mid", prefix=tiago.name.name),
-                joint_names=torso_joint,
+                joints=torso_joint,
                 joint_positions=[0.15],
-                state_type="Mid",
+                state_type=TorsoState.MID,
                 kinematic_chains=[torso],
                 _world=world,
             )
 
             torso_high = JointState(
                 name=PrefixedName("torso_high", prefix=tiago.name.name),
-                joint_names=torso_joint,
+                joints=torso_joint,
                 joint_positions=[0.0],
-                state_type="High",
+                state_type=TorsoState.HIGH,
                 kinematic_chains=[torso],
                 _world=world,
             )

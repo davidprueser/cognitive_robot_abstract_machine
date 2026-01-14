@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Self
 
 from .robot_mixins import HasArms
+from ..datastructures.definitions import StaticJointState, GripperState, TorsoState
 from ..datastructures.prefixed_name import PrefixedName
 from ..robots.abstract_robot import (
     Finger,
@@ -24,14 +25,6 @@ class Kevin(AbstractRobot, HasArms):
     """
     Class that describes the Kevin Robot.
     """
-
-    def __hash__(self):
-        return hash(
-            tuple(
-                [self.__class__]
-                + sorted([kse.name for kse in self.kinematic_structure_entities])
-            )
-        )
 
     def load_srdf(self):
         """
@@ -118,12 +111,12 @@ class Kevin(AbstractRobot, HasArms):
             # Create states
             arm_park = JointState(
                 name=PrefixedName("arm_park", prefix=kevin.name.name),
-                joint_names=[world.get_body_by_name("robot_arm_column_joint"),
+                joints=[world.get_body_by_name("robot_arm_column_joint"),
                              world.get_body_by_name("robot_arm_inner_joint"),
                              world.get_body_by_name("robot_arm_outer_joint"),
                              world.get_body_by_name("robot_arm_wrist_joint")],
                 joint_positions=[0.63, 0.03, 4.70, -1.63],
-                state_type="Park",
+                state_type=StaticJointState.PARK,
                 kinematic_chains=[arm],
                 _world=world,
             )
@@ -133,18 +126,18 @@ class Kevin(AbstractRobot, HasArms):
 
             gripper_open = JointState(
                 name=PrefixedName("gripper_open", prefix=kevin.name.name),
-                joint_names=gripper_joints,
+                joints=gripper_joints,
                 joint_positions=[0.066, 0.066],
-                state_type="Open",
+                state_type=GripperState.OPEN,
                 kinematic_chains=[gripper],
                 _world=world,
             )
 
             gripper_close = JointState(
                 name=PrefixedName("gripper_close", prefix=kevin.name.name),
-                joint_names=gripper_joints,
+                joints=gripper_joints,
                 joint_positions=[0.0, 0.0],
-                state_type="Close",
+                state_type=GripperState.CLOSE,
                 kinematic_chains=[gripper],
                 _world=world,
             )
@@ -153,27 +146,27 @@ class Kevin(AbstractRobot, HasArms):
 
             torso_low = JointState(
                 name=PrefixedName("torso_low", prefix=kevin.name.name),
-                joint_names=torso_joint,
+                joints=torso_joint,
                 joint_positions=[0.0],
-                state_type="Low",
+                state_type=TorsoState.LOW,
                 kinematic_chains=[torso],
                 _world=world,
             )
 
             torso_mid = JointState(
                 name=PrefixedName("torso_mid", prefix=kevin.name.name),
-                joint_names=torso_joint,
+                joints=torso_joint,
                 joint_positions=[0.3],
-                state_type="Mid",
+                state_type=TorsoState.MID,
                 kinematic_chains=[torso],
                 _world=world,
             )
 
             torso_high = JointState(
                 name=PrefixedName("torso_high", prefix=kevin.name.name),
-                joint_names=torso_joint,
+                joints=torso_joint,
                 joint_positions=[0.69],
-                state_type="High",
+                state_type=TorsoState.HIGH,
                 kinematic_chains=[torso],
                 _world=world,
             )

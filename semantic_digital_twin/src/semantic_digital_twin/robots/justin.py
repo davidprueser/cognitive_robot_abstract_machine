@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Self
 
 from .robot_mixins import HasNeck, SpecifiesLeftRightArm
+from ..datastructures.definitions import StaticJointState, GripperState, TorsoState
 from ..datastructures.prefixed_name import PrefixedName
 from ..robots.abstract_robot import (
     Neck,
@@ -20,19 +21,11 @@ from ..spatial_types import Quaternion, Vector3
 from ..world import World
 
 
-@dataclass
+@dataclass(eq=False)
 class Justin(AbstractRobot, SpecifiesLeftRightArm, HasNeck):
     """
     Class that describes the Justin Robot.
     """
-
-    def __hash__(self):
-        return hash(
-            tuple(
-                [self.__class__]
-                + sorted([kse.name for kse in self.kinematic_structure_entities])
-            )
-        )
 
     def load_srdf(self):
         """
@@ -200,28 +193,28 @@ class Justin(AbstractRobot, SpecifiesLeftRightArm, HasNeck):
             # Create states
             left_arm_park = JointState(
                 name=PrefixedName("left_arm_park", prefix=justin.name.name),
-                joint_names=[world.get_body_by_name("torso1_joint"), world.get_body_by_name("torso2_joint"),
+                joints=[world.get_body_by_name("torso1_joint"), world.get_body_by_name("torso2_joint"),
                              world.get_body_by_name("torso3_joint"), world.get_body_by_name("torso4_joint"),
                              world.get_body_by_name("left_arm1_joint"), world.get_body_by_name("left_arm2_joint"),
                              world.get_body_by_name("left_arm3_joint"), world.get_body_by_name("left_arm4_joint"),
                              world.get_body_by_name("left_arm5_joint"), world.get_body_by_name("left_arm6_joint"),
                              world.get_body_by_name("left_arm7_joint")],
                 joint_positions=[0.0, 0.0, 0.174533, 0.0, 0.0, -1.9, 0.0, 1.0, 0.0, -1.0, 0.0],
-                state_type="Park",
+                state_type=StaticJointState.PARK,
                 kinematic_chains=[left_arm],
                 _world=world,
             )
 
             right_arm_park = JointState(
                 name=PrefixedName("right_arm_park", prefix=justin.name.name),
-                joint_names=[world.get_body_by_name("torso1_joint"), world.get_body_by_name("torso2_joint"),
+                joints=[world.get_body_by_name("torso1_joint"), world.get_body_by_name("torso2_joint"),
                              world.get_body_by_name("torso3_joint"), world.get_body_by_name("torso4_joint"),
                              world.get_body_by_name("right_arm1_joint"), world.get_body_by_name("right_arm2_joint"),
                              world.get_body_by_name("right_arm3_joint"), world.get_body_by_name("right_arm4_joint"),
                              world.get_body_by_name("right_arm5_joint"), world.get_body_by_name("right_arm6_joint"),
                              world.get_body_by_name("right_arm7_joint")],
                 joint_positions=[0.0, 0.0, 0.174533, 0.0, 0.0, -1.9, 0.0, 1.0, 0.0, -1.0, 0.0],
-                state_type="Park",
+                state_type=StaticJointState.PARK,
                 kinematic_chains=[right_arm],
                 _world=world,
             )
@@ -249,20 +242,20 @@ class Justin(AbstractRobot, SpecifiesLeftRightArm, HasNeck):
 
             left_gripper_open = JointState(
                 name=PrefixedName("left_gripper_open", prefix=justin.name.name),
-                joint_names=left_gripper_joints,
+                joints=left_gripper_joints,
                 joint_positions=[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
                                  0.0, 0.0, 0.0, 0.0],
-                state_type="Open",
+                state_type=GripperState.OPEN,
                 kinematic_chains=[left_gripper],
                 _world=world,
             )
 
             left_gripper_close = JointState(
                 name=PrefixedName("left_gripper_close", prefix=justin.name.name),
-                joint_names=left_gripper_joints,
+                joints=left_gripper_joints,
                 joint_positions=[0.0, 0.523599, 1.50098, 1.76278, 1.76278, 0.0, 0.523599, 1.50098, 1.76278, 1.76278,
                                  0.0, 0.523599, 1.50098, 1.76278, 1.76278, 0.0, 0.523599, 1.50098, 1.76278, 1.76278],
-                state_type="Close",
+                state_type=GripperState.CLOSE,
                 kinematic_chains=[left_gripper],
                 _world=world,
             )
@@ -290,20 +283,20 @@ class Justin(AbstractRobot, SpecifiesLeftRightArm, HasNeck):
 
             right_gripper_open = JointState(
                 name=PrefixedName("right_gripper_open", prefix=justin.name.name),
-                joint_names=right_gripper_joints,
+                joints=right_gripper_joints,
                 joint_positions=[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
                                  0.0, 0.0, 0.0, 0.0],
-                state_type="Open",
+                state_type=GripperState.OPEN,
                 kinematic_chains=[right_gripper],
                 _world=world,
             )
 
             right_gripper_close = JointState(
                 name=PrefixedName("right_gripper_close", prefix=justin.name.name),
-                joint_names=right_gripper_joints,
+                joints=right_gripper_joints,
                 joint_positions=[0.0, 0.523599, 1.50098, 1.76278, 1.76278, 0.0, 0.523599, 1.50098, 1.76278, 1.76278,
                                  0.0, 0.523599, 1.50098, 1.76278, 1.76278, 0.0, 0.523599, 1.50098, 1.76278, 1.76278],
-                state_type="Close",
+                state_type=GripperState.CLOSE,
                 kinematic_chains=[right_gripper],
                 _world=world,
             )
@@ -314,27 +307,27 @@ class Justin(AbstractRobot, SpecifiesLeftRightArm, HasNeck):
 
             torso_low = JointState(
                 name=PrefixedName("torso_low", prefix=justin.name.name),
-                joint_names=torso_joints,
+                joints=torso_joints,
                 joint_positions=[-0.9, 2.33874, -1.57],
-                state_type="Low",
+                state_type=TorsoState.LOW,
                 kinematic_chains=[torso],
                 _world=world,
             )
 
             torso_mid = JointState(
                 name=PrefixedName("torso_mid", prefix=justin.name.name),
-                joint_names=torso_joints,
+                joints=torso_joints,
                 joint_positions=[-0.8, 1.57, -0.77],
-                state_type="Mid",
+                state_type=TorsoState.MID,
                 kinematic_chains=[torso],
                 _world=world,
             )
 
             torso_high = JointState(
                 name=PrefixedName("torso_high", prefix=justin.name.name),
-                joint_names=torso_joints,
+                joints=torso_joints,
                 joint_positions=[0.0, 0.174533, 0.0],
-                state_type="High",
+                state_type=TorsoState.HIGH,
                 kinematic_chains=[torso],
                 _world=world,
             )

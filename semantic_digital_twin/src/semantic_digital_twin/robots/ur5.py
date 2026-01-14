@@ -9,6 +9,7 @@ from .abstract_robot import (
     JointState,
 )
 from .robot_mixins import HasArms
+from ..datastructures.definitions import StaticJointState, GripperState
 from ..datastructures.prefixed_name import PrefixedName
 from ..spatial_types import Quaternion
 from ..spatial_types.spatial_types import Vector3
@@ -20,14 +21,6 @@ class UR5(AbstractRobot, HasArms):
     """
     Class that describes the UR5 Robot.
     """
-
-    def __hash__(self):
-        return hash(
-            tuple(
-                [self.__class__]
-                + sorted([kse.name for kse in self.kinematic_structure_entities])
-            )
-        )
 
     def load_srdf(self):
         """
@@ -91,14 +84,14 @@ class UR5(AbstractRobot, HasArms):
             # Create states
             arm_park = JointState(
                 name=PrefixedName("arm_park", prefix=ur5.name.name),
-                joint_names=[world.get_body_by_name("shoulder_pan_joint"),
+                joints=[world.get_body_by_name("shoulder_pan_joint"),
                              world.get_body_by_name("shoulder_lift_joint"),
                              world.get_body_by_name("elbow_joint"),
                              world.get_body_by_name("wrist_1_joint"),
                              world.get_body_by_name("wrist_2_joint"),
                              world.get_body_by_name("wrist_3_joint")],
                 joint_positions=[0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-                state_type="Park",
+                state_type=StaticJointState.PARK,
                 kinematic_chains=[arm],
                 _world=world,
             )
@@ -112,18 +105,18 @@ class UR5(AbstractRobot, HasArms):
 
             gripper_open = JointState(
                 name=PrefixedName("gripper_open", prefix=ur5.name.name),
-                joint_names=gripper_joints,
+                joints=gripper_joints,
                 joint_positions=[0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-                state_type="Open",
+                state_type=GripperState.OPEN,
                 kinematic_chains=[gripper],
                 _world=world,
             )
 
             gripper_close = JointState(
                 name=PrefixedName("gripper_close", prefix=ur5.name.name),
-                joint_names=gripper_joints,
+                joints=gripper_joints,
                 joint_positions=[1.0, 1.0, 1.0, 1.0, 1.0, 1.0],
-                state_type="Close",
+                state_type=GripperState.CLOSE,
                 kinematic_chains=[gripper],
                 _world=world,
             )

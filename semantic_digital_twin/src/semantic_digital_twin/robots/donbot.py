@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Self
 
 from .robot_mixins import HasNeck, HasArms
+from ..datastructures.definitions import StaticJointState, GripperState, TorsoState
 from ..datastructures.prefixed_name import PrefixedName
 from ..robots.abstract_robot import (
     Neck,
@@ -25,14 +26,6 @@ class Donbot(AbstractRobot, HasArms, HasNeck):
     """
     Class that describes the Donbot Robot.
     """
-
-    def __hash__(self):
-        return hash(
-            tuple(
-                [self.__class__]
-                + sorted([kse.name for kse in self.kinematic_structure_entities])
-            )
-        )
 
     def load_srdf(self):
         """
@@ -126,28 +119,28 @@ class Donbot(AbstractRobot, HasArms, HasNeck):
             # Create states
             arm_park = JointState(
                 name=PrefixedName("arm_park", prefix=donbot.name.name),
-                joint_names=[world.get_body_by_name("ur5_shoulder_pan_joint"),
+                joints=[world.get_body_by_name("ur5_shoulder_pan_joint"),
                              world.get_body_by_name("ur5_shoulder_lift_joint"),
                              world.get_body_by_name("ur5_elbow_joint"),
                              world.get_body_by_name("ur5_wrist_1_joint"),
                              world.get_body_by_name("ur5_wrist_2_joint"),
                              world.get_body_by_name("ur5_wrist_3_joint")],
                 joint_positions=[3.23, -1.51, -1.57, 0.0, 1.57, -1.65],
-                state_type="Park",
+                state_type=StaticJointState.PARK,
                 kinematic_chains=[arm],
                 _world=world,
             )
 
             looking = JointState(
                 name=PrefixedName("looking", prefix=donbot.name.name),
-                joint_names=[world.get_body_by_name("ur5_shoulder_pan_joint"),
+                joints=[world.get_body_by_name("ur5_shoulder_pan_joint"),
                              world.get_body_by_name("ur5_shoulder_lift_joint"),
                              world.get_body_by_name("ur5_elbow_joint"),
                              world.get_body_by_name("ur5_wrist_1_joint"),
                              world.get_body_by_name("ur5_wrist_2_joint"),
                              world.get_body_by_name("ur5_wrist_3_joint")],
                 joint_positions=[0.0, -0.35, -2.15, -0.7, 1.57, -1.57],
-                state_type="Park",
+                state_type=StaticJointState.PARK,
                 kinematic_chains=[arm],
                 _world=world,
             )
@@ -157,18 +150,18 @@ class Donbot(AbstractRobot, HasArms, HasNeck):
 
             gripper_open = JointState(
                 name=PrefixedName("gripper_open", prefix=donbot.name.name),
-                joint_names=gripper_joints,
+                joints=gripper_joints,
                 joint_positions=[0.109, -0.055],
-                state_type="Open",
+                state_type=GripperState.OPEN,
                 kinematic_chains=[gripper],
                 _world=world,
             )
 
             gripper_close = JointState(
                 name=PrefixedName("gripper_close", prefix=donbot.name.name),
-                joint_names=gripper_joints,
+                joints=gripper_joints,
                 joint_positions=[0.0065, -0.0027],
-                state_type="Close",
+                state_type=GripperState.CLOSE,
                 kinematic_chains=[gripper],
                 _world=world,
             )
@@ -177,27 +170,27 @@ class Donbot(AbstractRobot, HasArms, HasNeck):
 
             torso_low = JointState(
                 name=PrefixedName("torso_low", prefix=donbot.name.name),
-                joint_names=torso_joint,
+                joints=torso_joint,
                 joint_positions=[0.0],
-                state_type="Low",
+                state_type=TorsoState.LOW,
                 kinematic_chains=[torso],
                 _world=world,
             )
 
             torso_mid = JointState(
                 name=PrefixedName("torso_mid", prefix=donbot.name.name),
-                joint_names=torso_joint,
+                joints=torso_joint,
                 joint_positions=[0.0],
-                state_type="Mid",
+                state_type=TorsoState.MID,
                 kinematic_chains=[torso],
                 _world=world,
             )
 
             torso_high = JointState(
                 name=PrefixedName("torso_high", prefix=donbot.name.name),
-                joint_names=torso_joint,
+                joints=torso_joint,
                 joint_positions=[0.0],
-                state_type="High",
+                state_type=TorsoState.HIGH,
                 kinematic_chains=[torso],
                 _world=world,
             )

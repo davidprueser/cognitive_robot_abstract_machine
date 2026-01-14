@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Self
 
 from .robot_mixins import HasNeck, SpecifiesLeftRightArm
+from ..datastructures.definitions import StaticJointState, GripperState, TorsoState
 from ..datastructures.prefixed_name import PrefixedName
 from ..robots.abstract_robot import (
     Neck,
@@ -20,19 +21,11 @@ from ..spatial_types import Quaternion, Vector3
 from ..world import World
 
 
-@dataclass
+@dataclass(eq=False)
 class ICub3(AbstractRobot, SpecifiesLeftRightArm, HasNeck):
     """
     Class that describes the iCub3 Robot.
     """
-
-    def __hash__(self):
-        return hash(
-            tuple(
-                [self.__class__]
-                + sorted([kse.name for kse in self.kinematic_structure_entities])
-            )
-        )
 
     def load_srdf(self):
         """
@@ -201,26 +194,26 @@ class ICub3(AbstractRobot, SpecifiesLeftRightArm, HasNeck):
             # Create states
             left_arm_park = JointState(
                 name=PrefixedName("left_arm_park", prefix=icub3.name.name),
-                joint_names=[world.get_body_by_name("torso_roll"), world.get_body_by_name("torso_pitch"),
+                joints=[world.get_body_by_name("torso_roll"), world.get_body_by_name("torso_pitch"),
                              world.get_body_by_name("torso_yaw"), world.get_body_by_name("l_shoulder_pitch"),
                              world.get_body_by_name("l_shoulder_roll"), world.get_body_by_name("l_shoulder_pitch"),
                              world.get_body_by_name("l_elbow"), world.get_body_by_name("l_wrist_prosup"),
                              world.get_body_by_name("l_wrist_pitch"), world.get_body_by_name("l_wrist_yaw")],
                 joint_positions=[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-                state_type="Park",
+                state_type=StaticJointState.PARK,
                 kinematic_chains=[left_arm],
                 _world=world,
             )
 
             right_arm_park = JointState(
                 name=PrefixedName("right_arm_park", prefix=icub3.name.name),
-                joint_names=[world.get_body_by_name("torso_roll"), world.get_body_by_name("torso_pitch"),
+                joints=[world.get_body_by_name("torso_roll"), world.get_body_by_name("torso_pitch"),
                              world.get_body_by_name("torso_yaw"), world.get_body_by_name("r_shoulder_pitch"),
                              world.get_body_by_name("r_shoulder_roll"), world.get_body_by_name("r_shoulder_pitch"),
                              world.get_body_by_name("r_elbow"), world.get_body_by_name("r_wrist_prosup"),
                              world.get_body_by_name("r_wrist_pitch"), world.get_body_by_name("r_wrist_yaw")],
                 joint_positions=[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-                state_type="Park",
+                state_type=StaticJointState.PARK,
                 kinematic_chains=[right_arm],
                 _world=world,
             )
@@ -248,23 +241,23 @@ class ICub3(AbstractRobot, SpecifiesLeftRightArm, HasNeck):
 
             left_gripper_open = JointState(
                 name=PrefixedName("left_gripper_open", prefix=icub3.name.name),
-                joint_names=left_gripper_joints,
+                joints=left_gripper_joints,
                 joint_positions=[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
                                  0.0, 0.0, 0.0, 0.0, 0.0],
-                state_type="Open",
+                state_type=GripperState.OPEN,
                 kinematic_chains=[left_gripper],
                 _world=world,
             )
 
             left_gripper_close = JointState(
                 name=PrefixedName("left_gripper_close", prefix=icub3.name.name),
-                joint_names=left_gripper_joints,
+                joints=left_gripper_joints,
                 joint_positions=[1.5707963267948966, 1.5707963267948966, 1.5707963267948966, 1.5707963267948966,
                                  -0.3490658503988659, 1.5707963267948966, 1.5707963267948966, 1.5707963267948966,
                                  0.3490658503988659, 1.5707963267948966, 1.5707963267948966, 1.5707963267948966,
                                  0.3490658503988659, 1.5707963267948966, 1.5707963267948966, 1.5707963267948966,
                                  0.3490658503988659, 1.5707963267948966, 1.5707963267948966, 1.5707963267948966],
-                state_type="Close",
+                state_type=GripperState.CLOSE,
                 kinematic_chains=[left_gripper],
                 _world=world,
             )
@@ -292,23 +285,23 @@ class ICub3(AbstractRobot, SpecifiesLeftRightArm, HasNeck):
 
             right_gripper_open = JointState(
                 name=PrefixedName("right_gripper_open", prefix=icub3.name.name),
-                joint_names=right_gripper_joints,
+                joints=right_gripper_joints,
                 joint_positions=[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
                                  0.0, 0.0, 0.0, 0.0, 0.0],
-                state_type="Open",
+                state_type=GripperState.OPEN,
                 kinematic_chains=[right_gripper],
                 _world=world,
             )
 
             right_gripper_close = JointState(
                 name=PrefixedName("right_gripper_close", prefix=icub3.name.name),
-                joint_names=right_gripper_joints,
+                joints=right_gripper_joints,
                 joint_positions=[1.5707963267948966, 1.5707963267948966, 1.5707963267948966, 1.5707963267948966,
                                  -0.3490658503988659, 1.5707963267948966, 1.5707963267948966, 1.5707963267948966,
                                  0.3490658503988659, 1.5707963267948966, 1.5707963267948966, 1.5707963267948966,
                                  0.3490658503988659, 1.5707963267948966, 1.5707963267948966, 1.5707963267948966,
                                  0.3490658503988659, 1.5707963267948966, 1.5707963267948966, 1.5707963267948966],
-                state_type="Close",
+                state_type=GripperState.CLOSE,
                 kinematic_chains=[right_gripper],
                 _world=world,
             )
@@ -317,27 +310,27 @@ class ICub3(AbstractRobot, SpecifiesLeftRightArm, HasNeck):
 
             torso_low = JointState(
                 name=PrefixedName("torso_low", prefix=icub3.name.name),
-                joint_names=torso_joint,
+                joints=torso_joint,
                 joint_positions=[0.0],
-                state_type="Low",
+                state_type=TorsoState.LOW,
                 kinematic_chains=[torso],
                 _world=world,
             )
 
             torso_mid = JointState(
                 name=PrefixedName("torso_mid", prefix=icub3.name.name),
-                joint_names=torso_joint,
+                joints=torso_joint,
                 joint_positions=[0.0],
-                state_type="Mid",
+                state_type=TorsoState.MID,
                 kinematic_chains=[torso],
                 _world=world,
             )
 
             torso_high = JointState(
                 name=PrefixedName("torso_high", prefix=icub3.name.name),
-                joint_names=torso_joint,
+                joints=torso_joint,
                 joint_positions=[0.0],
-                state_type="High",
+                state_type=TorsoState.HIGH,
                 kinematic_chains=[torso],
                 _world=world,
             )

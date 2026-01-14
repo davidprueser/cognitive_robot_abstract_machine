@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from abc import abstractmethod, ABC
 from dataclasses import dataclass, field
-from typing import List
+from itertools import product
 
 from typing_extensions import (
     Iterable,
@@ -12,8 +12,11 @@ from typing_extensions import (
     Optional,
     Self,
     DefaultDict,
+    List
 )
 
+from ..datastructures.definitions import JointStateType
+from ..collision_checking.collision_detector import CollisionCheck
 from ..datastructures.prefixed_name import PrefixedName
 from ..spatial_types.derivatives import DerivativeMap
 from ..spatial_types.spatial_types import (
@@ -28,6 +31,7 @@ from ..world_description.connections import (
 from ..world_description.world_entity import (
     Body,
     RootedSemanticAnnotation,
+    Agent,
     Connection,
     CollisionCheckingConfig,
 )
@@ -54,7 +58,7 @@ class SemanticRobotAnnotation(RootedSemanticAnnotation, ABC):
 
     def __post_init__(self):
         if self._world is not None:
-            self._world.add_semantic_annotation(self, skip_duplicates=True)
+            self._world.add_semantic_annotation(self)
 
     @abstractmethod
     def assign_to_robot(self, robot: AbstractRobot):
@@ -369,9 +373,9 @@ class JointState(ABC):
     The identifier for this joint state.
     """
 
-    joint_names: List[Body]
+    joints: List[Connection]
     """
-    Names of the joints in this state
+    The joints involved in this state
     """
 
     joint_positions: List[float]
@@ -379,9 +383,9 @@ class JointState(ABC):
     Position of the joints in this state, must correspond to the joint_names
     """
 
-    state_type: str
+    state_type: JointStateType
     """
-    Type of the joint state (e.g., "Park", "Open")
+    Type of the joint state (e.g., "Park", "Open" (for gripper))
     """
 
     kinematic_chains: List[KinematicChain]
@@ -404,7 +408,7 @@ class JointState(ABC):
         Applies the joint state to the robot in the given world.
         :param world: The world in which the robot is located.
         """
-        for joint_name, joint_position in zip(self.joint_names, self.joint_positions):
+        for joint_name, joint_position in zip(self.joints, self.joint_positions):
             dof = list(world.get_connection_by_name(joint_name).dofs)[0]
             world.state[dof.name].position = joint_position
         world.notify_state_change()
@@ -427,10 +431,10 @@ class JointState(ABC):
         Returns the hash of the joint state, which is based on the joint names and positions.
         This allows for proper comparison and storage in sets or dictionaries.
         """
-        return hash((self.name, self.joint_names, self.joint_positions))
+        return hash((self.name, self.joints, self.joint_positions))
 
 @dataclass
-class AbstractRobot(RootedSemanticAnnotation, ABC):
+class AbstractRobot(Agent, ABC):
     """
     Specification of an abstract robot. A robot consists of:
     - a root body, which is the base of the robot
@@ -475,6 +479,14 @@ class AbstractRobot(RootedSemanticAnnotation, ABC):
         kw_only=True,
         default_factory=lambda: CollisionCheckingConfig(buffer_zone_distance=0.05),
     )
+
+
+    @abstractmethod
+    def setup_collision_config(self):
+        """
+        Loads the SRDF file for the robot, if it exists. This method is expected to be implemented in subclasses.
+        """
+        ...
 
     @abstractmethod
     def load_srdf(self):
@@ -586,6 +598,25 @@ class AbstractRobot(RootedSemanticAnnotation, ABC):
             self.sensor_chains.add(kinematic_chain)
         self._semantic_annotations.add(kinematic_chain)
         kinematic_chain.assign_to_robot(self)
+
+    def create_collision_matrix_for_env(self) -> List[CollisionCheck]:
+        """
+        Cretaes a collision matrix between the bodies of the robot and the bodies of the environment (environment is
+        everything that is not the robot). Only bodes with collision will be used
+        """
+        all_bodies = self._world.bodies_with_enabled_collision
+        env_bodies = set(all_bodies) - set(self.bodies)
+        collision_matrx = []
+        for body_a, body_b in product(self.bodies, env_bodies):
+            collision_matrx.append(
+                CollisionCheck(
+                    body_a=body_a,
+                    body_b=body_b,
+                    distance=body_a.get_collision_config().buffer_zone_distance,
+                    _world=self._world,
+                )
+            )
+        return collision_matrx
 
     def add_joint_states(self, joint_states: List[JointState]):
         """
