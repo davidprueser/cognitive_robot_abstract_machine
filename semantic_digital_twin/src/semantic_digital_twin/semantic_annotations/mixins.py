@@ -22,6 +22,11 @@ from typing_extensions import (
 from krrood.ormatic.utils import classproperty
 from ..datastructures.prefixed_name import PrefixedName
 from ..datastructures.variables import SpatialVariables
+from ..exceptions import (
+    MissingConnectionType,
+    InvalidConnectionLimits,
+    MismatchingWorld,
+)
 from ..spatial_types import Point3, HomogeneousTransformationMatrix, Vector3
 from ..spatial_types.derivatives import DerivativeMap
 from ..utils import Direction
@@ -113,10 +118,7 @@ class HasRootKinematicStructureEntity(SemanticAnnotation, ABC):
         :return: The created semantic annotation instance.
         """
         if connection_type is None:
-            raise ValueError(
-                f"connection_type must not be None. You probably forgot to set the class variable "
-                f"_parent_connection_type for class {cls.__name__}."
-            )
+            raise MissingConnectionType(cls)
 
         self_instance = cls(name=name, root=kinematic_structure_entity)
         world_root_T_self = (
@@ -133,9 +135,7 @@ class HasRootKinematicStructureEntity(SemanticAnnotation, ABC):
                     connection_type
                 )
                 if limits.lower_limit.position >= limits.upper_limit.position:
-                    raise ValueError(
-                        f"Lower limit for {name} must be strictly less than upper limit."
-                    )
+                    raise InvalidConnectionLimits(name, limits)
                 dof = DegreeOfFreedom(
                     name=PrefixedName("dof", str(name)),
                     upper_limits=limits.upper_limit,
@@ -246,9 +246,7 @@ class HasRootKinematicStructureEntity(SemanticAnnotation, ABC):
         :param new_parent_entity: The new parent entity to attach.
         """
         if new_parent_entity._world != self._world:
-            raise ValueError(
-                "Semantic annotation must be part of the same world as the parent."
-            )
+            raise MismatchingWorld(self._world, new_parent_entity._world)
         if new_parent_entity == self.root.parent_kinematic_structure_entity:
             return
 
@@ -276,7 +274,7 @@ class HasRootKinematicStructureEntity(SemanticAnnotation, ABC):
         :param child_kinematic_structure_entity: The new child entity to attach.
         """
         if child_kinematic_structure_entity._world != self._world:
-            raise ValueError("Hinge must be part of the same world as the door.")
+            raise MismatchingWorld(self._world, child_kinematic_structure_entity._world)
 
         if self == child_kinematic_structure_entity.parent_kinematic_structure_entity:
             return

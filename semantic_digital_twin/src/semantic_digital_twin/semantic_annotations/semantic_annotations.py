@@ -28,7 +28,11 @@ from .mixins import (
 )
 from ..datastructures.prefixed_name import PrefixedName
 from ..datastructures.variables import SpatialVariables
-from ..exceptions import InvalidPlaneDimensions, InvalidAxisError
+from ..exceptions import (
+    InvalidPlaneDimensions,
+    InvalidAxisError,
+    MissingSemanticAnnotationError,
+)
 from ..reasoning.predicates import InsideOf
 from ..spatial_types import Point3, HomogeneousTransformationMatrix, Vector3
 from ..utils import Direction
@@ -274,11 +278,7 @@ class Door(HasHandle, HasHinge):
         :return: The transformation matrix defining the door's pivot point.
         """
         if self.handle is None:
-            raise ValueError("Door has no handle.")
-
-        door_collision = self.root.collision
-        if len(door_collision) != 1:
-            raise ValueError("Door has more than one collision shape.")
+            raise MissingSemanticAnnotationError(self.__class__, Handle)
 
         connection = self.handle.root.parent_connection
         door_P_handle: NDArray[float] = (

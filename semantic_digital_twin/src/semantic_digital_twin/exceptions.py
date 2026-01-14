@@ -10,7 +10,6 @@ from typing_extensions import (
     Type,
     TYPE_CHECKING,
     Callable,
-    Tuple,
     Union,
     Any,
 )
@@ -29,6 +28,8 @@ if TYPE_CHECKING:
     )
     from .spatial_types.spatial_types import FloatVariable, SymbolicMathType
     from .spatial_types import Vector3
+    from .semantic_annotations.mixins import HasRootKinematicStructureEntity
+    from .world_description.degree_of_freedom import DegreeOfFreedomLimits
 
 
 @dataclass
@@ -125,6 +126,45 @@ class UsageError(LogicalError):
     """
     An exception raised when an incorrect usage of the API is encountered.
     """
+
+
+@dataclass
+class MissingConnectionType(UsageError):
+    clazz: Type[HasRootKinematicStructureEntity]
+
+    def __post_init__(self):
+
+        self.message = f"connection_type must not be None. You probably forgot to set the class variable _parent_connection_type for class {self.clazz.__name__}."
+
+
+@dataclass
+class InvalidConnectionLimits(UsageError):
+    name: PrefixedName
+    limits: DegreeOfFreedomLimits
+
+    def __post_init__(self):
+        self.message = f"Lower limit for {self.name} must be strictly less than upper limit. Given limits: {self.limits}."
+
+
+@dataclass
+class MismatchingWorld(UsageError):
+    expected_world: World
+    given_world: World
+
+    def __post_init__(self):
+        self.message = f"The two entities have mismatching worlds. Expected world: {self.expected_world}, given world: {self.given_world}"
+
+
+@dataclass
+class MissingSemanticAnnotationError(UsageError):
+    semantic_annotation_class: Type[SemanticAnnotation]
+    missing_semantic_annotation_class: Type[SemanticAnnotation]
+
+    def __post_init__(self):
+        self.message = (
+            f"The semantic annotation of type {self.missing_semantic_annotation_class.__name__} is required"
+            f" by {self.semantic_annotation_class.__name__}, but is missing."
+        )
 
 
 @dataclass
