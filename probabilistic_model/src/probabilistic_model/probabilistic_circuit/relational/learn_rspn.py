@@ -1,33 +1,7 @@
 from __future__ import annotations
-
-from dataclasses import dataclass
-from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple, Type
-
-import math
-
-import numpy as np
 import pandas as pd
-from matplotlib import pyplot as plt
-
-from random_events.variable import Continuous, Integer
-
-from probabilistic_model.distributions import (
-    BernoulliDistribution,
-    GaussianDistribution,
-    UnivariateDistribution,
-)
-from probabilistic_model.probabilistic_circuit.rx.probabilistic_circuit import (
-    ProbabilisticCircuit,
-    ProductUnit,
-    SumUnit,
-    leaf,
-)
-
+from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple, Type
 from probabilistic_model.probabilistic_circuit.relational.rspns import (
-    CLASS_SCHEMA,
-    DecomposedClass,
-    RSPNPredicate,
-    ExchangeableDistributionTemplate,
     RSPNTemplate,
 )
 from ...learning.jpt.jpt import JPT
@@ -40,35 +14,29 @@ def _is_part(attribute, part_decomposition) -> bool:
     return attribute in unique_parts_keys or attribute in exchangeable_parts_keys
 
 
-# def _learn_child(C_child: Type, T: Sequence[Any], cfg: LearnConfig) -> ProductUnit | SumUnit:
-#     # Recursively learn for child class using its full scope V_child
-#     schema = CLASS_SCHEMA.get(C_child)
-#     if schema is None:
-#         raise ValueError(f"No schema registered for class {C_child.__name__}")
-#     V_child: List[str] = list(schema.attributes) + list(schema.unique_parts) + list(schema.exchangeable_parts)
-#     return LearnRSPN(C_child, T, V_child, cfg)
-
-
 def _is_attribute(attribute, part_decomp) -> bool:
     return not _is_part(attribute, part_decomp)
 
 
-def is_aggregate_statistics(func):
-    return getattr(func, "_is_aggregate_statistics", False)
+def is_aggregate_statistics(func: Callable) -> bool:
+    return hasattr(func, "_is_aggregate_statistics")
 
 
-def get_aggregate_statistics(instance):
+def get_aggregate_statistics(instance: Any) -> List[Tuple[Any, str]]:
     statistics = []
     for name in dir(instance):
         if name.startswith("__"):
             continue
-        try:
-            attr = getattr(instance, name)
-        except Exception:
+
+        attr = getattr(instance, name)
+
+        if not callable(attr):
             continue
-        if callable(attr) and is_aggregate_statistics(attr):
-            statistics.append(attr())
+
+        if not is_aggregate_statistics(attr):
             continue
+
+        statistics.append((attr(), attr._statistic_name))
 
     return statistics
 
@@ -88,67 +56,30 @@ def LearnRSPN(cls, instances, class_spec) -> RSPNTemplate:
     if not isinstance(instances, list):
         instances = [instances]
 
-    attribute_values = {}
-    relation_values = {}
-    unique_values = {}
-    exchangeable_values = {}
-
     for instance in instances:
         aggregation_values = get_aggregate_statistics(instance)
         assert isinstance(instance, cls)
 
         if len(class_spec["attributes"]) > 0:
             for attribute in class_spec["attributes"]:
+                value = getattr(instance, attribute)
                 if attribute not in df_data:
-                    df_data[attribute] = [getattr(instance, attribute)]
+                    df_data[attribute] = [value]
                 else:
-                    # attribute_values[attribute] += getattr(instance, attribute)
-                    df_data[attribute].append(getattr(instance, attribute))
+                    df_data[attribute].append(value)
 
-        if len(class_spec["relations"]) > 0:
-            for relation in class_spec["relations"]:
-                # relation_values += [value for value, type in aggregation_values if type == relation]
-                if relation not in df_data:
-                    df_data[relation] = [
-                        value for value, type in aggregation_values if type == relation
-                    ]
-                else:
-                    df_data[relation] += [
-                        value for value, type in aggregation_values if type == relation
-                    ]
-
-        if len(class_spec["unique_parts"]) > 0:
-            for unique_part in class_spec["unique_parts"]:
-                # unique_values += [value for value, type in aggregation_values if type == unique_part]
-                if unique_part not in df_data:
-                    df_data[unique_part] = [
+        for category in ["relations", "unique_parts", "exchangeable_parts"]:
+            if len(class_spec[category]) > 0:
+                for item in class_spec[category]:
+                    values = [
                         value
-                        for value, type in aggregation_values
-                        if type == unique_part
+                        for value, statistic_type in aggregation_values
+                        if statistic_type == item
                     ]
-                else:
-                    df_data[unique_part] += [
-                        value
-                        for value, type in aggregation_values
-                        if type == unique_part
-                    ]
-
-        if len(class_spec["exchangeable_parts"]) > 0:
-            for exchangeable_part in class_spec["exchangeable_parts"]:
-                # exchangeable_values += [value for value, type in aggregation_values if type == exchangeable_part]
-                if exchangeable_part not in df_data:
-                    df_data[exchangeable_part] = [
-                        value
-                        for value, type in aggregation_values
-                        if type == exchangeable_part
-                    ]
-                else:
-                    df_data[exchangeable_part] += [
-                        value
-                        for value, type in aggregation_values
-                        if type == exchangeable_part
-                    ]
-                x = 0
+                    if item not in df_data:
+                        df_data[item] = values
+                    else:
+                        df_data[item] += values
 
     df = pd.DataFrame(df_data)
     variables = infer_variables_from_dataframe(df)
@@ -158,30 +89,3 @@ def LearnRSPN(cls, instances, class_spec) -> RSPNTemplate:
     # jpt.plot_structure()
     # plt.show()
     return rspn
-
-    # # Collect a flat table (df_data) of attributes and aggregation statistics
-    # df_data: Dict[str, List[float]] = {}
-    #
-    # # for instance in instance:
-    # fields = getattr(instance, "__dataclass_fields__", {})
-    # for attribute in fields.keys():
-    #     if _is_attribute(attribute, cls):
-    #         attribute_value = getattr(instance, attribute)
-    #         if isinstance(attribute_value, list):
-    #             assert len(attribute_value) >= 0
-    #             values = get_aggregate_statistics(instance)
-    #             for value, type in values:
-    #                 if type == attribute:
-    #                     df_data[attribute] = [value]
-    #             # df_data[attribute] = values
-    #             continue
-    #         else:
-    #             if isinstance(attribute_value, bool):
-    #                 values = float(getattr(instance, attribute))
-    #             else:
-    #                 values = getattr(instance, attribute)
-    #             df_data[attribute] = [values]
-    #             continue
-    #
-    #     elif _is_part(attribute, cls):
-    #         continue

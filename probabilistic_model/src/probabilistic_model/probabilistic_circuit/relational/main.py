@@ -1,13 +1,9 @@
-import pandas as pd
 from probabilistic_model.probabilistic_circuit.relational.learn_rspn import (
     LearnRSPN,
 )
 
-# from krrood.entity_query_language.entity import let, an, entity
 from matplotlib import pyplot as plt
 
-from probabilistic_model.learning.jpt.jpt import JPT
-from probabilistic_model.learning.jpt.variables import infer_variables_from_dataframe
 from probabilistic_model.probabilistic_circuit.relational.rspns import (
     Person,
     Government,
@@ -16,14 +12,9 @@ from probabilistic_model.probabilistic_circuit.relational.rspns import (
     Region,
     Adjacent,
     Conflict,
-    nation_part_decomposition,
     RSPNTemplate,
-    region_part_decomposition,
     class_spec_nation,
     class_spec_region,
-)
-from probabilistic_model.probabilistic_circuit.rx.probabilistic_circuit import (
-    ProbabilisticCircuit,
 )
 
 
@@ -66,15 +57,20 @@ def example():
     #     )
     # )
 
-    template = RSPNTemplate(class_spec=class_spec_region)
-    template.probabilistic_circuit.plot_structure()
+    region_template = RSPNTemplate(class_spec=class_spec_region)
+    region_template.probabilistic_circuit.plot_structure()
     plt.show()
-    # for part in template.sub_rspns:
-    #     part.probabilistic_circuit.plot_structure()
-    #     plt.show()
 
-    grounded = template.ground(region)
+    nation_template = RSPNTemplate(class_spec=class_spec_nation)
+    nation_template.probabilistic_circuit.plot_structure()
+    plt.show()
+
+    grounded = region_template.ground(region)
     grounded.probabilistic_circuit.plot_structure()
+    plt.show()
+
+    grounded_nation = nation_template.ground(n1)
+    grounded_nation.probabilistic_circuit.plot_structure()
     plt.show()
 
     # learned_nation = LearnRSPN(Region, region, class_spec_region)

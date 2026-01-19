@@ -1,4 +1,5 @@
 from __future__ import annotations
+from krrood.entity_query_language.symbol_graph import SymbolGraph
 from typing import Dict, Optional, Type, Iterable
 from dataclasses import dataclass, field
 from typing import List
@@ -20,10 +21,18 @@ from probabilistic_model.probabilistic_circuit.rx.probabilistic_circuit import (
 )
 
 
-def aggregation_statistic(func):
-    func._is_aggregate_statistics = True
+def aggregation_statistic(name: str):
+    """
+    Decorator to mark a method as an aggregate statistic.
+    :param name: The name of the relation/part this statistic belongs to.
+    """
 
-    return func
+    def decorator(func):
+        func._is_aggregate_statistics = True
+        func._statistic_name = name
+        return func
+
+    return decorator
 
 
 @dataclass
@@ -55,15 +64,15 @@ class Region(Symbol):
     adjacency: List[Adjacent]
     conflicts: List[Conflict]
 
-    @aggregation_statistic
+    @aggregation_statistic("adjacency")
     def adjacency_density(self):
-        return len(self.adjacency) / len(self.nations), "adjacency"
+        return len(self.adjacency) / len(self.nations)
 
-    @aggregation_statistic
+    @aggregation_statistic("conflicts")
     def conflict_density(self):
-        return len(self.conflicts) / len(self.nations), "conflicts"
+        return len(self.conflicts) / len(self.nations)
 
-    @aggregation_statistic
+    @aggregation_statistic("nations")
     def average_nation_age(self):
         total_age = 0
         total_persons = 0
@@ -72,8 +81,8 @@ class Region(Symbol):
                 total_age += person.age
                 total_persons += 1
         if total_persons == 0:
-            return 0, "nations"
-        return total_age / total_persons, "nations"
+            return 0
+        return total_age / total_persons
 
 
 @dataclass
@@ -83,21 +92,19 @@ class Nation(Symbol):
     supporters: List[Supports] = field(default_factory=list)
     gdp: float = 500
 
-    @aggregation_statistic
+    @aggregation_statistic("supporters")
     def mean_age_of_supporters(self):
-        return (
-            sum(s.supporting_person.age for s in self.supporters)
-            / len(self.supporters),
-            "supporters",
+        return sum(s.supporting_person.age for s in self.supporters) / len(
+            self.supporters
         )
 
-    @aggregation_statistic
+    @aggregation_statistic("persons")
     def mean_age_of_persons(self):
-        return sum(p.age for p in self.persons) / len(self.persons), "persons"
+        return sum(p.age for p in self.persons) / len(self.persons)
 
-    @aggregation_statistic
+    @aggregation_statistic("government")
     def government_type(self):
-        return float(self.government.funny), "government"
+        return float(self.government.funny)
 
 
 @dataclass
@@ -110,45 +117,6 @@ class Person(Symbol):
     name: str
     age: float = field(default=0)
 
-
-@dataclass
-class DecomposedClass:
-    unique_parts: List[Any] = field(default_factory=list)
-    exchangeable_parts: List[Any] = field(default_factory=list)
-
-    def copy(self):
-        return DecomposedClass(
-            unique_parts=self.unique_parts,
-            exchangeable_parts=self.exchangeable_parts,
-        )
-
-
-person_part_decomposition = DecomposedClass(
-    unique_parts=[],
-    exchangeable_parts=[],
-)
-
-government_part_decomposition = DecomposedClass(
-    unique_parts=[],
-    exchangeable_parts=[],
-)
-
-nation_part_decomposition = DecomposedClass(
-    unique_parts=[("government", Government)],
-    exchangeable_parts=[("persons", Person)],
-)
-
-region_part_decomposition = DecomposedClass(
-    unique_parts=[],
-    exchangeable_parts=[("nations", Nation)],
-)
-
-CLASS_SCHEMA = {
-    Person: person_part_decomposition,
-    Government: government_part_decomposition,
-    Nation: nation_part_decomposition,
-    Region: region_part_decomposition,
-}
 
 univariate_attribute_distributions = {
     "age": GaussianDistribution(Continuous("age"), 1, 1),
@@ -264,26 +232,6 @@ class RSPNTemplate:
     The circuit this component is part of. 
     """
 
-    # attributes: Optional[List[Any]] = field(default_factory=list)
-    # """
-    # Unary predicates
-    # """
-    #
-    # unique_parts: Optional[List[Any]] = field(default_factory=list)
-    # """
-    # Unique parts
-    # """
-    #
-    # exchangeable_parts: Optional[List[Any]] = field(default_factory=list)
-    # """
-    # Exchangeable parts
-    # """
-    #
-    # relations: Optional[List[Any]] = field(default_factory=list)
-    # """
-    # Predicates(Relations) of form R_n(P_n, P_n)
-    # """
-
     univariate_attribute_distributions: Optional[Dict[str, UnivariateDistribution]] = (
         field(default_factory=dict)
     )
@@ -373,20 +321,7 @@ class RSPNTemplate:
             root_index = part_class.probabilistic_circuit.root.index
             product.add_subcircuit(index_remap[root_index])
 
-    def ground(self, instance: Any) -> Unit:
-        """
-        Ground the RSPN template for a specific instance.
-        :param instance: The object to ground the template for.
-        :return: A grounded SPN as a Unit.
-        """
-        # Create a product unit for this grounding
-        grounded_root = type(self.probabilistic_circuit.root)(
-            probabilistic_circuit=ProbabilisticCircuit()
-        )
-
-        instance_repr = getattr(instance, "name", str(id(instance)))
-
-        # 1. Ground attributes (L^C_A)
+    def ground_attributes(self, grounded_root: Unit, instance_repr: str):
         # Use distributions from the template's circuit if it was learned
         learned_distributions = {}
         if (
@@ -410,16 +345,15 @@ class RSPNTemplate:
             grounded_var = original_var.__class__(grounded_var_name)
 
             # Create a grounded distribution
-            import copy
-
             grounded_dist = copy.deepcopy(distribution)
             grounded_dist.variable = grounded_var
 
             grounded_root.add_subcircuit(
                 leaf(grounded_dist, grounded_root.probabilistic_circuit)
             )
+        return grounded_root
 
-        # 2. Ground relations (L^C_R)
+    def ground_relations(self, grounded_root: Unit, instance_repr: str):
         # Find learned EDTs if any
         learned_relation_distributions = {}
         if len(self.probabilistic_circuit) > 1:
@@ -454,8 +388,9 @@ class RSPNTemplate:
             index_remap = grounded_root.probabilistic_circuit.mount(grounded_edt)
             grounded_root.add_subcircuit(index_remap[grounded_edt.index])
 
-        # 3. Ground parts (L^C_P)
-        # Unique parts
+        return grounded_root
+
+    def ground_unique_parts(self, grounded_root: Unit, instance):
         for idx, part_template in enumerate(self.unique_parts):
             part_instance = getattr(
                 instance, self.class_spec["unique_parts"][idx], None
@@ -466,7 +401,9 @@ class RSPNTemplate:
                 index_remap = grounded_root.probabilistic_circuit.mount(grounded_part)
                 grounded_root.add_subcircuit(index_remap[grounded_part.index])
 
-        # Exchangeable parts
+        return grounded_root
+
+    def ground_exchangeable_parts(self, grounded_root: Unit, instance):
         for idx, part_template in enumerate(self.exchangeable_parts):
             part_instances = getattr(
                 instance, self.class_spec["exchangeable_parts"][idx], []
@@ -476,5 +413,32 @@ class RSPNTemplate:
                 # Mount the grounded part into our current circuit
                 index_remap = grounded_root.probabilistic_circuit.mount(grounded_part)
                 grounded_root.add_subcircuit(index_remap[grounded_part.index])
+
+        return grounded_root
+
+    def ground(self, instance: Any) -> Unit:
+        """
+        Ground the RSPN template for a specific instance.
+        :param instance: The object to ground the template for.
+        :return: A grounded SPN as a Unit.
+        """
+        # Create a product unit for this grounding
+        grounded_root = type(self.probabilistic_circuit.root)(
+            probabilistic_circuit=ProbabilisticCircuit()
+        )
+
+        if hasattr(instance, "name"):
+            instance_repr = instance.name
+        else:
+            wrapped = SymbolGraph().get_wrapped_instance(instance)
+            if wrapped is not None and wrapped.index is not None:
+                instance_repr = f"{type(instance).__name__}{wrapped.index}"
+            else:
+                instance_repr = str(id(instance))
+
+        grounded_root = self.ground_attributes(grounded_root, instance_repr)
+        grounded_root = self.ground_relations(grounded_root, instance_repr)
+        grounded_root = self.ground_unique_parts(grounded_root, instance)
+        grounded_root = self.ground_exchangeable_parts(grounded_root, instance)
 
         return grounded_root
