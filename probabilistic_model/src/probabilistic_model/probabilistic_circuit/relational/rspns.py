@@ -28,7 +28,6 @@ def aggregation_statistic(name: str):
     """
 
     def decorator(func):
-        func._is_aggregate_statistics = True
         func._statistic_name = name
         return func
 
@@ -232,9 +231,7 @@ class RSPNTemplate:
     The circuit this component is part of. 
     """
 
-    univariate_attribute_distributions: Optional[Dict[str, UnivariateDistribution]] = (
-        field(default_factory=dict)
-    )
+    univariate_attribute_distributions: Optional[Dict] = field(default_factory=dict)
     """
     L^C_A: Dict of univariate distributions over all A of C
     """

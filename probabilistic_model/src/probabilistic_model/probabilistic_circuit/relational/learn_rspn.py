@@ -8,20 +8,6 @@ from ...learning.jpt.jpt import JPT
 from ...learning.jpt.variables import infer_variables_from_dataframe
 
 
-def _is_part(attribute, part_decomposition) -> bool:
-    unique_parts_keys = [x for x, _ in part_decomposition.unique_parts]
-    exchangeable_parts_keys = [x for x, _ in part_decomposition.exchangeable_parts]
-    return attribute in unique_parts_keys or attribute in exchangeable_parts_keys
-
-
-def _is_attribute(attribute, part_decomp) -> bool:
-    return not _is_part(attribute, part_decomp)
-
-
-def is_aggregate_statistics(func: Callable) -> bool:
-    return hasattr(func, "_is_aggregate_statistics")
-
-
 def get_aggregate_statistics(instance: Any) -> List[Tuple[Any, str]]:
     statistics = []
     for name in dir(instance):
@@ -33,7 +19,7 @@ def get_aggregate_statistics(instance: Any) -> List[Tuple[Any, str]]:
         if not callable(attr):
             continue
 
-        if not is_aggregate_statistics(attr):
+        if not hasattr(attr, "_statistic_name"):
             continue
 
         statistics.append((attr(), attr._statistic_name))
