@@ -584,6 +584,13 @@ class JSONAttributeDiffDAO(
         String(255), use_existing_column=True
     )
 
+    add: Mapped[typing.List[typing.Any]] = mapped_column(
+        JSON, nullable=False, use_existing_column=True
+    )
+    remove: Mapped[typing.List[typing.Any]] = mapped_column(
+        JSON, nullable=False, use_existing_column=True
+    )
+
 
 class JerkVariableDAO(
     Base,

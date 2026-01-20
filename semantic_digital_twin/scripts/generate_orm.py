@@ -10,7 +10,6 @@ from __future__ import annotations
 import os
 import uuid
 from dataclasses import is_dataclass
-from typing import Any
 
 import sqlalchemy
 
