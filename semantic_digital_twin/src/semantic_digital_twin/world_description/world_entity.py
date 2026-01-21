@@ -35,7 +35,8 @@ from krrood.adapters.exceptions import JSON_TYPE_NAME
 from krrood.adapters.json_serializer import (
     SubclassJSONSerializer,
     to_json,
-    from_json, shallow_diff_json,
+    from_json,
+    shallow_diff_json,
 )
 
 from krrood.entity_query_language.predicate import Symbol
@@ -48,7 +49,10 @@ from ..adapters.world_entity_kwargs_tracker import (
     WorldEntityWithIDKwargsTracker,
 )
 from ..datastructures.prefixed_name import PrefixedName
-from ..exceptions import ReferenceFrameMismatchError, MissingWorldModificationContextError
+from ..exceptions import (
+    ReferenceFrameMismatchError,
+    MissingWorldModificationContextError,
+)
 from ..spatial_types.spatial_types import (
     HomogeneousTransformationMatrix,
     Point3,
