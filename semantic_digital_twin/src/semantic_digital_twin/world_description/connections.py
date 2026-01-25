@@ -60,26 +60,26 @@ class ActiveConnection(Connection):
     but by moving the whole hand away.
     """
 
-    def to_json(self) -> Dict[str, Any]:
-        result = super().to_json()
-        result["frozen_for_collision_avoidance"] = self.frozen_for_collision_avoidance
-        return result
-
-    @classmethod
-    def _from_json(cls, data: Dict[str, Any], **kwargs) -> Self:
-        tracker = WorldEntityWithIDKwargsTracker.from_kwargs(kwargs)
-        parent = tracker.get_world_entity_with_id(id=from_json(data["parent_id"]))
-        child = tracker.get_world_entity_with_id(id=from_json(data["child_id"]))
-        return cls(
-            name=PrefixedName.from_json(data["name"]),
-            parent=parent,
-            child=child,
-            parent_T_connection_expression=HomogeneousTransformationMatrix.from_json(
-                data["parent_T_connection_expression"], **kwargs
-            ),
-            frozen_for_collision_avoidance=data["frozen_for_collision_avoidance"],
-            **kwargs,
-        )
+    # def to_json(self) -> Dict[str, Any]:
+    #     result = super().to_json()
+    #     result["frozen_for_collision_avoidance"] = self.frozen_for_collision_avoidance
+    #     return result
+    #
+    # @classmethod
+    # def _from_json(cls, data: Dict[str, Any], **kwargs) -> Self:
+    #     tracker = WorldEntityWithIDKwargsTracker.from_kwargs(kwargs)
+    #     parent = tracker.get_world_entity_with_id(id=from_json(data["parent_id"]))
+    #     child = tracker.get_world_entity_with_id(id=from_json(data["child_id"]))
+    #     return cls(
+    #         name=PrefixedName.from_json(data["name"]),
+    #         parent=parent,
+    #         child=child,
+    #         parent_T_connection_expression=HomogeneousTransformationMatrix.from_json(
+    #             data["parent_T_connection_expression"], **kwargs
+    #         ),
+    #         frozen_for_collision_avoidance=data["frozen_for_collision_avoidance"],
+    #         **kwargs,
+    #     )
 
     @property
     def has_hardware_interface(self) -> bool:
@@ -143,32 +143,32 @@ class ActiveConnection1DOF(ActiveConnection, ABC):
     Dynamic properties of the joint.
     """
 
-    def to_json(self) -> Dict[str, Any]:
-        result = super().to_json()
-        result["axis"] = self.axis.to_np().tolist()
-        result["multiplier"] = self.multiplier
-        result["offset"] = self.offset
-        result["id"] = to_json(self.dof_id)
-        return result
-
-    @classmethod
-    def _from_json(cls, data: Dict[str, Any], **kwargs) -> Self:
-        tracker = WorldEntityWithIDKwargsTracker.from_kwargs(kwargs)
-        parent = tracker.get_world_entity_with_id(id=from_json(data["parent_id"]))
-        child = tracker.get_world_entity_with_id(id=from_json(data["child_id"]))
-        return cls(
-            name=PrefixedName.from_json(data["name"]),
-            parent=parent,
-            child=child,
-            parent_T_connection_expression=HomogeneousTransformationMatrix.from_json(
-                data["parent_T_connection_expression"], **kwargs
-            ),
-            frozen_for_collision_avoidance=data["frozen_for_collision_avoidance"],
-            axis=Vector3.from_iterable(data["axis"]),
-            multiplier=data["multiplier"],
-            offset=data["offset"],
-            dof_id=from_json(data["id"]),
-        )
+    # def to_json(self) -> Dict[str, Any]:
+    #     result = super().to_json()
+    #     result["axis"] = self.axis.to_np().tolist()
+    #     result["multiplier"] = self.multiplier
+    #     result["offset"] = self.offset
+    #     result["id"] = to_json(self.dof_id)
+    #     return result
+    #
+    # @classmethod
+    # def _from_json(cls, data: Dict[str, Any], **kwargs) -> Self:
+    #     tracker = WorldEntityWithIDKwargsTracker.from_kwargs(kwargs)
+    #     parent = tracker.get_world_entity_with_id(id=from_json(data["parent_id"]))
+    #     child = tracker.get_world_entity_with_id(id=from_json(data["child_id"]))
+    #     return cls(
+    #         name=PrefixedName.from_json(data["name"]),
+    #         parent=parent,
+    #         child=child,
+    #         parent_T_connection_expression=HomogeneousTransformationMatrix.from_json(
+    #             data["parent_T_connection_expression"], **kwargs
+    #         ),
+    #         frozen_for_collision_avoidance=data["frozen_for_collision_avoidance"],
+    #         axis=Vector3.from_iterable(data["axis"]),
+    #         multiplier=data["multiplier"],
+    #         offset=data["offset"],
+    #         dof_id=from_json(data["id"]),
+    #     )
 
     @classmethod
     def create_with_dofs(
@@ -386,37 +386,37 @@ class Connection6DoF(Connection):
     Rotation of child KinematicStructureEntity with respect to parent KinematicStructureEntity represented as a quaternion.
     """
 
-    def to_json(self) -> Dict[str, Any]:
-        result = super().to_json()
-        result["x_id"] = to_json(self.x_id)
-        result["y_id"] = to_json(self.y_id)
-        result["z_id"] = to_json(self.z_id)
-        result["qx_id"] = to_json(self.qx_id)
-        result["qy_id"] = to_json(self.qy_id)
-        result["qz_id"] = to_json(self.qz_id)
-        result["qw_id"] = to_json(self.qw_id)
-        return result
-
-    @classmethod
-    def _from_json(cls, data: Dict[str, Any], **kwargs) -> Self:
-        tracker = WorldEntityWithIDKwargsTracker.from_kwargs(kwargs)
-        parent = tracker.get_world_entity_with_id(id=from_json(data["parent_id"]))
-        child = tracker.get_world_entity_with_id(id=from_json(data["child_id"]))
-        return cls(
-            name=PrefixedName.from_json(data["name"]),
-            parent=parent,
-            child=child,
-            parent_T_connection_expression=HomogeneousTransformationMatrix.from_json(
-                data["parent_T_connection_expression"], **kwargs
-            ),
-            x_id=from_json(data["x_id"]),
-            y_id=from_json(data["y_id"]),
-            z_id=from_json(data["z_id"]),
-            qx_id=from_json(data["qx_id"]),
-            qy_id=from_json(data["qy_id"]),
-            qz_id=from_json(data["qz_id"]),
-            qw_id=from_json(data["qw_id"]),
-        )
+    # def to_json(self) -> Dict[str, Any]:
+    #     result = super().to_json()
+    #     result["x_id"] = to_json(self.x_id)
+    #     result["y_id"] = to_json(self.y_id)
+    #     result["z_id"] = to_json(self.z_id)
+    #     result["qx_id"] = to_json(self.qx_id)
+    #     result["qy_id"] = to_json(self.qy_id)
+    #     result["qz_id"] = to_json(self.qz_id)
+    #     result["qw_id"] = to_json(self.qw_id)
+    #     return result
+    #
+    # @classmethod
+    # def _from_json(cls, data: Dict[str, Any], **kwargs) -> Self:
+    #     tracker = WorldEntityWithIDKwargsTracker.from_kwargs(kwargs)
+    #     parent = tracker.get_world_entity_with_id(id=from_json(data["parent_id"]))
+    #     child = tracker.get_world_entity_with_id(id=from_json(data["child_id"]))
+    #     return cls(
+    #         name=PrefixedName.from_json(data["name"]),
+    #         parent=parent,
+    #         child=child,
+    #         parent_T_connection_expression=HomogeneousTransformationMatrix.from_json(
+    #             data["parent_T_connection_expression"], **kwargs
+    #         ),
+    #         x_id=from_json(data["x_id"]),
+    #         y_id=from_json(data["y_id"]),
+    #         z_id=from_json(data["z_id"]),
+    #         qx_id=from_json(data["qx_id"]),
+    #         qy_id=from_json(data["qy_id"]),
+    #         qz_id=from_json(data["qz_id"]),
+    #         qw_id=from_json(data["qw_id"]),
+    #     )
 
     @property
     def x(self) -> DegreeOfFreedom:
@@ -612,37 +612,37 @@ class OmniDrive(ActiveConnection, HasUpdateState):
     x_velocity_id: UUID = field(kw_only=True)
     y_velocity_id: UUID = field(kw_only=True)
 
-    def to_json(self) -> Dict[str, Any]:
-        result = super().to_json()
-        result["x_id"] = to_json(self.x_id)
-        result["y_id"] = to_json(self.y_id)
-        result["roll_id"] = to_json(self.roll_id)
-        result["pitch_id"] = to_json(self.pitch_id)
-        result["yaw_id"] = to_json(self.yaw_id)
-        result["x_velocity_id"] = to_json(self.x_velocity_id)
-        result["y_velocity_id"] = to_json(self.y_velocity_id)
-        return result
-
-    @classmethod
-    def _from_json(cls, data: Dict[str, Any], **kwargs) -> Self:
-        tracker = WorldEntityWithIDKwargsTracker.from_kwargs(kwargs)
-        parent = tracker.get_world_entity_with_id(id=from_json(data["parent_id"]))
-        child = tracker.get_world_entity_with_id(id=from_json(data["child_id"]))
-        return cls(
-            name=PrefixedName.from_json(data["name"], **kwargs),
-            parent=parent,
-            child=child,
-            parent_T_connection_expression=HomogeneousTransformationMatrix.from_json(
-                data["parent_T_connection_expression"], **kwargs
-            ),
-            x_id=from_json(data["x_id"]),
-            y_id=from_json(data["y_id"]),
-            roll_id=from_json(data["roll_id"]),
-            pitch_id=from_json(data["pitch_id"]),
-            yaw_id=from_json(data["yaw_id"]),
-            x_velocity_id=from_json(data["x_velocity_id"]),
-            y_velocity_id=from_json(data["y_velocity_id"]),
-        )
+    # def to_json(self) -> Dict[str, Any]:
+    #     result = super().to_json()
+    #     result["x_id"] = to_json(self.x_id)
+    #     result["y_id"] = to_json(self.y_id)
+    #     result["roll_id"] = to_json(self.roll_id)
+    #     result["pitch_id"] = to_json(self.pitch_id)
+    #     result["yaw_id"] = to_json(self.yaw_id)
+    #     result["x_velocity_id"] = to_json(self.x_velocity_id)
+    #     result["y_velocity_id"] = to_json(self.y_velocity_id)
+    #     return result
+    #
+    # @classmethod
+    # def _from_json(cls, data: Dict[str, Any], **kwargs) -> Self:
+    #     tracker = WorldEntityWithIDKwargsTracker.from_kwargs(kwargs)
+    #     parent = tracker.get_world_entity_with_id(id=from_json(data["parent_id"]))
+    #     child = tracker.get_world_entity_with_id(id=from_json(data["child_id"]))
+    #     return cls(
+    #         name=PrefixedName.from_json(data["name"], **kwargs),
+    #         parent=parent,
+    #         child=child,
+    #         parent_T_connection_expression=HomogeneousTransformationMatrix.from_json(
+    #             data["parent_T_connection_expression"], **kwargs
+    #         ),
+    #         x_id=from_json(data["x_id"]),
+    #         y_id=from_json(data["y_id"]),
+    #         roll_id=from_json(data["roll_id"]),
+    #         pitch_id=from_json(data["pitch_id"]),
+    #         yaw_id=from_json(data["yaw_id"]),
+    #         x_velocity_id=from_json(data["x_velocity_id"]),
+    #         y_velocity_id=from_json(data["y_velocity_id"]),
+    #     )
 
     @property
     def x(self) -> DegreeOfFreedom:

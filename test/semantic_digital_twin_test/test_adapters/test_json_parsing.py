@@ -54,6 +54,7 @@ def test_body_json_serialization():
     body2 = Body.from_json(json_data, **tracker.create_kwargs())
 
     assert body2.index is not None
+    assert body2 is other_world.get_world_entity_with_id_by_id(body2.id)
 
     for c1 in body.collision:
         for c2 in body2.collision:

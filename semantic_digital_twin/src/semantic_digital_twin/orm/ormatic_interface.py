@@ -282,29 +282,6 @@ class CallbackDAO(
     }
 
 
-class CollisionCheckingConfigDAO(
-    Base,
-    DataAccessObject[
-        semantic_digital_twin.world_description.world_entity.CollisionCheckingConfig
-    ],
-):
-
-    __tablename__ = "CollisionCheckingConfigDAO"
-
-    database_id: Mapped[builtins.int] = mapped_column(
-        Integer, primary_key=True, use_existing_column=True
-    )
-
-    buffer_zone_distance: Mapped[typing.Optional[builtins.float]] = mapped_column(
-        use_existing_column=True
-    )
-    violated_distance: Mapped[builtins.float] = mapped_column(use_existing_column=True)
-    disabled: Mapped[typing.Optional[builtins.bool]] = mapped_column(
-        use_existing_column=True
-    )
-    max_avoided_bodies: Mapped[builtins.int] = mapped_column(use_existing_column=True)
-
-
 class CollisionPairManagerDAO(
     Base, DataAccessObject[semantic_digital_twin.world.CollisionPairManager]
 ):
@@ -1303,6 +1280,60 @@ class WorldEntityDAO(
     __mapper_args__ = {
         "polymorphic_on": "polymorphic_type",
         "polymorphic_identity": "WorldEntityDAO",
+    }
+
+
+class WorldEntityWithIDSubclassJSONSerializerDAO(
+    Base,
+    DataAccessObject[
+        semantic_digital_twin.world_description.world_entity.WorldEntityWithIDSubclassJSONSerializer
+    ],
+):
+
+    __tablename__ = "WorldEntityWithIDSubclassJSONSerializerDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        Integer, primary_key=True, use_existing_column=True
+    )
+
+    polymorphic_type: Mapped[str] = mapped_column(
+        String(255), nullable=False, use_existing_column=True
+    )
+
+    __mapper_args__ = {
+        "polymorphic_on": "polymorphic_type",
+        "polymorphic_identity": "WorldEntityWithIDSubclassJSONSerializerDAO",
+    }
+
+
+class CollisionCheckingConfigDAO(
+    WorldEntityWithIDSubclassJSONSerializerDAO,
+    DataAccessObject[
+        semantic_digital_twin.world_description.world_entity.CollisionCheckingConfig
+    ],
+):
+
+    __tablename__ = "CollisionCheckingConfigDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        ForeignKey(WorldEntityWithIDSubclassJSONSerializerDAO.database_id),
+        primary_key=True,
+        use_existing_column=True,
+    )
+
+    buffer_zone_distance: Mapped[typing.Optional[builtins.float]] = mapped_column(
+        use_existing_column=True
+    )
+    violated_distance: Mapped[builtins.float] = mapped_column(use_existing_column=True)
+    disabled: Mapped[typing.Optional[builtins.bool]] = mapped_column(
+        use_existing_column=True
+    )
+    max_avoided_bodies: Mapped[builtins.int] = mapped_column(use_existing_column=True)
+
+    __mapper_args__ = {
+        "polymorphic_identity": "CollisionCheckingConfigDAO",
+        "inherit_condition": database_id
+        == WorldEntityWithIDSubclassJSONSerializerDAO.database_id,
     }
 
 

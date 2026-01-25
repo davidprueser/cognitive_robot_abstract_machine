@@ -1,23 +1,22 @@
-import json
 import uuid
 from dataclasses import dataclass
 from enum import Enum
 from typing import Dict, Any, Self
 
+import numpy as np
 import pytest
 
-
-from krrood.adapters.json_serializer import (
-    SubclassJSONSerializer,
-    to_json,
-    from_json,
-)
 from krrood.adapters.exceptions import (
     MissingTypeError,
     InvalidTypeFormatError,
     UnknownModuleError,
     ClassNotFoundError,
     JSON_TYPE_NAME,
+)
+from krrood.adapters.json_serializer import (
+    SubclassJSONSerializer,
+    to_json,
+    from_json,
 )
 from krrood.utils import get_full_class_name
 
@@ -241,3 +240,10 @@ def test_classes():
     data = to_json(obj)
     result = from_json(data)
     assert result == obj
+
+
+def test_nparray():
+    obj = np.array([1, 2, 3])
+    data = to_json(obj)
+    result = from_json(data)
+    assert np.allclose(result, obj)

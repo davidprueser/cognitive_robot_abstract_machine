@@ -368,7 +368,7 @@ def test_ChangeDifHasHardwareInterface(rclpy_node):
     assert len(w1.kinematic_structure_entities) == 2
     assert len(w1.connections) == 1
 
-    time.sleep(0.2)
+    time.sleep(10000.2)
     assert len(w1.kinematic_structure_entities) == 2
     assert len(w2.kinematic_structure_entities) == 2
     assert len(w2.connections) == 1

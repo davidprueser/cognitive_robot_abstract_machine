@@ -1915,6 +1915,7 @@ class World:
                 new_world.add_kinematic_structure_entity(new_body)
                 new_body.visual = body.visual.copy_for_world(new_world)
                 new_body.collision = body.collision.copy_for_world(new_world)
+                new_body.collision_config = deepcopy(body.collision_config)
             for region in self.regions:
                 new_region = Region(
                     name=region.name,

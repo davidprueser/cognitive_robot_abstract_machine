@@ -5,9 +5,10 @@ import importlib
 import inspect
 import uuid
 from abc import ABC
-from dataclasses import dataclass
+from dataclasses import dataclass, fields, Field, is_dataclass
 from types import NoneType
 
+import numpy as np
 from typing_extensions import Dict, Any, Self, Union, Type, TypeVar
 
 from .exceptions import (
@@ -306,3 +307,77 @@ class ExceptionJSONSerializer(ExternalClassJSONSerializer[Exception]):
         cls, data: Dict[str, Any], clazz: Type[Exception], **kwargs
     ) -> Exception:
         return clazz(data["value"])
+
+
+@dataclass
+class NumpyNDarrayJSONSerializer(ExternalClassJSONSerializer[np.array]):
+    @classmethod
+    def to_json(cls, obj: np.ndarray) -> Dict[str, Any]:
+        return {
+            JSON_TYPE_NAME: get_full_class_name(type(obj)),
+            "type": str(obj.dtype),
+            "data": obj.tolist(),
+        }
+
+    @classmethod
+    def from_json(
+        cls, data: Dict[str, Any], clazz: Type[np.ndarray], **kwargs
+    ) -> np.ndarray:
+        return clazz(data["data"], dtype=data["type"])
+
+
+@dataclass
+class DataclassJSONSerializer(ExternalClassJSONSerializer[None]):
+
+    @classmethod
+    def to_json(cls, obj) -> Dict[str, Any]:
+        result = {JSON_TYPE_NAME: get_full_class_name(type(obj))}
+        for field_ in fields(obj):
+            if cls.skip_field(field_):
+                continue
+            value = getattr(obj, field_.name)
+
+            if isinstance(value, (list, set)):
+                current_result = [to_json(item) for item in value]
+            else:
+                current_result = to_json(value)
+            result[field_.name] = current_result
+        return result
+
+    @classmethod
+    def matches_generic_type(cls, clazz: Type) -> bool:
+        return is_dataclass(clazz)
+
+    @staticmethod
+    def skip_field(field_: Field) -> bool:
+        return (
+            field_.name.startswith("_")
+            or field_.name.startswith("__")
+            or not field_.init
+        )
+
+    @classmethod
+    def _from_json(cls, data: Dict[str, Any], clazz: Type, **kwargs) -> Self:
+        """
+        .. warn::
+
+            This will not work if any of the classes' fields have a type UUID or some container of UUID.
+            Whenever this happens, the UUIDs are resolved to WorldEntityWithID objects, which leads to undefined
+            behavior.
+        """
+        fields_ = {f.name: f for f in fields(clazz)}
+
+        init_args = {}
+
+        for k, v in fields_.items():
+            if k not in data.keys():
+                continue
+
+            current_data = data[k]
+
+            if isinstance(current_data, list):
+                current_result = [from_json(data, **kwargs) for data in current_data]
+            else:
+                current_result = from_json(current_data, **kwargs)
+            init_args[k] = current_result
+        return clazz(**init_args)
