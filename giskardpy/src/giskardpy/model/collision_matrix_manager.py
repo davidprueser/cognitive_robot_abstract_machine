@@ -5,8 +5,6 @@ from enum import Enum
 from typing import List, Optional, Set, Dict, Any, Self
 
 from krrood.adapters.json_serializer import SubclassJSONSerializer, to_json, from_json
-
-from giskardpy.utils.utils import JsonSerializableEnum
 from semantic_digital_twin.adapters.world_entity_kwargs_tracker import (
     WorldEntityWithIDKwargsTracker,
 )
@@ -16,7 +14,7 @@ from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.world_entity import Body
 
 
-class CollisionAvoidanceTypes(JsonSerializableEnum):
+class CollisionAvoidanceTypes(Enum):
     AVOID_COLLISION = 0
     ALLOW_COLLISION = 1
 
