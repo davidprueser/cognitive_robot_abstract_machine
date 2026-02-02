@@ -36,7 +36,7 @@ from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.semantic_annotations.semantic_annotations import Drawer, Handle, Slider, Dresser
 from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix, Vector3
 from semantic_digital_twin.world import World
-from semantic_digital_twin.world_description.geometry import Scale
+from semantic_digital_twin.world_description.geometry import Scale, Box, Color
 from semantic_digital_twin.world_description.world_entity import Body
 from semantic_digital_twin.spatial_computations.raytracer import RayTracer
 
@@ -93,7 +93,7 @@ drawer = the(
 We can update the drawer's state by altering the free variables position of its prismatic connection to the dresser.
 
 ```{code-cell} ipython3
-drawer.container.body.parent_connection.position = 0.1
+drawer.root.parent_connection.position = 0.1
 rt = RayTracer(world)
 rt.update_scene()
 rt.scene.show("notebook")
@@ -111,7 +111,7 @@ with world.modify_world():
     new_root = Body(name=PrefixedName("virtual root"))
     
     # Add a visual for the new root so we can see the change of position in the visualization
-    box_origin = TransformationMatrix.from_xyz_rpy(reference_frame=new_root)
+    box_origin = HomogeneousTransformationMatrix.from_xyz_rpy(reference_frame=new_root)
     box = Box(origin=box_origin, scale=Scale(0.1, 0.1, 0.1), color=Color(1., 0., 0., 1.))
     new_root.collision = [box]
     
@@ -131,7 +131,7 @@ from semantic_digital_twin.world_description.world_entity import Connection
 connection = variable(type_=Connection, domain=world.connections)
 free_connection = the(entity(connection).where(connection.parent == world.root)).evaluate()
 with world.modify_world():
-    free_connection.origin = TransformationMatrix.from_xyz_rpy(1., 1., 0., 0., 0., 0.5 * np.pi)
+    free_connection.origin = HomogeneousTransformationMatrix.from_xyz_rpy(1., 1., 0., 0., 0., 0.5 * np.pi)
 rt = RayTracer(world)
 rt.update_scene()
 rt.scene.show("notebook")
