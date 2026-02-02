@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import inspect
+from functools import lru_cache
+from typing import Callable, List, Dict, Any
+
 """
 Utilities for hashing, rendering, and general helpers used by the
 symbolic query engine.
@@ -25,6 +29,9 @@ from typing_extensions import (
     Iterable,
     Callable,
     Iterator,
+    Union,
+    Type,
+    Tuple,
 )
 
 
@@ -207,3 +214,75 @@ def chain_stages(stages: List[Stage], initial: Binding) -> Iterator[Binding]:
             yield from evaluate_next_stage_or_yield(i + 1, b2)
 
     yield from evaluate_next_stage_or_yield(0, initial)
+
+
+@lru_cache
+def get_function_argument_names(function: Callable) -> List[str]:
+    """
+    :param function: A function to inspect
+    :return: The argument names of the function
+    """
+    return list(inspect.signature(function).parameters.keys())
+
+
+@lru_cache
+def get_class_argument_names(clazz: Type) -> List[str]:
+    """
+    :param clazz: A class to inspect
+    :return: The argument names of the class
+    """
+    return get_function_argument_names(clazz.__init__)
+
+
+@lru_cache
+def get_function_or_class_argument_names(
+    function_or_class: Union[Callable, Type],
+) -> List[str]:
+    """
+    :param function_or_class: A function or class to inspect
+    :return: The argument names of the function or class
+    """
+    if inspect.isclass(function_or_class):
+        return get_class_argument_names(function_or_class)
+    else:
+        return get_function_argument_names(function_or_class)
+
+
+def merge_args_and_kwargs(
+    function_or_class: Union[Callable, Type], args, kwargs, ignore_first: bool = False
+) -> Dict[str, Any]:
+    """
+    Merge the arguments and keyword-arguments of a function into a dict of keyword-arguments.
+
+    :param function_or_class: The function/class to get the argument names from
+    :param args: The arguments passed to the function
+    :param kwargs: The keyword arguments passed to the function
+    :param ignore_first: Rather to ignore the first argument or not.
+    Use this when `function_or_class` contains something like `self`
+    :return: The dict of assigned keyword-arguments.
+    """
+    starting_index = 1 if ignore_first else 0
+    all_kwargs = {
+        name: arg
+        for name, arg in zip(
+            get_function_or_class_argument_names(function_or_class)[starting_index:],
+            args,
+        )
+    }
+    all_kwargs.update(kwargs)
+    return all_kwargs
+
+
+def construct_key_from_dict(all_kwargs: Dict[str, Any]) -> Tuple[Any, ...]:
+    """
+    Generates a key for the dictionary based on the provided arguments.
+
+    :param all_kwargs: The keyword arguments to generate the key from.
+    :return: The generated key as a tuple.
+    """
+    key = []
+    for k, v in all_kwargs.items():
+        if isinstance(v, dict):
+            v = frozenset(v.items())
+        key.append((k, v))
+    return tuple(sorted(key))

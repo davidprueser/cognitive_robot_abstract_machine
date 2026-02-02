@@ -65,6 +65,8 @@ from .utils import (
     make_set,
     T,
     chain_stages,
+    merge_args_and_kwargs,
+    construct_key_from_dict,
 )
 from ..class_diagrams import ClassRelation
 from ..class_diagrams.class_diagram import WrappedClass
@@ -387,6 +389,12 @@ class CanBehaveLikeAVariable(Selectable[T], ABC):
     """
     The path of the variable in the symbol graph as a sequence of relation instances.
     """
+    _known_mappings_: Dict[
+        Type[DomainMapping], Dict[Tuple[Any, ...], DomainMapping]
+    ] = field(init=False, default_factory=dict)
+    """
+    A storage of created domain mappings to prevent recreating same mapping multiple times.
+    """
     _attributes_: Dict[str, Attribute[T]] = field(init=False, default_factory=dict)
     """
     A storage of created symbolic attributes to prevent recreating same attribute multiple times.
@@ -408,23 +416,42 @@ class CanBehaveLikeAVariable(Selectable[T], ABC):
         else:
             self._is_false_ = False
 
+    def _get_domain_mapping_(
+        self, type_: Type[DomainMapping], *args, **kwargs
+    ) -> DomainMapping:
+        """
+        Retrieves or creates a domain mapping instance based on the provided arguments.
+
+        :param type_: The type of the domain mapping to retrieve or create.
+        :param args: Positional arguments to pass to the domain mapping constructor.
+        :param kwargs: Keyword arguments to pass to the domain mapping constructor.
+        :return: The retrieved or created domain mapping instance.
+        """
+        args = (self,) + args
+        all_kwargs = merge_args_and_kwargs(type_, args, kwargs, ignore_first=True)
+        key = construct_key_from_dict(all_kwargs)
+        if type_ not in self._known_mappings_:
+            self._known_mappings_[type_] = {}
+        if key in self._known_mappings_[type_]:
+            return self._known_mappings_[type_][key]
+        else:
+            instance = type_(**all_kwargs)
+            self._known_mappings_[type_][key] = instance
+            return instance
+
     def __getattr__(self, name: str) -> CanBehaveLikeAVariable[T]:
         # Prevent debugger/private attribute lookups from being interpreted as symbolic attributes
         if name.startswith("__") and name.endswith("__"):
             raise AttributeError(
                 f"{self.__class__.__name__} object has no attribute {name}"
             )
-        if name in self._attributes_:
-            return self._attributes_[name]
-        attr = Attribute(self, name, self._type__)
-        self._attributes_[name] = attr
-        return attr
+        return self._get_domain_mapping_(Attribute, name, self._type__)
 
     def __getitem__(self, key) -> CanBehaveLikeAVariable[T]:
-        return Index(self, key)
+        return self._get_domain_mapping_(Index, key)
 
     def __call__(self, *args, **kwargs) -> CanBehaveLikeAVariable[T]:
-        return Call(self, args, kwargs)
+        return self._get_domain_mapping_(Call, args, kwargs)
 
     def __eq__(self, other) -> Comparator:
         return Comparator(self, other, operator.eq)
@@ -1577,7 +1604,7 @@ class DomainMapping(CanBehaveLikeAVariable[T], ABC):
     A symbolic expression the maps the domain of symbolic variables.
     """
 
-    _child_: Selectable[T]
+    _child_: CanBehaveLikeAVariable[T]
 
     def __post_init__(self):
         super().__post_init__()

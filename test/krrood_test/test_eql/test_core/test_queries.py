@@ -1094,3 +1094,15 @@ def test_concatenate():
     query = an(entity(concatenate(l1_var, l2_var)))
     results = list(query.evaluate())
     assert results == l1 + l2
+
+
+def test_same_domain_mapping(handles_and_containers_world):
+    world = handles_and_containers_world
+    body = variable(type_=Body, domain=world.bodies)
+
+    assert body.name is body.name
+    assert body.name[0] is body.name[0]
+    assert body.name.startswith("Handle") is body.name.startswith("Handle")
+
+    assert body.name[1] is not body.name[0]
+    assert body.name.startswith("Handle1") is not body.name.startswith("Handle")

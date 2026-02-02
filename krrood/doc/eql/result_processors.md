@@ -38,7 +38,6 @@ from krrood.entity_query_language.entity import entity, variable, contains, set_
 @dataclass
 class Body:
     name: str
-    type: str
     height: int
 
 
@@ -48,11 +47,11 @@ class World:
 
 
 world = World([
-    Body("Handle1", "Handle", 1),
-    Body("Handle2", "Handle", 2),
-    Body("Container1", "Container", 3),
-    Body("Container2", "Container", 4),
-    Body("Container3", "Container", 5),
+    Body("Handle1", 1),
+    Body("Handle2", 2),
+    Body("Container1", 3),
+    Body("Container2", 4),
+    Body("Container3", 5),
 ])
 ```
 
@@ -119,8 +118,8 @@ body = variable(Body, domain=world.bodies)
 max_query = eql.max(body, key=lambda b: b.height)
 min_query = eql.min(body, key=lambda b: b.height)
 
-print(next(max_query.evaluate()))  # -> Body(name='Container3', type='Container', height=5)
-print(next(min_query.evaluate()))  # -> Body(name='Handle1', type='Handle', height=1)
+print(next(max_query.evaluate()))  # -> Body(name='Container3', height=5)
+print(next(min_query.evaluate()))  # -> Body(name='Handle1', height=1)
 ```
 
 ## Grouped Aggregations
@@ -130,15 +129,15 @@ Aggregators support a `.per(*variables)` method that allows performing aggregati
 ```{code-cell} ipython3
 body = variable(Body, domain=world.bodies)
 
-# Count bodies per type
-count_per_body_type = eql.count(body).per(body.type)
-results = count_per_body_type.evaluate()
+# Count bodies per name first character
+count_per_body_name_first_character = eql.count(body).per(body.name[0])
+results = count_per_body_name_first_character.evaluate()
 
 # When .per() is used, each result is a dictionary mapping the variables to their values
 for res in results:
-    group_type = res[body.type]
-    count_value = res[count_per_body_type]
-    print(f"Type: {group_type}, Count: {count_value}")
+    group_value = res[body.name[0]]
+    count_value = res[count_per_body_name_first_character]
+    print(f"First Character: {group_value}, Count: {count_value}")
 ```
 
 
