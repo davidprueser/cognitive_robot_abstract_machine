@@ -30,6 +30,7 @@ from krrood.ormatic.type_dict import TypeDict
 from krrood.ormatic.utils import classes_of_module
 from krrood.utils import recursive_subclasses
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
+from semantic_digital_twin.mixin import SimulatorAdditionalProperty
 from semantic_digital_twin.orm.model import *  # type: ignore
 from semantic_digital_twin.reasoning.predicates import ContainsType
 from semantic_digital_twin.semantic_annotations.mixins import (
@@ -79,7 +80,7 @@ all_classes |= set(
 all_classes |= set(classes_of_module(semantic_digital_twin.robots.abstract_robot))
 all_classes |= set(classes_of_module(semantic_digital_twin.robots.hsrb))
 # classes |= set(recursive_subclasses(ViewFactory))
-all_classes |= set([HasRootBody] + recursive_subclasses(HasRootBody))
+all_classes |= {SimulatorAdditionalProperty}
 all_classes |= set(classes_of_module(semantic_digital_twin.reasoning.predicates))
 all_classes |= set(classes_of_module(semantic_digital_twin.semantic_annotations.mixins))
 all_classes |= set(
