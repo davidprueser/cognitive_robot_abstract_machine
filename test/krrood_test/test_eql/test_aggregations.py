@@ -1,10 +1,12 @@
+import pytest
+
 import krrood.entity_query_language.entity_result_processors as eql
-from ..dataset.department_and_employee import Department, Employee
 from krrood.entity_query_language.entity import (
     variable,
     variable_from,
-    entity,
+    entity, set_of,
 )
+from ..dataset.department_and_employee import Department, Employee
 from ..dataset.semantic_world_like_classes import Cabinet
 
 
@@ -130,7 +132,8 @@ def test_max_min_with_empty_list():
     assert list(min_query.evaluate())[0] is None
 
 
-def test_average_with_condition():
+@pytest.fixture
+def departments_and_employees():
     d1 = Department("HR")
     d2 = Department("IT")
     d3 = Department("Finance")
@@ -138,13 +141,20 @@ def test_average_with_condition():
     e1 = Employee("John", d1, 10000)
     e2 = Employee("Anna", d1, 20000)
 
-    e3 = Employee("Anna", d2, 20000)
-    e4 = Employee("Mary", d2, 30000)
+    e3 = Employee("Anna", d2, 20000, 20000)
+    e4 = Employee("Mary", d2, 30000, 30000)
 
     e5 = Employee("Peter", d3, 30000)
     e6 = Employee("Paul", d3, 40000)
 
-    dep = variable(Department, domain=None)
+    departments = [d1, d2, d3]
+    employees = [e1, e2, e3, e4, e5, e6]
+    return departments, employees
+
+
+def test_average_with_condition(departments_and_employees):
+    departments, employees = departments_and_employees
+
     emp = variable(Employee, domain=None)
 
     department = emp.department
@@ -154,4 +164,20 @@ def test_average_with_condition():
     query = eql.an(entity(department).where(avg_salary > 20000))
     results = list(query.evaluate())
     assert len(results) == 1
-    assert results[0] == d3
+    assert results[0] == next(d for d in departments if d.name.startswith("F"))
+
+
+def test_multiple_aggregations_per_group(departments_and_employees):
+    departments, employees = departments_and_employees
+
+    emp = variable(Employee, domain=None)
+    # emp_of_F = eql.an(entity(emp).where(emp.department.name.startswith("F")))
+    department = emp.department
+    avg_salary = eql.average(emp.salary).per(department)
+    avg_starting_salary = eql.average(emp.starting_salary).per(department)
+    print(list(avg_salary.evaluate()))
+    print(list(avg_starting_salary.evaluate()))
+    query = eql.an(entity(department).where(avg_salary == avg_starting_salary))
+    results = list(query.evaluate())
+    assert len(results) == 1
+    assert results[0] == next(d for d in departments if d.name.startswith("I"))
