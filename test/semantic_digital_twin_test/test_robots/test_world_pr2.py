@@ -330,12 +330,12 @@ def test_apply_control_commands_diff_drive(cylinder_bot_diff_world):
     assert cylinder_bot_diff_world.state[diff_drive.x.id].jerk == 0.0
     assert cylinder_bot_diff_world.state[diff_drive.x.id].acceleration == 0.0
     assert cylinder_bot_diff_world.state[diff_drive.x.id].velocity == 0.0
-    assert cylinder_bot_diff_world.state[diff_drive.x.id].position == 0.09950041652780259
+    assert np.allclose(cylinder_bot_diff_world.state[diff_drive.x.id].position, 100 * dt ** 3 * np.cos(100 * dt ** 3), atol=1e-3)
 
     assert cylinder_bot_diff_world.state[diff_drive.y.id].jerk == 0.0
     assert cylinder_bot_diff_world.state[diff_drive.y.id].acceleration == 0.0
     assert cylinder_bot_diff_world.state[diff_drive.y.id].velocity == 0.0
-    assert cylinder_bot_diff_world.state[diff_drive.y.id].position == 0.009983341664682815
+    assert np.allclose(cylinder_bot_diff_world.state[diff_drive.y.id].position, 100 * dt ** 3 * np.sin(100 * dt ** 3), atol=1e-3)
 
 
 def test_search_for_connections_of_type(pr2_world_state_reset: World):
