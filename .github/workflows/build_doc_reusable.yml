@@ -68,6 +68,7 @@ jobs:
         working-directory: ${{ inputs.lib }}
         run: |
           pip install -U pip setuptools wheel pybind11
+          pip install -e ../krrood
           [ -f requirements-dev.txt ] && pip install -r requirements-dev.txt || echo "No requirements-dev.txt"
           [ -f requirements.txt ] && pip install -r requirements.txt || echo "No requirements.txt"
           pip install .
@@ -81,7 +82,9 @@ jobs:
           sudo apt-get update
           cd /opt/ros/semantic_digital_twin
           source /opt/ros/semantic_digital_twin-venv/bin/activate
-          pip install -U pip && pip install -r requirements.txt && pip install . && pip install -r doc/requirements.txt
+          pip install -U pip 
+          pip install -e $GITHUB_WORKSPACE/ros/src/semantic_digital_twin/krrood
+          pip install -r requirements.txt && pip install . && pip install -r doc/requirements.txt
 
       - name: Strip exercise-tagged cells (semantic_digital_twin only)
         if: ${{ inputs.lib == 'semantic_digital_twin' }}
