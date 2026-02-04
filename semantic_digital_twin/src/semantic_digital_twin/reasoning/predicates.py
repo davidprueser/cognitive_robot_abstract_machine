@@ -258,8 +258,8 @@ def is_body_in_region(body: Body, region: Region) -> float:
 @dataclass
 class KinematicStructureEntitySpatialRelation(Symbol, ABC):
     """
-    Check if the KSE is spatially related to the other KSE if you are looking from the point of semantic annotation.
-    The comparison is done using the centers of mass computed from the KSE's collision geometry.
+    Base class for spatial relations between two KinematicStructureEntity instances.
+    Implementations typically compare the centers of mass computed from the KSE's collision geometry.
     """
 
     body: KinematicStructureEntity
