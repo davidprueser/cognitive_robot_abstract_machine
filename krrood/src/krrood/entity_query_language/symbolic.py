@@ -622,52 +622,6 @@ class CanBehaveLikeAVariable(Selectable[T], ABC):
         all_kwargs = merge_args_and_kwargs(type_, args, kwargs, ignore_first=True)
         return convert_args_and_kwargs_into_a_hashable_key(all_kwargs)
 
-    def _update_truth_value_(self, current_value: Any) -> None:
-        """
-        Updates the truth value of the variable based on the current value.
-
-        :param current_value: The current value of the variable.
-        """
-        if isinstance(self._parent_, LogicalOperator) or self is self._conditions_root_:
-            is_true = (
-                len(current_value) > 0
-                if is_iterable(current_value)
-                else bool(current_value)
-            )
-            self._is_false_ = not is_true
-
-    def _get_domain_mapping_(
-        self, type_: Type[DomainMapping], *args, **kwargs
-    ) -> DomainMapping:
-        """
-        Retrieves or creates a domain mapping instance based on the provided arguments.
-
-        :param type_: The type of the domain mapping to retrieve or create.
-        :param args: Positional arguments to pass to the domain mapping constructor.
-        :param kwargs: Keyword arguments to pass to the domain mapping constructor.
-        :return: The retrieved or created domain mapping instance.
-        """
-        cache_item = DomainMappingCacheItem(type_, self, args, kwargs)
-        if cache_item in self._known_mappings_:
-            return self._known_mappings_[cache_item]
-        else:
-            instance = type_(**cache_item.all_kwargs)
-            self._known_mappings_[cache_item] = instance
-            return instance
-
-    def _get_domain_mapping_key_(self, type_: Type[DomainMapping], *args, **kwargs):
-        """
-        Generates a hashable key for the given type and arguments.
-
-        :param type_: The type of the domain mapping.
-        :param args: Positional arguments to pass to the domain mapping constructor.
-        :param kwargs: Keyword arguments to pass to the domain mapping constructor.
-        :return: The generated hashable key.
-        """
-        args = (self,) + args
-        all_kwargs = merge_args_and_kwargs(type_, args, kwargs, ignore_first=True)
-        return convert_args_and_kwargs_into_a_hashable_key(all_kwargs)
-
     def __getattr__(self, name: str) -> CanBehaveLikeAVariable[T]:
         # Prevent debugger/private attribute lookups from being interpreted as symbolic attributes
         if name.startswith("__") and name.endswith("__"):
