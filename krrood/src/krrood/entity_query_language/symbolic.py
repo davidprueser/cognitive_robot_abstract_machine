@@ -472,7 +472,11 @@ class Selectable(SymbolicExpression[T], ABC):
 
     @cached_property
     def _binding_id_(self) -> int:
-        return self._var_._binding_id_ if self._var_ is not self else self._id_
+        return (
+            self._var_._binding_id_
+            if self._var_ and self._var_ is not self
+            else self._id_
+        )
 
     @cached_property
     def _type__(self):
@@ -485,7 +489,7 @@ class Selectable(SymbolicExpression[T], ABC):
         :param result: The result to be mapped.
         :return: The mapped result.
         """
-        return result[result.operand._id_]
+        return result.value
 
     @property
     def _is_iterable_(self):
@@ -943,9 +947,10 @@ class ResultQuantifier(ResultProcessor[T], ABC):
     ) -> Iterable[T]:
         sources = sources or {}
 
-        if self._id_ in sources:
+        if self._binding_id_ in sources:
             yield OperationResult(sources, False, self)
             return
+
         result_count = 0
         values = self._child_._evaluate__(sources, parent=self)
         for value in values:
@@ -953,8 +958,6 @@ class ResultQuantifier(ResultProcessor[T], ABC):
             self._assert_satisfaction_of_quantification_constraints_(
                 result_count, done=False
             )
-            if self._var_:
-                value[self._id_] = value[self._var_._id_]
             yield OperationResult(value.bindings, False, self)
         self._assert_satisfaction_of_quantification_constraints_(
             result_count, done=True
@@ -1255,6 +1258,7 @@ class QueryObjectDescriptor(SymbolicExpression[T], ABC):
         for variable in self._selected_variables:
             variable._var_._node_.enclosed = True
 
+    @lru_cache(maxsize=None)
     def _assert_correct_selected_variables__(self):
         """
         Assert that the selected variables are correct.
@@ -1549,6 +1553,9 @@ class QueryObjectDescriptor(SymbolicExpression[T], ABC):
 
         sources = sources or {}
 
+        if all(var._binding_id_ in sources for var in self._selected_variables):
+            yield OperationResult(sources, False, self)
+
         results_generator = self._generate_results__(sources)
 
         if self._order_by:
@@ -1776,7 +1783,7 @@ class SetOf(QueryObjectDescriptor[T]):
 
 
 @dataclass(eq=False, repr=False)
-class Entity(QueryObjectDescriptor[T], Selectable[T]):
+class Entity(QueryObjectDescriptor[T], CanBehaveLikeAVariable[T]):
     """
     A query over a single variable.
     """
@@ -2468,8 +2475,8 @@ class Comparator(BinaryOperator):
 
     def apply_operation(self, operand_values: OperationResult) -> bool:
         left_value, right_value = (
-            operand_values.bindings[self.left._id_],
-            operand_values.bindings[self.right._id_],
+            operand_values[self.left._binding_id_],
+            operand_values[self.right._binding_id_],
         )
         if (
             self.operation in [operator.eq, operator.ne]
