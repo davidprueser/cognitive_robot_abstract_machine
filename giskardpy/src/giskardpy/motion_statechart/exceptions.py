@@ -22,14 +22,15 @@ class MotionStatechartError(DataclassException):
 @dataclass
 class NodeInitializationError(MotionStatechartError):
     node: MotionStatechartNode
+    reason: str
 
     def __post_init__(self):
-        self.message = f'Failed to initialize Goal "{self.node.unique_name}". Reason: {self.message}'
+        self.message = f'Failed to initialize Goal "{self.node.unique_name}". Reason: {self.reason}'
 
 
 @dataclass
 class EmptyMotionStatechartError(MotionStatechartError):
-    message: str = field(default="MotionStatechart is empty.", init=False)
+    reason: str = field(default="MotionStatechart is empty.", init=False)
 
 
 @dataclass
@@ -48,7 +49,7 @@ class NodeAlreadyBelongsToDifferentNodeError(NodeInitializationError):
 
 @dataclass
 class EndMotionInGoalError(NodeInitializationError):
-    message: str = field(
+    reason: str = field(
         default="Goals are not allowed to have EndMotion as a child.", init=False
     )
 
