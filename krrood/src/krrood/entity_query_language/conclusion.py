@@ -79,12 +79,12 @@ class Set(Conclusion[T]):
 
         self._yield_when_false_ = False
         if self.var._var_._id_ not in sources:
-            parent_value = next(iter(self.var._evaluate__(sources, parent=self)))[
+            parent_value = next(iter(self.var._evaluate_(sources, parent=self)))[
                 self.var._var_._id_
             ]
             sources[self.var._var_._id_] = parent_value
         sources[self.var._var_._id_] = next(
-            iter(self.value._evaluate__(sources, parent=self))
+            iter(self.value._evaluate_(sources, parent=self))
         )[self.value._id_]
         yield OperationResult(sources, False, self)
 
@@ -100,6 +100,6 @@ class Add(Conclusion[T]):
     ) -> Iterable[OperationResult]:
 
         self._yield_when_false_ = False
-        v = next(iter(self.value._evaluate__(sources, parent=self)))[self.value._id_]
+        v = next(iter(self.value._evaluate_(sources, parent=self)))[self.value._id_]
         sources[self.var._var_._id_] = v
         yield OperationResult(sources, False, self)
