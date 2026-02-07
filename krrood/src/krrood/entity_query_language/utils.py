@@ -29,7 +29,9 @@ from typing_extensions import (
     Iterator,
     Union,
     Type,
-    Tuple, TYPE_CHECKING,
+    Tuple,
+    TYPE_CHECKING,
+    Hashable,
 )
 
 if TYPE_CHECKING:
@@ -109,7 +111,9 @@ def make_set(value: Any) -> Set:
 T = TypeVar("T")
 
 
-def chain_stages(stages: List[Callable[[Bindings], Iterator[Bindings]]], initial: Bindings) -> Iterator[Bindings]:
+def chain_stages(
+    stages: List[Callable[[Bindings], Iterator[Bindings]]], initial: Bindings
+) -> Iterator[Bindings]:
     """
     Chains a sequence of stages into a single pipeline.
 
@@ -202,3 +206,26 @@ def convert_args_and_kwargs_into_a_hashable_key(
             v = tuple(v)
         key.append((k, v))
     return tuple(sorted(key))
+
+
+def ensure_hashable(obj) -> Hashable:
+    """
+    :return: The object itself if it is hashable, otherwise its id.
+    """
+    if not is_hashable(obj):
+        return id(obj)
+    return obj
+
+
+def is_hashable(obj):
+    """
+    Checks if an object is hashable by attempting to compute its hash.
+
+    :param obj: The object to check.
+    :return: True if the object is hashable, False otherwise.
+    """
+    try:
+        hash(obj)
+        return True
+    except TypeError:
+        return False

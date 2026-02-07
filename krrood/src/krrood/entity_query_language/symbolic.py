@@ -75,6 +75,7 @@ from .utils import (
     chain_stages,
     merge_args_and_kwargs,
     convert_args_and_kwargs_into_a_hashable_key,
+    ensure_hashable,
 )
 from ..class_diagrams import ClassRelation
 from ..class_diagrams.class_diagram import WrappedClass
@@ -1252,7 +1253,8 @@ class GroupBy(SymbolicExpression[T]):
         for res in self.get_constrained_values(sources):
 
             group_key = tuple(
-                res[var._binding_id_] for var in self.variables_to_group_by
+                ensure_hashable(res[var._binding_id_])
+                for var in self.variables_to_group_by
             )
 
             if self.count_occurrences_of_each_group_key:

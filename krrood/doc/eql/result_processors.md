@@ -29,23 +29,29 @@ You can pass either a variable created with `variable(...)` directly, or wrap it
 ## Setup
 
 ```{code-cell} ipython3
+from __future__ import annotations
 from dataclasses import dataclass
-from typing_extensions import List
+from typing_extensions import List, Optional
 
 import krrood.entity_query_language.entity_result_processors as eql
 from krrood.entity_query_language.entity_result_processors import a, an
-from krrood.entity_query_language.entity import entity, variable, contains, set_of
+from krrood.entity_query_language.entity import entity, variable, contains, set_of, distinct
 
 
 @dataclass
 class Body:
     name: str
     height: int
+    world: Optional[World] = None
 
 
 @dataclass
 class World:
     bodies: List[Body]
+    
+    def __post_init__(self):
+        for body in self.bodies:
+            body.world = self
 
 
 world = World([
@@ -59,7 +65,10 @@ world = World([
 
 ## Aggregators
 
-The core aggregators are `count`, `sum`, `average`, `max`, and `min`. All aggregators support `key` (to extract numeric values) and `default` (returned if the result set is empty).
+The core aggregators are `count`, `sum`, `average`, `max`, and `min`. All aggregators support:
+- `key`: A function to extract or transform values before aggregation.
+- `default`: The value returned if the result set is empty.
+- `distinct`: A boolean (default `False`) that, if `True`, ensures only unique values are considered during aggregation.
 
 ### count
 
@@ -183,10 +192,62 @@ for res in query.tolist():
     print(f"Group {res[first_char]}: Avg={res[avg_h]}, Max={res[max_h]}, Count={res[total]}")
 ```
 
-## Features and Syntax Constraints
+### Distinct Aggregation
+
+Aggregators support a `distinct=True` keyword argument to perform the aggregation only over unique values within each group.
+
+```{code-cell} ipython3
+# Example world with duplicate height values
+world = World([
+    Body("Handle1", 10),
+    Body("Handle2", 10),
+    Body("Container1", 20),
+])
+body = variable(Body, domain=world.bodies)
+
+# Regular sum: 10 + 10 + 20 = 40
+total_height = eql.sum(body.height).tolist()[0]
+print(total_height)
+
+# Distinct sum: 10 + 20 = 30
+distinct_total_height = eql.sum(body.height, distinct=True).tolist()[0]
+print(distinct_total_height)
+```
+
+#### Difference between `distinct=True` and `distinct()` function
+
+It is important to distinguish between the `distinct=True` keyword argument in an aggregator and the `distinct()` function applied to an aggregated query:
+
+1.  **`eql.sum(..., distinct=True)`**: Applies distinctness to the **input values** of the aggregation (e.g., sum of unique heights).
+2.  **`distinct(eql.sum(...).grouped_by(...))`**: Applies distinctness to the **results** of the aggregation (e.g., unique sum values across different groups).
+
+```{code-cell} ipython3
+from krrood.entity_query_language.entity import concatenate
+
+# Finding unique total heights grouped by worlds
+world2 = World([Body("Handle1", 10),
+    Body("Handle2", 10),
+    Body("Container1", 20)])
+# concatenate bodies from both worlds
+body2 = variable(Body, domain=world2.bodies)
+body = concatenate(body, body2)
+
+# without distinct()
+total_sum_by_world = eql.sum(body.height).grouped_by(body.world).tolist() # -> [40, 40]
+print(total_sum_by_world)
+
+# with distinct()
+unique_sums = distinct(eql.sum(body.height).grouped_by(body.world)).tolist() # -> [40]
+print(unique_sums)
+```
+
+## Features and Constraints
 
 - **Nested Aggregations**: Aggregators cannot be directly nested (e.g., `eql.max(eql.count(v))` is invalid). However, you can aggregate over a grouped query using `eql.max(eql.count(v).grouped_by(g))`.
 - **Selection Consistency**: If any aggregator is selected in a `set_of`, all other selected variables must be included in the `grouped_by` clause.
 - **Where vs. Having**: `where` filters individual rows before aggregation; `having` filters groups after aggregation. Aggregators are not allowed in `where` clauses.
-
+- **Distinct**: Distinctness makes use of the hash and equality of the values. When using `distinct=True/distinct()`, ensure that
+the values being distinct have appropriate `__hash__` and `__eq__` implementations for correct behavior.
+- **grouped_by()**: Similar to Distinct, ensure that the grouping variables have appropriate `__hash__` and `__eq__`
+implementations for correct behavior.
 

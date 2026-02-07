@@ -121,13 +121,28 @@ for b in sorted_bodies:
     print(b)
 ```
 
-### Distinct with `.distinct()`
+### Distinct with `distinct()`
 
-`.distinct()` can be used to remove duplicate results from the query.
+The `distinct()` function (or the `.distinct()` method) is used to remove duplicate results from a query. 
 
 ```{code-cell} ipython3
+from krrood.entity_query_language.entity import distinct
+
+# Using the functional form
+distinct_bodies = distinct(entity(body)).tolist()
+
+# Using the method form
 distinct_bodies = entity(body).distinct().tolist()
-print(distinct_bodies)
+```
+
+#### Distinct on specific attributes
+
+You can specify specific attributes to determine distinctness by passing them as additional arguments to the `distinct()` function or method. This is useful when you want to retrieve unique entities based on a subset of their properties.
+
+```{code-cell} ipython3
+# Get unique bodies based on their name attribute
+# If multiple bodies have the same name, only the first one encountered is returned
+distinct_bodies_by_name = distinct(entity(body), body.name).tolist()
 ```
 
 
