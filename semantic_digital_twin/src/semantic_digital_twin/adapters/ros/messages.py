@@ -198,23 +198,28 @@ class WorldModelSnapshot(SubclassJSONSerializer):
         )
 
     @staticmethod
-    def create_world_from_json(world: World, data: Dict[str, Any], **kwargs):
+    def apply_to_json_snapshot_to_world(
+        world: World, json_data: Dict[str, Any], **kwargs
+    ):
         with world.modify_world():
-            for modification in data.get("modifications", []):
+            for modification in json_data.get("modifications", []):
                 WorldModelModificationBlock.apply_from_json(
                     world, modification, **kwargs
                 )
 
-        state = data.get("state", {})
+        state = json_data.get("state", {})
         ids = from_json(state["ids"])
         states = state.get("states", [])
+        WorldModelSnapshot._apply_json_state(world, ids, states)
 
-        if ids and states:
-            indices = [world.state._index.get(_id) for _id in ids]
-            assign_pairs = [
-                (i, float(s)) for i, s in zip(indices, states) if i is not None
-            ]
-            if assign_pairs:
-                for i, s in assign_pairs:
-                    world.state.data[0, i] = s
-                world.notify_state_change()
+    @staticmethod
+    def _apply_json_state(world: World, ids: list[float], states: list[UUID]):
+        if not (ids or states):
+            return
+        indices = [world.state._index.get(_id) for _id in ids]
+        assign_pairs = [(i, float(s)) for i, s in zip(indices, states) if i is not None]
+        if not assign_pairs:
+            return
+        for i, s in assign_pairs:
+            world.state.data[0, i] = s
+        world.notify_state_change()

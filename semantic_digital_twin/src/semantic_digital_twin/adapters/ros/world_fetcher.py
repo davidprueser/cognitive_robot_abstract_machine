@@ -164,6 +164,6 @@ def fetch_world_from_service(
     kwargs = tracker.create_kwargs()
 
     payload = json.loads(response.message)
-    WorldModelSnapshot.create_world_from_json(world, payload, **kwargs)
+    WorldModelSnapshot.apply_to_json_snapshot_to_world(world, payload, **kwargs)
 
     return world
