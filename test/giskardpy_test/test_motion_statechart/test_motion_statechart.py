@@ -25,6 +25,10 @@ from giskardpy.motion_statechart.exceptions import (
     NonObservationVariableError,
     NodeAlreadyBelongsToDifferentNodeError,
 )
+from giskardpy.motion_statechart.goals.cartesian_goals import (
+    DiffDriveBaseGoal,
+    CartesianPoseStraight,
+)
 from giskardpy.motion_statechart.goals.collision_avoidance import (
     CollisionAvoidance,
 )
@@ -45,7 +49,7 @@ from giskardpy.motion_statechart.monitors.payload_monitors import (
     Print,
     Pulse,
     CountSeconds,
-    CountTicks,
+    CountControlCycles,
 )
 from giskardpy.motion_statechart.motion_statechart import (
     MotionStatechart,
@@ -62,6 +66,7 @@ from giskardpy.motion_statechart.tasks.cartesian_tasks import (
 )
 from giskardpy.motion_statechart.tasks.feature_functions import (
     AngleGoal,
+    AlignPerpendicular,
 )
 from giskardpy.motion_statechart.tasks.joint_tasks import JointPositionList, JointState
 from giskardpy.motion_statechart.tasks.pointing import Pointing, PointingCone
@@ -86,18 +91,21 @@ from krrood.symbolic_math.symbolic_math import (
     trinary_logic_or,
     FloatVariable,
 )
+from semantic_digital_twin.adapters.ros.tf_publisher import TFPublisher
+from semantic_digital_twin.adapters.ros.visualization.viz_marker import (
+    VizMarkerPublisher,
+)
 from semantic_digital_twin.adapters.world_entity_kwargs_tracker import (
-    KinematicStructureEntityKwargsTracker,
+    WorldEntityWithIDKwargsTracker,
 )
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
-from semantic_digital_twin.semantic_annotations.factories import (
-    DoorFactory,
-    SemanticPositionDescription,
-    HandleFactory,
-    HorizontalSemanticDirection,
-    VerticalSemanticDirection,
+from semantic_digital_twin.robots.abstract_robot import Manipulator
+from semantic_digital_twin.robots.hsrb import HSRB
+from semantic_digital_twin.semantic_annotations.semantic_annotations import (
+    Handle,
+    Door,
+    Hinge,
 )
-from semantic_digital_twin.semantic_annotations.semantic_annotations import Handle
 from semantic_digital_twin.spatial_types import (
     HomogeneousTransformationMatrix,
     Vector3,
@@ -111,8 +119,11 @@ from semantic_digital_twin.world_description.connections import (
     ActiveConnection1DOF,
     FixedConnection,
 )
-from semantic_digital_twin.world_description.degree_of_freedom import DegreeOfFreedom
-from semantic_digital_twin.world_description.geometry import Cylinder
+from semantic_digital_twin.world_description.degree_of_freedom import (
+    DegreeOfFreedom,
+    DegreeOfFreedomLimits,
+)
+from semantic_digital_twin.world_description.geometry import Cylinder, Box, Scale
 from semantic_digital_twin.world_description.shape_collection import ShapeCollection
 from semantic_digital_twin.world_description.world_entity import Body
 
@@ -413,7 +424,8 @@ def test_joint_goal():
         ll = DerivativeMap()
         ll.velocity = -1
         dof = DegreeOfFreedom(
-            name=PrefixedName("dof", "a"), lower_limits=ll, upper_limits=ul
+            name=PrefixedName("dof", "a"),
+            limits=DegreeOfFreedomLimits(lower=ll, upper=ul),
         )
         world.add_degree_of_freedom(dof)
         root_C_tip = RevoluteConnection(
@@ -422,7 +434,8 @@ def test_joint_goal():
         world.add_connection(root_C_tip)
 
         dof = DegreeOfFreedom(
-            name=PrefixedName("dof", "b"), lower_limits=ll, upper_limits=ul
+            name=PrefixedName("dof", "b"),
+            limits=DegreeOfFreedomLimits(lower=ll, upper=ul),
         )
         world.add_degree_of_freedom(dof)
         root_C_tip2 = RevoluteConnection(
@@ -432,7 +445,7 @@ def test_joint_goal():
 
     msc = MotionStatechart()
 
-    task1 = JointPositionList(goal_state=JointState({root_C_tip: 1}))
+    task1 = JointPositionList(goal_state=JointState.from_mapping({root_C_tip: 1}))
     always_true = ConstTrueNode()
     msc.add_node(always_true)
     msc.add_node(task1)
@@ -525,7 +538,7 @@ def test_two_goals(pr2_world_state_reset: World):
     msc = MotionStatechart()
     msc.add_nodes(
         [
-            JointPositionList(goal_state=JointState({torso_joint: 0.1})),
+            JointPositionList(goal_state=JointState.from_mapping({torso_joint: 0.1})),
             local_min := LocalMinimumReached(),
         ]
     )
@@ -541,7 +554,9 @@ def test_two_goals(pr2_world_state_reset: World):
 
     msc = MotionStatechart()
     msc.add_node(
-        joint_goal := JointPositionList(goal_state=JointState({r_wrist_roll_joint: 1}))
+        joint_goal := JointPositionList(
+            goal_state=JointState.from_mapping({r_wrist_roll_joint: 1})
+        )
     )
     msc.add_node(EndMotion.when_true(joint_goal))
 
@@ -969,7 +984,9 @@ def test_set_seed_configuration(pr2_world_state_reset):
         "torso_lift_joint"
     )
 
-    node1 = SetSeedConfiguration(seed_configuration=JointState({connection: goal}))
+    node1 = SetSeedConfiguration(
+        seed_configuration=JointState.from_mapping({connection: goal})
+    )
     end = EndMotion()
     msc.add_node(node1)
     msc.add_node(end)
@@ -1160,7 +1177,49 @@ def test_long_goal(pr2_world_state_reset: World):
 class TestCartesianTasks:
     """Test suite for all Cartesian motion tasks."""
 
-    # ===== EXISTING TESTS (moved from standalone functions into this class) =====
+    def test_front_facing_orientation(self, hsr_world_setup: World):
+        with hsr_world_setup.modify_world():
+            box = Body(
+                name=PrefixedName("muh"),
+                collision=ShapeCollection([Box(scale=Scale(0.1, 0.1, 0.1))]),
+            )
+            connection = FixedConnection(
+                parent=hsr_world_setup.root,
+                child=box,
+                parent_T_connection_expression=HomogeneousTransformationMatrix.from_xyz_rpy(
+                    x=2, z=0.5
+                ),
+            )
+            hsr_world_setup.add_connection(connection)
+
+        hsr = hsr_world_setup.get_semantic_annotations_by_type(HSRB)[0]
+        hand = hsr_world_setup.get_semantic_annotations_by_type(Manipulator)[0]
+        msc = MotionStatechart()
+        orientation_goal = hand.front_facing_orientation.to_rotation_matrix()
+        orientation_goal.reference_frame = hsr_world_setup.get_body_by_name(
+            "base_footprint"
+        )
+        msc.add_node(
+            goal := Parallel(
+                [
+                    CartesianOrientation(
+                        root_link=hsr_world_setup.root,
+                        tip_link=hand.tool_frame,
+                        goal_orientation=orientation_goal,
+                    ),
+                    CartesianPosition(
+                        root_link=hsr_world_setup.root,
+                        tip_link=hand.tool_frame,
+                        goal_point=hsr_world_setup.bodies[-1].global_pose.to_position(),
+                    ),
+                ]
+            )
+        )
+        msc.add_node(EndMotion.when_true(goal))
+
+        kin_sim = Executor(world=hsr_world_setup)
+        kin_sim.compile(motion_statechart=msc)
+        kin_sim.tick_until_end()
 
     def test_cart_goal_1eef(self, pr2_world_state_reset: World):
         """Single CartesianPose goal test."""
@@ -1189,130 +1248,148 @@ class TestCartesianTasks:
         kin_sim.compile(motion_statechart=msc)
         kin_sim.tick_until_end()
 
+    def test_cart_goal_sequence_at_build(
+        self, pr2_world_state_reset: World, rclpy_node
+    ):
+        tf_publisher = TFPublisher(node=rclpy_node, world=pr2_world_state_reset)
+        viz = VizMarkerPublisher(world=pr2_world_state_reset, node=rclpy_node)
 
-def test_cart_goal_sequence_at_build(pr2_world_state_reset: World):
-    tip = pr2_world_state_reset.get_kinematic_structure_entity_by_name("base_footprint")
-    root = pr2_world_state_reset.get_kinematic_structure_entity_by_name("odom_combined")
+        tip = pr2_world_state_reset.get_kinematic_structure_entity_by_name(
+            "base_footprint"
+        )
+        root = pr2_world_state_reset.get_kinematic_structure_entity_by_name(
+            "odom_combined"
+        )
 
-    tip_goal1 = HomogeneousTransformationMatrix.from_xyz_quaternion(
-        pos_x=-2, reference_frame=tip
-    )
-    tip_goal2 = HomogeneousTransformationMatrix.from_xyz_quaternion(
-        pos_x=0.2, reference_frame=tip
-    )
+        tip_goal1 = HomogeneousTransformationMatrix.from_xyz_quaternion(
+            pos_x=-2, reference_frame=tip
+        )
+        tip_goal2 = HomogeneousTransformationMatrix.from_xyz_quaternion(
+            pos_x=0.2, reference_frame=tip
+        )
 
-    msc = MotionStatechart()
-    cart_goal1 = CartesianPose(
-        root_link=root,
-        tip_link=tip,
-        goal_pose=tip_goal1,
-    )
-    msc.add_node(cart_goal1)
+        msc = MotionStatechart()
+        cart_goal1 = CartesianPose(
+            root_link=root,
+            tip_link=tip,
+            goal_pose=tip_goal1,
+        )
+        msc.add_node(cart_goal1)
 
-    cart_goal2 = CartesianPose(
-        root_link=root,
-        tip_link=tip,
-        goal_pose=tip_goal2,
-        binding_policy=GoalBindingPolicy.Bind_at_build,
-    )
-    msc.add_node(cart_goal2)
+        cart_goal2 = CartesianPose(
+            root_link=root,
+            tip_link=tip,
+            goal_pose=tip_goal2,
+            binding_policy=GoalBindingPolicy.Bind_at_build,
+        )
+        msc.add_node(cart_goal2)
 
-    cart_goal1.end_condition = cart_goal1.observation_variable
-    cart_goal2.start_condition = cart_goal1.observation_variable
+        cart_goal1.end_condition = cart_goal1.observation_variable
+        cart_goal2.start_condition = cart_goal1.observation_variable
 
-    end = EndMotion()
-    msc.add_node(end)
-    end.start_condition = trinary_logic_and(
-        cart_goal1.observation_variable, cart_goal2.observation_variable
-    )
+        end = EndMotion()
+        msc.add_node(end)
+        end.start_condition = trinary_logic_and(
+            cart_goal1.observation_variable, cart_goal2.observation_variable
+        )
 
-    kin_sim = Executor(
-        world=pr2_world_state_reset,
-    )
+        kin_sim = Executor(
+            world=pr2_world_state_reset,
+        )
 
-    kin_sim.compile(motion_statechart=msc)
-    kin_sim.tick_until_end()
+        kin_sim.compile(motion_statechart=msc)
+        kin_sim.tick_until_end()
 
-    fk = pr2_world_state_reset.compute_forward_kinematics_np(root, tip)
-    assert np.allclose(fk, tip_goal2.to_np(), atol=cart_goal2.threshold)
+        fk = pr2_world_state_reset.compute_forward_kinematics_np(root, tip)
+        assert np.allclose(fk, tip_goal2.to_np(), atol=cart_goal2.threshold)
 
+    def test_cart_goal_sequence_on_start(self, pr2_world_state_reset: World):
+        tip = pr2_world_state_reset.get_kinematic_structure_entity_by_name(
+            "base_footprint"
+        )
+        root = pr2_world_state_reset.get_kinematic_structure_entity_by_name(
+            "odom_combined"
+        )
 
-def test_cart_goal_sequence_on_start(pr2_world_state_reset: World):
-    tip = pr2_world_state_reset.get_kinematic_structure_entity_by_name("base_footprint")
-    root = pr2_world_state_reset.get_kinematic_structure_entity_by_name("odom_combined")
+        tip_goal1 = HomogeneousTransformationMatrix.from_xyz_quaternion(
+            pos_x=-0.2, reference_frame=tip
+        )
+        tip_goal2 = HomogeneousTransformationMatrix.from_xyz_quaternion(
+            pos_x=0.2, reference_frame=tip
+        )
 
-    tip_goal1 = HomogeneousTransformationMatrix.from_xyz_quaternion(
-        pos_x=-0.2, reference_frame=tip
-    )
-    tip_goal2 = HomogeneousTransformationMatrix.from_xyz_quaternion(
-        pos_x=0.2, reference_frame=tip
-    )
+        msc = MotionStatechart()
+        cart_goal1 = CartesianPose(
+            root_link=root,
+            tip_link=tip,
+            goal_pose=tip_goal1,
+        )
+        msc.add_node(cart_goal1)
 
-    msc = MotionStatechart()
-    cart_goal1 = CartesianPose(
-        root_link=root,
-        tip_link=tip,
-        goal_pose=tip_goal1,
-    )
-    msc.add_node(cart_goal1)
+        cart_goal2 = CartesianPose(
+            root_link=root,
+            tip_link=tip,
+            goal_pose=tip_goal2,
+        )
+        msc.add_node(cart_goal2)
 
-    cart_goal2 = CartesianPose(
-        root_link=root,
-        tip_link=tip,
-        goal_pose=tip_goal2,
-    )
-    msc.add_node(cart_goal2)
+        cart_goal1.end_condition = cart_goal1.observation_variable
+        cart_goal2.start_condition = cart_goal1.observation_variable
 
-    cart_goal1.end_condition = cart_goal1.observation_variable
-    cart_goal2.start_condition = cart_goal1.observation_variable
+        end = EndMotion()
+        msc.add_node(end)
+        end.start_condition = trinary_logic_and(
+            cart_goal1.observation_variable, cart_goal2.observation_variable
+        )
 
-    end = EndMotion()
-    msc.add_node(end)
-    end.start_condition = trinary_logic_and(
-        cart_goal1.observation_variable, cart_goal2.observation_variable
-    )
+        kin_sim = Executor(
+            world=pr2_world_state_reset,
+        )
+        kin_sim.compile(motion_statechart=msc)
+        kin_sim.tick_until_end()
 
-    kin_sim = Executor(
-        world=pr2_world_state_reset,
-    )
-    kin_sim.compile(motion_statechart=msc)
-    kin_sim.tick_until_end()
+        fk = pr2_world_state_reset.compute_forward_kinematics_np(root, tip)
+        expected = np.eye(4)
+        assert np.allclose(fk, expected, atol=cart_goal2.threshold)
 
-    fk = pr2_world_state_reset.compute_forward_kinematics_np(root, tip)
-    expected = np.eye(4)
-    assert np.allclose(fk, expected, atol=cart_goal2.threshold)
+    def test_CartesianOrientation(self, pr2_world_state_reset: World):
+        tip = pr2_world_state_reset.get_kinematic_structure_entity_by_name(
+            "base_footprint"
+        )
+        root = pr2_world_state_reset.get_kinematic_structure_entity_by_name(
+            "odom_combined"
+        )
 
+        tip_goal = RotationMatrix.from_axis_angle(Vector3.Z(), 4.0, reference_frame=tip)
 
-def test_CartesianOrientation(pr2_world_state_reset: World):
-    tip = pr2_world_state_reset.get_kinematic_structure_entity_by_name("base_footprint")
-    root = pr2_world_state_reset.get_kinematic_structure_entity_by_name("odom_combined")
+        msc = MotionStatechart()
+        cart_goal = CartesianOrientation(
+            root_link=root,
+            tip_link=tip,
+            goal_orientation=tip_goal,
+        )
+        msc.add_node(cart_goal)
+        end = EndMotion()
+        msc.add_node(end)
+        end.start_condition = cart_goal.observation_variable
 
-    tip_goal = RotationMatrix.from_axis_angle(Vector3.Z(), 4.0, reference_frame=tip)
+        kin_sim = Executor(
+            world=pr2_world_state_reset,
+        )
+        kin_sim.compile(motion_statechart=msc)
+        kin_sim.tick_until_end()
 
-    msc = MotionStatechart()
-    cart_goal = CartesianOrientation(
-        root_link=root,
-        tip_link=tip,
-        goal_orientation=tip_goal,
-    )
-    msc.add_node(cart_goal)
-    end = EndMotion()
-    msc.add_node(end)
-    end.start_condition = cart_goal.observation_variable
+        fk = pr2_world_state_reset.compute_forward_kinematics_np(root, tip)
+        assert np.allclose(fk, tip_goal.to_np(), atol=cart_goal.threshold)
 
-    kin_sim = Executor(
-        world=pr2_world_state_reset,
-    )
-    kin_sim.compile(motion_statechart=msc)
-    kin_sim.tick_until_end()
-
-    fk = pr2_world_state_reset.compute_forward_kinematics_np(root, tip)
-    assert np.allclose(fk, tip_goal.to_np(), atol=cart_goal.threshold)
-
-    def test_cartesian_position_sequence_at_build(self, pr2_world: World):
+    def test_cartesian_position_sequence_at_build(self, pr2_world_state_reset: World):
         """Test CartesianPosition with Bind_at_build policy."""
-        tip = pr2_world.get_kinematic_structure_entity_by_name("base_footprint")
-        root = pr2_world.get_kinematic_structure_entity_by_name("odom_combined")
+        tip = pr2_world_state_reset.get_kinematic_structure_entity_by_name(
+            "base_footprint"
+        )
+        root = pr2_world_state_reset.get_kinematic_structure_entity_by_name(
+            "odom_combined"
+        )
 
         tip_goal1 = Point3(-0.2, 0, 0, reference_frame=tip)
         tip_goal2 = Point3(0.2, 0, 0, reference_frame=tip)
@@ -1343,21 +1420,25 @@ def test_CartesianOrientation(pr2_world_state_reset: World):
             cart_goal1.observation_variable, cart_goal2.observation_variable
         )
 
-        kin_sim = Executor(world=pr2_world)
+        kin_sim = Executor(world=pr2_world_state_reset)
         kin_sim.compile(motion_statechart=msc)
         kin_sim.tick_until_end()
 
-        fk = pr2_world.compute_forward_kinematics_np(root, tip)
+        fk = pr2_world_state_reset.compute_forward_kinematics_np(root, tip)
         # goal2 was captured at build time, so should end at that position
         expected = HomogeneousTransformationMatrix.from_xyz_quaternion(
-            pos_x=0.2, reference_frame=pr2_world.root
+            pos_x=0.2, reference_frame=pr2_world_state_reset.root
         ).to_np()
         assert np.allclose(fk[:3, 3], expected[:3, 3], atol=cart_goal2.threshold)
 
-    def test_cartesian_position_sequence_on_start(self, pr2_world: World):
+    def test_cartesian_position_sequence_on_start(self, pr2_world_state_reset: World):
         """Test CartesianPosition with Bind_on_start policy (default)."""
-        tip = pr2_world.get_kinematic_structure_entity_by_name("base_footprint")
-        root = pr2_world.get_kinematic_structure_entity_by_name("odom_combined")
+        tip = pr2_world_state_reset.get_kinematic_structure_entity_by_name(
+            "base_footprint"
+        )
+        root = pr2_world_state_reset.get_kinematic_structure_entity_by_name(
+            "odom_combined"
+        )
 
         tip_goal1 = Point3(-0.2, 0, 0, reference_frame=tip)
         tip_goal2 = Point3(0.2, 0, 0, reference_frame=tip)
@@ -1388,19 +1469,63 @@ def test_CartesianOrientation(pr2_world_state_reset: World):
             cart_goal1.observation_variable, cart_goal2.observation_variable
         )
 
-        kin_sim = Executor(world=pr2_world)
+        kin_sim = Executor(world=pr2_world_state_reset)
         kin_sim.compile(motion_statechart=msc)
         kin_sim.tick_until_end()
 
-        fk = pr2_world.compute_forward_kinematics_np(root, tip)
+        fk = pr2_world_state_reset.compute_forward_kinematics_np(root, tip)
         # Both goals captured when tasks start, so should return near origin
         expected = np.eye(4)
         assert np.allclose(fk[:3, 3], expected[:3, 3], atol=cart_goal2.threshold)
 
-    def test_cartesian_orientation_sequence_at_build(self, pr2_world: World):
+    def test_cartesian_position_with_sequence_node(self, pr2_world_state_reset: World):
+        tip = pr2_world_state_reset.get_kinematic_structure_entity_by_name(
+            "base_footprint"
+        )
+        root = pr2_world_state_reset.get_kinematic_structure_entity_by_name(
+            "odom_combined"
+        )
+
+        tip_goal1 = Point3(-0.2, 0, 0, reference_frame=tip)
+        tip_goal2 = Point3(0.2, 0, 0, reference_frame=tip)
+
+        msc = MotionStatechart()
+        cart_goal1 = CartesianPosition(
+            root_link=root,
+            tip_link=tip,
+            goal_point=tip_goal1,
+            binding_policy=GoalBindingPolicy.Bind_on_start,
+        )
+
+        cart_goal2 = CartesianPosition(
+            root_link=root,
+            tip_link=tip,
+            goal_point=tip_goal2,
+            binding_policy=GoalBindingPolicy.Bind_on_start,
+        )
+        msc.add_node(seq := Sequence(nodes=[cart_goal1, cart_goal2]))
+
+        msc.add_node(EndMotion.when_true(seq))
+
+        kin_sim = Executor(world=pr2_world_state_reset)
+        kin_sim.compile(motion_statechart=msc)
+        kin_sim.tick_until_end()
+
+        fk = pr2_world_state_reset.compute_forward_kinematics_np(root, tip)
+        # Both goals captured when tasks start, so should return near origin
+        expected = np.eye(4)
+        assert np.allclose(fk[:3, 3], expected[:3, 3], atol=cart_goal2.threshold)
+
+    def test_cartesian_orientation_sequence_at_build(
+        self, pr2_world_state_reset: World
+    ):
         """Test CartesianOrientation with Bind_at_build policy."""
-        tip = pr2_world.get_kinematic_structure_entity_by_name("base_footprint")
-        root = pr2_world.get_kinematic_structure_entity_by_name("odom_combined")
+        tip = pr2_world_state_reset.get_kinematic_structure_entity_by_name(
+            "base_footprint"
+        )
+        root = pr2_world_state_reset.get_kinematic_structure_entity_by_name(
+            "odom_combined"
+        )
 
         tip_rot1 = RotationMatrix.from_axis_angle(
             Vector3.Z(), np.pi / 6, reference_frame=tip
@@ -1435,19 +1560,25 @@ def test_CartesianOrientation(pr2_world_state_reset: World):
             cart_goal1.observation_variable, cart_goal2.observation_variable
         )
 
-        kin_sim = Executor(world=pr2_world)
+        kin_sim = Executor(world=pr2_world_state_reset)
         kin_sim.compile(motion_statechart=msc)
         kin_sim.tick_until_end()
 
-        fk = pr2_world.compute_forward_kinematics_np(root, tip)
+        fk = pr2_world_state_reset.compute_forward_kinematics_np(root, tip)
         # goal2 captured at build, so ends at -pi/6 from original
         expected = tip_rot2.to_np()
         assert np.allclose(fk, expected, atol=cart_goal2.threshold)
 
-    def test_cartesian_orientation_sequence_on_start(self, pr2_world: World):
+    def test_cartesian_orientation_sequence_on_start(
+        self, pr2_world_state_reset: World
+    ):
         """Test CartesianOrientation with Bind_on_start policy (default)."""
-        tip = pr2_world.get_kinematic_structure_entity_by_name("base_footprint")
-        root = pr2_world.get_kinematic_structure_entity_by_name("odom_combined")
+        tip = pr2_world_state_reset.get_kinematic_structure_entity_by_name(
+            "base_footprint"
+        )
+        root = pr2_world_state_reset.get_kinematic_structure_entity_by_name(
+            "odom_combined"
+        )
 
         tip_rot1 = RotationMatrix.from_axis_angle(
             Vector3.Z(), np.pi / 6, reference_frame=tip
@@ -1482,19 +1613,23 @@ def test_CartesianOrientation(pr2_world_state_reset: World):
             cart_goal1.observation_variable, cart_goal2.observation_variable
         )
 
-        kin_sim = Executor(world=pr2_world)
+        kin_sim = Executor(world=pr2_world_state_reset)
         kin_sim.compile(motion_statechart=msc)
         kin_sim.tick_until_end()
 
-        fk = pr2_world.compute_forward_kinematics_np(root, tip)
+        fk = pr2_world_state_reset.compute_forward_kinematics_np(root, tip)
         # Both goals captured when tasks start, so rotates +pi/6 then -pi/6 = back to origin
         expected = np.eye(4)
         assert np.allclose(fk, expected, atol=cart_goal2.threshold)
 
-    def test_cartesian_position_straight(self, pr2_world: World):
+    def test_cartesian_position_straight(self, pr2_world_state_reset: World):
         """Test CartesianPositionStraight basic functionality."""
-        tip = pr2_world.get_kinematic_structure_entity_by_name("base_footprint")
-        root = pr2_world.get_kinematic_structure_entity_by_name("odom_combined")
+        tip = pr2_world_state_reset.get_kinematic_structure_entity_by_name(
+            "base_footprint"
+        )
+        root = pr2_world_state_reset.get_kinematic_structure_entity_by_name(
+            "odom_combined"
+        )
 
         goal_point = Point3(0.1, 0, 0, reference_frame=tip)
 
@@ -1511,12 +1646,97 @@ def test_CartesianOrientation(pr2_world_state_reset: World):
         msc.add_node(end)
         end.start_condition = cart_straight.observation_variable
 
-        kin_sim = Executor(world=pr2_world)
+        kin_sim = Executor(world=pr2_world_state_reset)
         kin_sim.compile(motion_statechart=msc)
         kin_sim.tick_until_end()
 
         # Verify task detected completion
         assert cart_straight.observation_state == ObservationStateValues.TRUE
+
+    def test_cartesian_pose_straight(self, pr2_world_state_reset: World):
+        """Test CartesianPositionStraight basic functionality."""
+        tip = pr2_world_state_reset.get_kinematic_structure_entity_by_name(
+            "base_footprint"
+        )
+        root = pr2_world_state_reset.get_kinematic_structure_entity_by_name(
+            "odom_combined"
+        )
+
+        goal_pose = HomogeneousTransformationMatrix.from_xyz_rpy(
+            0.1, 2, 0, reference_frame=tip
+        )
+
+        msc = MotionStatechart()
+        cart_straight = CartesianPoseStraight(
+            root_link=root,
+            tip_link=tip,
+            goal_pose=goal_pose,
+            binding_policy=GoalBindingPolicy.Bind_on_start,
+        )
+        msc.add_node(cart_straight)
+        msc.add_node(EndMotion.when_true(cart_straight))
+
+        kin_sim = Executor(world=pr2_world_state_reset)
+        kin_sim.compile(motion_statechart=msc)
+        kin_sim.tick_until_end()
+
+        # Verify task detected completion
+        assert cart_straight.observation_state == ObservationStateValues.TRUE
+
+        assert np.allclose(
+            cart_straight.goal_pose.to_np(), goal_pose.to_np(), atol=0.015
+        )
+
+
+class TestDiffDriveBaseGoal:
+    @pytest.mark.parametrize(
+        "goal_pose",
+        [
+            HomogeneousTransformationMatrix.from_xyz_rpy(x=0.489, y=-0.598, z=0.000),
+            HomogeneousTransformationMatrix.from_xyz_quaternion(
+                pos_x=-0.026,
+                pos_y=0.569,
+                pos_z=0.0,
+                quat_x=0.0,
+                quat_y=0.0,
+                quat_z=0.916530200374776,
+                quat_w=0.3999654882623912,
+            ),
+            HomogeneousTransformationMatrix.from_xyz_rpy(x=1, y=1, yaw=np.pi / 4),
+            HomogeneousTransformationMatrix.from_xyz_rpy(x=2, y=0, yaw=-np.pi / 4),
+            HomogeneousTransformationMatrix.from_xyz_rpy(yaw=-np.pi / 4),
+            HomogeneousTransformationMatrix.from_xyz_rpy(x=-1, y=-1, yaw=np.pi / 4),
+            HomogeneousTransformationMatrix.from_xyz_rpy(x=-2, y=-1, yaw=-np.pi / 4),
+            HomogeneousTransformationMatrix.from_xyz_rpy(x=0.01, y=0.5, yaw=np.pi / 8),
+            HomogeneousTransformationMatrix.from_xyz_rpy(
+                x=-0.01, y=-0.5, yaw=np.pi / 5
+            ),
+            HomogeneousTransformationMatrix.from_xyz_rpy(x=1.1, y=2.0, yaw=-np.pi),
+            HomogeneousTransformationMatrix.from_xyz_rpy(y=1),
+        ],
+    )
+    def test_drive(
+        self,
+        cylinder_bot_diff_world,
+        goal_pose: HomogeneousTransformationMatrix,
+    ):
+        bot = cylinder_bot_diff_world.get_body_by_name("bot")
+        msc = MotionStatechart()
+        goal_pose.reference_frame = cylinder_bot_diff_world.root
+        msc.add_node(goal := DiffDriveBaseGoal(goal_pose=goal_pose))
+        msc.add_node(EndMotion.when_true(goal))
+
+        kin_sim = Executor(world=cylinder_bot_diff_world)
+        kin_sim.compile(motion_statechart=msc)
+        kin_sim.tick_until_end()
+
+        assert np.allclose(
+            cylinder_bot_diff_world.compute_forward_kinematics(
+                cylinder_bot_diff_world.root, bot
+            ),
+            goal_pose,
+            atol=1e-2,
+        )
 
 
 def test_pointing(pr2_world_state_reset: World):
@@ -1652,6 +1872,59 @@ def test_align_planes(pr2_world_state_reset: World):
     assert (
         angle <= align_planes.threshold
     ), f"AlignPlanes failed: final angle {angle:.6f} rad > threshold {align_planes.threshold:.6f} rad"
+
+
+def test_align_perpendicular(pr2_world_state_reset: World):
+    tip = pr2_world_state_reset.get_kinematic_structure_entity_by_name(
+        "r_gripper_tool_frame"
+    )
+    root = pr2_world_state_reset.get_kinematic_structure_entity_by_name("odom_combined")
+
+    msc = MotionStatechart()
+
+    goal_normal = Vector3.X(reference_frame=root)
+    tip_normal = Vector3.X(reference_frame=tip)
+
+    align_perp = AlignPerpendicular(
+        root_link=root,
+        tip_link=tip,
+        reference_normal=goal_normal,
+        tip_normal=tip_normal,
+    )
+    msc.add_node(align_perp)
+
+    end = EndMotion()
+    msc.add_node(end)
+    end.start_condition = align_perp.observation_variable
+
+    kin_sim = Executor(world=pr2_world_state_reset)
+    kin_sim.compile(motion_statechart=msc)
+    kin_sim.tick_until_end()
+
+    # Check if the angle between normals is (approximately) 90 degrees
+    root_V_goal_normal = pr2_world_state_reset.transform(
+        target_frame=root, spatial_object=goal_normal
+    )
+    root_V_goal_normal.scale(1)
+    root_V_tip_normal = pr2_world_state_reset.transform(
+        target_frame=root, spatial_object=tip_normal
+    )
+    root_V_tip_normal.scale(1)
+
+    v_tip = root_V_tip_normal.to_np()[:3]
+    v_goal = root_V_goal_normal.to_np()[:3]
+
+    eps = 1e-9
+    assert np.linalg.norm(v_goal) > eps, "goal normal became zero-length"
+    assert np.linalg.norm(v_tip) > eps, "tip normal became zero-length"
+
+    angle = angle_between_vector(v_tip, v_goal)
+    target = np.pi / 2
+
+    assert abs(angle - target) <= align_perp.threshold, (
+        f"AlignPerpendicular failed: final angle {angle:.6f} rad, "
+        f"target {target:.6f} rad, threshold {align_perp.threshold:.6f} rad"
+    )
 
 
 def test_angle_goal(pr2_world_state_reset: World):
@@ -2006,7 +2279,7 @@ def test_counting():
 
 def test_count_ticks():
     msc = MotionStatechart()
-    msc.add_node(counter := CountTicks(ticks=3))
+    msc.add_node(counter := CountControlCycles(control_cycles=3))
     msc.add_node(EndMotion.when_true(counter))
     kin_sim = Executor(world=World())
     kin_sim.compile(motion_statechart=msc)
@@ -2109,7 +2382,12 @@ class TestParallel:
         msc = MotionStatechart()
         msc.add_nodes(
             [
-                parallel := Parallel([CountTicks(ticks=3), CountTicks(ticks=5)]),
+                parallel := Parallel(
+                    [
+                        CountControlCycles(control_cycles=3),
+                        CountControlCycles(control_cycles=5),
+                    ]
+                ),
             ]
         )
         msc.add_node(EndMotion.when_true(parallel))
@@ -2157,44 +2435,58 @@ class TestParallel:
 
 class TestOpenClose:
     def test_open(self, pr2_world_state_reset):
-        factory = DoorFactory(
-            name=PrefixedName("door"),
-            handle_factory=HandleFactory(name=PrefixedName("handle")),
-            semantic_position=SemanticPositionDescription(
-                horizontal_direction_chain=[
-                    HorizontalSemanticDirection.RIGHT,
-                    HorizontalSemanticDirection.FULLY_CENTER,
-                ],
-                vertical_direction_chain=[VerticalSemanticDirection.FULLY_CENTER],
-            ),
-        )
-        door_world = factory.create()
+
         with pr2_world_state_reset.modify_world():
+            door = Door.create_with_new_body_in_world(
+                name=PrefixedName("door"),
+                world=pr2_world_state_reset,
+                world_root_T_self=HomogeneousTransformationMatrix.from_xyz_rpy(
+                    x=1.5, z=1, yaw=np.pi, reference_frame=pr2_world_state_reset.root
+                ),
+            )
+
+            handle = Handle.create_with_new_body_in_world(
+                name=PrefixedName("handle"),
+                world=pr2_world_state_reset,
+                world_root_T_self=HomogeneousTransformationMatrix.from_xyz_rpy(
+                    x=1.5,
+                    y=0.45,
+                    z=1,
+                    yaw=np.pi,
+                    reference_frame=pr2_world_state_reset.root,
+                ),
+            )
+
             lower_limits = DerivativeMap()
             lower_limits.position = -np.pi / 2
             lower_limits.velocity = -1
             upper_limits = DerivativeMap()
             upper_limits.position = np.pi / 2
             upper_limits.velocity = 1
-            dof = DegreeOfFreedom(
-                lower_limits=lower_limits,
-                upper_limits=upper_limits,
+
+            hinge = Hinge.create_with_new_body_in_world(
                 name=PrefixedName("hinge"),
-            )
-            pr2_world_state_reset.add_degree_of_freedom(dof)
-            root_T_door = RevoluteConnection(
-                dof_id=dof.id,
-                parent=pr2_world_state_reset.root,
-                child=door_world.root,
-                axis=-Vector3.Z(),
-                parent_T_connection_expression=HomogeneousTransformationMatrix.from_xyz_rpy(
-                    x=1.5, z=1, yaw=np.pi, reference_frame=pr2_world_state_reset.root
+                world=pr2_world_state_reset,
+                world_root_T_self=HomogeneousTransformationMatrix.from_xyz_rpy(
+                    x=1.5,
+                    y=-0.5,
+                    z=1,
+                    yaw=np.pi,
+                    reference_frame=pr2_world_state_reset.root,
                 ),
+                connection_limits=DegreeOfFreedomLimits(
+                    lower=lower_limits, upper=upper_limits
+                ),
+                active_axis=Vector3.Z(),
             )
-            pr2_world_state_reset.merge_world(door_world, root_connection=root_T_door)
+
+            door.add_handle(handle)
+            door.add_hinge(hinge=hinge)
+
+        root_C_hinge = door.hinge.root.parent_connection
 
         r_tip = pr2_world_state_reset.get_body_by_name("r_gripper_tool_frame")
-        handle = pr2_world_state_reset.get_semantic_annotations_by_type(Handle)[0].body
+        handle = pr2_world_state_reset.get_semantic_annotations_by_type(Handle)[0].root
         open_goal = 1
         close_goal = -1
 
@@ -2218,7 +2510,7 @@ class TestOpenClose:
                                     goal_joint_state=open_goal,
                                 ),
                                 opened := JointPositionReached(
-                                    connection=root_T_door,
+                                    connection=root_C_hinge,
                                     position=open_goal,
                                     name="opened",
                                 ),
@@ -2232,7 +2524,7 @@ class TestOpenClose:
                                     goal_joint_state=close_goal,
                                 ),
                                 closed := JointPositionReached(
-                                    connection=root_T_door,
+                                    connection=root_C_hinge,
                                     position=close_goal,
                                     name="closed",
                                 ),
@@ -2256,17 +2548,17 @@ class TestOpenClose:
 
 
 class TestCollisionAvoidance:
-    def test_collision_avoidance(self, box_bot_world: World):
-        tip = box_bot_world.get_kinematic_structure_entity_by_name("bot")
+    def test_collision_avoidance(self, cylinder_bot_world: World):
+        tip = cylinder_bot_world.get_kinematic_structure_entity_by_name("bot")
 
         msc = MotionStatechart()
         msc.add_nodes(
             [
                 CartesianPose(
-                    root_link=box_bot_world.root,
+                    root_link=cylinder_bot_world.root,
                     tip_link=tip,
                     goal_pose=HomogeneousTransformationMatrix.from_xyz_rpy(
-                        x=1, reference_frame=box_bot_world.root
+                        x=1, reference_frame=cylinder_bot_world.root
                     ),
                 ),
                 CollisionAvoidance(
@@ -2281,12 +2573,12 @@ class TestCollisionAvoidance:
         json_str = json.dumps(json_data)
         new_json_data = json.loads(json_str)
 
-        tracker = KinematicStructureEntityKwargsTracker.from_world(box_bot_world)
+        tracker = WorldEntityWithIDKwargsTracker.from_world(cylinder_bot_world)
         kwargs = tracker.create_kwargs()
         msc_copy = MotionStatechart.from_json(new_json_data, **kwargs)
 
         kin_sim = Executor(
-            world=box_bot_world,
+            world=cylinder_bot_world,
             collision_checker=CollisionCheckerLib.bpb,
         )
         kin_sim.compile(motion_statechart=msc_copy)
@@ -2301,9 +2593,9 @@ class TestCollisionAvoidance:
         )
         assert contact_distance > 0.049
 
-    def test_hard_constraints_violated(self, box_bot_world: World):
-        root = box_bot_world.root
-        with box_bot_world.modify_world():
+    def test_hard_constraints_violated(self, cylinder_bot_world: World):
+        root = cylinder_bot_world.root
+        with cylinder_bot_world.modify_world():
             env2 = Body(
                 name=PrefixedName("environment2"),
                 collision=ShapeCollection(shapes=[Cylinder(width=0.5, height=0.1)]),
@@ -2315,7 +2607,7 @@ class TestCollisionAvoidance:
                     0.75
                 ),
             )
-            box_bot_world.add_connection(env_connection)
+            cylinder_bot_world.add_connection(env_connection)
 
             env3 = Body(
                 name=PrefixedName("environment3"),
@@ -2328,7 +2620,7 @@ class TestCollisionAvoidance:
                     1.25
                 ),
             )
-            box_bot_world.add_connection(env_connection)
+            cylinder_bot_world.add_connection(env_connection)
             env4 = Body(
                 name=PrefixedName("environment4"),
                 collision=ShapeCollection(shapes=[Cylinder(width=0.5, height=0.1)]),
@@ -2340,7 +2632,7 @@ class TestCollisionAvoidance:
                     x=1, y=-0.25
                 ),
             )
-            box_bot_world.add_connection(env_connection)
+            cylinder_bot_world.add_connection(env_connection)
             env5 = Body(
                 name=PrefixedName("environment5"),
                 collision=ShapeCollection(shapes=[Cylinder(width=0.5, height=0.1)]),
@@ -2352,9 +2644,9 @@ class TestCollisionAvoidance:
                     x=1, y=0.25
                 ),
             )
-            box_bot_world.add_connection(env_connection)
+            cylinder_bot_world.add_connection(env_connection)
 
-        tip = box_bot_world.get_kinematic_structure_entity_by_name("bot")
+        tip = cylinder_bot_world.get_kinematic_structure_entity_by_name("bot")
 
         msc = MotionStatechart()
         msc.add_node(
@@ -2362,16 +2654,16 @@ class TestCollisionAvoidance:
                 [
                     SetOdometry(
                         base_pose=HomogeneousTransformationMatrix.from_xyz_rpy(
-                            x=1, reference_frame=box_bot_world.root
+                            x=1, reference_frame=cylinder_bot_world.root
                         )
                     ),
                     Parallel(
                         [
                             CartesianPose(
-                                root_link=box_bot_world.root,
+                                root_link=cylinder_bot_world.root,
                                 tip_link=tip,
                                 goal_pose=HomogeneousTransformationMatrix.from_xyz_rpy(
-                                    x=1, reference_frame=box_bot_world.root
+                                    x=1, reference_frame=cylinder_bot_world.root
                                 ),
                             ),
                             CollisionAvoidance(
@@ -2391,12 +2683,12 @@ class TestCollisionAvoidance:
         json_str = json.dumps(json_data)
         new_json_data = json.loads(json_str)
 
-        tracker = KinematicStructureEntityKwargsTracker.from_world(box_bot_world)
+        tracker = WorldEntityWithIDKwargsTracker.from_world(cylinder_bot_world)
         kwargs = tracker.create_kwargs()
         msc_copy = MotionStatechart.from_json(new_json_data, **kwargs)
 
         kin_sim = Executor(
-            world=box_bot_world,
+            world=cylinder_bot_world,
             collision_checker=CollisionCheckerLib.bpb,
         )
         kin_sim.compile(motion_statechart=msc_copy)
@@ -2514,7 +2806,7 @@ class TestLifeCycleTransitions:
                 [
                     ConstTrueNode(),
                     TestRunAfterStop(),
-                    CountTicks(name="delay endmotion", ticks=5),
+                    CountControlCycles(name="delay endmotion", control_cycles=5),
                 ]
             )
         )
@@ -2540,7 +2832,7 @@ class TestLifeCycleTransitions:
                 [
                     ConstTrueNode(),
                     TestRunAfterStopFromPause(),
-                    CountTicks(name="delay endmotion", ticks=5),
+                    CountControlCycles(name="delay endmotion", control_cycles=5),
                 ]
             )
         )
@@ -2564,7 +2856,7 @@ class TestLifeCycleTransitions:
         """
         msc = MotionStatechart()
 
-        node1 = CountTicks(ticks=1)
+        node1 = CountControlCycles(control_cycles=1)
         node2 = ConstTrueNode()
         node3 = ConstTrueNode()
 
@@ -2616,9 +2908,9 @@ class TestLifeCycleTransitions:
         """
         msc = MotionStatechart()
 
-        count_node1 = CountTicks(ticks=1, name="node1")
-        count_node2 = CountTicks(ticks=2, name="node2")
-        end_count_node1 = CountTicks(ticks=11, name="end_node1")
+        count_node1 = CountControlCycles(control_cycles=1, name="node1")
+        count_node2 = CountControlCycles(control_cycles=2, name="node2")
+        end_count_node1 = CountControlCycles(control_cycles=11, name="end_node1")
         pulse_node1 = Pulse(name="pulse1")
         pulse_node2 = Pulse(name="pulse2")
 
@@ -2880,3 +3172,21 @@ class TestLifeCycleTransitions:
 
         assert unpause.count_ticks1.observation_state == ObservationStateValues.TRUE
         assert unpause.observation_state == ObservationStateValues.TRUE
+
+    def test_long_pause(self):
+        msc = MotionStatechart()
+        msc.add_nodes(
+            [
+                node1 := Parallel([ConstTrueNode(), ConstFalseNode()]),
+                pulse := Pulse(length=5),
+            ]
+        )
+        node1.pause_condition = pulse.observation_variable
+        msc.add_node(EndMotion.when_false(pulse))
+
+        kin_sim = Executor(world=World())
+        kin_sim.compile(motion_statechart=msc)
+        kin_sim.tick_until_end()
+        msc.plot_gantt_chart()
+
+        assert len(msc.history) == 5

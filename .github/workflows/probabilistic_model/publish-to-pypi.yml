@@ -2,6 +2,10 @@ name: Publish Python 🐍 distribution 📦 to PyPI
 
 on: push
 
+defaults:
+  run:
+    working-directory: probabilistic_model
+
 jobs:
   build:
     name: Build distribution 📦
@@ -35,6 +39,9 @@ jobs:
     needs:
       - build
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: .
     environment:
       name: pypi
       url: https://pypi.org/p/probabilistic-model  # Replace <package-name> with your PyPI project name
@@ -49,3 +56,5 @@ jobs:
           path: dist/
       - name: Publish distribution 📦 to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist/

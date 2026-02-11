@@ -15,7 +15,6 @@ from semantic_digital_twin.world_description.world_entity import Body
 from typing_extensions import Self, Tuple, Optional, List, TYPE_CHECKING
 
 from .enums import AxisIdentifier, Arms
-from ..has_parameters import has_parameters, HasParameters
 from ..ros import Time as ROSTime
 from ..tf_transformations import (
     quaternion_multiply,
@@ -30,9 +29,8 @@ if TYPE_CHECKING:
     from .grasp import GraspDescription
 
 
-@has_parameters
 @dataclass
-class PyCramVector3(HasParameters):
+class PyCramVector3:
     """
     A 3D vector with x, y and z coordinates.
     """
@@ -166,9 +164,8 @@ class PyCramVector3(HasParameters):
         return cls(*vector)
 
 
-@has_parameters
 @dataclass
-class PyCramQuaternion(HasParameters):
+class PyCramQuaternion:
     """
     A quaternion with x, y, z and w components.
     """
@@ -302,9 +299,8 @@ class PyCramQuaternion(HasParameters):
     #      self.normalize()
 
 
-@has_parameters
 @dataclass
-class PyCramPose(HasParameters):
+class PyCramPose:
     """
     A pose in 3D space.
     """
@@ -412,7 +408,9 @@ class PyCramPose(HasParameters):
         """
         return cls(
             PyCramVector3(position[0], position[1], position[2]),
-            PyCramQuaternion(orientation[0], orientation[1], orientation[2], orientation[3]),
+            PyCramQuaternion(
+                orientation[0], orientation[1], orientation[2], orientation[3]
+            ),
         )
 
 
@@ -444,7 +442,6 @@ class Header:
         return Header(frame_id=self.frame_id, stamp=self.stamp, sequence=self.sequence)
 
 
-@has_parameters
 @dataclass
 class Vector3Stamped(PyCramVector3):
     """
@@ -501,9 +498,8 @@ class Vector3Stamped(PyCramVector3):
         )
 
 
-@has_parameters
 @dataclass
-class PoseStamped(HasParameters):
+class PoseStamped:
     """
     A pose in 3D space with a timestamp.
     """
@@ -574,7 +570,9 @@ class PoseStamped(HasParameters):
             z=message.pose.orientation.z,
             w=message.pose.orientation.w,
         )
-        return cls(pose=PyCramPose(position=position, orientation=orientation), header=header)
+        return cls(
+            pose=PyCramPose(position=position, orientation=orientation), header=header
+        )
 
     @classmethod
     def from_list(
@@ -816,7 +814,6 @@ class Transform(PyCramPose):
         )
 
 
-@has_parameters
 @dataclass
 class TransformStamped(PoseStamped):
     child_frame_id: Body = field(default_factory=str)

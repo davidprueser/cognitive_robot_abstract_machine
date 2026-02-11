@@ -23,7 +23,7 @@ on:
 defaults:
   run:
     shell: bash
-    working-directory: .
+    working-directory: random_events
 
 # ----------------------------------------------------------------------------------------------------------------------
 
@@ -36,7 +36,7 @@ concurrency:
 jobs:
   test-and-build:
     name: Build and Test the Python distribution
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
 
     steps:
 
@@ -50,19 +50,18 @@ jobs:
       - name: Setup python 🐍
         uses: actions/setup-python@v4
         with:
-            python-version: "3.9"
+            python-version: "3.12"
             cache: pip
             
       # ----------------------------------------------------------------------------------------------------------------
 
-      - name: Install user dependencies 🍼
-        uses: py-actions/py-dependency-install@v4
-        with:
-          path: "requirements-dev.txt"
+      - name: Install dependencies
+        run: |
+          pip install pytest
+          pip install -r requirements-dev.txt
 
       # ----------------------------------------------------------------------------------------------------------------
 
       - name: Run Tests 🎓
         run: |
-          cd test
-          PYTHONPATH=../src python -m unittest discover
+          pytest ../test/random_events_test
