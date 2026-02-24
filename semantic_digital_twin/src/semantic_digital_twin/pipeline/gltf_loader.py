@@ -6,13 +6,13 @@ import numpy as np
 import trimesh
 
 from .pipeline import Step
-from semantic_digital_twin.world import World
-from semantic_digital_twin.world_description.world_entity import Body
-from semantic_digital_twin.world_description.connections import FixedConnection
-from semantic_digital_twin.world_description.shape_collection import ShapeCollection
-from semantic_digital_twin.world_description.geometry import TriangleMesh, Scale
-from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
-from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
+from ..world import World
+from ..world_description.world_entity import Body
+from ..world_description.connections import FixedConnection
+from ..world_description.shape_collection import ShapeCollection
+from ..world_description.geometry import TriangleMesh, Scale
+from ..spatial_types import HomogeneousTransformationMatrix
+from ..datastructures.prefixed_name import PrefixedName
 
 
 @dataclass
@@ -49,10 +49,16 @@ class GLTFLoader(Step):
     Attributes:
         file_path: Path to the GLTF/GLB file
         scene: The loaded trimesh Scene (set after _apply is called)
+
+    Raises:
+        ValueError: If the file cannot be loaded or parsed.
     """
 
     file_path: str
+    """Path to the GLTF/GLB file."""
+
     scene: Optional[trimesh.Scene] = field(default=None, init=False)
+    """The loaded trimesh Scene (set after _apply is called)."""
 
     def _get_root_node(self) -> str:
         base_frame = self.scene.graph.base_frame
@@ -311,14 +317,21 @@ class GLTFLoader(Step):
         _, root_geometry = self.scene.graph.get(root)
         if root_geometry is None:
             world_elements[root] = self._create_empty_body(root)
-            to_visit_new_node.update([(child, root) for child in self.scene.graph.transforms.children.get(root, [])])
+            to_visit_new_node.update(
+                [
+                    (child, root)
+                    for child in self.scene.graph.transforms.children.get(root, [])
+                ]
+            )
             visited_nodes.add(root)
         else:
             result = self._process_geometry_node(root, visited_nodes)
             if result:
                 world_elements[root] = result.body
                 visited_nodes = visited_nodes.union(result.visited_nodes)
-                to_visit_new_node.update([(child, root) for child in result.children_to_visit])
+                to_visit_new_node.update(
+                    [(child, root) for child in result.children_to_visit]
+                )
             else:
                 # Root has empty geometry, create empty body
                 world_elements[root] = self._create_empty_body(root)
@@ -374,10 +387,8 @@ class GLTFLoader(Step):
         """Load GLTF/GLB file and create world objects."""
         try:
             self.scene = trimesh.load(self.file_path)  # type: ignore[assignment]
-            if self.scene is None:
-                raise ValueError("Failed to load scene from file")
         except Exception as e:
-            raise ValueError(f"Failed to load file: {e}")
+            raise ValueError(f"Failed to load file '{self.file_path}': {e}") from e
 
         # Handle case where trimesh loads a single mesh instead of a Scene
         if isinstance(self.scene, trimesh.Trimesh):
