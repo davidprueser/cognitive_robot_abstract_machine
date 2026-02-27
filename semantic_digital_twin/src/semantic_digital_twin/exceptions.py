@@ -16,25 +16,26 @@ from typing_extensions import (
 
 from krrood.adapters.exceptions import JSONSerializationError
 from krrood.utils import DataclassException
-from .datastructures.definitions import JointStateType
-from .datastructures.prefixed_name import PrefixedName
+from semantic_digital_twin.datastructures.definitions import JointStateType
+from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 
 if TYPE_CHECKING:
-    from .collision_checking.collision_matrix import CollisionCheck
-    from .world import World
-    from .world_description.geometry import Scale
-    from .world_description.world_entity import (
+    from semantic_digital_twin.world import World
+    from semantic_digital_twin.world_description.geometry import Scale
+    from semantic_digital_twin.world_description.world_entity import (
         SemanticAnnotation,
         WorldEntity,
         KinematicStructureEntity,
     )
-    from .spatial_types.spatial_types import (
+    from semantic_digital_twin.spatial_types.spatial_types import (
         FloatVariable,
         SymbolicMathType,
         SpatialType,
     )
-    from .spatial_types import Vector3
-    from .world_description.degree_of_freedom import DegreeOfFreedomLimits
+    from semantic_digital_twin.spatial_types import Vector3
+    from semantic_digital_twin.world_description.degree_of_freedom import (
+        DegreeOfFreedomLimits,
+    )
 
 
 @dataclass
@@ -71,6 +72,26 @@ class LogicalError(DataclassException):
     """
     An error that happens due to mistake in the logical operation or usage of the API during runtime.
     """
+
+
+@dataclass
+class NegativeConnectionVelocity(DataclassException):
+    """
+    An error that happens when a negative velocity limit is provided for a connection.
+    """
+
+    connection_name: Union[str, PrefixedName]
+    """
+    The name of the connection for which the velocity limit is negative.
+    """
+
+    velocity: float
+    """
+    The negative velocity limit.
+    """
+
+    def __post_init__(self):
+        self.message = f"Velocity limit must be non-negative, got {self.velocity} for joint {self.connection_name}"
 
 
 @dataclass
