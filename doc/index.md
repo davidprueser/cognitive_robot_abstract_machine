@@ -32,7 +32,7 @@ It interprets and executes high-level action plans using the CRAM plan language 
 The semantic digital twin is a world representation that integrates sensor data, robot models, and external knowledge to provide a comprehensive understanding of the robot's environment and tasks.
 
 ### GiskardPy
-GiskardPy is python library for motion planning and control for robots.
+GiskardPy is a python library for motion planning and control for robots.
 
 ### KRROOD
 KRROOD is a Python framework that integrates symbolic knowledge representation, powerful querying, and rule-based reasoning through intuitive, object-oriented abstractions.
