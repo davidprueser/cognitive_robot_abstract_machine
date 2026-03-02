@@ -32,9 +32,7 @@ def mini_world():
     return world
 
 
-@pytest.fixture()
-def fucking_huge_robot():
-    fucking_huge_link_length = 1000.0
+def robot_factory(fucking_huge_link_length: float, vel_limit: float) -> World:
     fucking_huge_cylinder = ShapeCollection(
         shapes=[
             Cylinder(
@@ -54,8 +52,8 @@ def fucking_huge_robot():
         ]
     )
     dof_limits = DegreeOfFreedomLimits(
-        lower=DerivativeMap(None, -1, None, None),
-        upper=DerivativeMap(None, 1, None, None),
+        lower=DerivativeMap(None, -vel_limit, None, None),
+        upper=DerivativeMap(None, vel_limit, None, None),
     )
     world = World()
     with world.modify_world():

@@ -1,3 +1,4 @@
+from conftest import robot_factory
 from giskardpy.executor import Executor, SimulationPacer
 from giskardpy.motion_statechart.context import MotionStatechartContext
 from giskardpy.motion_statechart.goals.templates import Sequence
@@ -6,14 +7,17 @@ from giskardpy.motion_statechart.monitors.overwrite_state_monitors import (
     SetSeedConfiguration,
 )
 from giskardpy.motion_statechart.motion_statechart import MotionStatechart
-from giskardpy.motion_statechart.tasks.cartesian_tasks import CartesianPose
+from giskardpy.motion_statechart.tasks.cartesian_tasks import (
+    CartesianPose,
+    CartesianPosition,
+)
 from giskardpy.motion_statechart.tasks.joint_tasks import JointPositionList
 from giskardpy.qp.qp_controller_config import QPControllerConfig
 from semantic_digital_twin.adapters.ros.visualization.viz_marker import (
     VizMarkerPublisher,
 )
 from semantic_digital_twin.datastructures.joint_state import JointState
-from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
+from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix, Point3
 
 
 def test_joint_goal(fucking_huge_robot, rclpy_node):
@@ -47,11 +51,13 @@ def test_joint_goal(fucking_huge_robot, rclpy_node):
     kin_sim.tick_until_end()
 
 
-def test_cart_goal(fucking_huge_robot, rclpy_node):
+def execute(link_length: float, vel_limit: float, rclpy_node):
+    fucking_huge_robot = robot_factory(
+        fucking_huge_link_length=link_length, vel_limit=vel_limit
+    )
     VizMarkerPublisher(_world=fucking_huge_robot, node=rclpy_node).with_tf_publisher()
     msc = MotionStatechart()
     goal = 1
-
     eef = fucking_huge_robot.get_kinematic_structure_entity_by_name("eef")
 
     msc.add_node(
@@ -70,15 +76,22 @@ def test_cart_goal(fucking_huge_robot, rclpy_node):
                         world=fucking_huge_robot,
                     )
                 ),
-                CartesianPose(
+                CartesianPosition(
                     root_link=fucking_huge_robot.root,
                     tip_link=eef,
-                    goal_pose=HomogeneousTransformationMatrix.from_xyz_rpy(
-                        y=-1000, reference_frame=eef
-                    ),
-                    reference_linear_velocity=0.2 * 1000,
+                    goal_point=Point3(y=-link_length, reference_frame=eef),
+                    reference_velocity=0.2 * link_length,
                     # reference_angular_velocity=0.2 * 1000,
                 ),
+                # CartesianPose(
+                #     root_link=fucking_huge_robot.root,
+                #     tip_link=eef,
+                #     goal_pose=HomogeneousTransformationMatrix.from_xyz_rpy(
+                #         y=-link_length, reference_frame=eef
+                #     ),
+                #     reference_linear_velocity=0.2 * link_length,
+                #     # reference_angular_velocity=0.2 * 1000,
+                # ),
             ]
         )
     )
@@ -88,7 +101,7 @@ def test_cart_goal(fucking_huge_robot, rclpy_node):
         MotionStatechartContext(
             world=fucking_huge_robot,
             qp_controller_config=QPControllerConfig(
-                target_frequency=100, prediction_horizon=50
+                target_frequency=100, prediction_horizon=35
             ),
         ),
         pacer=SimulationPacer(real_time_factor=1),
@@ -96,3 +109,11 @@ def test_cart_goal(fucking_huge_robot, rclpy_node):
     kin_sim.compile(motion_statechart=msc)
 
     kin_sim.tick_until_end()
+
+
+def test_cart_goal(rclpy_node):
+    execute(0.1, 0.1, rclpy_node)
+
+
+def test_cart_goal3(rclpy_node):
+    execute(0.1, 0.1, rclpy_node)
