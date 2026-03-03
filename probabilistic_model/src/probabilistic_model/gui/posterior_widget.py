@@ -151,31 +151,35 @@ class PosteriorWidget(QWidget):
         if not self.controller.model:
             return
 
-        row_widget = QWidget()
-        row_layout = QHBoxLayout(row_widget)
-        row_layout.setContentsMargins(0, 5, 0, 5)
-
         var_widget = VariableConstraintWidget(
             self.controller.model.variables, self.controller.priors
         )
-        self.evidence_widgets.append(var_widget)
-        row_layout.addWidget(var_widget)
-
-        remove_button = QPushButton()
-        remove_button.setIcon(QIcon("icon:/primary/close.svg"))
-        remove_button.setFixedWidth(30)
-        remove_button.clicked.connect(
-            lambda: self.remove_evidence_row(row_widget, var_widget)
+        var_widget.changed.connect(self.update_variable_options)
+        var_widget.removed.connect(
+            lambda: self.remove_evidence_row(var_widget, var_widget)
         )
-        row_layout.addWidget(remove_button)
-
-        self.evidence_layout.addWidget(row_widget)
+        self.evidence_widgets.append(var_widget)
+        self.evidence_layout.addWidget(var_widget)
+        self.update_variable_options()
 
     def remove_evidence_row(
         self, row_widget: QWidget, var_widget: VariableConstraintWidget
     ):
         self.evidence_widgets.remove(var_widget)
         row_widget.deleteLater()
+        self.update_variable_options()
+
+    def update_variable_options(self):
+        """
+        Updates the available variables in all evidence widgets.
+        """
+        selected_vars = {
+            w.variable_combo.currentData()
+            for w in self.evidence_widgets
+            if w.variable_combo.currentData() is not None
+        }
+        for w in self.evidence_widgets:
+            w.update_available_variables(selected_vars)
 
     def on_calculate(self):
         if not self.controller.model:

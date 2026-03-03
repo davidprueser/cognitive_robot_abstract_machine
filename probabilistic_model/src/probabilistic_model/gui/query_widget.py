@@ -104,28 +104,19 @@ class QueryWidget(QWidget):
         if not self.controller.model:
             return
 
-        row_widget = QWidget()
-        row_layout = QHBoxLayout(row_widget)
-        row_layout.setContentsMargins(0, 5, 0, 5)
-
         var_widget = VariableConstraintWidget(
             self.controller.model.variables, self.controller.priors
         )
+        var_widget.changed.connect(lambda: self.update_variable_options(widgets_list))
         var_widget.changed.connect(
             self.on_calculate
         )  # Auto-calculate or at least clear result
-        widgets_list.append(var_widget)
-        row_layout.addWidget(var_widget)
-
-        remove_button = QPushButton()
-        remove_button.setIcon(QIcon("icon:/primary/close.svg"))
-        remove_button.setFixedWidth(30)
-        remove_button.clicked.connect(
-            lambda: self.remove_variable_row(row_widget, var_widget, widgets_list)
+        var_widget.removed.connect(
+            lambda: self.remove_variable_row(var_widget, var_widget, widgets_list)
         )
-        row_layout.addWidget(remove_button)
-
-        container.layout().addWidget(row_widget)
+        widgets_list.append(var_widget)
+        container.layout().addWidget(var_widget)
+        self.update_variable_options(widgets_list)
 
     def remove_variable_row(
         self,
@@ -135,7 +126,20 @@ class QueryWidget(QWidget):
     ):
         widgets_list.remove(var_widget)
         row_widget.deleteLater()
+        self.update_variable_options(widgets_list)
         self.on_calculate()
+
+    def update_variable_options(self, widgets_list: List[VariableConstraintWidget]):
+        """
+        Updates the available variables in all widgets of the list.
+        """
+        selected_vars = {
+            w.variable_combo.currentData()
+            for w in widgets_list
+            if w.variable_combo.currentData() is not None
+        }
+        for w in widgets_list:
+            w.update_available_variables(selected_vars)
 
     def on_calculate(self):
         if not self.controller.model:

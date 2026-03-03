@@ -1,4 +1,4 @@
-from typing import Optional, List, Union
+from typing import Optional, List, Union, Tuple, Set as TypingSet
 from PySide6.QtWidgets import (
     QWidget,
     QHBoxLayout,
@@ -8,6 +8,10 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QLabel,
     QPushButton,
+    QDoubleSpinBox,
+    QSpinBox,
+    QScrollArea,
+    QFrame,
 )
 from PySide6.QtCore import Signal, Qt
 from PySide6.QtGui import QIcon
@@ -19,12 +23,125 @@ from random_events.interval import closed, Interval, SimpleInterval, Bound
 from random_events.set import Set, SetElement
 
 
-class VariableConstraintWidget(QWidget):
+class NumericIntervalWidget(QWidget):
+    """
+    A widget representing a single interval for a numeric variable.
+    Includes spin boxes for precise input and a range slider for visual adjustment.
+    """
+
+    changed = Signal()
+    removed = Signal()
+
+    def __init__(
+        self,
+        variable: Variable,
+        minimum_bound: float,
+        maximum_bound: float,
+        initial_values: Tuple[float, float],
+        parent: Optional[QWidget] = None,
+    ):
+        super().__init__(parent)
+        self.variable = variable
+        self.minimum_bound = minimum_bound
+        self.maximum_bound = maximum_bound
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+
+        if isinstance(variable, Continuous):
+            self.minimum_spin_box = QDoubleSpinBox()
+            self.maximum_spin_box = QDoubleSpinBox()
+            self.slider = QDoubleRangeSlider(Qt.Orientation.Horizontal)
+            for spin_box in [self.minimum_spin_box, self.maximum_spin_box]:
+                spin_box.setRange(minimum_bound, maximum_bound)
+                spin_box.setDecimals(3)
+                spin_box.setSingleStep((maximum_bound - minimum_bound) / 100.0)
+        else:
+            self.minimum_spin_box = QSpinBox()
+            self.maximum_spin_box = QSpinBox()
+            self.slider = QRangeSlider(Qt.Orientation.Horizontal)
+            for spin_box in [self.minimum_spin_box, self.maximum_spin_box]:
+                spin_box.setRange(int(minimum_bound), int(maximum_bound))
+
+        self.slider.setRange(minimum_bound, maximum_bound)
+        self.slider.setValue(initial_values)
+        self.minimum_spin_box.setValue(initial_values[0])
+        self.maximum_spin_box.setValue(initial_values[1])
+
+        # Enhanced stylesheet for slider visibility
+        self.slider.setStyleSheet(
+            "QRangeSlider, QDoubleRangeSlider { "
+            "   qproperty-barColor: #1de9b6; "
+            "   min-height: 24px; "
+            "} "
+            "QRangeSlider::handle, QDoubleRangeSlider::handle { "
+            "   background-color: #1de9b6; "
+            "   border: 2px solid white; "
+            "   width: 14px; "
+            "   height: 14px; "
+            "   margin: -4px 0; "
+            "   border-radius: 8px; "
+            "} "
+            "QRangeSlider::groove, QDoubleRangeSlider::groove { "
+            "   background-color: #31363b; "
+            "   height: 6px; "
+            "   border-radius: 3px; "
+            "} "
+        )
+
+        # Connections
+        self.slider.valueChanged.connect(self._on_slider_changed)
+        self.minimum_spin_box.valueChanged.connect(self._on_spin_changed)
+        self.maximum_spin_box.valueChanged.connect(self._on_spin_changed)
+
+        self.remove_button = QPushButton()
+        self.remove_button.setIcon(QIcon("icon:/primary/close.svg"))
+        self.remove_button.setFixedWidth(30)
+        self.remove_button.clicked.connect(self.removed.emit)
+
+        layout.addWidget(self.minimum_spin_box)
+        layout.addWidget(self.slider, 1)
+        layout.addWidget(self.maximum_spin_box)
+        layout.addWidget(self.remove_button)
+
+    def _on_slider_changed(self, values: Tuple[float, float]):
+        """
+        Updates the spin boxes when the slider values change.
+        """
+        self.minimum_spin_box.blockSignals(True)
+        self.maximum_spin_box.blockSignals(True)
+        self.minimum_spin_box.setValue(values[0])
+        self.maximum_spin_box.setValue(values[1])
+        self.minimum_spin_box.blockSignals(False)
+        self.maximum_spin_box.blockSignals(False)
+        self.changed.emit()
+
+    def _on_spin_changed(self):
+        """
+        Updates the slider when the spin box values change.
+        """
+        value_1 = self.minimum_spin_box.value()
+        value_2 = self.maximum_spin_box.value()
+        low, high = min(value_1, value_2), max(value_1, value_2)
+        self.slider.blockSignals(True)
+        self.slider.setValue((low, high))
+        self.slider.blockSignals(False)
+        self.changed.emit()
+
+    def value(self) -> Tuple[float, float]:
+        """
+        Returns the current low and high values of the interval.
+        """
+        return (self.minimum_spin_box.value(), self.maximum_spin_box.value())
+
+
+class VariableConstraintWidget(QFrame):
     """
     A widget that allows selecting a variable and defining its constraints.
     """
 
     changed = Signal()
+    removed = Signal()
 
     def __init__(
         self,
@@ -35,11 +152,27 @@ class VariableConstraintWidget(QWidget):
         super().__init__(parent)
         self.variables = sorted(variables, key=lambda v: v.name)
         self.priors = priors
+        self._read_only = False
         self.init_ui()
 
     def init_ui(self):
-        self.layout = QHBoxLayout(self)
-        self.layout.setContentsMargins(0, 0, 0, 0)
+        self.setFrameShape(QFrame.Shape.StyledPanel)
+        self.setFrameShadow(QFrame.Shadow.Raised)
+        self.setStyleSheet(
+            "VariableConstraintWidget { "
+            "   border: 1px solid #1de9b6; "
+            "   border-radius: 8px; "
+            "   background-color: #2b2b2b; "
+            "   margin-bottom: 10px; "
+            "} "
+        )
+
+        self.main_layout = QVBoxLayout(self)
+        self.main_layout.setContentsMargins(10, 10, 10, 10)
+        self.main_layout.setSpacing(10)
+
+        # Header Row: [Combo] [Stretch] [Remove Button]
+        header_layout = QHBoxLayout()
 
         # Variable selector
         self.variable_combo = QComboBox()
@@ -48,13 +181,24 @@ class VariableConstraintWidget(QWidget):
             self.variable_combo.addItem(var.name, var)
 
         self.variable_combo.currentIndexChanged.connect(self.on_variable_changed)
-        self.layout.addWidget(self.variable_combo, 1)
+        header_layout.addWidget(self.variable_combo, 1)
+
+        header_layout.addStretch()
+
+        # Row removal button
+        self.remove_button = QPushButton()
+        self.remove_button.setIcon(QIcon("icon:/primary/close.svg"))
+        self.remove_button.setFixedWidth(30)
+        self.remove_button.clicked.connect(self.removed.emit)
+        header_layout.addWidget(self.remove_button)
+
+        self.main_layout.addLayout(header_layout)
 
         # Container for constraint input
         self.constraint_container = QWidget()
         self.constraint_layout = QVBoxLayout(self.constraint_container)
         self.constraint_layout.setContentsMargins(0, 0, 0, 0)
-        self.layout.addWidget(self.constraint_container, 2)
+        self.main_layout.addWidget(self.constraint_container)
 
         self.constraint_widget = None
 
@@ -81,96 +225,73 @@ class VariableConstraintWidget(QWidget):
         if variable:
             self.create_constraint_widget(variable)
 
+        if self._read_only:
+            self.set_read_only(True)
+
         self.changed.emit()
+
+    def update_available_variables(self, excluded_variables: TypingSet[Variable]):
+        """
+        Disables variables in the combo box that are in the excluded_variables set,
+        except for the currently selected variable.
+
+        :param excluded_variables: A set of variables that are selected elsewhere.
+        """
+        current_var = self.variable_combo.currentData()
+        model = self.variable_combo.model()
+        for i in range(1, self.variable_combo.count()):
+            var = self.variable_combo.itemData(i)
+            # Disable if selected elsewhere, but NOT if it is the current selection of THIS widget
+            is_currently_selected = current_var is not None and var == current_var
+            should_disable = var in excluded_variables and not is_currently_selected
+
+            # QComboBox uses QStandardItemModel by default
+            item = model.item(i)
+            if item:
+                item.setEnabled(not should_disable)
 
     def create_constraint_widget(self, variable: Variable):
         if variable.is_numeric:
-            # Range Slider for Continuous or Integer
-            # Default to domain
-            try:
-                mini = variable.domain.simple_sets[0].lower
-                maxi = variable.domain.simple_sets[-1].upper
-            except (AttributeError, IndexError):
-                # Fallback for composite sets
-                try:
-                    mini = variable.domain.simple_sets[0].simple_sets[0].lower
-                    maxi = variable.domain.simple_sets[-1].simple_sets[-1].upper
-                except (AttributeError, IndexError):
-                    mini, maxi = 0, 1
+            # Container for interval rows
+            self.intervals_container = QWidget()
+            self.intervals_layout = QVBoxLayout(self.intervals_container)
+            self.intervals_layout.setContentsMargins(0, 0, 0, 0)
+            self.intervals_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
 
-            # Try to get from priors (support)
-            if self.priors and variable in self.priors:
-                try:
-                    support = self.priors[variable].support
-                    if support.simple_sets:
-                        mini = support.simple_sets[0][variable].simple_sets[0].lower
-                        maxi = support.simple_sets[-1][variable].simple_sets[-1].upper
-                except Exception:
-                    pass
+            # Header Row: [Add Button]
+            header_widget = QWidget()
+            header_layout = QHBoxLayout(header_widget)
+            header_layout.setContentsMargins(0, 0, 0, 0)
 
-            # Handle infinity
-            if mini == float("-inf"):
-                mini = -100.0
-            if maxi == float("inf"):
-                maxi = 100.0
+            header_layout.addStretch()
 
-            # Handle equality
-            if mini == maxi:
-                mini -= 1.0
-                maxi += 1.0
+            self.add_range_button = QPushButton()
+            self.add_range_button.setIcon(QIcon("icon:/primary/checklist.svg"))
+            self.add_range_button.setFixedWidth(30)
+            self.add_range_button.clicked.connect(
+                lambda: self.add_numeric_interval(variable)
+            )
+            header_layout.addWidget(self.add_range_button)
 
-            self.slider_min = mini
-            self.slider_max = maxi
+            self.constraint_layout.addWidget(header_widget)
 
-            # Current value label
-            self.value_label = QLabel()
-            self.value_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            self.constraint_layout.addWidget(self.value_label)
+            # Scroll Area for intervals
+            self.scroll_area = QScrollArea()
+            self.scroll_area.setWidgetResizable(True)
+            self.scroll_area.setWidget(self.intervals_container)
+            self.scroll_area.setFrameShape(QScrollArea.Shape.NoFrame)
+            self.scroll_area.setMinimumHeight(150)
 
-            # Container for multiple sliders
-            self.sliders_container = QWidget()
-            self.sliders_layout = QVBoxLayout(self.sliders_container)
-            self.sliders_layout.setContentsMargins(0, 0, 0, 0)
-            self.constraint_layout.addWidget(self.sliders_container)
-            self.constraint_widget = self.sliders_container
-            self.sliders: List[QRangeSlider] = []
+            self.constraint_widget = self.scroll_area
 
-            self.add_slider(variable, (mini, maxi))
+            self.interval_widgets: List[NumericIntervalWidget] = []
 
-            # Marks
-            self.marks_layout = QHBoxLayout()
-            size = maxi - mini
-            if size > 0:
-                import numpy as np
+            # Determine bounds
+            minimum, maximum = self._get_variable_bounds(variable)
+            self.slider_min, self.slider_max = minimum, maximum
 
-                steps = [x for x in np.arange(mini, maxi, size / 5)] + [maxi]
-                for step in steps:
-                    text = (
-                        f"{int(round(step))}"
-                        if isinstance(variable, Integer)
-                        else f"{step:.2f}"
-                    )
-                    mark_label = QLabel(text)
-                    mark_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-                    mark_label.setStyleSheet("font-size: 8pt; color: gray;")
-                    self.marks_layout.addWidget(mark_label)
-            self.constraint_layout.addLayout(self.marks_layout)
-
-            # Add/Remove buttons
-            self.buttons_layout = QHBoxLayout()
-            self.add_button = QPushButton()
-            self.add_button.setIcon(QIcon("icon:/primary/checklist.svg"))
-            self.add_button.setFixedWidth(30)
-            self.add_button.clicked.connect(lambda: self.on_add_range(variable))
-            self.buttons_layout.addWidget(self.add_button)
-
-            self.remove_button = QPushButton()
-            self.remove_button.setIcon(QIcon("icon:/primary/close.svg"))
-            self.remove_button.setFixedWidth(30)
-            self.remove_button.clicked.connect(lambda: self.on_remove_range(variable))
-            self.buttons_layout.addWidget(self.remove_button)
-            self.buttons_layout.addStretch()
-            self.constraint_layout.addLayout(self.buttons_layout)
+            # Add initial interval
+            self.add_numeric_interval(variable, (minimum, maximum))
         else:
             # List Widget for Symbolic (multi-selection)
             list_widget = QListWidget()
@@ -189,81 +310,139 @@ class VariableConstraintWidget(QWidget):
 
         self.constraint_layout.addWidget(self.constraint_widget)
 
-    def add_slider(self, variable: Variable, values: tuple[float, float]):
-        if isinstance(variable, Continuous):
-            slider = QDoubleRangeSlider(Qt.Orientation.Horizontal)
-            slider.setMinimum(self.slider_min)
-            slider.setMaximum(self.slider_max)
-            slider.setValue(values)
-        else:
-            slider = QRangeSlider(Qt.Orientation.Horizontal)
-            slider.setMinimum(int(self.slider_min))
-            slider.setMaximum(int(self.slider_max))
-            slider.setValue((int(values[0]), int(values[1])))
+    def _get_variable_bounds(self, variable: Variable) -> Tuple[float, float]:
+        """
+        Calculates the minimum and maximum bounds for the variable based on its domain and priors.
+        """
+        # Default to domain
+        try:
+            minimum = variable.domain.simple_sets[0].lower
+            maximum = variable.domain.simple_sets[-1].upper
+        except (AttributeError, IndexError):
+            # Fallback for composite sets
+            try:
+                minimum = variable.domain.simple_sets[0].simple_sets[0].lower
+                maximum = variable.domain.simple_sets[-1].simple_sets[-1].upper
+            except (AttributeError, IndexError):
+                minimum, maximum = 0.0, 1.0
 
-        slider.setStyleSheet(
-            "QRangeSlider, QDoubleRangeSlider { qproperty-barColor: #1de9b6; min-height: 25px; }"
-            "QRangeSlider::handle, QDoubleRangeSlider::handle { background-color: #1de9b6; border: 2px solid white; width: 16px; height: 16px; border-radius: 0px; image: none; }"
-            "QRangeSlider::groove, QDoubleRangeSlider::groove { background-color: #31363b; height: 8px; border-radius: 4px; }"
+        # Try to get from priors (support)
+        if self.priors and variable in self.priors:
+            try:
+                support = self.priors[variable].support
+                if support.simple_sets:
+                    minimum = support.simple_sets[0][variable].simple_sets[0].lower
+                    maximum = support.simple_sets[-1][variable].simple_sets[-1].upper
+            except Exception:
+                pass
+
+        # Handle infinity
+        if minimum == float("-inf"):
+            minimum = -100.0
+        if maximum == float("inf"):
+            maximum = 100.0
+
+        # Handle equality
+        if minimum == maximum:
+            minimum -= 1.0
+            maximum += 1.0
+
+        return minimum, maximum
+
+    def add_numeric_interval(
+        self, variable: Variable, values: Optional[Tuple[float, float]] = None
+    ):
+        """
+        Adds a new numeric interval row.
+        """
+        if values is None:
+            # Default new interval values based on current last interval
+            if self.interval_widgets:
+                _, last_high = self.interval_widgets[-1].value()
+                remaining = self.slider_max - last_high
+                if remaining > (self.slider_max - self.slider_min) * 0.1:
+                    values = (
+                        last_high + remaining * 0.05,
+                        last_high + remaining * 0.15,
+                    )
+                else:
+                    # Add at the end if not enough space
+                    values = (
+                        self.slider_max - (self.slider_max - self.slider_min) * 0.1,
+                        self.slider_max,
+                    )
+            else:
+                values = (self.slider_min, self.slider_max)
+
+        interval_widget = NumericIntervalWidget(
+            variable, self.slider_min, self.slider_max, values
+        )
+        interval_widget.changed.connect(self.changed.emit)
+        interval_widget.removed.connect(
+            lambda: self.remove_numeric_interval(interval_widget)
         )
 
-        slider.valueChanged.connect(lambda _: self.update_ranges_label(variable))
-        slider.valueChanged.connect(lambda _: self.changed.emit())
-
-        self.sliders.append(slider)
-        self.sliders_layout.addWidget(slider)
-        self.update_ranges_label(variable)
-
-    def update_ranges_label(self, variable: Variable):
-        ranges = []
-        for slider in self.sliders:
-            val = slider.value()
-            if isinstance(variable, Integer):
-                ranges.append(f"[{int(val[0])}, {int(val[1])}]")
-            else:
-                ranges.append(f"[{val[0]:.2f}, {val[1]:.2f}]")
-        self.value_label.setText("Range: " + ", ".join(ranges))
-
-    def on_add_range(self, variable: Variable):
-        if not self.sliders:
-            self.add_slider(variable, (self.slider_min, self.slider_max))
-            return
-
-        last_slider = self.sliders[-1]
-        _, last_high = last_slider.value()
-
-        remaining = self.slider_max - last_high
-        if remaining > (self.slider_max - self.slider_min) * 0.1:
-            new_min = last_high + remaining * 0.05
-            new_max = last_high + remaining * 0.15
-        else:
-            # Add at the end if not enough space
-            new_max = self.slider_max
-            new_min = self.slider_max - (self.slider_max - self.slider_min) * 0.05
-
-        self.add_slider(variable, (new_min, new_max))
+        self.interval_widgets.append(interval_widget)
+        self.intervals_layout.addWidget(interval_widget)
         self.changed.emit()
 
-    def on_remove_range(self, variable: Variable):
-        if len(self.sliders) > 1:
-            slider = self.sliders.pop()
-            slider.deleteLater()
-            self.update_ranges_label(variable)
+    def remove_numeric_interval(self, widget: NumericIntervalWidget):
+        """
+        Removes a numeric interval row.
+        """
+        if len(self.interval_widgets) > 1:
+            self.interval_widgets.remove(widget)
+            widget.deleteLater()
             self.changed.emit()
 
-    def get_constraint(self) -> Optional[tuple[Variable, Union[Interval, Set]]]:
+    def set_read_only(self, read_only: bool):
+        """
+        Sets the widget to read-only mode.
+        In read-only mode, the user cannot change the variable or its constraints,
+        but can still view them (and scroll if necessary).
+        """
+        self._read_only = read_only
+        self.variable_combo.setEnabled(not read_only)
+        self.remove_button.setVisible(not read_only)
+
+        if self.constraint_widget:
+            if isinstance(self.constraint_widget, QListWidget):
+                # For Symbolic variables: keep scrollable but disable selection change
+                # We do NOT change selection mode to NoSelection, as it would hide selection.
+                # Instead, we make items non-selectable.
+                for i in range(self.constraint_widget.count()):
+                    item = self.constraint_widget.item(i)
+                    if read_only:
+                        item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsSelectable)
+                    else:
+                        item.setFlags(
+                            item.flags()
+                            | Qt.ItemFlag.ItemIsSelectable
+                            | Qt.ItemFlag.ItemIsEnabled
+                        )
+            elif isinstance(self.constraint_widget, QScrollArea):
+                # For Numeric variables
+                if hasattr(self, "add_range_button"):
+                    self.add_range_button.setVisible(not read_only)
+
+                # Each NumericIntervalWidget needs to be set read-only
+                for widget in self.interval_widgets:
+                    widget.minimum_spin_box.setReadOnly(read_only)
+                    widget.maximum_spin_box.setReadOnly(read_only)
+                    widget.slider.setEnabled(not read_only)
+                    widget.remove_button.setVisible(not read_only)
+
+    def get_constraint(self) -> Optional[Tuple[Variable, Union[Interval, Set]]]:
         variable = self.variable_combo.currentData()
         if not variable:
             return None
 
         if isinstance(variable, (Continuous, Integer)):
             intervals = []
-            for slider in self.sliders:
-                vals = list(slider.value())
-
-                intervals.append(
-                    SimpleInterval(vals[0], vals[1], Bound.CLOSED, Bound.CLOSED)
-                )
+            for widget in self.interval_widgets:
+                values = widget.value()
+                low, high = min(values), max(values)
+                intervals.append(SimpleInterval(low, high, Bound.CLOSED, Bound.CLOSED))
 
             if not intervals:
                 return variable, variable.domain
@@ -302,16 +481,18 @@ class VariableConstraintWidget(QWidget):
 
         # Now the constraint widget should be created via on_variable_changed
         if isinstance(variable, (Continuous, Integer)):
-            # Clear existing sliders
-            for slider in self.sliders:
-                slider.deleteLater()
-            self.sliders.clear()
+            # Clear existing interval widgets
+            for widget in self.interval_widgets:
+                widget.deleteLater()
+            self.interval_widgets.clear()
 
             # constraint is an Interval (composite set)
             # Sort simple sets by lower bound
             sorted_simple_sets = sorted(constraint.simple_sets, key=lambda s: s.lower)
             for simple_set in sorted_simple_sets:
-                self.add_slider(variable, (simple_set.lower, simple_set.upper))
+                self.add_numeric_interval(
+                    variable, (simple_set.lower, simple_set.upper)
+                )
 
         elif isinstance(variable, Symbolic):
             if not self.constraint_widget:
