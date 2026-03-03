@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Tuple, List, TYPE_CHECKING
 
 import numpy as np
@@ -14,7 +15,7 @@ if TYPE_CHECKING:
     pass
 
 
-# @dataclass
+@dataclass
 class GiskardToExplicitQPAdapter(GiskardToQPAdapter):
     """
     Takes free variables and constraints and converts them to a QP problem in the following format, depending on the
@@ -25,9 +26,6 @@ class GiskardToExplicitQPAdapter(GiskardToQPAdapter):
           Ex <= bE          (equality constraints)
           lbA <= Ax <= ubA  (lower/upper inequality constraints)
     """
-
-    bE_filter: np.ndarray
-    bA_filter: np.ndarray
 
     def general_qp_to_specific_qp(
         self,
