@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Tuple, TYPE_CHECKING
 
 import numpy as np
@@ -14,118 +15,21 @@ if TYPE_CHECKING:
     import scipy.sparse as sp
 
 
-class GiskardToTwoSidedNeqQPAdapter(GiskardToQPAdapter):
+@dataclass
+class QPDataInequalityOnly:
     """
-    Takes free variables and constraints and converts them to a QP problem in the following format, depending on the
-    class attributes:
-
     min_x 0.5 x^T H x + g^T x
     s.t.  lbA <= Ax <= ubA
     """
 
-    b_bE_bA_filter: np.ndarray
-    b_zero_inf_filter_view: np.ndarray
-    bE_filter_view: np.ndarray
-    bA_filter_view: np.ndarray
-    bE_bA_filter: np.ndarray
+    quadratic_weights: np.ndarray
+    linear_weights: np.ndarray
 
-    def general_qp_to_specific_qp(
-        self,
-        quadratic_weights: sm.Vector,
-        linear_weights: sm.Vector,
-        box_lower_constraints: sm.Vector,
-        box_upper_constraints: sm.Vector,
-        eq_matrix_dofs: sm.Matrix,
-        eq_matrix_slack: sm.Matrix,
-        eq_bounds: sm.Vector,
-        neq_matrix_dofs: sm.Matrix,
-        neq_matrix_slack: sm.Matrix,
-        neq_lower_bounds: sm.Vector,
-        neq_upper_bounds: sm.Vector,
-    ):
-        if len(neq_matrix_dofs) == 0:
-            constraint_matrix = sm.hstack([eq_matrix_dofs, eq_matrix_slack])
-        else:
-            eq_matrix = sm.hstack(
-                [
-                    eq_matrix_dofs,
-                    eq_matrix_slack,
-                    sm.Matrix.zeros(eq_matrix_dofs.shape[0], neq_matrix_slack.shape[1]),
-                ]
-            )
-            neq_matrix = sm.hstack(
-                [
-                    neq_matrix_dofs,
-                    sm.Matrix.zeros(neq_matrix_dofs.shape[0], eq_matrix_slack.shape[1]),
-                    neq_matrix_slack,
-                ]
-            )
-            constraint_matrix = sm.vstack([eq_matrix, neq_matrix])
+    neq_matrix: sp.csc_matrix
+    neq_lower_bounds: np.ndarray
+    neq_upper_bounds: np.ndarray
 
-        self.free_symbols = [
-            self.world_state_symbols,
-            self.life_cycle_symbols,
-            self.external_collision_symbols,
-            self.self_collision_symbols,
-            self.auxiliary_variables,
-        ]
-
-        len_lb_be_lba_end = (
-            quadratic_weights.shape[0]
-            + box_lower_constraints.shape[0]
-            + eq_bounds.shape[0]
-            + neq_lower_bounds.shape[0]
-        )
-        len_ub_be_uba_end = (
-            len_lb_be_lba_end
-            + box_upper_constraints.shape[0]
-            + eq_bounds.shape[0]
-            + neq_upper_bounds.shape[0]
-        )
-
-        self.combined_vector_f = sm.CompiledFunctionWithViews(
-            expressions=[
-                quadratic_weights,
-                box_lower_constraints,
-                eq_bounds,
-                neq_lower_bounds,
-                box_upper_constraints,
-                eq_bounds,
-                neq_upper_bounds,
-                linear_weights,
-            ],
-            parameters=VariableParameters.from_lists(*self.free_symbols),
-            additional_views=[
-                slice(quadratic_weights.shape[0], len_lb_be_lba_end),
-                slice(len_lb_be_lba_end, len_ub_be_uba_end),
-            ],
-        )
-
-        self.neq_matrix_compiled = constraint_matrix.compile(
-            parameters=VariableParameters.from_lists(*self.free_symbols),
-            sparse=self.sparse,
-        )
-
-        self.b_bE_bA_filter = np.ones(
-            box_lower_constraints.shape[0]
-            + eq_bounds.shape[0]
-            + neq_lower_bounds.shape[0],
-            dtype=bool,
-        )
-        self.b_zero_inf_filter_view = self.b_bE_bA_filter[
-            : box_lower_constraints.shape[0]
-        ]
-        self.bE_filter_view = self.b_bE_bA_filter[
-            box_lower_constraints.shape[0] : box_lower_constraints.shape[0]
-            + eq_bounds.shape[0]
-        ]
-        self.bA_filter_view = self.b_bE_bA_filter[
-            box_lower_constraints.shape[0] + eq_bounds.shape[0] :
-        ]
-        self.bE_bA_filter = self.b_bE_bA_filter[box_lower_constraints.shape[0] :]
-
-        if self.compute_nI_I:
-            self._nAi_Ai_cache = {}
+    def filter_zero_weight_constraints(self): ...
 
     def create_filters(
         self,
@@ -196,6 +100,118 @@ class GiskardToTwoSidedNeqQPAdapter(GiskardToQPAdapter):
         )
 
         return qp_data_filtered
+
+
+class GiskardToTwoSidedNeqQPAdapter(GiskardToQPAdapter):
+    """
+    Takes free variables and constraints and converts them to a QP problem in the following format, depending on the
+    class attributes:
+
+    min_x 0.5 x^T H x + g^T x
+    s.t.  lbA <= Ax <= ubA
+    """
+
+    b_bE_bA_filter: np.ndarray
+    b_zero_inf_filter_view: np.ndarray
+    bE_filter_view: np.ndarray
+    bA_filter_view: np.ndarray
+    bE_bA_filter: np.ndarray
+
+    def general_qp_to_specific_qp(
+        self,
+        quadratic_weights: sm.Vector,
+        linear_weights: sm.Vector,
+        box_lower_constraints: sm.Vector,
+        box_upper_constraints: sm.Vector,
+        eq_matrix_dofs: sm.Matrix,
+        eq_matrix_slack: sm.Matrix,
+        eq_bounds: sm.Vector,
+        neq_matrix_dofs: sm.Matrix,
+        neq_matrix_slack: sm.Matrix,
+        neq_lower_bounds: sm.Vector,
+        neq_upper_bounds: sm.Vector,
+    ):
+        if len(neq_matrix_dofs) == 0:
+            constraint_matrix = sm.hstack([eq_matrix_dofs, eq_matrix_slack])
+        else:
+            eq_matrix = sm.hstack(
+                [
+                    eq_matrix_dofs,
+                    eq_matrix_slack,
+                    sm.Matrix.zeros(eq_matrix_dofs.shape[0], neq_matrix_slack.shape[1]),
+                ]
+            )
+            neq_matrix = sm.hstack(
+                [
+                    neq_matrix_dofs,
+                    sm.Matrix.zeros(neq_matrix_dofs.shape[0], eq_matrix_slack.shape[1]),
+                    neq_matrix_slack,
+                ]
+            )
+            constraint_matrix = sm.vstack([eq_matrix, neq_matrix])
+
+        self.free_symbols = [
+            self.world_state_symbols,
+            self.life_cycle_symbols,
+            self.float_variables,
+        ]
+
+        len_lb_be_lba_end = (
+            quadratic_weights.shape[0]
+            + box_lower_constraints.shape[0]
+            + eq_bounds.shape[0]
+            + neq_lower_bounds.shape[0]
+        )
+        len_ub_be_uba_end = (
+            len_lb_be_lba_end
+            + box_upper_constraints.shape[0]
+            + eq_bounds.shape[0]
+            + neq_upper_bounds.shape[0]
+        )
+
+        self.combined_vector_f = sm.CompiledFunctionWithViews(
+            expressions=[
+                quadratic_weights,
+                box_lower_constraints,
+                eq_bounds,
+                neq_lower_bounds,
+                box_upper_constraints,
+                eq_bounds,
+                neq_upper_bounds,
+                linear_weights,
+            ],
+            parameters=VariableParameters.from_lists(*self.free_symbols),
+            additional_views=[
+                slice(quadratic_weights.shape[0], len_lb_be_lba_end),
+                slice(len_lb_be_lba_end, len_ub_be_uba_end),
+            ],
+        )
+
+        self.neq_matrix_compiled = constraint_matrix.compile(
+            parameters=VariableParameters.from_lists(*self.free_symbols),
+            sparse=True,
+        )
+
+        self.b_bE_bA_filter = np.ones(
+            box_lower_constraints.shape[0]
+            + eq_bounds.shape[0]
+            + neq_lower_bounds.shape[0],
+            dtype=bool,
+        )
+        self.b_zero_inf_filter_view = self.b_bE_bA_filter[
+            : box_lower_constraints.shape[0]
+        ]
+        self.bE_filter_view = self.b_bE_bA_filter[
+            box_lower_constraints.shape[0] : box_lower_constraints.shape[0]
+            + eq_bounds.shape[0]
+        ]
+        self.bA_filter_view = self.b_bE_bA_filter[
+            box_lower_constraints.shape[0] + eq_bounds.shape[0] :
+        ]
+        self.bE_bA_filter = self.b_bE_bA_filter[box_lower_constraints.shape[0] :]
+
+        if self.compute_nI_I:
+            self._nAi_Ai_cache = {}
 
     def evaluate(
         self,

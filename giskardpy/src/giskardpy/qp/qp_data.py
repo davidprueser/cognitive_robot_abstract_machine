@@ -9,6 +9,8 @@ import scipy.sparse as sp
 from scipy.sparse import issparse
 from typing_extensions import Self
 
+from krrood.symbolic_math.symbolic_math import Vector, Matrix
+
 
 @dataclass
 class Conditioning:
@@ -235,6 +237,24 @@ class ZeroWeightQPDataFilter(QPDataFilter):
 
 
 @dataclass
+class QPDataSymbolic:
+    quadratic_weights: Vector
+    linear_weights: Vector
+
+    box_lower_constraints: Vector
+    box_upper_constraints: Vector
+
+    eq_matrix_dof: Matrix
+    eq_matrix_slack: Matrix
+    eq_bounds: Vector
+
+    neq_matrix_dof: Matrix
+    neq_matrix_slack: Matrix
+    neq_lower_bounds: Vector
+    neq_upper_bounds: Vector
+
+
+@dataclass
 class QPData:
     """
     Container for a QP of the form:
@@ -250,15 +270,15 @@ class QPData:
     quadratic_weights: np.ndarray
     linear_weights: np.ndarray
 
-    box_lower_constraints: np.ndarray
-    box_upper_constraints: np.ndarray
+    box_lower_constraints: np.ndarray | None = None
+    box_upper_constraints: np.ndarray | None = None
 
-    eq_matrix: sp.csc_matrix
-    eq_bounds: np.ndarray
+    eq_matrix: sp.csc_matrix | None = None
+    eq_bounds: np.ndarray | None = None
 
-    neq_matrix: sp.csc_matrix
-    neq_lower_bounds: np.ndarray
-    neq_upper_bounds: np.ndarray
+    neq_matrix: sp.csc_matrix = None
+    neq_lower_bounds: np.ndarray | None = None
+    neq_upper_bounds: np.ndarray | None = None
 
     @property
     def sparse_hessian(self) -> sp.csc_matrix:

@@ -9,6 +9,7 @@ from giskardpy.qp.qp_data import (
 )
 from giskardpy.qp.solvers.qp_solver_gurobi import QPSolverGurobi
 from giskardpy.qp.solvers.qp_solver_qpSWIFT import QPSolverQPSwift
+from giskardpy.qp.solvers.qp_solver_qpalm import QPSolverQPalm
 
 
 @pytest.fixture()
@@ -7953,3 +7954,9 @@ def test_hassian_one(larger_qp):
     conditioned_result = QPSolverQPSwift().solver_call(conditioned_qp_data)
     result = conditioning.unapply(conditioned_result)
     assert np.allclose(result, normal_result)
+
+
+def test_qpalm(simple_inequality_qp):
+    qp_data, expected = simple_inequality_qp
+    result = QPSolverQPalm().solver_call(qp_data)
+    assert np.allclose(result, expected)

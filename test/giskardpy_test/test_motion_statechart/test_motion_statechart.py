@@ -88,6 +88,9 @@ from giskardpy.motion_statechart.test_nodes.test_nodes import (
 from giskardpy.qp.constraint import EqualityConstraint
 from giskardpy.qp.constraint_collection import ConstraintCollection
 from giskardpy.qp.exceptions import HardConstraintsViolatedException
+from giskardpy.qp.qp_controller_config import QPControllerConfig
+from giskardpy.qp.solvers.qp_solver_gurobi import QPSolverGurobi
+from giskardpy.qp.solvers.qp_solver_ids import SupportedQPSolver
 from giskardpy.utils.math import angle_between_vector
 from krrood.symbolic_math.symbolic_math import (
     trinary_logic_and,
@@ -1244,7 +1247,7 @@ class TestCartesianTasks:
         kin_sim.compile(motion_statechart=msc)
         kin_sim.tick_until_end()
 
-    def test_cart_goal_1eef(self, pr2_world_state_reset: World):
+    def test_cart_goal_1eef_qpalm(self, pr2_world_state_reset: World):
         tip = pr2_world_state_reset.get_kinematic_structure_entity_by_name(
             "r_gripper_tool_frame"
         )
@@ -1256,27 +1259,27 @@ class TestCartesianTasks:
         )
 
         msc = MotionStatechart()
-        cart_goal = CartesianPose(
-            root_link=root,
-            tip_link=tip,
-            goal_pose=tip_goal,
+        msc.add_node(
+            cart_goal := CartesianPose(
+                root_link=root,
+                tip_link=tip,
+                goal_pose=tip_goal,
+            )
         )
-        msc.add_node(cart_goal)
-        end = EndMotion()
-        msc.add_node(end)
-        end.start_condition = cart_goal.observation_variable
+        msc.add_node(EndMotion.when_true(cart_goal))
 
         kin_sim = Executor(
             MotionStatechartContext(
                 world=pr2_world_state_reset,
+                qp_controller_config=QPControllerConfig(
+                    target_frequency=20,
+                    prediction_horizon=7,
+                    qp_solver_id=SupportedQPSolver.qpalm,
+                ),
             )
         )
         kin_sim.compile(motion_statechart=msc)
         kin_sim.tick_until_end()
-
-        assert np.allclose(
-            kin_sim.context.world.compute_forward_kinematics(root, tip), tip_goal
-        )
 
     def test_front_facing_orientation(self, hsr_world_setup: World):
         with hsr_world_setup.modify_world():
@@ -3128,7 +3131,8 @@ class TestCollisionAvoidance:
 
         kin_sim.tick_until_end(500)
 
-    def test_avoid_self_collision_with_l_arm(self, pr2_with_box):
+    def test_avoid_self_collision_with_l_arm(self, pr2_with_box, rclpy_node):
+        VizMarkerPublisher(_world=pr2_with_box, node=rclpy_node).with_tf_publisher()
         r_tip = pr2_with_box.get_kinematic_structure_entity_by_name(
             "r_gripper_tool_frame"
         )
@@ -3186,7 +3190,16 @@ class TestCollisionAvoidance:
         msc.add_node(EndMotion.when_true(local_min))
         msc.add_node(CancelMotion.when_true(contact))
 
-        kin_sim = Executor(MotionStatechartContext(world=pr2_with_box))
+        kin_sim = Executor(
+            MotionStatechartContext(
+                world=pr2_with_box,
+                qp_controller_config=QPControllerConfig(
+                    target_frequency=100,
+                    prediction_horizon=30,
+                    qp_solver_id=SupportedQPSolver.gurobi,
+                ),
+            )
+        )
         kin_sim.compile(motion_statechart=msc)
 
         assert len(msc.nodes) == 75

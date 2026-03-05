@@ -212,8 +212,8 @@ class QPControllerDebugger:
 
             self.p_bA_raw = pd.DataFrame(
                 {
-                    "lbA": self.qp_data.neq_lower_bounds,
-                    "ubA": self.qp_data.neq_upper_bounds,
+                    "lbA": qp_data.neq_lower_bounds,
+                    "ubA": qp_data.neq_upper_bounds,
                 },
                 self.inequality_constr_names,
                 dtype=float,
@@ -238,7 +238,7 @@ class QPControllerDebugger:
     def _update_inequality_matrix(self, qp_data: QPData):
         if len(qp_data.dense_neq_matrix) > 0:
             self.p_A = pd.DataFrame(
-                self.qp_data.dense_neq_matrix,
+                qp_data.dense_neq_matrix,
                 self.inequality_constr_names,
                 self.free_variable_names,
                 dtype=float,
@@ -470,7 +470,8 @@ class QPController:
             num_neq_slack_variables=self.qp_adapter.num_neq_slack_variables,
         )
         filtered_qp_data = zero_weight_filter.apply_filters(qp_data_raw)
-        conditioner = HessianOneConditioning()
+        # conditioner = HessianOneConditioning()
+        conditioner = Conditioning()
         filtered_qp_data_conditioned = conditioner.apply(filtered_qp_data)
         try:
             try:

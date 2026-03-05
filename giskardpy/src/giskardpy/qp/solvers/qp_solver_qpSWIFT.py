@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, List
 
+from line_profiler.explicit_profiler import profile
+
 from giskardpy.qp.adapters.explicit_adapter import GiskardToExplicitQPAdapter
 from giskardpy.qp.adapters.qp_adapter import QPData
 from typing_extensions import ClassVar
@@ -52,10 +54,11 @@ class QPSolverQPSwift(QPSolver):
         # 'ABSTOL': 9e-4,  # 0 < ABSTOL < 1; default 1e-6. absolute tolerance
         "RELTOL": 3.5e-5,  # 0 < RELTOL < 1; default 1e-6. relative tolerance
         # 'SIGMA': 0.01,  # default 100. maximum centering allowed
-        "VERBOSE": 1,  # 0 = no print; 1 = print
+        "VERBOSE": 0,  # 0 = no print; 1 = print
         "CheckInfeasibility": 1,
     }
 
+    @profile
     def solver_call_explicit_interface(self, qp_data: QPData) -> np.ndarray:
         result = qpSWIFT.solve_sparse_H_diag(
             H=qp_data.quadratic_weights,
@@ -70,15 +73,15 @@ class QPSolverQPSwift(QPSolver):
             options=self.opts,
         )
         exit_flag = result.exit_flag
-        print(result)
-        if not self.ignore_fail:
-            if exit_flag == 4:
-                # print(":((")
-
-                error_code = QPSWIFTExitFlags(exit_flag)
-                if error_code == QPSWIFTExitFlags.INFEASIBLE:
-                    raise InfeasibleException(f"Failed to solve qp: {str(error_code)}")
-                raise QPSolverException(f"Failed to solve qp: {str(error_code)}")
+        # print(result)
+        # if not self.ignore_fail:
+        #     if exit_flag == 4:
+        #         # print(":((")
+        #
+        #         error_code = QPSWIFTExitFlags(exit_flag)
+        #         if error_code == QPSWIFTExitFlags.INFEASIBLE:
+        #             raise InfeasibleException(f"Failed to solve qp: {str(error_code)}")
+        #         raise QPSolverException(f"Failed to solve qp: {str(error_code)}")
         return result.x
 
     solver_call = solver_call_explicit_interface

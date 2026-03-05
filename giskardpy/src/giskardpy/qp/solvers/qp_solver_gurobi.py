@@ -7,6 +7,7 @@ from typing import Tuple, Dict, TYPE_CHECKING
 import gurobipy
 import numpy as np
 from gurobipy import GRB, GurobiError
+from line_profiler.explicit_profiler import profile
 
 from giskardpy.qp.solvers.qp_solver import QPSolver
 from giskardpy.qp.solvers.qp_solver_ids import SupportedQPSolver
@@ -21,6 +22,16 @@ if TYPE_CHECKING:
 
 gurobipy.setParam(gurobipy.GRB.Param.LogToConsole, False)
 gurobipy.setParam(gurobipy.GRB.Param.FeasibilityTol, 2.5e-5)
+gurobipy.setParam(gurobipy.GRB.Param.Method, 2)
+gurobipy.setParam(gurobipy.GRB.Param.Presolve, 1)
+gurobipy.setParam(gurobipy.GRB.Param.Aggregate, 0)
+gurobipy.setParam(gurobipy.GRB.Param.PreDual, 0)
+gurobipy.setParam(gurobipy.GRB.Param.ScaleFlag, 2)
+gurobipy.setParam(gurobipy.GRB.Param.Threads, 1)
+gurobipy.setParam(gurobipy.GRB.Param.BarOrder, 0)
+gurobipy.setParam(gurobipy.GRB.Param.BarCorrectors, 2)
+gurobipy.setParam(gurobipy.GRB.Param.BarIterLimit, 100)
+gurobipy.setParam(gurobipy.GRB.Param.NumericFocus, 0)
 
 error_info = {
     gurobipy.GRB.LOADED: "Model is loaded, but no solution information is available.",
@@ -72,6 +83,7 @@ class QPSolverGurobi(QPSolver):
     }
     _times: Dict[Tuple[int, int, int], list] = defaultdict(list)
 
+    @profile
     def init(self, qp_data: QPData):
         import scipy.sparse as sp
 
@@ -140,6 +152,7 @@ class QPSolverGurobi(QPSolver):
             ubA_constraint_ids,
         )
 
+    @profile
     def solver_call_explicit_interface(self, qp_data: QPData) -> np.ndarray:
         self.init(qp_data)
         self.qpProblem.optimize()

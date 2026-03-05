@@ -1820,20 +1820,6 @@ class InequalityModel(ProblemDataPart):
 
 @dataclass
 class GiskardToQPAdapter:
-    world_state_symbols: List[sm.FloatVariable]
-    life_cycle_symbols: List[sm.FloatVariable]
-    float_variables: List[sm.FloatVariable]
-
-    degrees_of_freedom: List[DegreeOfFreedom]
-    constraint_collection: ConstraintCollection
-    config: QPControllerConfig
-    sparse: bool = field(default=True)
-
-    qp_data_raw: QPData = None
-
-    compute_nI_I: bool = True
-    _nAi_Ai_cache: dict = field(default_factory=dict)
-
     """
     Takes free variables and constraints and converts them to a QP problem in the following format, depending on the
     class attributes:
@@ -1844,6 +1830,18 @@ class GiskardToQPAdapter:
           lbA <= Adof x <= ubA_dof  (lower/upper inequality constraints)
           lbA <= Aslack x <= ubA_slack  (lower/upper inequality constraints)
     """
+
+    world_state_symbols: List[sm.FloatVariable]
+    life_cycle_symbols: List[sm.FloatVariable]
+    float_variables: List[sm.FloatVariable]
+
+    degrees_of_freedom: List[DegreeOfFreedom]
+    constraint_collection: ConstraintCollection
+    config: QPControllerConfig
+    sparse: bool = field(default=True)
+
+    compute_nI_I: bool = True
+    _nAi_Ai_cache: dict = field(default_factory=dict)
 
     def __post_init__(self):
         kwargs = {

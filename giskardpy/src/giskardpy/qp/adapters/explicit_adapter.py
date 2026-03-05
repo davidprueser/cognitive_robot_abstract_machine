@@ -8,7 +8,7 @@ from line_profiler import profile
 
 import krrood.symbolic_math.symbolic_math as sm
 from giskardpy.qp.adapters.qp_adapter import GiskardToQPAdapter
-from giskardpy.qp.qp_data import QPData, ZeroWeightQPDataFilter
+from giskardpy.qp.qp_data import QPData, ZeroWeightQPDataFilter, QPDataSymbolic
 from krrood.symbolic_math.symbolic_math import VariableParameters
 
 if TYPE_CHECKING:
@@ -27,32 +27,23 @@ class GiskardToExplicitQPAdapter(GiskardToQPAdapter):
           lbA <= Ax <= ubA  (lower/upper inequality constraints)
     """
 
-    def general_qp_to_specific_qp(
-        self,
-        quadratic_weights: sm.Vector,
-        linear_weights: sm.Vector,
-        box_lower_constraints: sm.Vector,
-        box_upper_constraints: sm.Vector,
-        eq_matrix_dofs: sm.Matrix,
-        eq_matrix_slack: sm.Matrix,
-        eq_bounds: sm.Vector,
-        neq_matrix_dofs: sm.Matrix,
-        neq_matrix_slack: sm.Matrix,
-        neq_lower_bounds: sm.Vector,
-        neq_upper_bounds: sm.Vector,
-    ):
+    def general_qp_to_specific_qp(self, qp_data: QPDataSymbolic):
         eq_matrix = sm.hstack(
             [
-                eq_matrix_dofs,
-                eq_matrix_slack,
-                sm.Matrix.zeros(eq_matrix_slack.shape[0], self.num_neq_slack_variables),
+                qp_data.eq_matrix_dof,
+                qp_data.eq_matrix_slack,
+                sm.Matrix.zeros(
+                    qp_data.eq_matrix_slack.shape[0], self.num_neq_slack_variables
+                ),
             ]
         )
         neq_matrix = sm.hstack(
             [
-                neq_matrix_dofs,
-                sm.Matrix.zeros(neq_matrix_slack.shape[0], self.num_eq_slack_variables),
-                neq_matrix_slack,
+                qp_data.neq_matrix_dofs,
+                sm.Matrix.zeros(
+                    qp_data.neq_matrix_slack.shape[0], self.num_eq_slack_variables
+                ),
+                qp_data.neq_matrix_slack,
             ]
         )
 
@@ -64,22 +55,22 @@ class GiskardToExplicitQPAdapter(GiskardToQPAdapter):
 
         self.eq_matrix_compiled = eq_matrix.compile(
             parameters=VariableParameters.from_lists(*self.free_symbols),
-            sparse=self.sparse,
+            sparse=True,
         )
         self.neq_matrix_compiled = neq_matrix.compile(
             parameters=VariableParameters.from_lists(*self.free_symbols),
-            sparse=self.sparse,
+            sparse=True,
         )
 
         self.combined_vector_f = sm.CompiledFunctionWithViews(
             expressions=[
-                quadratic_weights,
-                linear_weights,
-                box_lower_constraints,
-                box_upper_constraints,
-                eq_bounds,
-                neq_lower_bounds,
-                neq_upper_bounds,
+                qp_data.quadratic_weights,
+                qp_data.linear_weights,
+                qp_data.box_lower_constraints,
+                qp_data.box_upper_constraints,
+                qp_data.eq_bounds,
+                qp_data.neq_lower_bounds,
+                qp_data.neq_upper_bounds,
             ],
             parameters=VariableParameters.from_lists(*self.free_symbols),
         )
