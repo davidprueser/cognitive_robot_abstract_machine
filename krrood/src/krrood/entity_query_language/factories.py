@@ -10,7 +10,7 @@ from typing_extensions import Union, Iterable
 
 from krrood.entity_query_language.core.base_expressions import SymbolicExpression
 from krrood.entity_query_language.enums import DomainSource
-from krrood.entity_query_language.failures import UnsupportedExpressionTypeForDistinct
+from krrood.entity_query_language.exceptions import UnsupportedExpressionTypeForDistinct
 from krrood.entity_query_language.query.match import (
     Match,
     MatchVariable,
@@ -40,6 +40,7 @@ from krrood.entity_query_language.query.quantifiers import (
     The,
     ResultQuantifier,
 )
+from krrood.entity_query_language.rules.conclusion import Add
 from krrood.entity_query_language.rules.conclusion_selector import (
     Refinement,
     Alternative,
@@ -453,7 +454,7 @@ def mode(
     variable: Selectable[T],
     default: Optional[T] = None,
     distinct: bool = False,
-) -> Union[T, Max[T]]:
+) -> Union[T, Mode[T]]:
     """
     Maps the variable values to their mode value.
 
@@ -469,7 +470,7 @@ def multimode(
     variable: Selectable[T],
     default: Optional[T] = None,
     distinct: bool = False,
-) -> Union[T, Max[T]]:
+) -> Union[T, MultiMode[T]]:
     """
     Maps the variable values to all equivalent mode value.
 

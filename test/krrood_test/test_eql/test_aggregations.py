@@ -19,7 +19,7 @@ from krrood.entity_query_language.factories import (
 from krrood.entity_query_language.predicate import length
 from krrood.entity_query_language.query_graph import QueryGraph
 from ..dataset.example_classes import NamedNumbers
-from krrood.entity_query_language.failures import (
+from krrood.entity_query_language.exceptions import (
     NonAggregatedSelectedVariablesError,
     AggregatorInWhereConditionsError,
     NestedAggregationError,
@@ -595,41 +595,92 @@ def test_where_with_aggregation_subquery_on_same_variable():
     assert query.tolist() == [3]
 
 
-def test_mode():
+@pytest.fixture
+def number_variable_with_repeated_values():
     domain = [1, 2, 3, 2, 2, 1, 3]
-    var1 = variable(int, domain=domain)
-    assert var1.tolist() == domain
-    var_count = set_of(var1, c := eql.count_all()).grouped_by(var1)
-    assert [(val[var1], val[c]) for val in var_count.evaluate()] == [
+    var = variable(int, domain=domain)
+    assert var.tolist() == domain
+    return var
+
+
+@pytest.fixture
+def set_of_query_of_number_variable_with_repeated_values(
+    number_variable_with_repeated_values,
+):
+    var = number_variable_with_repeated_values
+    var_count = set_of(var, c := eql.count_all()).grouped_by(var)
+    return var_count, var, c
+
+
+def test_count_all_with_set_of(set_of_query_of_number_variable_with_repeated_values):
+    var_count, var, c = set_of_query_of_number_variable_with_repeated_values
+    assert [(val[var], val[c]) for val in var_count.evaluate()] == [
         (1, 2),
         (2, 3),
         (3, 2),
     ]
-    # one-line query without using a previous set_of query
-    max_count = eql.max(eql.count_all().grouped_by(var1))
-    assert max_count.tolist() == [3]
-    # reusing set_of query by selecting the count from the selected variables
+
+
+def test_reusing_set_of_query_by_selecting_the_count_from_the_selected_variables(
+    set_of_query_of_number_variable_with_repeated_values,
+):
+    var_count, var, c = set_of_query_of_number_variable_with_repeated_values
     max_count_from_sub_query = eql.max(var_count[c])
     assert max_count_from_sub_query.tolist() == [3]
-    # reusing set_of query by selecting the count from the selected variables as key for the max
+
+
+def test_max_count_all(number_variable_with_repeated_values):
+    var = number_variable_with_repeated_values
+    # one-line query without using a previous set_of query
+    max_count = eql.max(eql.count_all().grouped_by(var))
+    assert max_count.tolist() == [3]
+
+
+def test_reusing_set_of_query_by_selecting_the_count_from_the_selected_variables_as_key_for_max(
+    set_of_query_of_number_variable_with_repeated_values,
+):
+    var_count, var, c = set_of_query_of_number_variable_with_repeated_values
     var_max_count = eql.max(
-        set_of(var1, c := eql.count_all()).grouped_by(var1), key=lambda x: x[c]
+        set_of(var, c := eql.count_all()).grouped_by(var), key=lambda x: x[c]
     )
     results = var_max_count.tolist()
     assert len(results) == 1
-    assert results[0][var1] == 2
+    assert results[0][var] == 2
     assert results[0][c] == 3
-    # Independent subquery that calculates the max
-    max_count = entity(eql.max(eql.count(var1).grouped_by(var1)))
-    query = entity(var1).having(eql.count_all() == max_count).grouped_by(var1)
-    assert query.tolist() == [2]
-    assert eql.mode(var1).tolist() == [2]
-    assert eql.multimode(var1).tolist() == [2]
 
+
+@pytest.fixture
+def number_variable_with_repeated_values_for_more_than_one_number():
     domain = [1, 2, 3, 2, 2, 1, 3, 3]
     var2 = variable(int, domain=domain)
+    assert var2.tolist() == domain
+    return var2
+
+
+def test_independent_subquery_that_calculates_the_max(
+    number_variable_with_repeated_values,
+    number_variable_with_repeated_values_for_more_than_one_number,
+):
+    var = number_variable_with_repeated_values
+    max_count = entity(eql.max(eql.count(var).grouped_by(var)))
+    query = entity(var).having(eql.count_all() == max_count).grouped_by(var)
+    assert query.tolist() == [2]
+
+    var2 = number_variable_with_repeated_values_for_more_than_one_number
     max_count = entity(eql.max(eql.count(var2).grouped_by(var2)))
     query = entity(var2).having(eql.count_all() == max_count).grouped_by(var2)
     assert query.tolist() == [2, 3]
+
+
+def test_mode_and_multi_mode(
+    number_variable_with_repeated_values,
+    number_variable_with_repeated_values_for_more_than_one_number,
+):
+    var = number_variable_with_repeated_values
+
+    assert eql.mode(var).tolist() == [2]
+    assert eql.multimode(var).tolist() == [2]
+
+    var2 = number_variable_with_repeated_values_for_more_than_one_number
     assert eql.mode(var2).tolist() == [2]
     assert eql.multimode(var2).tolist() == [2, 3]

@@ -24,7 +24,7 @@ from krrood.entity_query_language.operators.core_logical_operators import (
     chained_logic,
     AND,
 )
-from krrood.entity_query_language.failures import (
+from krrood.entity_query_language.exceptions import (
     NoConditionsProvided,
     LiteralConditionError,
     AggregatorInWhereConditionsError,

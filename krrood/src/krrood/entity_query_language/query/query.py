@@ -35,7 +35,12 @@ from krrood.entity_query_language.query.builders import (
     QuantifierBuilder,
     OrderedByBuilder,
 )
-from krrood.entity_query_language.query.operations import Where, Having, GroupedBy, OrderedBy
+from krrood.entity_query_language.query.operations import (
+    Where,
+    Having,
+    GroupedBy,
+    OrderedBy,
+)
 from krrood.entity_query_language.query.quantifiers import (
     ResultQuantificationConstraint,
     ResultQuantifier,
@@ -58,7 +63,7 @@ from krrood.entity_query_language.core.variable import (
     ExternallySetVariable,
 )
 from krrood.entity_query_language.enums import DomainSource
-from krrood.entity_query_language.failures import (
+from krrood.entity_query_language.exceptions import (
     UnsupportedNegation,
     TryingToModifyAnAlreadyBuiltQuery,
     NonPositiveLimitValue,

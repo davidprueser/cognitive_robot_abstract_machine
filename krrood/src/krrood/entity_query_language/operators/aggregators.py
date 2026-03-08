@@ -11,7 +11,6 @@ import uuid
 from abc import ABC, abstractmethod
 from collections import Counter
 from dataclasses import dataclass, field
-from statistics import mode, multimode
 
 from typing_extensions import (
     Optional,
@@ -30,7 +29,7 @@ from krrood.entity_query_language.core.base_expressions import (
     OperationResult,
     Selectable,
 )
-from krrood.entity_query_language.failures import (
+from krrood.entity_query_language.exceptions import (
     NestedAggregationError,
     InvalidChildType,
 )
@@ -268,7 +267,8 @@ class Min(Extreme[T]):
 @dataclass(eq=False, repr=False)
 class MultiMode(Extreme[T]):
     """
-    Find and return all the equivalent mode values among the child results.
+    Find and return all the equivalent mode values among the child results. Similar to `statistics.multimode`, see
+     its documentation for more details: https://docs.python.org/3/library/statistics.html#statistics.multimode.
     """
 
     def aggregation_function(self, values: Iterable) -> Iterator[T]:
@@ -280,7 +280,8 @@ class MultiMode(Extreme[T]):
 @dataclass(eq=False, repr=False)
 class Mode(MultiMode[T]):
     """
-    Find and return the mode value among the child results.
+    Find and return the mode value among the child results. Same as {py:class}`MultiMode`, but only returns the
+    first mode value found.
     """
 
     def aggregation_function(self, values: Iterable) -> Iterator[T]:

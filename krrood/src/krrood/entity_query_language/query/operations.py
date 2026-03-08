@@ -40,7 +40,7 @@ from krrood.entity_query_language.core.base_expressions import (
     Filter,
     Selectable,
 )
-from krrood.entity_query_language.failures import (
+from krrood.entity_query_language.exceptions import (
     UnsupportedAggregationOfAGroupedByVariable,
 )
 from krrood.entity_query_language.operators.set_operations import (

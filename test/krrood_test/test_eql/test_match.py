@@ -12,7 +12,7 @@ from krrood.entity_query_language.factories import (
     an,
     a,
 )
-from krrood.entity_query_language.failures import NoKwargsInMatchVar
+from krrood.entity_query_language.exceptions import NoKwargsInMatchVar
 from krrood.entity_query_language.predicate import HasType
 from krrood.entity_query_language.core.base_expressions import UnificationDict
 from krrood.entity_query_language.query_graph import QueryGraph

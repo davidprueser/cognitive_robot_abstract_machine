@@ -30,7 +30,7 @@ from typing_extensions import (
     Type,
 )
 
-from krrood.entity_query_language.failures import NoExpressionFoundForGivenID
+from krrood.entity_query_language.exceptions import NoExpressionFoundForGivenID
 from krrood.entity_query_language.utils import make_list, T, make_set, is_iterable
 from krrood.symbol_graph.symbol_graph import SymbolGraph
 
