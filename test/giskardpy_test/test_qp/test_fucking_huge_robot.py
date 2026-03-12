@@ -1,6 +1,6 @@
 from copy import deepcopy
 
-from giskardpy.executor import Executor, SimulationPacer
+from giskardpy.executor import Executor
 from giskardpy.motion_statechart.context import MotionStatechartContext
 from giskardpy.motion_statechart.goals.templates import Sequence
 from giskardpy.motion_statechart.graph_node import EndMotion
@@ -12,10 +12,6 @@ from giskardpy.motion_statechart.tasks.cartesian_tasks import (
     CartesianPosition,
 )
 from giskardpy.qp.qp_controller_config import QPControllerConfig
-from giskardpy.qp.solvers.qp_solver_qpSWIFT import QPSolverQPSwift
-from semantic_digital_twin.adapters.ros.visualization.viz_marker import (
-    VizMarkerPublisher,
-)
 from semantic_digital_twin.datastructures.joint_state import JointState
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.spatial_types import Point3
