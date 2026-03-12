@@ -236,7 +236,7 @@ class _ExternalCollisionAvoidanceTask(_ExternalCollisionAvoidanceNode):
             upper_error=float("inf"),
             quadratic_weight=50,
             task_expression=a_projected_on_normal,
-            linear_weight=10,
+            linear_weight=0,
         )
 
         return artifacts
@@ -346,6 +346,8 @@ class ExternalCollisionAvoidance(Goal):
                 self.external_collision_manager.register_group_of_body(body)
 
         for group in self.external_collision_manager.registered_groups:
+            if group.root not in self.robot.bodies:
+                continue
             max_avoided_bodies = group.get_max_avoided_bodies(context.collision_manager)
             for index in range(max_avoided_bodies):
                 distance_monitor = _ExternalCollisionHasData(

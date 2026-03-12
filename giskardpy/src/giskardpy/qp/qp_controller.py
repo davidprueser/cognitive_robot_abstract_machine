@@ -12,19 +12,14 @@ import pandas as pd
 from line_profiler import profile
 
 import krrood.symbolic_math.symbolic_math as sm
-from giskardpy.qp.adapters.qp_adapter import GiskardToQPAdapter, QPDataSymbolic
+from giskardpy.qp.adapters.qp_adapter import QPDataSymbolic
 from giskardpy.qp.constraint_collection import ConstraintCollection
 from giskardpy.qp.exceptions import (
     HardConstraintsViolatedException,
-    InfeasibleException,
 )
 from giskardpy.qp.qp_data import (
     QPDataExplicit,
-    QPData,
     QPDataFactory,
-    JerkOneConditioningStrategy,
-    ConditioningStrategy,
-    HessianOneConditioningStrategy,
 )
 from giskardpy.qp.solvers.qp_solver import QPSolver
 from giskardpy.utils.utils import create_path

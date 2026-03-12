@@ -122,6 +122,7 @@ from semantic_digital_twin.collision_checking.collision_rules import (
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.robots.abstract_robot import Manipulator, AbstractRobot
 from semantic_digital_twin.robots.hsrb import HSRB
+from semantic_digital_twin.robots.minimal_robot import MinimalRobot
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Handle,
     Door,
@@ -139,6 +140,7 @@ from semantic_digital_twin.world_description.connections import (
     RevoluteConnection,
     ActiveConnection1DOF,
     FixedConnection,
+    OmniDrive,
 )
 from semantic_digital_twin.world_description.degree_of_freedom import (
     DegreeOfFreedom,
@@ -149,6 +151,7 @@ from semantic_digital_twin.world_description.geometry import (
     Box,
     Scale,
     Sphere,
+    Color,
 )
 from semantic_digital_twin.world_description.shape_collection import ShapeCollection
 from semantic_digital_twin.world_description.world_entity import Body
@@ -2744,6 +2747,147 @@ class TestCollisionAvoidance:
         assert len(collisions.contacts) == 1
         assert collisions.contacts[0].distance > 0.049
         assert len(cylinder_bot_world.collision_manager.collision_consumers) == 0
+
+    def test_external_collision_avoidance_battle(self, rclpy_node):
+        strong_robot_world = World()
+        with strong_robot_world.modify_world():
+            strong = Body(
+                name=PrefixedName("strong"),
+                collision=ShapeCollection(
+                    [Cylinder(width=0.1, height=0.1, color=Color(R=1, G=0, B=0, A=1))]
+                ),
+            )
+            strong_robot_world.add_body(strong)
+            strong_robot_sa = MinimalRobot.from_world(strong_robot_world)
+
+        weak_robot_world = World()
+        with weak_robot_world.modify_world():
+            weak = Body(
+                name=PrefixedName("weak"),
+                collision=ShapeCollection(
+                    [Cylinder(width=0.1, height=0.1, color=Color(R=0, G=0, B=1, A=1))]
+                ),
+            )
+            weak_robot_world.add_body(weak)
+            weak_robot_sa = MinimalRobot.from_world(weak_robot_world)
+
+        world = World()
+
+        with world.modify_world():
+            wall = Body(
+                name=PrefixedName("wall"),
+                collision=ShapeCollection([Box(scale=Scale(x=0.1, y=10, z=0.1))]),
+            )
+            map = Body(name=PrefixedName("map"))
+            world.add_connection(
+                FixedConnection(
+                    parent=map,
+                    child=wall,
+                    parent_T_connection_expression=HomogeneousTransformationMatrix.from_xyz_rpy(
+                        x=0.5
+                    ),
+                )
+            )
+            strong_odom = Body(name=PrefixedName("strong_odom"))
+            world.add_connection(
+                FixedConnection(
+                    parent=map,
+                    child=strong_odom,
+                    parent_T_connection_expression=HomogeneousTransformationMatrix.from_xyz_rpy(
+                        y=0.5
+                    ),
+                )
+            )
+            weak_odom = Body(name=PrefixedName("weak_odom"))
+            world.add_connection(
+                FixedConnection(
+                    parent=map,
+                    child=weak_odom,
+                    parent_T_connection_expression=HomogeneousTransformationMatrix.from_xyz_rpy(
+                        y=-0.5
+                    ),
+                )
+            )
+
+            # %% attach robots
+            world.merge_world(
+                strong_robot_world,
+                omni1 := OmniDrive.create_with_dofs(
+                    world=world,
+                    parent=strong_odom,
+                    child=strong_robot_world.root,
+                ),
+            )
+            world.merge_world(
+                weak_robot_world,
+                omni2 := OmniDrive.create_with_dofs(
+                    world=world,
+                    parent=weak_odom,
+                    child=weak_robot_world.root,
+                ),
+            )
+            omni1.has_hardware_interface = True
+            omni2.has_hardware_interface = True
+
+        VizMarkerPublisher(_world=world, node=rclpy_node).with_tf_publisher()
+
+        msc = MotionStatechart()
+        msc.add_nodes(
+            [
+                UpdateTemporaryCollisionRules(
+                    temporary_rules=[
+                        AvoidCollisionBetweenGroups(
+                            buffer_zone_distance=0.25,
+                            violated_distance=0.0,
+                            body_group_a=[weak],
+                            body_group_b=[wall],
+                        ),
+                        AvoidCollisionBetweenGroups(
+                            buffer_zone_distance=0.025,
+                            violated_distance=0.0,
+                            body_group_a=[strong],
+                            body_group_b=[wall],
+                        ),
+                    ]
+                ),
+                CartesianPose(
+                    root_link=map,
+                    tip_link=strong,
+                    goal_pose=HomogeneousTransformationMatrix.from_xyz_rpy(
+                        x=1, reference_frame=strong
+                    ),
+                    weight=DefaultWeights.WEIGHT_COLLISION_AVOIDANCE,
+                ),
+                CartesianPose(
+                    root_link=map,
+                    tip_link=weak,
+                    goal_pose=HomogeneousTransformationMatrix.from_xyz_rpy(
+                        x=1, reference_frame=weak
+                    ),
+                    weight=DefaultWeights.WEIGHT_BELOW_CA,
+                ),
+                ExternalCollisionAvoidance(robot=weak_robot_sa),
+                ExternalCollisionAvoidance(robot=strong_robot_sa),
+                local_min := LocalMinimumReached(),
+            ]
+        )
+        msc.add_node(EndMotion.when_true(local_min))
+        # msc.add_node(CancelMotion.when_true(distance_violated))
+
+        kin_sim = Executor(
+            MotionStatechartContext(world=world),
+            pacer=SimulationPacer(real_time_factor=1),
+        )
+        kin_sim.compile(motion_statechart=msc)
+
+        kin_sim.tick_until_end(500)
+
+        collisions = kin_sim.context.world.collision_manager.compute_collisions()
+        for c in collisions.contacts:
+            print("==================")
+            print(c.body_a.name)
+            print(c.body_b.name)
+            print(c.distance)
 
     def test_external_collision_avoidance_with_weight_above_ca(
         self, cylinder_bot_world: World, rclpy_node

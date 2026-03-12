@@ -1756,6 +1756,17 @@ class InequalityModel(ProblemDataPart):
 
 @dataclass
 class QPDataSymbolic:
+    """
+    Takes free variables and constraints and converts them to a QP problem in the following format, depending on the
+    class attributes:
+    min_x 0.5 x^T H x + g^T x
+    s.t.  lb <= x <= ub     (box constraints)
+          Edof x <= bE_dof          (equality constraints)
+          Eslack x <= bE_slack        (equality constraints)
+          lbA <= Adof x <= ubA_dof  (lower/upper inequality constraints)
+          lbA <= Aslack x <= ubA_slack  (lower/upper inequality constraints)
+    """
+
     quadratic_weights: Vector
     linear_weights: Vector
 
@@ -1855,20 +1866,3 @@ class QPDataSymbolic:
     @property
     def num_non_slack_variables(self) -> int:
         return self.num_free_variable_constraints - self.num_slack_variables
-
-
-@dataclass
-class GiskardToQPAdapter:
-    """
-    Takes free variables and constraints and converts them to a QP problem in the following format, depending on the
-    class attributes:
-    min_x 0.5 x^T H x + g^T x
-    s.t.  lb <= x <= ub     (box constraints)
-          Edof x <= bE_dof          (equality constraints)
-          Eslack x <= bE_slack        (equality constraints)
-          lbA <= Adof x <= ubA_dof  (lower/upper inequality constraints)
-          lbA <= Aslack x <= ubA_slack  (lower/upper inequality constraints)
-    """
-
-    # compute_nI_I: bool = True
-    # _nAi_Ai_cache: dict = field(default_factory=dict)
