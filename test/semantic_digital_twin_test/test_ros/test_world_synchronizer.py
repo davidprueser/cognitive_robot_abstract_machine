@@ -504,10 +504,10 @@ def test_semantic_annotation_change_parameter_during_same_modification_block(
         w1.add_semantic_annotation(handle)
         drawer.add_handle(handle)
 
-    time.sleep(0.2)
+    time.sleep(1)
     assert [hash(sa) for sa in w1.semantic_annotations] == [
         hash(sa) for sa in w2.semantic_annotations
-    ]
+    ], f"w1: {[sa.name for sa in w1.semantic_annotations]}, w2: {[sa.name for sa in w2.semantic_annotations]}"
 
 
 def test_synchronize_6dof(rclpy_node):
@@ -808,7 +808,6 @@ def test_attribute_updates(rclpy_node):
         hash(sa) for sa in world2.semantic_annotations
     ], f"{[sa.name for sa in world1.semantic_annotations]} vs {[sa.name for sa in world2.semantic_annotations]}"
 
-    print(f"{door.id=}")
     with world1.modify_world():
         fridge.add_door(door)
 

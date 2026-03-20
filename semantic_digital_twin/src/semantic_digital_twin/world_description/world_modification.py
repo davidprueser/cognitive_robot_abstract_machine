@@ -1,10 +1,8 @@
 from __future__ import annotations
 
 from abc import abstractmethod, ABC
-from copy import deepcopy
 from dataclasses import dataclass, field
 from functools import wraps
-from typing import Any, Optional
 from uuid import UUID
 
 from typing_extensions import (
@@ -43,7 +41,7 @@ if TYPE_CHECKING:
 @dataclass
 class WorldModification(SubclassJSONSerializer, ABC):
     """
-    An abstract base class representing a modification to the world.
+    An abstract base class representing a modification to the world which may be synchronized.
     """
 
     @abstractmethod
@@ -85,10 +83,18 @@ class WorldModelModification(WorldModification, ABC):
     This representations was chosen to freeze the object in the point in time when the modification was applied.
     """
 
-    _reconstructed_object: Optional[WorldEntityWithID] = field(default=None)
-    """
-    The reconstructed object from the JSON representation. This is used to apply the modification to a different world.
-    """
+    @classmethod
+    def from_domain_object(cls, obj: WorldEntityWithID):
+        return cls(object_json=obj.to_json())
+
+    def to_json(self):
+        return {**super().to_json(), "object_json": self.object_json}
+
+    @classmethod
+    def _from_json(cls, data: Dict[str, Any], **kwargs) -> Self:
+        return cls(
+            object_json=data["object_json"],
+        )
 
 
 @dataclass
@@ -164,34 +170,17 @@ class AddKinematicStructureEntityModification(WorldModelModification):
     Addition of a body to the world.
     """
 
-    _reconstructed_object: Optional[KinematicStructureEntity] = field(default=None)
-
     @classmethod
     def from_kwargs(cls, kwargs: Dict[str, Any]):
         return cls(object_json=kwargs["kinematic_structure_entity"].to_json())
 
     def apply(self, world: World):
-        world.add_kinematic_structure_entity(self._reconstructed_object)
-
-    def to_json(self):
-        return {**super().to_json(), "body": self.object_json}
-
-    @classmethod
-    def _from_json(cls, data: Dict[str, Any], **kwargs) -> Self:
-        object_json = data["body"]
+        tracker = WorldEntityWithIDKwargsTracker.from_world(world)
+        kwargs = tracker.create_kwargs()
         kinematic_structure_entity = KinematicStructureEntity.from_json(
-            object_json, **kwargs
+            self.object_json, **kwargs
         )
-        return cls(
-            object_json=object_json,
-            _reconstructed_object=kinematic_structure_entity,
-        )
-
-    # def __eq__(self, other: Any) -> bool:
-    #     return (
-    #         self._reconstructed_object.name
-    #         == other.kinematic_structure_entity.name
-    #     )
+        world.add_kinematic_structure_entity(kinematic_structure_entity)
 
 
 @dataclass
@@ -200,28 +189,14 @@ class RemoveBodyModification(WorldModelModification):
     Removal of a body from the world.
     """
 
-    _reconstructed_object: Optional[KinematicStructureEntity] = field(default=None)
-
     @classmethod
     def from_kwargs(cls, kwargs: Dict[str, Any]):
         return cls(object_json=to_json(kwargs["kinematic_structure_entity"].id))
 
     def apply(self, world: World):
-        world.remove_kinematic_structure_entity(self._reconstructed_object)
-
-    def to_json(self) -> Dict[str, Any]:
-        return {**super().to_json(), "body_id": self.object_json}
-
-    @classmethod
-    def _from_json(cls, data: Dict[str, Any], **kwargs) -> Self:
-        object_json = data["body_id"]
-        body_id = from_json(object_json)
-        world = kwargs["__world_entity_tracker"]._world
+        body_id = from_json(self.object_json)
         body = world.get_kinematic_structure_entity_by_id(body_id)
-        return cls(
-            object_json=object_json,
-            _reconstructed_object=body,
-        )
+        world.remove_kinematic_structure_entity(body)
 
 
 @dataclass
@@ -230,35 +205,14 @@ class AddConnectionModification(WorldModelModification):
     Addition of a connection to the world.
     """
 
-    _reconstructed_object: Optional[Connection] = field(default=None)
-
     @classmethod
     def from_kwargs(cls, kwargs: Dict[str, Any]):
         return cls(object_json=kwargs["connection"].to_json())
 
     def apply(self, world: World):
-        world.add_connection(self._reconstructed_object)
-
-    def to_json(self):
-        return {
-            **super().to_json(),
-            "connection": self.object_json,
-        }
-
-    @classmethod
-    def _from_json(cls, data: Dict[str, Any], **kwargs) -> Self:
-        object_json = data["connection"]
-        connection = Connection.from_json(object_json, **kwargs)
-        return cls(
-            object_json=object_json,
-            _reconstructed_object=connection,
-        )
-
-    # def __eq__(self, other):
-    #     return (
-    #         isinstance(other, AddConnectionModification)
-    #         and self.connection.name == other.connection.name
-    #     )
+        tracker = WorldEntityWithIDKwargsTracker.from_world(world)
+        kwargs = tracker.create_kwargs()
+        world.add_connection(Connection.from_json(self.object_json, **kwargs))
 
 
 @dataclass
@@ -266,8 +220,6 @@ class RemoveConnectionModification(WorldModelModification):
     """
     Removal of a connection from the world.
     """
-
-    _reconstructed_object: Optional[Connection] = field(default=None)
 
     @classmethod
     def from_kwargs(cls, kwargs: Dict[str, Any]):
@@ -277,7 +229,14 @@ class RemoveConnectionModification(WorldModelModification):
         return cls(object_json=object_json)
 
     def apply(self, world: World):
-        world.remove_connection(self._reconstructed_object)
+        tracker = WorldEntityWithIDKwargsTracker.from_world(world)
+        kwargs = tracker.create_kwargs()
+        parent_id = from_json(self.object_json["parent"], **kwargs)
+        child_id = from_json(self.object_json["child"], **kwargs)
+        parent = world.get_kinematic_structure_entity_by_id(parent_id)
+        child = world.get_kinematic_structure_entity_by_id(child_id)
+        connection = world.get_connection(parent, child)
+        world.remove_connection(connection)
 
     def to_json(self):
         return {
@@ -290,13 +249,8 @@ class RemoveConnectionModification(WorldModelModification):
     def _from_json(cls, data: Dict[str, Any], **kwargs) -> Self:
         parent_id = from_json(data["parent_id"])
         child_id = from_json(data["child_id"])
-        world = kwargs["__world_entity_tracker"]._world
-        parent = world.get_kinematic_structure_entity_by_id(parent_id)
-        child = world.get_kinematic_structure_entity_by_id(child_id)
-        connection = world.get_connection(parent, child)
         return cls(
             object_json={"parent": to_json(parent_id), "child": to_json(child_id)},
-            _reconstructed_object=connection,
         )
 
 
@@ -306,176 +260,83 @@ class AddDegreeOfFreedomModification(WorldModelModification):
     Addition of a degree of freedom to the world.
     """
 
-    _reconstructed_object: Optional[DegreeOfFreedom] = field(default=None)
-
     @classmethod
     def from_kwargs(cls, kwargs: Dict[str, Any]):
         return cls(object_json=kwargs["dof"].to_json())
 
     def apply(self, world: World):
-        world.add_degree_of_freedom(self._reconstructed_object)
-
-    def to_json(self):
-        return {
-            **super().to_json(),
-            "dof": self.object_json,
-        }
-
-    @classmethod
-    def _from_json(cls, data: Dict[str, Any], **kwargs) -> Self:
-        object_json = data["dof"]
-        dof = DegreeOfFreedom.from_json(object_json, **kwargs)
-        return cls(
-            object_json=object_json,
-            _reconstructed_object=dof,
-        )
-
-    # def __eq__(self, other):
-    #     return self.dof.id == other.dof.id
+        tracker = WorldEntityWithIDKwargsTracker.from_world(world)
+        kwargs = tracker.create_kwargs()
+        dof = DegreeOfFreedom.from_json(self.object_json, **kwargs)
+        world.add_degree_of_freedom(dof)
 
 
 @dataclass
 class RemoveDegreeOfFreedomModification(WorldModelModification):
-
-    _reconstructed_object: Optional[DegreeOfFreedom] = field(default=None)
 
     @classmethod
     def from_kwargs(cls, kwargs: Dict[str, Any]):
         return cls(object_json=to_json(kwargs["dof"].id))
 
     def apply(self, world: World):
-        world.remove_degree_of_freedom(self._reconstructed_object)
-
-    def to_json(self):
-        return {
-            **super().to_json(),
-            "dof": self.object_json,
-        }
-
-    @classmethod
-    def _from_json(cls, data: Dict[str, Any], **kwargs) -> Self:
-        object_json = data["dof"]
-        dof_id = from_json(object_json)
-        world = kwargs["__world_entity_tracker"]._world
+        dof_id = from_json(self.object_json)
         dof = world.get_degree_of_freedom_by_id(dof_id)
-        return cls(
-            object_json=object_json,
-            _reconstructed_object=dof,
-        )
+        world.remove_degree_of_freedom(dof)
 
 
 @dataclass
 class AddSemanticAnnotationModification(WorldModelModification):
 
-    _reconstructed_object: Optional[SemanticAnnotation] = field(default=None)
-
     @classmethod
     def from_kwargs(cls, kwargs: Dict[str, Any]):
         return cls(object_json=kwargs["semantic_annotation"].to_json())
 
     def apply(self, world: World):
-        world.add_semantic_annotation(self._reconstructed_object)
-
-    def to_json(self):
-        return {
-            **super().to_json(),
-            "semantic_annotation": self.object_json,
-        }
-
-    @classmethod
-    def _from_json(cls, data: Dict[str, Any], **kwargs) -> Self:
-        object_json = data["semantic_annotation"]
-        semantic_annotation = SemanticAnnotation.from_json(object_json, **kwargs)
-        return cls(
-            object_json=object_json,
-            _reconstructed_object=semantic_annotation,
-        )
+        tracker = WorldEntityWithIDKwargsTracker.from_world(world)
+        kwargs = tracker.create_kwargs()
+        semantic_annotation = SemanticAnnotation.from_json(self.object_json, **kwargs)
+        world.add_semantic_annotation(semantic_annotation)
 
 
 @dataclass
 class RemoveSemanticAnnotationModification(WorldModelModification):
 
-    _reconstructed_object: Optional[SemanticAnnotation] = field(default=None)
-
     @classmethod
     def from_kwargs(cls, kwargs: Dict[str, Any]):
         return cls(object_json=kwargs["semantic_annotation"].to_json())
 
     def apply(self, world: World):
-        world.remove_semantic_annotation(self._reconstructed_object)
-
-    def to_json(self):
-        return {
-            **super().to_json(),
-            "semantic_annotation": self.object_json,
-        }
-
-    @classmethod
-    def _from_json(cls, data: Dict[str, Any], **kwargs) -> Self:
-        object_json = data["semantic_annotation"]
-        semantic_annotation = SemanticAnnotation.from_json(object_json, **kwargs)
-        return cls(
-            object_json=object_json,
-            _reconstructed_object=semantic_annotation,
-        )
+        tracker = WorldEntityWithIDKwargsTracker.from_world(world)
+        kwargs = tracker.create_kwargs()
+        semantic_annotation = SemanticAnnotation.from_json(self.object_json, **kwargs)
+        world.remove_semantic_annotation(semantic_annotation)
 
 
 @dataclass
 class AddActuatorModification(WorldModelModification):
-
-    _reconstructed_object: Optional[Actuator] = field(default=None)
 
     @classmethod
     def from_kwargs(cls, kwargs: Dict[str, Any]):
         return cls(object_json=kwargs["actuator"].to_json())
 
     def apply(self, world: World):
-        world.add_actuator(self._reconstructed_object)
-
-    def to_json(self):
-        return {
-            **super().to_json(),
-            "actuator": self.object_json,
-        }
-
-    @classmethod
-    def _from_json(cls, data: Dict[str, Any], **kwargs) -> Self:
-        object_json = data["actuator"]
-        actuator = Actuator.from_json(object_json, **kwargs)
-        return cls(
-            object_json=object_json,
-            _reconstructed_object=actuator,
-        )
+        tracker = WorldEntityWithIDKwargsTracker.from_world(world)
+        kwargs = tracker.create_kwargs()
+        actuator = Actuator.from_json(self.object_json, **kwargs)
+        world.add_actuator(actuator)
 
 
 @dataclass
 class RemoveActuatorModification(WorldModelModification):
-
-    _reconstructed_object: Optional[Actuator] = field(default=None)
 
     @classmethod
     def from_kwargs(cls, kwargs: Dict[str, Any]):
         return cls(object_json=to_json(kwargs["actuator"].id))
 
     def apply(self, world: World):
-        world.remove_actuator(self._reconstructed_object)
-
-    def to_json(self):
-        return {
-            **super().to_json(),
-            "actuator": self.object_json,
-        }
-
-    @classmethod
-    def _from_json(cls, data: Dict[str, Any], **kwargs) -> Self:
-        object_json = data["actuator"]
-        actuator_id = from_json(object_json)
-        world = kwargs["__world_entity_tracker"]._world
+        actuator_id = from_json(self.object_json)
         actuator = world.get_actuator_by_id(actuator_id)
-        return cls(
-            object_json=object_json,
-            _reconstructed_object=actuator,
-        )
+        world.remove_actuator(actuator)
 
 
 @dataclass
