@@ -4,6 +4,7 @@ import abc
 import inspect
 import logging
 import threading
+import time
 from dataclasses import dataclass, field, is_dataclass, fields, MISSING
 from functools import lru_cache
 from typing import _GenericAlias
@@ -1022,6 +1023,7 @@ class DataAccessObject(HasGeneric[T]):
         :return: The domain object.
         """
         for relationship in mapper.relationships:
+
             value = getattr(self, relationship.key)
             if value is None:
                 continue

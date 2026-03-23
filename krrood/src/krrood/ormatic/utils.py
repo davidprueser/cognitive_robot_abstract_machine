@@ -76,8 +76,8 @@ def classes_of_package(package: types.ModuleType, recursive=True) -> List[Type]:
 
         try:
             module = importlib.import_module(modname)
-        except ModuleNotFoundError:
-            logging.warning(f"Module {modname} not found")
+        except Exception:
+            logging.warning(f"Module {modname} cannot be parsed")
             continue
         result.extend(classes_of_module(module))
 

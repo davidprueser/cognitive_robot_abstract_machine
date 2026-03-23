@@ -43,6 +43,7 @@ from semantic_digital_twin.exceptions import (
     WorldEntityWithIDNotFoundError,
     MissingReferenceFrameError,
     MismatchingPublishChangesAttribute,
+    AtomicWorldModificationNotAtomic,
 )
 from semantic_digital_twin.mixin import HasSimulatorProperties
 from semantic_digital_twin.spatial_computations.forward_kinematics import (
@@ -210,14 +211,6 @@ class WorldModelUpdateContextManager:
         model_manager._world_lock.release()
 
 
-class AtomicWorldModificationNotAtomic(Exception):
-    """
-    Exception raised when atomic world modifications are overlapping.
-    If this exception is raised, it means that somewhere in the code a function decorated with @atomic_world_modification
-    triggered another function decorated with it. This must not happen ever!
-    """
-
-
 def atomic_world_modification(func=None, modification: Type[WorldModification] = None):
     """
     Decorator for ensuring atomicity in world modification operations.
@@ -236,11 +229,9 @@ def atomic_world_modification(func=None, modification: Type[WorldModification] =
 
         @wraps(func)
         def wrapper(current_world: World, *args, **kwargs):
-            if current_world._atomic_modification_is_being_executed:
-                raise AtomicWorldModificationNotAtomic(
-                    f"World {current_world} is locked."
-                )
-            current_world._atomic_modification_is_being_executed = True
+            if current_world._current_active_atomic_world_modification is not None:
+                raise AtomicWorldModificationNotAtomic(func, current_world)
+            current_world._current_active_atomic_world_modification = func
 
             # bind args and kwargs
             bound = sig.bind_partial(
@@ -262,7 +253,7 @@ def atomic_world_modification(func=None, modification: Type[WorldModification] =
 
             result = func(current_world, *args, **kwargs)
 
-            current_world._atomic_modification_is_being_executed = False
+            current_world._current_active_atomic_world_modification = None
             return result
 
         return wrapper
@@ -397,9 +388,12 @@ class World(HasSimulatorProperties):
     Class that manages collision detection related stuff for this world.
     """
 
-    _atomic_modification_is_being_executed: bool = field(init=False, default=False)
+    _current_active_atomic_world_modification: Optional[Callable] = field(
+        init=False, default=None
+    )
     """
-    Flag that indicates if an atomic world operation is currently being executed.
+    The function that is currently atomically modifying the world and hence locking it.
+    This acts like a flag that indicates if an atomic world operation is currently being executed.
     See `atomic_world_modification` for more information.
     """
 

@@ -9145,6 +9145,9 @@ class AttributeUpdateModificationDAO(
     entity_id: Mapped[uuid.UUID] = mapped_column(
         sqlalchemy.sql.sqltypes.UUID, nullable=False, use_existing_column=True
     )
+    updated_kwargs: Mapped[
+        typing.List[krrood.adapters.json_serializer.JSONAttributeDiff]
+    ] = mapped_column(JSON, nullable=False, use_existing_column=True)
 
     __mapper_args__ = {
         "polymorphic_identity": "AttributeUpdateModificationDAO",

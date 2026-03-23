@@ -4,6 +4,7 @@ from dataclasses import is_dataclass
 
 import numpy as np
 
+import giskardpy
 import pycram.locations.costmaps
 import pycram.orm.ormatic_interface
 import semantic_digital_twin.orm.ormatic_interface
@@ -32,9 +33,10 @@ classes, alternative_mappings, type_mappings = get_classes_of_ormatic_interface(
 classes = set(classes)
 
 classes |= set(classes_of_package(pycram))
+classes |= set(classes_of_package(giskardpy))
 classes -= set(classes_of_module(pycram.locations.costmaps))
 classes -= set(classes_of_module(pycram.orm.ormatic_interface))
-classes -= {SubclassJSONSerializer, MotionStatechartNode, Task}
+classes -= {SubclassJSONSerializer}
 
 
 alternative_mappings += [am for am in recursive_subclasses(AlternativeMapping)]

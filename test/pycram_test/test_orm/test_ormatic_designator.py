@@ -1,27 +1,23 @@
 import pytest
-from sqlalchemy import select, text, UUID
+from sqlalchemy import select
 
 # The alternative mapping needs to be imported for the stretch to work properly
 import pycram.alternative_motion_mappings.stretch_motion_mapping  # type: ignore
 import pycram.alternative_motion_mappings.tiago_motion_mapping  # type: ignore
-from pycram.datastructures.grasp import GraspDescription
+from krrood.ormatic.dao import to_dao
+from pycram.datastructures.enums import Arms
+from pycram.datastructures.pose import PoseStamped
 from pycram.motion_executor import simulated_robot
 from pycram.orm.ormatic_interface import *  # type: ignore
-from krrood.ormatic.dao import to_dao
-from pycram.datastructures.enums import Arms, ApproachDirection, VerticalAlignment
-from pycram.datastructures.pose import PoseStamped
-
 from pycram.plans.factories import sequential, execute_single
 from pycram.robot_plans.actions.composite.transporting import TransportAction
 from pycram.robot_plans.actions.core.navigation import NavigateAction
-from pycram.robot_plans.actions.core.pick_up import PickUpAction
-from pycram.robot_plans.actions.core.placing import PlaceAction
 from pycram.robot_plans.actions.core.robot_body import MoveTorsoAction, ParkArmsAction
 from semantic_digital_twin.datastructures.definitions import TorsoState
 
 
 @pytest.fixture()
-def simple_plan_fixture(immutable_model_world):
+def simple_plan(immutable_model_world):
     world, robot_view, context = immutable_model_world
 
     plan = sequential(
@@ -38,24 +34,23 @@ def simple_plan_fixture(immutable_model_world):
     return plan
 
 
-def test_pose(pycram_testing_session, simple_plan_fixture):
+def test_pose(pycram_testing_session, simple_plan):
+
     session = pycram_testing_session
-    plan = simple_plan_fixture
-    dao = to_dao(plan)
+    dao = to_dao(simple_plan)
     session.add(dao)
     session.commit()
     result = session.scalars(select(PyCramPoseDAO)).all()
     assert len(result) == 1
 
 
-def test_plan_serialization(pycram_testing_session, simple_plan_fixture):
+def test_plan_serialization(pycram_testing_session, simple_plan):
     session = pycram_testing_session
-    plan = simple_plan_fixture
 
     with simulated_robot:
-        plan.perform()
+        simple_plan.perform()
 
-    dao = to_dao(plan)
+    dao = to_dao(simple_plan)
     session.add(dao)
     session.commit()
 
@@ -72,6 +67,20 @@ def test_plan_serialization(pycram_testing_session, simple_plan_fixture):
 
     motions = session.scalars(select(BaseMotionDAO)).all()
     assert len(motions) == 3
+
+
+def test_replay_simple_plan(pycram_testing_session, simple_plan):
+    with simulated_robot:
+        simple_plan.perform()
+    session = pycram_testing_session
+
+    dao = to_dao(simple_plan)
+    session.add(dao)
+    session.commit()
+
+    fetched_plan = session.scalars(select(PlanMappingDAO)).one()
+
+    recreated_plan = fetched_plan.from_dao()
 
 
 @pytest.fixture
@@ -92,7 +101,7 @@ def complex_plan(mutable_model_world):
     return plan
 
 
-def test_manipulated_body_pose(pycram_testing_session, complex_plan):
+def test_execution_data_of_complex_plan(pycram_testing_session, complex_plan):
 
     with simulated_robot:
         complex_plan.perform()
