@@ -393,10 +393,10 @@ class Application(QMainWindow):
         self.scroll_area.setWidget(self.body_buttons_widget)
 
         left_layout = QVBoxLayout()
-        self.selection_label = QLabel("Select a body")
+        left_layout.addLayout(self._create_urdf_box_layout())
+        self.selection_label = QLabel("")
         self.selection_label.setStyleSheet("font-weight: bold; color: blue;")
         left_layout.addWidget(self.selection_label)
-        left_layout.addLayout(self._create_urdf_box_layout())
         left_layout.addWidget(self.scroll_area)
 
         main_layout = QHBoxLayout()
@@ -466,12 +466,18 @@ class Application(QMainWindow):
 
                 if component == "SpecifiesLeftRightArm":
                     add_left_arm_button = QPushButton("Add Left Arm")
+                    add_left_arm_button.setEnabled(
+                        not any(a.name.name == "left_arm" for a in self.arms)
+                    )
                     add_left_arm_button.clicked.connect(
                         lambda: self._add_arm_callback("left_arm")
                     )
                     self.components_list_layout.addWidget(add_left_arm_button)
 
                     add_right_arm_button = QPushButton("Add Right Arm")
+                    add_right_arm_button.setEnabled(
+                        not any(a.name.name == "right_arm" for a in self.arms)
+                    )
                     add_right_arm_button.clicked.connect(
                         lambda: self._add_arm_callback("right_arm")
                     )
@@ -582,7 +588,7 @@ class Application(QMainWindow):
                 arm.tip = body
 
         self.selection_mode = None
-        self.selection_label.setText("Select a body")
+        self.selection_label.setText("")
         self._update_chosen_components_list()
 
     def visualize_chain(self, chain: KinematicChain):
@@ -591,13 +597,15 @@ class Application(QMainWindow):
         """
         self.interface.reset_body_colors()
         highlight_color = Color(1.0, 0.0, 0.0, 1.0)
-        chain: List[Body] = (
-            self.interface.world.compute_chain_of_kinematic_structure_entities(
+        left_chain, root, right_chain = (
+            self.interface.world.compute_split_chain_of_kinematic_structure_entities(
                 chain.root, chain.tip
             )
         )
+
+        full_chain: List[Body] = left_chain + root + right_chain
         with self.interface.world.modify_world():
-            for body in chain:
+            for body in full_chain:
                 body.collision.dye_shapes(highlight_color)
 
     def _create_urdf_box_layout(self) -> QHBoxLayout:
