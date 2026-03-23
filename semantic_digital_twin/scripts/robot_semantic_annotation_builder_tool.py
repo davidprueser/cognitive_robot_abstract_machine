@@ -22,6 +22,10 @@ from PyQt5.QtWidgets import (
     QProgressBar,
     QScrollArea,
     QGridLayout,
+    QGroupBox,
+    QCheckBox,
+    QLabel,
+    QDialog,
 )
 
 from giskardpy.middleware.ros2 import rospy
@@ -35,6 +39,11 @@ from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.connections import FixedConnection
 from semantic_digital_twin.world_description.geometry import Color
 from semantic_digital_twin.world_description.world_entity import Body
+from semantic_digital_twin.robots.robot_mixins import (
+    HasNeck,
+    HasArms,
+    SpecifiesLeftRightArm,
+)
 
 
 @dataclass
@@ -132,6 +141,74 @@ class ProgressBarWithText(QProgressBar):
 
 
 @dataclass
+class ComponentSelectionDialog(QDialog):
+    """
+    Dialog for choosing robot components.
+    """
+
+    has_neck: bool = False
+    has_arms: bool = False
+    specifies_left_right_arm: bool = False
+
+    def __post_init__(self):
+        super().__init__()
+        self.setWindowTitle("Choose robot components")
+        self.init_ui()
+
+    def init_ui(self):
+        """
+        Initialize the dialog UI.
+        """
+        layout = QVBoxLayout()
+
+        self.has_neck_checkbox = QCheckBox("HasNeck")
+        self.has_neck_checkbox.setChecked(self.has_neck)
+        self.has_arms_checkbox = QCheckBox("HasArms")
+        self.has_arms_checkbox.setChecked(self.has_arms)
+        self.specifies_left_right_arm_checkbox = QCheckBox("SpecifiesLeftRightArm")
+        self.specifies_left_right_arm_checkbox.setChecked(self.specifies_left_right_arm)
+
+        self.has_arms_checkbox.toggled.connect(self._handle_has_arms_toggled)
+        self.specifies_left_right_arm_checkbox.toggled.connect(
+            self._handle_specifies_left_right_arm_toggled
+        )
+
+        layout.addWidget(self.has_neck_checkbox)
+        layout.addWidget(self.has_arms_checkbox)
+        layout.addWidget(self.specifies_left_right_arm_checkbox)
+
+        self.ok_button = QPushButton("OK")
+        self.ok_button.clicked.connect(self.accept)
+        layout.addWidget(self.ok_button)
+
+        self.setLayout(layout)
+
+    def _handle_has_arms_toggled(self, checked: bool):
+        """
+        Handles HasArms checkbox toggle, ensuring mutual exclusivity.
+        """
+        if checked:
+            self.specifies_left_right_arm_checkbox.setChecked(False)
+
+    def _handle_specifies_left_right_arm_toggled(self, checked: bool):
+        """
+        Handles SpecifiesLeftRightArm checkbox toggle, ensuring mutual exclusivity.
+        """
+        if checked:
+            self.has_arms_checkbox.setChecked(False)
+
+    def get_selection(self) -> dict:
+        """
+        Returns the current selection.
+        """
+        return {
+            "HasNeck": self.has_neck_checkbox.isChecked(),
+            "HasArms": self.has_arms_checkbox.isChecked(),
+            "SpecifiesLeftRightArm": self.specifies_left_right_arm_checkbox.isChecked(),
+        }
+
+
+@dataclass
 class Application(QMainWindow):
     """
     The main application for the robot semantic annotation builder tool.
@@ -147,6 +224,16 @@ class Application(QMainWindow):
     """
     Timer used to update the ui periodically.
     """
+    chosen_components: dict = field(
+        default_factory=lambda: {
+            "HasNeck": False,
+            "HasArms": False,
+            "SpecifiesLeftRightArm": False,
+        }
+    )
+    """
+    Dictionary storing the state of chosen robot components.
+    """
 
     def __post_init__(self):
         super().__init__()
@@ -159,7 +246,7 @@ class Application(QMainWindow):
         Initialize all ui components.
         """
         self.setWindowTitle("Robot Semantic Annotation Builder Tool")
-        self.setMinimumSize(800, 600)
+        self.setMinimumSize(1000, 600)
 
         self.urdf_progress = ProgressBarWithText(self)
         self.urdf_progress.set_progress(0, "No urdf loaded")
@@ -173,13 +260,64 @@ class Application(QMainWindow):
         self.body_buttons_layout.setAlignment(Qt.AlignTop)
         self.scroll_area.setWidget(self.body_buttons_widget)
 
-        layout = QVBoxLayout()
-        layout.addLayout(self._create_urdf_box_layout())
-        layout.addWidget(self.scroll_area)
+        left_layout = QVBoxLayout()
+        left_layout.addLayout(self._create_urdf_box_layout())
+        left_layout.addWidget(self.scroll_area)
+
+        main_layout = QHBoxLayout()
+        main_layout.addLayout(left_layout, stretch=4)
+        main_layout.addLayout(self._create_chosen_components_layout(), stretch=1)
 
         central_widget = QWidget()
-        central_widget.setLayout(layout)
+        central_widget.setLayout(main_layout)
         self.setCentralWidget(central_widget)
+
+    def _create_chosen_components_layout(self) -> QVBoxLayout:
+        """
+        Creates the layout for chosen components on the right.
+        """
+        layout = QVBoxLayout()
+        self.choose_components_button = QPushButton("Choose Robot Components")
+        self.choose_components_button.setEnabled(False)
+        self.choose_components_button.clicked.connect(
+            self._open_component_selection_dialog
+        )
+        layout.addWidget(self.choose_components_button)
+
+        self.chosen_components_label = QLabel("Chosen Components:")
+        layout.addWidget(self.chosen_components_label)
+
+        self.components_list_layout = QVBoxLayout()
+        layout.addLayout(self.components_list_layout)
+        layout.addStretch()
+        return layout
+
+    def _open_component_selection_dialog(self):
+        """
+        Opens the component selection dialog.
+        """
+        dialog = ComponentSelectionDialog(
+            has_neck=self.chosen_components["HasNeck"],
+            has_arms=self.chosen_components["HasArms"],
+            specifies_left_right_arm=self.chosen_components["SpecifiesLeftRightArm"],
+        )
+        if dialog.exec_():
+            self.chosen_components = dialog.get_selection()
+            self._update_chosen_components_list()
+
+    def _update_chosen_components_list(self):
+        """
+        Updates the list of chosen components on the right.
+        """
+        while self.components_list_layout.count():
+            item = self.components_list_layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
+
+        for component, chosen in self.chosen_components.items():
+            if chosen:
+                self.components_list_layout.addWidget(QLabel(f"- {component}"))
 
     def _create_urdf_box_layout(self) -> QHBoxLayout:
         """
@@ -215,6 +353,8 @@ class Application(QMainWindow):
             self.interface.load_urdf(urdf_file)
             self.urdf_progress.set_progress(100, f"Loaded {urdf_file}")
             self.refresh_body_buttons()
+            if self.interface.bodies:
+                self.choose_components_button.setEnabled(True)
 
     def refresh_body_buttons(self):
         """
