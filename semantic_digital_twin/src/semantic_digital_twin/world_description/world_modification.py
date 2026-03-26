@@ -16,6 +16,7 @@ from krrood.adapters.json_serializer import (
 from semantic_digital_twin.exceptions import MissingWorldModificationContextError
 from semantic_digital_twin.world_description.world_entity import (
     WorldEntityWithID,
+    SemanticAnnotation,
 )
 
 if TYPE_CHECKING:
@@ -156,7 +157,7 @@ class AddConnectionModification(WorldModification):
             raise ValueError(
                 f"The parent and child IDs of the Connection sent to the server do not match the parent and child IDs of the Connection that was originally added. This is a bug in the server. The Connection sent to the server has parent ID {self.connection.parent.id} and child ID {self.connection.child.id} but the Connection that was originally added has parent ID {self.parent_id} and child ID {self.child_id}"
             )
-        world.add_connection(self.connection)
+        world.add_connection(self.connection.copy_for_world(world))
 
 
 @dataclass
@@ -233,6 +234,10 @@ class AddSemanticAnnotationModification(WorldModification, SubclassJSONSerialize
     @classmethod
     def from_kwargs(cls, kwargs: Dict[str, Any]):
         return cls(semantic_annotation_json=to_json(kwargs["semantic_annotation"]))
+
+    @classmethod
+    def from_domain_object(cls, domain_object: SemanticAnnotation):
+        return cls(semantic_annotation_json=to_json(domain_object))
 
     def apply(self, world: World):
         tracker = WorldEntityWithIDKwargsTracker.from_world(world)
@@ -400,13 +405,18 @@ class AttributeUpdateModification(WorldModification):
 
     def apply(self, world: World):
         entity = world.get_world_entity_with_id_by_id(self.entity_id)
-        for diff in self.updated_kwargs:
+        for diff in self.update_world_references_in_updated_kwargs(world):
             current_value = getattr(entity, diff.attribute_name)
             if isinstance(current_value, list_like_classes):
                 self._apply_to_list(world, current_value, diff)
             else:
                 obj = self._resolve_item(world, diff.added_values[0])
                 setattr(entity, diff.attribute_name, obj)
+
+    def update_world_references_in_updated_kwargs(self, world: World):
+        tracker = WorldEntityWithIDKwargsTracker.from_world(world)
+        kwargs = tracker.create_kwargs()
+        return from_json(to_json(self.updated_kwargs), **kwargs)
 
     def _apply_to_list(
         self, world: World, current_value: List[Any], diff: JSONAttributeDiff

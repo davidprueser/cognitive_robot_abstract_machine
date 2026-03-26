@@ -3,7 +3,9 @@ import os
 import threading
 import time
 import unittest
-from typing import Optional, Set, Tuple
+import uuid
+from dataclasses import dataclass, field
+from typing import Optional, Set, Tuple, List
 from uuid import uuid4
 
 import numpy as np
@@ -43,9 +45,11 @@ from semantic_digital_twin.world_description.degree_of_freedom import DegreeOfFr
 from semantic_digital_twin.world_description.geometry import Scale
 from semantic_digital_twin.world_description.world_entity import (
     Body,
+    SemanticAnnotation,
 )
 from semantic_digital_twin.world_description.world_modification import (
     AttributeUpdateModification,
+    synchronized_attribute_modification,
 )
 from krrood.adapters.json_serializer import JSONAttributeDiff, to_json, from_json
 from semantic_digital_twin.adapters.ros.messages import (
@@ -54,9 +58,7 @@ from semantic_digital_twin.adapters.ros.messages import (
     LoadModel,
     Acknowledgment,
 )
-
-# from semantic_digital_twin_test.example_dataset.test_annotations import TestAnnotation
-from semantic_digital_twin.orm.ormatic_interface import *  # type: ignore
+from semantic_digital_twin.orm.ormatic_interface import Base, WorldMappingDAO
 
 
 def create_dummy_world(w: Optional[World] = None) -> World:
@@ -873,6 +875,29 @@ def test_attribute_updates(rclpy_node):
     assert [hash(sa) for sa in world1.semantic_annotations] == [
         hash(sa) for sa in world2.semantic_annotations
     ], f"{[sa.name for sa in world1.semantic_annotations]} vs {[sa.name for sa in world2.semantic_annotations]}"
+
+
+@dataclass(eq=False)
+class TestAnnotation(SemanticAnnotation):
+    value: str = "default"
+    entity: Optional[Body] = None
+    entities: List[Body] = field(default_factory=list, hash=False)
+
+    @synchronized_attribute_modification
+    def update_value(self, new_value: str):
+        self.value = new_value
+
+    @synchronized_attribute_modification
+    def update_entity(self, new_entity: Body):
+        self.entity = new_entity
+
+    @synchronized_attribute_modification
+    def add_to_list(self, new_entity: Body):
+        self.entities.append(new_entity)
+
+    @synchronized_attribute_modification
+    def remove_from_list(self, old_entity: Body):
+        self.entities.remove(old_entity)
 
 
 def test_synchronized_attribute_modification(rclpy_node):

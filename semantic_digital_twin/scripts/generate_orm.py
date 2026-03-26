@@ -68,8 +68,6 @@ import semantic_digital_twin.robots.tiago
 import semantic_digital_twin.robots.stretch
 import semantic_digital_twin.robots.justin
 
-# import semantic_digital_twin_test.example_dataset.test_annotations
-
 all_classes = set(
     classes_of_module(semantic_digital_twin.world_description.world_entity)
 )
@@ -115,10 +113,6 @@ all_classes |= set(
         semantic_digital_twin.collision_checking.collision_variable_managers
     )
 )
-# all_classes |= set(
-#     classes_of_module(semantic_digital_twin_test.example_dataset.test_annotations)
-# )
-# classes |= set(recursive_subclasses(ViewFactory))
 all_classes |= {SimulatorAdditionalProperty}
 all_classes |= set(classes_of_module(semantic_digital_twin.reasoning.predicates))
 all_classes |= set(classes_of_module(semantic_digital_twin.semantic_annotations.mixins))

@@ -2,6 +2,8 @@ import json
 import time
 
 import numpy as np
+
+from krrood.adapters.json_serializer import from_json
 from semantic_digital_twin.adapters.ros.world_fetcher import (
     FetchWorldServer,
     fetch_world_from_service,
@@ -78,9 +80,7 @@ def test_service_callback_success(rclpy_node):
     # Verify the message is valid JSON (expects new envelope format)
     payload = json.loads(result.message)
     modifications_json = payload["modifications"]
-    modifications_list = [
-        WorldModelModificationBlock.from_json(d, **kwargs) for d in modifications_json
-    ]
+    modifications_list = [from_json(d, **kwargs) for d in modifications_json]
 
     assert [type(m) for b in modifications_list for m in b] == [
         type(m)
@@ -128,9 +128,7 @@ def test_service_callback_with_multiple_modifications(rclpy_node):
     kwargs = tracker.create_kwargs()
     payload = json.loads(result.message)
     modifications_json = payload["modifications"]
-    modifications_list = [
-        WorldModelModificationBlock.from_json(d, **kwargs) for d in modifications_json
-    ]
+    modifications_list = [from_json(d, **kwargs) for d in modifications_json]
     assert [type(m) for b in modifications_list for m in b] == [
         type(m)
         for b in world.get_world_model_manager().model_modification_blocks

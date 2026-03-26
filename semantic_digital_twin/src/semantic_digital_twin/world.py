@@ -5,7 +5,7 @@ import inspect
 import logging
 import threading
 import uuid
-from copy import deepcopy
+from copy import deepcopy, copy
 from dataclasses import dataclass, field
 from functools import wraps, lru_cache, cached_property
 from uuid import UUID
@@ -1168,16 +1168,20 @@ class World(HasSimulatorProperties):
         with self.modify_world(), other.modify_world():
             self_root = self.root
             other_root_id = other.root.id
-            other._clear_kinematic_structure()
+            other._clear_world_entities()
             for modification in other._model_manager.model_modification_blocks:
                 modification.apply(self)
 
-            for other_dof in other.degrees_of_freedom:
-                dof: DegreeOfFreedom = self.get_world_entity_with_id_by_id(other_dof.id)
-                self.state[dof.id].position = other.state[dof.id].position
-                self.state[dof.id].velocity = other.state[dof.id].velocity
-                self.state[dof.id].acceleration = other.state[dof.id].acceleration
-                self.state[dof.id].jerk = other.state[dof.id].jerk
+            other_state = deepcopy(other.state)
+
+            # Transfer the state entries using DOF UUIDs (WorldState iterates over UUIDs)
+            for dof_id in other_state:
+                self_state_dof = self.state[dof_id]
+                other_state_dof = other_state[dof_id]
+                self_state_dof.position = other_state_dof.position
+                self_state_dof.velocity = other_state_dof.velocity
+                self_state_dof.acceleration = other_state_dof.acceleration
+                self_state_dof.jerk = other_state_dof.jerk
 
             if root_connection is not None:
                 child_id = root_connection.child.id
@@ -1751,30 +1755,28 @@ class World(HasSimulatorProperties):
         Clears all stored data and resets the state of the instance.
         """
         kse = self.kinematic_structure_entities
-        with self.modify_world():
-            for body in kse:
-                self.remove_kinematic_structure_entity(body)
-
-            self.semantic_annotations.clear()
-            self.degrees_of_freedom.clear()
-            self.state.clear()
+        self._clear_world_entities()
+        self.state.clear()
         self._world_entity_hash_table.clear()
         self._model_manager.model_modification_blocks.clear()
 
-    def _clear_kinematic_structure(self):
+    def _clear_world_entities(self):
         """
-        Clears all kinematic structure entities from the world.
+        Clears all world entities from the world.
         ..warning::
             Super destructive, world will be unusable after this call.
         """
-        kinematic_structure_entities = self.kinematic_structure_entities
-        connections = self.connections
-        with self.modify_world():
-            for kinematic_structure_entity in kinematic_structure_entities:
-                self.remove_kinematic_structure_entity(kinematic_structure_entity)
+        for kinematic_structure_entity in self.kinematic_structure_entities:
+            self.remove_kinematic_structure_entity(kinematic_structure_entity)
 
-            for connection in connections:
-                self.remove_connection(connection)
+        for connection in self.connections:
+            self.remove_connection(connection)
+
+        for degree_of_freedom in copy(self.degrees_of_freedom):
+            self.remove_degree_of_freedom(degree_of_freedom)
+
+        for semantic_annotation in self.semantic_annotations:
+            self.remove_semantic_annotation(semantic_annotation)
 
     def is_empty(self):
         """
