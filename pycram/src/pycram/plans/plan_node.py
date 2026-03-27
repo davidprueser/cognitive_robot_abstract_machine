@@ -71,7 +71,7 @@ class PlanNode(PlanEntity):
     The index of this node in `self.plan.plan_graph`.
     """
 
-    layer_index: int = field(default=0, init=False, repr=False)
+    layer_index: Optional[int] = field(default=None, init=False, repr=False)
     """
     The position of this node in its children.
     The children of a node are interpreted as a list of nodes that have order.
@@ -203,7 +203,7 @@ class PlanNode(PlanEntity):
         return id(self)
 
     def __repr__(self, *args, **kwargs):
-        return f"{type(self)}"
+        return f"{type(self).__name__}"
 
     def interrupt(self):
         """
@@ -316,7 +316,7 @@ class UnderspecifiedNode(PlanNode):
             return
 
     def __repr__(self):
-        return f"{type(self)}"
+        return f"{self.designator_type.__name__}"
 
 
 @dataclass
@@ -333,8 +333,11 @@ class DesignatorNode(PlanNode, ABC):
     def __post_init__(self):
         self.designator.plan_node = self
 
+    def __repr__(self):
+        return f"{type(self.designator).__name__}"
 
-@dataclass(eq=False)
+
+@dataclass(eq=False, repr=False)
 class ActionNode(DesignatorNode):
     """
     A node representing a fully specified action.
@@ -428,7 +431,7 @@ class ActionNode(DesignatorNode):
         return result
 
 
-@dataclass(eq=False)
+@dataclass(eq=False, repr=False)
 class MotionNode(DesignatorNode):
     """
     A node in the plan representing a fully specified motion.

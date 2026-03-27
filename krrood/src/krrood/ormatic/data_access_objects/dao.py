@@ -680,7 +680,9 @@ class DataAccessObject(HasGeneric[T]):
 
         # check if self is a subclass of an alternative mapping
         alternatively_mapped_base = self._find_alternative_mapping_base()
-        if alternatively_mapped_base is not None:
+        if alternatively_mapped_base is not None and not self.uses_alternative_mapping(
+            type(self)
+        ):
             self._handle_subclass_of_alternative_mapping_in_from_dao(
                 self, domain_object, alternatively_mapped_base.original_class()
             )

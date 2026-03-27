@@ -244,7 +244,7 @@ class PoseMapping(AlternativeMapping[Pose]):
         return Pose(
             position=self.position,
             orientation=self.orientation,
-            reference_frame=None,
+            reference_frame=self.reference_frame,
         )
 
     @classmethod

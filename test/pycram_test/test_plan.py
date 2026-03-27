@@ -2,6 +2,7 @@ import os
 import time
 
 import pytest
+from vtkmodules.vtkCommonCore import reference
 
 from krrood.entity_query_language.backends import ProbabilisticBackend
 from krrood.entity_query_language.factories import (
@@ -364,8 +365,10 @@ def test_algebra_sequential_plan(mutable_model_world):
     world, robot_view, context = mutable_model_world
 
     target_location = underspecified(PoseMapping.from_point_mapping_quaternion_mapping)(
-        point_mapping=underspecified(Point3Mapping)(x=..., y=..., z=0.0),
-        quaternion_mapping=QuaternionMapping(x=0, y=0, z=0, w=1),
+        point_mapping=underspecified(Point3Mapping)(
+            x=..., y=..., z=0.0, reference_frame=None
+        ),
+        quaternion_mapping=QuaternionMapping(x=0, y=0, z=0, w=1, reference_frame=None),
         reference_frame=variable_from([robot_view.root]),
     )
 

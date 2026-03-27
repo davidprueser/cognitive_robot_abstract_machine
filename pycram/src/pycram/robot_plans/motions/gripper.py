@@ -79,7 +79,7 @@ class ReachMotion(BaseMotion):
             CartesianPose(
                 root_link=self.robot_view.root,
                 tip_link=tip,
-                goal_pose=pose.to_homogeneous_matrix(),
+                goal_pose=pose,
                 threshold=0.005,
                 name="Reach",
             )
@@ -164,7 +164,7 @@ class MoveToolCenterPointMotion(BaseMotion):
             task = CartesianPose(
                 root_link=root,
                 tip_link=tip,
-                goal_pose=self.target.to_homogeneous_matrix(),
+                goal_pose=self.target,
                 name="MoveTCP",
             )
         return task
@@ -206,7 +206,7 @@ class MoveTCPWaypointsMotion(BaseMotion):
             CartesianPose(
                 root_link=root,
                 tip_link=tip,
-                goal_pose=pose.to_homogeneous_matrix(),
+                goal_pose=pose,
                 # threshold=0.005,
             )
             for pose in self.waypoints

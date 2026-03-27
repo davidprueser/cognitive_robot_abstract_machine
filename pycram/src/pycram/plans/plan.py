@@ -29,6 +29,7 @@ from pycram.plans.plan_node import (
     PlanNode,
     ActionNode,
     DesignatorNode,
+    MotionNode,
 )
 
 if TYPE_CHECKING:
@@ -151,10 +152,10 @@ class Plan:
 
         :param node_for_removal: Node to be removed
         """
-
         if node_for_removal.plan is self:
             self.plan_graph.remove_node(node_for_removal.index)
-            node_for_removal.index = -1
+            node_for_removal.index = None
+            node_for_removal.layer_index = None
             node_for_removal.plan = None
             node_for_removal.world = None
 
@@ -196,7 +197,8 @@ class Plan:
 
         # if no target index is given, the target is appended to the source's children'
         if target_index is None:
-            target.layer_index = len(source.children) - 1
+            number_of_children = len(self.plan_graph.successors(source.index))
+            target.layer_index = number_of_children - 1
             return
 
         # shift all children that should come after target to the right
@@ -358,7 +360,7 @@ class Plan:
         pos = self.bfs_layout(scale=scale, align=align)
 
         rx.visualization.mpl_draw(
-            self.plan_graph, pos=pos, labels=lambda node: str(node), with_labels=True
+            self.plan_graph, pos=pos, labels=lambda node: repr(node), with_labels=True
         )
 
         plt.title("Plan Graph")
@@ -369,3 +371,21 @@ class Plan:
 
     def __repr__(self):
         return f"Plan with {len(self.nodes)} nodes"
+
+    def prepare_for_replay(self):
+        """
+        Prepare the worlds context for a replay.
+        Sets the worlds context to the initial world and update its robot.
+        """
+        self.context.world = deepcopy(self.initial_world)
+        self.context.robot = self.context.world.get_semantic_annotation_by_name(
+            self.context.robot.name.name
+        )
+
+    def replay(self):
+        """
+        Replay all leaf motions.
+        """
+        for node in self.nodes:
+            if node.is_leaf:
+                node.perform()

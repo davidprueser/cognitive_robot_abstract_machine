@@ -13,6 +13,9 @@ from pycram.plans.plan import Plan
 from pycram.robot_plans.actions.composite.transporting import TransportAction
 from pycram.robot_plans.actions.core.navigation import NavigateAction
 from pycram.robot_plans.actions.core.robot_body import MoveTorsoAction, ParkArmsAction
+from semantic_digital_twin.adapters.ros.visualization.viz_marker import (
+    VizMarkerPublisher,
+)
 from semantic_digital_twin.datastructures.definitions import TorsoState
 from semantic_digital_twin.spatial_types.spatial_types import Pose
 
@@ -63,8 +66,10 @@ def test_plan_serialization(pycram_testing_session, simple_plan):
 
 
 def test_replay_simple_plan(pycram_testing_session, simple_plan):
+
     with simulated_robot:
         simple_plan.perform()
+
     session = pycram_testing_session
 
     dao = to_dao(simple_plan)
@@ -73,6 +78,10 @@ def test_replay_simple_plan(pycram_testing_session, simple_plan):
 
     fetched_plan = session.scalars(select(PlanMappingDAO)).one()
     recreated_plan: Plan = fetched_plan.from_dao()
+
+    # TODO: this does not work yet as semantic annotations cannot be copied.
+    # recreated_plan.prepare_for_replay()
+    # recreated_plan.replay()
 
 
 @pytest.fixture
@@ -116,7 +125,7 @@ def test_execution_data_of_complex_plan(pycram_testing_session, complex_plan):
     assert place_node.execution_data is not None
 
 
-def test_replay_from_db(pycram_testing_session, complex_plan):
+def test_replay_complex_plan_from_db(pycram_testing_session, complex_plan):
 
     with simulated_robot:
         complex_plan.perform()

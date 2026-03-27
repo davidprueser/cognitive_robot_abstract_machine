@@ -9781,11 +9781,11 @@ class PoseMappingDAO(
     }
 
 
-class GraspPoseDAO(
-    PoseMappingDAO, DataAccessObject[pycram.datastructures.grasp.GraspPose]
+class GrasPoseMappingDAO(
+    PoseMappingDAO, DataAccessObject[pycram.orm.model.GrasPoseMapping]
 ):
 
-    __tablename__ = "GraspPoseDAO"
+    __tablename__ = "GrasPoseMappingDAO"
 
     database_id: Mapped[builtins.int] = mapped_column(
         ForeignKey(PoseMappingDAO.database_id),
@@ -9793,13 +9793,13 @@ class GraspPoseDAO(
         use_existing_column=True,
     )
 
-    arm: Mapped[pycram.datastructures.enums.Arms] = mapped_column(
+    arm: Mapped[typing.Optional[pycram.datastructures.enums.Arms]] = mapped_column(
         krrood.ormatic.custom_types.PolymorphicEnumType,
-        nullable=False,
+        nullable=True,
         use_existing_column=True,
     )
 
-    grasp_description_id: Mapped[int] = mapped_column(
+    grasp_description_id: Mapped[typing.Optional[builtins.int]] = mapped_column(
         ForeignKey("GraspDescriptionDAO.database_id", use_alter=True),
         nullable=True,
         use_existing_column=True,
@@ -9813,7 +9813,7 @@ class GraspPoseDAO(
     )
 
     __mapper_args__ = {
-        "polymorphic_identity": "GraspPoseDAO",
+        "polymorphic_identity": "GrasPoseMappingDAO",
         "inherit_condition": database_id == PoseMappingDAO.database_id,
     }
 
