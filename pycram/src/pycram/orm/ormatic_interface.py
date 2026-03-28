@@ -7423,7 +7423,8 @@ class ConfigurationNotReachedDAO(
 
 
 class NavigationGoalNotReachedErrorDAO(
-    PlanFailureDAO, DataAccessObject[pycram.plans.failures.NavigationGoalNotReachedError]
+    PlanFailureDAO,
+    DataAccessObject[pycram.plans.failures.NavigationGoalNotReachedError],
 ):
 
     __tablename__ = "NavigationGoalNotReachedErrorDAO"

@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing_extensions import Type, Any
+from typing_extensions import Type, Any, TYPE_CHECKING
 
 from sqlalchemy.orm import RelationshipProperty
 
-from krrood.ormatic.data_access_objects.alternative_mappings import FunctionMapping
+
 from krrood.utils import DataclassException
 
+if TYPE_CHECKING:
+    from krrood.ormatic.data_access_objects.alternative_mappings import FunctionMapping
 
 @dataclass
 class NoGenericError(DataclassException, TypeError):
