@@ -45,7 +45,7 @@ from pycram.robot_plans.motions import MoveMotion
 from pycram.motion_executor import simulated_robot
 from pycram.plans.factories import *
 from semantic_digital_twin.spatial_types.spatial_types import Pose
-motion_description = MoveMotion(target=Pose.from_xyz_quaternion(x=1, reference_frame=world.root )
+motion_description = MoveMotion(target=Pose.from_xyz_quaternion(pos_x=1., reference_frame=world.root))
 
 with simulated_robot:
     execute_single(motion_description, context=context).perform()
