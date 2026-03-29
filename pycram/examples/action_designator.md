@@ -142,7 +142,7 @@ gripper = Arms.RIGHT
 motion = GripperState.OPEN
 
 with simulated_robot:
-    execute_single(SetGripperAction(gripper=gripper, motion=motion), contex=context).perform()
+    execute_single(SetGripperAction(gripper=gripper, motion=motion), context=context).perform()
 ```
 
 ## Park Arms
