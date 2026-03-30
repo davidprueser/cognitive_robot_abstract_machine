@@ -62,6 +62,11 @@ from semantic_digital_twin.world_description.world_modification import (
 )
 import semantic_digital_twin.robots.hsrb
 import semantic_digital_twin.robots.pr2
+import semantic_digital_twin.robots.minimal_robot
+import semantic_digital_twin.robots.tracy
+import semantic_digital_twin.robots.tiago
+import semantic_digital_twin.robots.stretch
+import semantic_digital_twin.robots.justin
 
 all_classes = set(
     classes_of_module(semantic_digital_twin.world_description.world_entity)
@@ -89,6 +94,11 @@ all_classes |= set(classes_of_module(semantic_digital_twin.robots.abstract_robot
 all_classes |= set(classes_of_module(semantic_digital_twin.datastructures.definitions))
 all_classes |= set(classes_of_module(semantic_digital_twin.robots.hsrb))
 all_classes |= set(classes_of_module(semantic_digital_twin.robots.pr2))
+all_classes |= set(classes_of_module(semantic_digital_twin.robots.minimal_robot))
+all_classes |= set(classes_of_module(semantic_digital_twin.robots.tracy))
+all_classes |= set(classes_of_module(semantic_digital_twin.robots.tiago))
+all_classes |= set(classes_of_module(semantic_digital_twin.robots.stretch))
+all_classes |= set(classes_of_module(semantic_digital_twin.robots.justin))
 all_classes |= set(
     classes_of_module(semantic_digital_twin.collision_checking.collision_rules)
 )
@@ -103,7 +113,6 @@ all_classes |= set(
         semantic_digital_twin.collision_checking.collision_variable_managers
     )
 )
-# classes |= set(recursive_subclasses(ViewFactory))
 all_classes |= {SimulatorAdditionalProperty}
 all_classes |= set(classes_of_module(semantic_digital_twin.reasoning.predicates))
 all_classes |= set(classes_of_module(semantic_digital_twin.semantic_annotations.mixins))

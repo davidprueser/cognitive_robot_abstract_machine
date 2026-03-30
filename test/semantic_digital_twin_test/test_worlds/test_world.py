@@ -44,6 +44,7 @@ from semantic_digital_twin.world_description.world_state import WorldStateTrajec
 from semantic_digital_twin.world_description.world_state_trajectory_plotter import (
     WorldStateTrajectoryPlotter,
 )
+from semantic_digital_twin.orm.ormatic_interface import *
 
 
 def test_set_state(world_setup):
@@ -432,8 +433,8 @@ def test_merge_world(world_setup, pr2_world_copy):
     assert base_link in world.kinematic_structure_entities
     assert r_gripper_tool_frame in world.kinematic_structure_entities
     assert l_shoulder_pan_joint in world.connections
-    assert torso_lift_link._world == world
-    assert r_shoulder_pan_joint._world == world
+    assert torso_lift_link in world.bodies
+    assert r_shoulder_pan_joint in world.connections
 
 
 def test_merge_with_connection(world_setup, pr2_world_copy):
@@ -457,6 +458,7 @@ def test_merge_with_connection(world_setup, pr2_world_copy):
     origin = HomogeneousTransformationMatrix(pose)
 
     connection = pr2_world_copy.get_connection_by_name("l_gripper_l_finger_joint")
+    connection_dof_id = connection.dof.id
     pr2_world_copy.state[connection.dof.id].position = 0.55
     pr2_world_copy.notify_state_change()
     expected_fk = pr2_world_copy.compute_forward_kinematics(
@@ -473,9 +475,9 @@ def test_merge_with_connection(world_setup, pr2_world_copy):
     assert base_link in world.kinematic_structure_entities
     assert r_gripper_tool_frame in world.kinematic_structure_entities
     assert new_connection in world.connections
-    assert torso_lift_link._world == world
-    assert r_shoulder_pan_joint._world == world
-    assert world.state[connection.dof.id].position == 0.55
+    assert torso_lift_link in world.bodies
+    assert r_shoulder_pan_joint in world.connections
+    assert world.state[connection_dof_id].position == 0.55
     assert world.compute_forward_kinematics_np(world.root, base_link)[
         0, 3
     ] == pytest.approx(1.0, abs=1e-6)
@@ -507,8 +509,8 @@ def test_merge_with_pose(world_setup, pr2_world_copy):
 
     assert base_link in world.kinematic_structure_entities
     assert r_gripper_tool_frame in world.kinematic_structure_entities
-    assert torso_lift_link._world == world
-    assert r_shoulder_pan_joint._world == world
+    assert torso_lift_link in world.bodies
+    assert r_shoulder_pan_joint in world.connections
     assert world.compute_forward_kinematics_np(world.root, base_link)[
         0, 3
     ] == pytest.approx(1.0, abs=1e-6)
@@ -528,9 +530,6 @@ def test_merge_with_pose_rotation(world_setup, pr2_world_copy):
         torso_lift_link,
         pr2_world_copy.get_kinematic_structure_entity_by_name("r_shoulder_pan_link"),
     )
-    base_footprint = pr2_world_copy.get_kinematic_structure_entity_by_name(
-        "base_footprint"
-    )
 
     # Rotation is 90 degrees around z-axis, translation is 1 along x-axis
     pose = np.array(
@@ -544,10 +543,12 @@ def test_merge_with_pose_rotation(world_setup, pr2_world_copy):
 
     world.merge_world_at_pose(pr2_world_copy, HomogeneousTransformationMatrix(pose))
 
+    base_footprint = world.get_kinematic_structure_entity_by_name("base_footprint")
+
     assert base_link in world.kinematic_structure_entities
     assert r_gripper_tool_frame in world.kinematic_structure_entities
-    assert torso_lift_link._world == world
-    assert r_shoulder_pan_joint._world == world
+    assert torso_lift_link in world.bodies
+    assert r_shoulder_pan_joint in world.connections
     fk_base = world.compute_forward_kinematics_np(world.root, base_footprint)
     assert fk_base[0, 3] == pytest.approx(1.0, abs=1e-6)
     assert fk_base[1, 3] == pytest.approx(1.0, abs=1e-6)
@@ -979,7 +980,6 @@ def test_dof_removal_simple():
             world=world, parent=body1, child=body2, axis=Vector3.Z()
         )
         world.add_connection(c2)
-        ...
 
 
 def test_dof_removal():
@@ -996,9 +996,12 @@ def test_dof_removal():
     world.merge_world(world2)
 
     with world.modify_world():
-        world.remove_connection(body2.parent_connection)
+        new_body2 = world.get_kinematic_structure_entity_by_id(body2.id)
+        world.remove_connection(new_body2.parent_connection)
 
-        c_root_bf = OmniDrive.create_with_dofs(parent=body1, child=body2, world=world)
+        c_root_bf = OmniDrive.create_with_dofs(
+            parent=body1, child=new_body2, world=world
+        )
         world.add_connection(c_root_bf)
 
 
@@ -1105,7 +1108,8 @@ def test_world_state_trajectory(world_setup, tmp_path):
 def test_merge_into_empty_world(world_setup):
     world, _, _, _, _, _ = world_setup
     world2 = deepcopy(world)
-    world2.clear()
+    with world2.modify_world():
+        world2.clear()
     world2.merge_world(world)
 
 

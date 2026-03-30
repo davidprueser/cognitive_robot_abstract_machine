@@ -5,7 +5,7 @@ import inspect
 import logging
 import threading
 import uuid
-from copy import deepcopy
+from copy import deepcopy, copy
 from dataclasses import dataclass, field
 from functools import wraps, lru_cache, cached_property
 from uuid import UUID
@@ -93,9 +93,9 @@ from semantic_digital_twin.world_description.world_modification import (
     AddDegreeOfFreedomModification,
     RemoveDegreeOfFreedomModification,
     AddKinematicStructureEntityModification,
+    RemoveKinematicStructureEntityModification,
     AddConnectionModification,
     RemoveConnectionModification,
-    RemoveBodyModification,
     AddSemanticAnnotationModification,
     RemoveSemanticAnnotationModification,
     AddActuatorModification,
@@ -779,7 +779,7 @@ class World(HasSimulatorProperties):
         if self.is_kinematic_structure_entity_in_world(kinematic_structure_entity):
             self._remove_kinematic_structure_entity(kinematic_structure_entity)
 
-    @atomic_world_modification(modification=RemoveBodyModification)
+    @atomic_world_modification(modification=RemoveKinematicStructureEntityModification)
     def _remove_kinematic_structure_entity(
         self, kinematic_structure_entity: KinematicStructureEntity
     ) -> None:
@@ -1146,11 +1146,15 @@ class World(HasSimulatorProperties):
         :param pose: world_root_T_other_root, the pose of the other world's root with respect to the current world's root
         """
         with self.modify_world():
+            other_root_id = other.root.id
             root_connection = Connection6DoF.create_with_dofs(
                 parent=self.root, child=other.root, world=self
             )
             self.merge_world(other, root_connection)
-            root_connection.origin = pose
+        root_connection = self.get_kinematic_structure_entity_by_id(
+            other_root_id
+        ).parent_connection
+        root_connection.origin = pose
 
     def merge_world(
         self,
@@ -1169,13 +1173,20 @@ class World(HasSimulatorProperties):
 
         with self.modify_world(), other.modify_world():
             self_root = self.root
-            other_root = other.root
-            self._merge_dofs_with_state_of_world(other)
-            self._merge_connections_of_world(other)
-            self._remove_kinematic_structure_entities_of_world(other)
-            self._merge_semantic_annotations_of_world(other)
+            other_state = deepcopy(other.state)
+
+            other_root_id = other.root.id
+            other._clear_world_entities()
+            for modification in other._model_manager.model_modification_blocks:
+                modification.apply(self)
+
+            self.state.merge_state(other_state)
+
+            if root_connection is not None:
+                root_connection.update_references_for_world(self)
 
             if not root_connection and self_root:
+                other_root = self.get_kinematic_structure_entity_by_id(other_root_id)
                 root_connection = Connection6DoF.create_with_dofs(
                     parent=self_root, child=other_root, world=self
                 )
@@ -1183,42 +1194,7 @@ class World(HasSimulatorProperties):
             if root_connection:
                 self.add_connection(root_connection)
 
-            self.collision_manager.merge_collision_manager(other.collision_manager)
-
-    def _merge_dofs_with_state_of_world(self, other: World):
-        old_state = deepcopy(other.state)
-        for dof in other.degrees_of_freedom.copy():
-            other.remove_degree_of_freedom(dof)
-            self.add_degree_of_freedom(dof)
-        for dof_id in old_state.keys():
-            self.state[dof_id] = old_state[dof_id]
-
-    def _merge_connections_of_world(self, other: World):
-        other_root = other.root
-        other_connections = other.connections
-        for connection in other_connections:
-            other.remove_connection(connection)
-            other.remove_kinematic_structure_entity(connection.parent)
-            other.remove_kinematic_structure_entity(connection.child)
-            self.add_connection(connection)
-        other.remove_kinematic_structure_entity(other_root)
-        self.add_kinematic_structure_entity(other_root)
-
-    @staticmethod
-    def _remove_kinematic_structure_entities_of_world(other: World):
-        other_kse_with_world = [
-            kse for kse in other.kinematic_structure_entities if kse._world is not None
-        ]
-        for kinematic_structure_entity in other_kse_with_world:
-            other.remove_kinematic_structure_entity(kinematic_structure_entity)
-
-    def _merge_semantic_annotations_of_world(self, other: World):
-        other_semantic_annotations = [
-            semantic_annotation for semantic_annotation in other.semantic_annotations
-        ]
-        for semantic_annotation in other_semantic_annotations:
-            other.remove_semantic_annotation(semantic_annotation)
-            self.add_semantic_annotation(semantic_annotation)
+            other.clear()
 
     # %% Subgraph Targeting
 
@@ -1771,15 +1747,28 @@ class World(HasSimulatorProperties):
         Clears all stored data and resets the state of the instance.
         """
         kse = self.kinematic_structure_entities
-        with self.modify_world():
-            for body in kse:
-                self.remove_kinematic_structure_entity(body)
-
-            self.semantic_annotations.clear()
-            self.degrees_of_freedom.clear()
-            self.state.clear()
+        self._clear_world_entities()
+        self.state.clear()
         self._world_entity_hash_table.clear()
         self._model_manager.model_modification_blocks.clear()
+
+    def _clear_world_entities(self):
+        """
+        Clears all world entities from the world.
+        ..warning::
+            Super destructive, world will be unusable after this call.
+        """
+        for kinematic_structure_entity in self.kinematic_structure_entities:
+            self.remove_kinematic_structure_entity(kinematic_structure_entity)
+
+        for connection in self.connections:
+            self.remove_connection(connection)
+
+        for degree_of_freedom in copy(self.degrees_of_freedom):
+            self.remove_degree_of_freedom(degree_of_freedom)
+
+        for semantic_annotation in self.semantic_annotations:
+            self.remove_semantic_annotation(semantic_annotation)
 
     def is_empty(self):
         """
@@ -1838,10 +1827,10 @@ class World(HasSimulatorProperties):
                 new_body = Body(
                     name=body.name,
                     id=body.id,
+                    visual=body.visual.copy_for_world(new_world),
+                    collision=body.collision.copy_for_world(new_world),
                 )
                 new_world.add_kinematic_structure_entity(new_body)
-                new_body.visual = body.visual.copy_for_world(new_world)
-                new_body.collision = body.collision.copy_for_world(new_world)
             for region in self.regions:
                 new_region = Region(
                     name=region.name,

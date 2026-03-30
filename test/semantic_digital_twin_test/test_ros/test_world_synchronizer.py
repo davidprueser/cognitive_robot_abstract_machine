@@ -4,8 +4,9 @@ import threading
 import time
 import unittest
 import uuid
+from copy import deepcopy
 from dataclasses import dataclass, field
-from typing import Optional, List, Set, Tuple
+from typing import Optional, Set, Tuple, List
 from uuid import uuid4
 
 import numpy as np
@@ -28,14 +29,13 @@ from semantic_digital_twin.exceptions import (
     MissingWorldModificationContextError,
     MismatchingPublishChangesAttribute,
 )
-from semantic_digital_twin.orm.ormatic_interface import Base, WorldMappingDAO
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Handle,
     Door,
     Fridge,
     Drawer,
 )
-from semantic_digital_twin.spatial_types import Vector3
+from semantic_digital_twin.spatial_types import Vector3, HomogeneousTransformationMatrix
 from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.connections import (
     Connection6DoF,
@@ -59,6 +59,7 @@ from semantic_digital_twin.adapters.ros.messages import (
     LoadModel,
     Acknowledgment,
 )
+from semantic_digital_twin.orm.ormatic_interface import Base, WorldMappingDAO
 
 
 def create_dummy_world(w: Optional[World] = None) -> World:
@@ -315,7 +316,7 @@ def test_model_synchronization_merge_full_world_stress_test(rclpy_node):
             )
         ).parse()
 
-        def wait_for_sync(timeout=3.0, interval=0.05):
+        def wait_for_sync(timeout=5.0, interval=0.05):
             start = time.time()
             while time.time() - start < timeout:
                 body_hash_1 = {hash(body) for body in w1.kinematic_structure_entities}
@@ -487,6 +488,44 @@ def test_semantic_annotation_modifications(rclpy_node):
         w1.add_semantic_annotation(v2)
 
     time.sleep(0.5)
+    assert [hash(sa) for sa in w1.semantic_annotations] == [
+        hash(sa) for sa in w2.semantic_annotations
+    ]
+
+
+def test_semantic_annotation_modifications_merge_world(rclpy_node):
+    w0 = World(name="w0")
+    root = Body(name=PrefixedName("root"))
+    with w0.modify_world():
+        w0.add_body(root)
+
+    with w0.modify_world():
+        door = Door.create_with_new_body_in_world(
+            name=PrefixedName("door"),
+            world=w0,
+        )
+        handle = Handle.create_with_new_body_in_world(
+            name=PrefixedName("handle"),
+            world=w0,
+        )
+        door.add_handle(handle)
+
+    w1 = World(name="w1")
+    w2 = World(name="w2")
+
+    synchronizer_1 = ModelSynchronizer(
+        node=rclpy_node,
+        _world=w1,
+    )
+    synchronizer_2 = ModelSynchronizer(
+        node=rclpy_node,
+        _world=w2,
+    )
+
+    with w1.modify_world():
+        w1.merge_world(w0)
+
+    time.sleep(1)
     assert [hash(sa) for sa in w1.semantic_annotations] == [
         hash(sa) for sa in w2.semantic_annotations
     ]

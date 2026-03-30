@@ -296,6 +296,9 @@ def test_transformation_matrix_json_serialization_with_world_in_kwargs():
     )
 
 
+from semantic_digital_twin.orm.ormatic_interface import BodyDAO
+
+
 def test_json_serialization_with_mesh():
     body: Body = (
         STLParser(

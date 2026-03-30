@@ -36,6 +36,9 @@ if TYPE_CHECKING:
     from semantic_digital_twin.world_description.degree_of_freedom import (
         DegreeOfFreedomLimits,
     )
+    from semantic_digital_twin.world_description.world_modification import (
+        WorldModification,
+    )
 
 
 @dataclass
@@ -64,6 +67,32 @@ class UnknownWorldModification(DataclassException):
             " Make sure that world modifications are atomic and that every atomic modification is "
             "represented by exactly one subclass of WorldModelModification."
             "This module might be incomplete, you can help by expanding it."
+        )
+
+
+@dataclass
+class MismatchingIDsInWorldModification(DataclassException):
+    """
+    Raised when the UUIDs of a world modification during application are not consistent with the UUIDs assigned during initialization.
+    """
+
+    modification_type: Type[WorldModification]
+
+    original_uuids: list[UUID]
+    """
+    The original UUIDs of the Modification.
+    """
+
+    actual_uuids: list[UUID]
+    """
+    The actual UUIDs of the Modification.
+    """
+
+    def __post_init__(self):
+        self.message = (
+            f"The world modification of type {self.modification_type.__name__} was initialized the following UUIDs: {self.original_uuids}"
+            f"But during the application of those modifications, the UUIDs were {self.actual_uuids}."
+            f"Somehow the original UUIDs were overridden, which should not happen."
         )
 
 

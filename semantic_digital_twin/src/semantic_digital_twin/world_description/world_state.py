@@ -335,6 +335,18 @@ class WorldState(MutableMapping[UUID, WorldStateEntryView]):
                 self.get_derivative(i) + self.get_derivative(i + 1) * dt,
             )
 
+    def merge_state(self, other: WorldState):
+        """
+        Merges another WorldState into this one, overwriting values for any DOFs that are present in both states.
+        """
+        for dof_id in other:
+            self_state_dof = self[dof_id]
+            other_state_dof = other[dof_id]
+            self_state_dof.position = other_state_dof.position
+            self_state_dof.velocity = other_state_dof.velocity
+            self_state_dof.acceleration = other_state_dof.acceleration
+            self_state_dof.jerk = other_state_dof.jerk
+
 
 @dataclass
 class WorldStateView:
