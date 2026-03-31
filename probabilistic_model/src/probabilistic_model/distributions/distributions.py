@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import os
+from abc import abstractmethod
+from dataclasses import dataclass, field
+from typing import Optional, Set
+
 import numpy as np
 import numpy.typing as npt
 import plotly.graph_objects as go
 from probabilistic_model.exceptions import UndefinedOperationError
-from random_events.interval import *
+from random_events.interval import Interval, SimpleInterval, Bound, singleton, closed
 from random_events.product_algebra import Event, SimpleEvent, VariableMap
-from random_events.variable import *
 from typing_extensions import Union, Iterable, Any, Self, Dict, List, Tuple
 
 from probabilistic_model.constants import SCALING_FACTOR_FOR_EXPECTATION_IN_PLOT
@@ -18,6 +21,9 @@ from probabilistic_model.probabilistic_model import (
     CenterType,
 )
 from probabilistic_model.utils import MissingDict, interval_as_array
+from random_events.set import SetElement
+from random_events.sigma_algebra import AbstractCompositeSet
+from random_events.variable import Variable, Continuous, Symbolic, Integer
 
 
 @dataclass
@@ -242,7 +248,7 @@ class ContinuousDistributionWithFiniteSupport(ContinuousDistribution):
         self.interval = new_interval
 
 
-@dataclass
+@dataclass(eq=False)
 class DiscreteDistribution(UnivariateDistribution):
     """
     Abstract base class for univariate discrete distributions.
@@ -554,6 +560,7 @@ class IntegerDistribution(ContinuousDistribution, DiscreteDistribution):
 
 
 @dataclass
+@dataclass(eq=False)
 class BernoulliDistribution(IntegerDistribution):
     """
     Bernoulli distribution over the integer domain {0, 1}.
@@ -595,14 +602,8 @@ class BernoulliDistribution(IntegerDistribution):
     def __repr__(self):
         return f"B({self.variable.name})"
 
-    def to_json(self) -> Dict[str, Any]:
-        return super().to_json()
 
-    @classmethod
-    def _from_json(cls, data: Dict[str, Any]) -> Self:
-        return super()._from_json(data)
-
-
+@dataclass
 class DiracDeltaDistribution(ContinuousDistribution):
     """
     Class for Dirac delta distributions.

@@ -2,42 +2,40 @@ import os
 from copy import deepcopy
 import pytest
 import rclpy
+from matplotlib import pyplot as plt
 
-from krrood.ormatic.dao import to_dao
+from krrood.class_diagrams.class_diagram import WrappedClass
+from krrood.entity_query_language.backends import ProbabilisticBackend
+from krrood.entity_query_language.factories import match_variable, match, variable_from, variable, underspecified
+from krrood.entity_query_language.query.match import Match
 from krrood.ormatic.utils import create_engine, drop_database
-from pycram.motion_executor import simulated_robot
-from semantic_digital_twin.adapters.ros.visualization.viz_marker import (
-    VizMarkerPublisher,
-)
-
-# from semantic_digital_twin.adapters.ros.visualization.viz_marker import VizMarkerPublisher
-
-from semantic_digital_twin.datastructures.definitions import TorsoState
+from krrood.parametrization.model_registries import DictRegistry
+from krrood.parametrization.parameterizer import UnderspecifiedParameters
+from krrood_test.dataset.example_classes import KRROODPose, KRROODPosition, KRROODOrientation
+from probabilistic_model.probabilistic_circuit.relational.learn_rspn import LearnRSPN
+from probabilistic_model.probabilistic_circuit.relational.main import Nation
+from probabilistic_model.probabilistic_circuit.relational.rspns import RSPNSpecification, RSPNTemplate
+from probabilistic_model.probabilistic_circuit.rx.helper import fully_factorized
+from pycram.robot_plans.actions.composite.transporting import MoveAndPickUpAction
+from semantic_digital_twin.orm.model import QuaternionMapping, Point3Mapping, PoseMapping
+from semantic_digital_twin.robots.abstract_robot import Manipulator
 from semantic_digital_twin.robots.pr2 import PR2
+from semantic_digital_twin.world_description.world_entity import KinematicStructureEntity
 from sqlalchemy.orm import Session, session
-
 from pycram.datastructures.dataclasses import Context
 from pycram.datastructures.enums import (
     ApproachDirection,
     Arms,
     VerticalAlignment,
 )
-from pycram.datastructures.grasp import GraspDescription
-from pycram.datastructures.pose import PyCramPose, PoseStamped
-from pycram.language import SequentialPlan, ParallelPlan
+from pycram.datastructures.grasp import GraspDescription, GraspPose
 from pycram.orm.ormatic_interface import *
-from pycram.robot_plans import (
-    MoveTorsoActionDescription,
-    NavigateActionDescription,
-    PickUpActionDescription,
-    MoveAndPickUpActionDescription,
-)
-from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
+from semantic_digital_twin.spatial_types.spatial_types import Pose, Point3, Quaternion
 
 rclpy.init()
 uri = os.environ["SEMANTIC_DIGITAL_TWIN_DATABASE_URI"]
 engine = sqlalchemy.create_engine(uri)
-node = rclpy.create_node("simple_viz_node")
+# node = rclpy.create_node("simple_viz_node")
 
 
 @pytest.fixture(scope="function")
@@ -56,84 +54,68 @@ def database():
     session.expunge_all()
     session.close()
 
-
-def test_pick_up(database, mutable_model_world):
-    world, robot_view, context = mutable_model_world
-    viz_publisher = VizMarkerPublisher(world, node)
-    with_tf = viz_publisher.with_tf_publisher()
-
-    grasp_description = GraspDescription(
-        ApproachDirection.FRONT,
-        VerticalAlignment.NoAlignment,
-        robot_view.left_arm.manipulator,
-    )
-    description = PickUpActionDescription(
-        world.get_body_by_name("milk.stl"), [Arms.LEFT], [grasp_description]
-    )
-
-    plan = SequentialPlan(
-        context,
-        NavigateActionDescription(
-            PoseStamped.from_list([1.7, 1.5, 0], [0, 0, 0, 1], world.root),
-            True,
-        ),
-        MoveTorsoActionDescription([TorsoState.HIGH]),
-        description,
-    )
-    with simulated_robot:
-        plan.perform()
-
-    session = database
-    dao = to_dao(plan)
-    session.add(dao)
-    session.commit()
-
-
-def test_navigate(database, mutable_model_world):
-    world, robot_view, context = mutable_model_world
-
-    description = NavigateActionDescription(None)
-
-    plan = SequentialPlan(
-        context,
-        description,
-    )
-    params = plan.parameterize()
-    p = params.create_fully_factorized_distribution()
-    s = p.sample(10)
-
-    print(s)
-    for sample in s:
-        print(dict(zip(p.variables, sample)))
-    # with simulated_robot:
-    #     plan.perform()
-    #
-    # session = database
-    # dao = to_dao(plan)
-    # session.add(dao)
-    # session.commit()
-
-
 def test_move_and_pick_up(database, mutable_model_world):
     world, robot_view, context = mutable_model_world
 
-    description = MoveAndPickUpActionDescription(None, None, None, None, None)
+    milk = world.get_body_by_name("milk.stl")
 
-    plan = SequentialPlan(
-        context,
-        description,
+    milk_variable = variable_from([milk])
+
+    move_and_pick_up_description = underspecified(MoveAndPickUpAction)(
+        standing_position=underspecified(PoseMapping.from_point_mapping_quaternion_mapping)(
+            point_mapping=underspecified(Point3Mapping)(x=..., y=..., z=..., reference_frame=None),
+            quaternion_mapping=underspecified(QuaternionMapping)(x=..., y=..., z=..., w=..., reference_frame=None),
+            reference_frame=variable_from([robot_view.root]),
+        ),
+        object_designator=milk_variable,
+        arm=...,
+        grasp_description=underspecified(GraspDescription)(
+            approach_direction=...,
+            vertical_alignment=...,
+            rotate_gripper=...,
+            manipulation_offset=0.05,
+            manipulator=variable(Manipulator, world.semantic_annotations),
+        ),
     )
-    params = plan.parameterize()
-    p = params.create_fully_factorized_distribution()
-    s = p.sample(10)
 
-    print(s)
-    for sample in s:
-        print(dict(zip(p.variables, sample)))
-    # with simulated_robot:
-    #     plan.perform()
-    #
-    # session = database
-    # dao = to_dao(plan)
-    # session.add(dao)
-    # session.commit()
+    # move_and_pick_up_description: Match = move_and_pick_up_description
+
+    parameters = UnderspecifiedParameters(move_and_pick_up_description)
+
+    #sampling
+    move_and_pick_up_distribution = fully_factorized(parameters.variables.values())
+
+    probabilistic_registry = DictRegistry({MoveAndPickUpAction: move_and_pick_up_distribution})
+
+    sample = move_and_pick_up_distribution.sample(1)
+
+    backend = ProbabilisticBackend(probabilistic_registry, number_of_samples=50)
+
+
+    values = list(backend.evaluate(move_and_pick_up_description))
+
+    #----------------- database stuff
+
+    wrapped_class = WrappedClass(MoveAndPickUpAction)
+    rspn_spec = RSPNSpecification(spec=wrapped_class)
+
+    template = LearnRSPN(MoveAndPickUpAction, values)
+    template.probabilistic_circuit.plot_structure()
+
+    # template = RSPNTemplate(class_spec=rspn_spec)
+    # template.probabilistic_circuit.plot_structure()
+    plt.savefig(f"test_{datetime.datetime.now()}.png")
+    plt.close()
+
+
+    # grounded = template.ground(values[0])
+    # grounded.probabilistic_circuit.plot_structure()
+    # plt.savefig(f"test_ground_{datetime.datetime.now()}.png")
+    # plt.close()
+
+    # exchangeable = underspecified(Nation)(persons=[underspecified(Person)(name="Checker Chang", age=...)])
+    # exchangeable_parameters = UnderspecifiedParameters(exchangeable)
+    # print([type(mapped_variable) for mapped_variable in exchangeable._get_mapped_variable_by_name(
+    #     "Nation.persons[0].age")._access_path_])
+    # print([mapped_variable._type_ for mapped_variable in move_and_pick_up_description._get_mapped_variable_by_name(
+    #     "MoveAndPickUpAction.standing_position.pose.position.z")._access_path_])

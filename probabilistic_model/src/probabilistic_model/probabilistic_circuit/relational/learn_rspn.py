@@ -1,10 +1,18 @@
 from __future__ import annotations
+
+import enum
+from datetime import datetime
+from types import NoneType
+
 import pandas as pd
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple, Type
+
+from krrood.ormatic.data_access_objects.helper import get_alternative_mapping
 from probabilistic_model.probabilistic_circuit.relational.rspns import (
-    RSPNTemplate,
+    RSPNTemplate, RSPNSpecification,
 )
-from ...learning.jpt.jpt import JPT
+from random_events.variable import variable_from_name_and_type
+from ...learning.jpt.jpt import JointProbabilityTree
 from ...learning.jpt.variables import infer_variables_from_dataframe
 
 
@@ -26,10 +34,54 @@ def get_aggregate_statistics(instance: Any) -> List[Tuple[Any, str]]:
 
     return statistics
 
+def fill_dataframe_with_parts(df_data: Dict[str, List[float]], instances: List[Any], cls: Type, path: str = "") -> Dict[str, List[float]]:
+    # if cls has an alternative mapping, use that instead
+    print("cls", cls)
+    alternative_mapping = get_alternative_mapping(cls)
+    if alternative_mapping:
+        print("alternative_class", alternative_mapping)
+        cls = alternative_mapping
+        new_instances = []
+        for instance in instances:
+            if instance is None:
+                new_instances.append(None)
+                continue
+            if not isinstance(instance, alternative_mapping):
+                instance = alternative_mapping.from_domain_object(instance)
+            new_instances.append(instance)
+        instances = new_instances
 
-def LearnRSPN(cls, instances, class_spec) -> RSPNTemplate:
+    specification = RSPNSpecification(cls)
+    print("specification attributes", specification.attributes)
+    print("specification unique parts", specification.unique_parts)
+
+    for attribute in specification.attributes:
+        column_name = f"{path}.{attribute.name}" if path else attribute.name
+        # safe check
+        resolved_type = attribute.type_endpoint
+        if not issubclass(resolved_type, (float, int, enum.Enum, bool)):
+            continue
+        for instance in instances:
+            value = getattr(instance, attribute.name)
+            # if isinstance(value, bool):
+            #     value = int(value)
+            df_data.setdefault(column_name, []).append(value)
+
+    for part in specification.unique_parts:
+        new_instances = []
+        for instance in instances:
+            if instance is None:
+                return df_data
+            new_instances.append(getattr(instance, part.public_name))
+        new_path = f"{path}.{part.public_name}" if path else part.public_name
+        df_data = fill_dataframe_with_parts(df_data, new_instances, part.type_endpoint, new_path)
+
+    return df_data
+
+
+def LearnRSPN(cls: Any, instances: List[Any]) -> RSPNTemplate:
     """
-    Learn an RSPN for class C from instances T over variables V, implementing Algorithm 1.
+    Learn an RSPN for class C.
 
     - Attributes become univariate leaves (Gaussian for numeric, Bernoulli for boolean)
     - Relation aggregates become Bernoulli leaves over presence (1 if present, else 0)
@@ -39,39 +91,23 @@ def LearnRSPN(cls, instances, class_spec) -> RSPNTemplate:
     Returns the root node (ProductUnit or SumUnit) within a ProbabilisticCircuit.
     """
     df_data: Dict[str, List[float]] = {}
-    if not isinstance(instances, list):
-        instances = [instances]
+    df_data = fill_dataframe_with_parts(df_data, instances, cls)
+    print("----------------------")
+    print("final df_data", df_data)
+    copy = df_data.copy()
+    for col, val in df_data.items():
+        if not isinstance(val[0], (float, int) or enum.Enum):
+            del copy[col]
 
-    for instance in instances:
-        aggregation_values = get_aggregate_statistics(instance)
-        assert isinstance(instance, cls)
-
-        if len(class_spec["attributes"]) > 0:
-            for attribute in class_spec["attributes"]:
-                value = getattr(instance, attribute)
-                if attribute not in df_data:
-                    df_data[attribute] = [value]
-                else:
-                    df_data[attribute].append(value)
-
-        for category in ["relations", "unique_parts", "exchangeable_parts"]:
-            if len(class_spec[category]) > 0:
-                for item in class_spec[category]:
-                    values = [
-                        value
-                        for value, statistic_type in aggregation_values
-                        if statistic_type == item
-                    ]
-                    if item not in df_data:
-                        df_data[item] = values
-                    else:
-                        df_data[item] += values
+    # for col, val in copy.items():
+    #     if pd.api.types.is_datetime64_any_dtype(pd.Series(val)):
+    #          copy[col] = [v.timestamp() if v is not None else None for v in val]
+        # print(f"COL {col}: {len(val)}")
 
     df = pd.DataFrame(df_data)
     variables = infer_variables_from_dataframe(df)
-    jpt = JPT(variables)
+    # enums = variable_from_name_and_type()
+    jpt = JointProbabilityTree(variables, min_samples_per_leaf=15)
     jpt = jpt.fit(df)
-    rspn = RSPNTemplate(class_spec, jpt)
-    # jpt.plot_structure()
-    # plt.show()
+    rspn = RSPNTemplate(RSPNSpecification(cls), jpt)
     return rspn
