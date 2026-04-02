@@ -36,7 +36,6 @@ def get_aggregate_statistics(instance: Any) -> List[Tuple[Any, str]]:
 
 def fill_dataframe_with_parts(df_data: Dict[str, List[float]], instances: List[Any], cls: Type, path: str = "") -> Dict[str, List[float]]:
     # if cls has an alternative mapping, use that instead
-    print("cls", cls)
     alternative_mapping = get_alternative_mapping(cls)
     if alternative_mapping:
         print("alternative_class", alternative_mapping)
@@ -52,8 +51,13 @@ def fill_dataframe_with_parts(df_data: Dict[str, List[float]], instances: List[A
         instances = new_instances
 
     specification = RSPNSpecification(cls)
-    print("specification attributes", specification.attributes)
-    print("specification unique parts", specification.unique_parts)
+    if specification.exchangeable_parts:
+        print("exchangeable_parts", specification.exchangeable_parts)
+    if issubclass(cls, enum.Enum):
+        print("enum", cls)
+        for instance in instances:
+            print(instance.value)
+            df_data.setdefault(cls.__name__, []).append(instance.value)
 
     for attribute in specification.attributes:
         column_name = f"{path}.{attribute.name}" if path else attribute.name
@@ -76,6 +80,7 @@ def fill_dataframe_with_parts(df_data: Dict[str, List[float]], instances: List[A
         new_path = f"{path}.{part.public_name}" if path else part.public_name
         df_data = fill_dataframe_with_parts(df_data, new_instances, part.type_endpoint, new_path)
 
+
     return df_data
 
 
@@ -92,17 +97,13 @@ def LearnRSPN(cls: Any, instances: List[Any]) -> RSPNTemplate:
     """
     df_data: Dict[str, List[float]] = {}
     df_data = fill_dataframe_with_parts(df_data, instances, cls)
-    print("----------------------")
-    print("final df_data", df_data)
+    # print("----------------------")
+    # print("final df_data", df_data)
+    print(df_data.keys())
     copy = df_data.copy()
     for col, val in df_data.items():
         if not isinstance(val[0], (float, int) or enum.Enum):
             del copy[col]
-
-    # for col, val in copy.items():
-    #     if pd.api.types.is_datetime64_any_dtype(pd.Series(val)):
-    #          copy[col] = [v.timestamp() if v is not None else None for v in val]
-        # print(f"COL {col}: {len(val)}")
 
     df = pd.DataFrame(df_data)
     variables = infer_variables_from_dataframe(df)

@@ -559,7 +559,6 @@ class IntegerDistribution(ContinuousDistribution, DiscreteDistribution):
         self.probabilities = new_probabilities
 
 
-@dataclass
 @dataclass(eq=False)
 class BernoulliDistribution(IntegerDistribution):
     """

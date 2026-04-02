@@ -112,7 +112,7 @@ class RSPNSpecification:
 
         # # Enums are not correctly added to WrappedClass fields currently
         # if isinstance(self.spec.clazz, type) and issubclass(self.spec.clazz, enum.Enum):
-        #     [self.attributes.append(WrappedField(self.spec, field(enum_field.value))) for enum_field in self.spec.clazz]
+        #     self.attributes.extend([WrappedField(self.spec, type(enum_field.value)) for enum_field in self.spec.clazz])
 
         for field in self.spec.fields:
             if field.is_builtin_type:
@@ -123,8 +123,6 @@ class RSPNSpecification:
                 self.unique_parts.append(field)
             else:
                 self.unique_parts.append(field)
-
-
 
 
 @dataclass
