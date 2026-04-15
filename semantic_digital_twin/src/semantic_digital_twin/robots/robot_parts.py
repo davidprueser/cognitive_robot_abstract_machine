@@ -583,6 +583,33 @@ class Camera(Sensor):
 
 
 @dataclass(eq=False)
+class Neck(KinematicChain):
+    """
+    A Neck is a kinematic chain connecting the base of the robot with a collection of other kinematic chains.
+    """
+
+    @classmethod
+    def create_and_add_to_world(
+        cls,
+        name: PrefixedName,
+        world: World,
+        root_name: str,
+        tip_name: str,
+        sensors: list[Sensor],
+    ) -> Self:
+        self = cls(
+            name=name,
+            root=world.get_body_by_name(root_name),
+            tip=world.get_body_by_name(tip_name),
+        )
+        world.add_semantic_annotation(self)
+        if sensors is None:
+            raise Exception("At least one sensor is required for a Neck")
+        self.add_sensors(sensors)
+        return self
+
+
+@dataclass(eq=False)
 class Torso(KinematicChain):
     """
     A Torso is a kinematic chain connecting the base of the robot with a collection of other kinematic chains.

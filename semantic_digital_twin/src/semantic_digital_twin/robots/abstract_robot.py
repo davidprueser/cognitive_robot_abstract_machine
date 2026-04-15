@@ -21,6 +21,7 @@ from semantic_digital_twin.robots.robot_parts import (
     Manipulator,
     Sensor,
     AggregatesRobotParts,
+    Neck,
 )
 from semantic_digital_twin.semantic_annotations.semantic_annotations import Agent
 from semantic_digital_twin.spatial_types.derivatives import DerivativeMap
@@ -180,6 +181,37 @@ class HasExternalSensors(HasRobotPart, ABC):
 
     @abstractmethod
     def _setup_external_sensors(self): ...
+
+
+@dataclass(eq=False)
+class HasNeck(HasRobotPart, ABC):
+    """
+    Mixin class for robots that have a neck.
+    """
+
+    neck: Optional[Neck] = field(default=None)
+    """
+    The neck of the robot, represented as an arm.
+    """
+
+    @synchronized_attribute_modification
+    def add_neck(self, neck: Neck):
+        self.neck = neck
+
+    def _setup_robot_parts(self):
+        super()._setup_robot_parts()
+        self._setup_neck_semantic_annotations()
+        self._setup_neck_hardware_interfaces()
+        self._setup_neck_joint_state()
+
+    @abstractmethod
+    def _setup_neck_semantic_annotations(self): ...
+
+    @abstractmethod
+    def _setup_neck_hardware_interfaces(self): ...
+
+    @abstractmethod
+    def _setup_neck_joint_state(self): ...
 
 
 @dataclass(eq=False)
