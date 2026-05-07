@@ -13,8 +13,8 @@ from types import NoneType
 from typing_extensions import Dict, List, Any, ClassVar, Type, Optional, Union
 
 import numpy
-from physics_simulators.mujoco_simulator import MujocoSimulator
 import mujoco
+from physics_simulators.mujoco_simulator import MujocoSimulator
 from physics_simulators.base_simulator import (
     BaseSimulator,
     SimulatorState,
@@ -80,7 +80,11 @@ def cas_pose_to_list(pose: HomogeneousTransformationMatrix) -> List[float]:
     pose = pose.evaluate()
     pos = pose[:3, 3]
     rotation_matrix = pose[:3, :3]
-    quat = Rotation.from_matrix(rotation_matrix).as_quat(scalar_first=True)
+    try:
+        quat = Rotation.from_matrix(rotation_matrix).as_quat(scalar_first=True)
+    except Exception as e:
+        error_msg = f"Error converting rotation matrix to quaternion. Rotation matrix:\n{rotation_matrix}\nError message: {str(e)}"
+        raise MultiSimError(error_msg)
     return [pos[0], pos[1], pos[2], quat[0], quat[1], quat[2], quat[3]]
 
 
@@ -128,7 +132,6 @@ class GeomVisibilityAndCollisionType(IntEnum):
     """
 
 
-@dataclass
 class MultiSimError(Exception):
     """Base class for all MultiSim-related exceptions."""
 
@@ -291,9 +294,8 @@ class KinematicStructureEntityConverter(EntityConverter, ABC):
         """
 
         kinematic_structure_entity_props = EntityConverter._convert(self, entity)
-        px, py, pz, qw, qx, qy, qz = cas_pose_to_list(
-            entity.parent_connection.origin_expression
-        )
+        t = entity.parent_connection.parent_T_connection_expression @ entity.parent_connection.connection_T_child_expression
+        px, py, pz, qw, qx, qy, qz = cas_pose_to_list(t)
         kinematic_structure_entity_pos = [px, py, pz]
         kinematic_structure_entity_quat = [qw, qx, qy, qz]
         kinematic_structure_entity_props.update(
@@ -569,7 +571,7 @@ class Connection1DOFConverter(ConnectionConverter, ABC):
                 self.damping_str: entity.dynamics.damping,
             }
         )
-        if dof.name.name != joint_props["name"]:
+        if dof.name.name != joint_props["name"] and dof.name.name != "dof":
             joint_props["equality_joint"] = {
                 "joint": dof.name.name,
                 "data": [entity.offset, entity.multiplier, 0, 0, 0, 0, 0, 0, 0, 0, 0],
@@ -670,14 +672,12 @@ class CameraConverter(EntityConverter, ABC):
         return camera_props
 
 
-@dataclass
 class MujocoError(MultiSimError):
     """
     Base class for all MuJoCo-related exceptions.
     """
 
 
-@dataclass
 class MujocoEntityNotFoundError(MujocoError):
     """
     Raised when a MuJoCo entity of a given type and name cannot be found.
@@ -1189,9 +1189,14 @@ class MujocoMeshConverter(MujocoGeomConverter, MeshConverter):
         if isinstance(entity.mesh.visual, TextureVisuals) and isinstance(
             entity.mesh.visual.material.name, str
         ):
-            shape_props["texture_file_path"] = (
-                entity.mesh.visual.material.image.filename
-            )
+            texture_file_path = entity.mesh.visual.material.name
+            if not os.path.isfile(texture_file_path):
+                texture_file_path = entity.mesh.visual.material.image.filename
+            if not os.path.isfile(texture_file_path):
+                texture_file_path = entity.mesh.visual.material.image.info.get("file_path", "")
+            if not os.path.isfile(texture_file_path):
+                raise FileNotFoundError(f"Texture file not found for mesh. Checked paths: '{entity.mesh.visual.material.name}', '{entity.mesh.visual.material.image.filename}', '{entity.mesh.visual.material.image.info.get('file_path', '')}'")
+            shape_props["texture_file_path"] = texture_file_path
         return shape_props
 
 
@@ -1367,13 +1372,13 @@ class MultiSimBuilder(ABC):
 
         self._start_build(file_path=file_path)
 
-        for body in world.bodies:
+        for body in world.bodies_topologically_sorted:
             self.build_body(body=body)
 
         for region in world.regions:
             self.build_region(region=region)
 
-        for connection in world.connections:
+        for connection in world.connections_topologically_sorted:
             self._build_connection(connection=connection)
 
         for actuator in world.actuators:
@@ -1528,6 +1533,8 @@ class MujocoBuilder(MultiSimBuilder):
 
         tree = ET.parse(file_path)
         root = tree.getroot()
+        for compiler_element in root.iter("compiler"):
+            compiler_element.set("inertiafromgeom", "true")
         for body_id, body_element in enumerate(root.findall(".//body")):
             body_spec = self.spec.bodies[body_id + 1]
             if numpy.isclose(body_spec.mass, 0.0):
@@ -1544,6 +1551,17 @@ class MujocoBuilder(MultiSimBuilder):
             texture_name = material_spec.textures[0]
             if texture_name != "":
                 material_element.set("texture", texture_name)
+        keyframe_element = ET.SubElement(root, "keyframe")
+        key_element = ET.SubElement(keyframe_element, "key")
+        key_element.set("name", "home")
+        key_element.set("time", "0")
+        qpos = []
+        for body in self.world.bodies:
+            parent_connection = body.parent_connection
+            if isinstance(parent_connection, FixedConnection) or parent_connection is None:
+                continue
+            qpos += [self.world.state[dof.id].position for dof in parent_connection.active_dofs + parent_connection.passive_dofs]
+        key_element.set("qpos", " ".join(map(str, qpos)))
         tree.write(file_path, encoding="utf-8", xml_declaration=True)
 
     def _build_body(self, body: Body):
