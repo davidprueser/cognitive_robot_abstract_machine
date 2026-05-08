@@ -47,7 +47,6 @@ from krrood.entity_query_language.query.quantifiers import (
     AtMost,
     Range,
 )
-from krrood.entity_query_language.query_graph import QueryGraph
 from krrood.entity_query_language.utils import (
     cartesian_product_while_passing_the_bindings_around,
 )
@@ -949,8 +948,6 @@ def test_flatten_iterable_attribute_and_use_not_equal(handles_and_containers_wor
     query = an(entity(drawers).where(drawer_1 != drawers))
 
     results = list(query.evaluate())
-
-    QueryGraph(query).visualize()
 
     # We should get one row for each drawer and the parent view preserved
     assert len(results) == 2
