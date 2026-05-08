@@ -587,13 +587,13 @@ class VisibilityCostmap(Costmap):
         origin_copy = deepcopy(self.origin).to_homogeneous_matrix()
 
         for _ in range(4):
+            origin_copy = origin_copy @ HomogeneousTransformationMatrix.from_xyz_rpy(
+                yaw=np.pi / 2
+            )
             images.append(
                 r_t.create_depth_map(
                     origin_copy, resolution=self.width, min_distance=0.1
                 )
-            )
-            origin_copy = origin_copy @ HomogeneousTransformationMatrix.from_xyz_rpy(
-                yaw=np.pi / 2
             )
 
         return images
@@ -747,7 +747,13 @@ class VisibilityCostmap(Costmap):
         # the locations in itself is consistent and just needs to be flipped to fit the world coordinate system
         map = np.flip(map, axis=0)
         map = np.flip(map)
-        self.map = map
+
+        # Invert the map
+        inv_map = np.zeros(map.shape)
+        inv_map[map == 0] = 1
+        inv_map[map != 0] = 0
+
+        self.map = inv_map
 
 
 @dataclass

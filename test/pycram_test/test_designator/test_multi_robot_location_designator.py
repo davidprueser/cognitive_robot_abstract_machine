@@ -233,19 +233,27 @@ def test_visibility_location_body(immutable_multiple_robot_simple_apartment):
     assert len(pose.to_quaternion().to_list()) == 4
 
 
-def test_visibility_reachability_merge(immutable_multiple_robot_simple_apartment):
+def test_visibility_reachability_merge(
+    immutable_multiple_robot_simple_apartment, rclpy_node
+):
     world, robot, context = immutable_multiple_robot_simple_apartment
 
     plan = sequential(
         [ParkArmsAction(Arms.BOTH), MoveTorsoAction(TorsoState.HIGH)],
         context,
     )
+
+    context.debug_mode = True
+    context.ros_node = rclpy_node
+
     with simulated_robot:
         plan.perform()
 
         world.notify_state_change()
 
         location_vis = visibility_location(world.get_body_by_name("milk.stl"), context)
+
+        next(iter(location_vis))
 
         location_reach = reachability_location(
             world.get_body_by_name("milk.stl"), context, Arms.RIGHT

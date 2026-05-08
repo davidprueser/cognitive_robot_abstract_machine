@@ -162,7 +162,7 @@ spawned it in a previous example. Furthermore, we need a robot, so we also spawn
 
 ```python
 from pycram.locations.factories import accessing_location
-from semantic_digital_twin.semantic_annotations.semantic_annotations import Drawer
+from semantic_digital_twin.semantic_annotations.semantic_annotations import Drawer, Handle
 
 with world.modify_world():
     world.add_semantic_annotation(
@@ -172,7 +172,7 @@ with world.modify_world():
         )
     )
 
-location = accessing_location(world.add_semantic_annotation_by_type(Drawer), context=context, arm=Arms.LEFT)
+location = accessing_location(world.get_semantic_annotations_by_type(Drawer)[0], context=context, arm=Arms.LEFT)
 
 print(next(iter(location)))
 ```
