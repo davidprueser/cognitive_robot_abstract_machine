@@ -1,46 +1,37 @@
 from __future__ import annotations
 
-from dataclasses import field
-
-import numpy as np
-import pandas as pd
-from typing import (
-    List,
-    Optional,
-    Iterable,
-    Union,
-)
-
-from collections import deque
-from jpt.learning.impurity import Impurity
-
 from krrood.ormatic.data_access_objects.dao import DataAccessObject
 from krrood.parametrization.feature_extractor import FeatureExtractor
 from probabilistic_model.learning.jpt.jpt import JointProbabilityTree
 from probabilistic_model.learning.jpt.variables import infer_variables_from_dataframe
-from probabilistic_model.probabilistic_circuit.rx.probabilistic_circuit import (
-    ProbabilisticCircuit,
-    SumUnit,
-)
+from collections import deque
+from typing import Union, Optional, List, Iterable
+import numpy as np
+import pandas as pd
+from jpt.learning.impurity import Impurity
 from random_events.product_algebra import VariableMap
 from random_events.variable import Variable
+from probabilistic_model.probabilistic_circuit.rx.probabilistic_circuit import (
+    SumUnit,
+    ProbabilisticCircuit,
+)
 
 
 def learn_probabilistic_circuit(
     instances: List[DataAccessObject],
-    targets: Optional[Iterable[Variable]] = field(default=None),
-    features: Optional[Iterable[Variable]] = field(default=None),
-    min_samples_per_leaf: Union[int, float] = field(default=1),
-    min_impurity_improvement: float = field(default=0.0),
-    max_leaves: Union[int, float] = field(default=float("inf")),
-    max_depth: Union[int, float] = field(default=float("inf")),
-    dependencies: Optional[VariableMap] = field(default=None),
-    total_samples: int = field(default=1),
-    indices: Optional[np.ndarray] = field(default=None),
-    impurity: Optional[Impurity] = field(default=None),
-    c45queue: deque = field(default_factory=deque),
-    keep_sample_indices: bool = field(default=False),
-    root: Optional[SumUnit] = field(default=None),
+    targets: Optional[Iterable[Variable]] = None,
+    features: Optional[Iterable[Variable]] = None,
+    min_samples_per_leaf: Union[int, float] = 1,
+    min_impurity_improvement: float = 0.0,
+    max_leaves: Union[int, float] = float("inf"),
+    max_depth: Union[int, float] = float("inf"),
+    dependencies: Optional[VariableMap] = None,
+    total_samples: int = 1,
+    indices: Optional[np.ndarray] = None,
+    impurity: Optional[Impurity] = None,
+    c45queue: Optional[deque] = None,
+    keep_sample_indices: bool = False,
+    root: Optional[SumUnit] = None,
 ) -> ProbabilisticCircuit:
     """
     Learn a ProbabilisticCircuit from a class and a list of instances.
@@ -61,6 +52,9 @@ def learn_probabilistic_circuit(
     :return: The learned ProbabilisticCircuit.
     """
 
+    if c45queue is None:
+        c45queue = deque()
+
     extractor = FeatureExtractor(instances)
 
     if not instances:
@@ -73,19 +67,19 @@ def learn_probabilistic_circuit(
 
     jpt = JointProbabilityTree(
         annotated_variables=variables,
+        targets=targets,
+        features=features,
+        min_samples_per_leaf=min_samples_per_leaf,
+        min_impurity_improvement=min_impurity_improvement,
+        max_leaves=max_leaves,
+        max_depth=max_depth,
+        dependencies=dependencies,
         total_samples=total_samples,
         indices=indices,
         impurity=impurity,
         c45queue=c45queue,
         keep_sample_indices=keep_sample_indices,
         root=root,
-        min_samples_per_leaf=min_samples_per_leaf,
-        min_impurity_improvement=min_impurity_improvement,
-        max_leaves=max_leaves,
-        max_depth=max_depth,
-        dependencies=dependencies,
-        features=features,
-        targets=targets,
     )
     jpt = jpt.fit(df)
     return jpt
