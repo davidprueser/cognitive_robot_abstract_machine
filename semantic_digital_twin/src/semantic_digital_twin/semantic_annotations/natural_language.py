@@ -12,7 +12,7 @@ class NaturalLanguageDescription(HasRootBody):
     Annotation for descriptions of the root in natural language.
     """
 
-    description: str = field(kw_only=True)
+    description: Optional[str] = field(kw_only=True)
     """
     The natural language description of root entity.
     """

@@ -13,6 +13,7 @@ from dataclasses import is_dataclass
 
 import semantic_digital_twin.adapters.procthor.procthor_resolver
 import semantic_digital_twin.adapters.sage_10k_dataset
+import semantic_digital_twin.adapters.adaptive_environment_generation
 import semantic_digital_twin.collision_checking.collision_detector
 import semantic_digital_twin.collision_checking.collision_groups
 import semantic_digital_twin.collision_checking.collision_manager
@@ -53,6 +54,9 @@ all_classes = set(classes_of_package(semantic_digital_twin))
 all_classes -= set(classes_of_module(semantic_digital_twin.orm.ormatic_interface))
 all_classes -= set(classes_of_package(semantic_digital_twin.adapters))
 all_classes |= set(classes_of_package(semantic_digital_twin.adapters.sage_10k_dataset))
+all_classes |= set(
+    classes_of_package(semantic_digital_twin.adapters.adaptive_environment_generation)
+)
 
 
 # remove classes that should not be mapped

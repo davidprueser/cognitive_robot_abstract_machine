@@ -21,6 +21,7 @@ import krrood.adapters.json_serializer
 import krrood.ormatic.custom_types
 import krrood.ormatic.type_dict
 import pathlib
+import semantic_digital_twin.adapters.adaptive_environment_generation.schema
 import semantic_digital_twin.adapters.sage_10k_dataset.loader
 import semantic_digital_twin.adapters.sage_10k_dataset.schema
 import semantic_digital_twin.callbacks.callback
@@ -75,6 +76,7 @@ import semantic_digital_twin.semantic_annotations.semantic_annotations
 import semantic_digital_twin.spatial_computations.ik_solver
 import semantic_digital_twin.spatial_types.derivatives
 import semantic_digital_twin.spatial_types.spatial_types
+import semantic_digital_twin.utils
 import semantic_digital_twin.world
 import semantic_digital_twin.world_description.connection_properties
 import semantic_digital_twin.world_description.connections
@@ -288,6 +290,57 @@ class AvoidCollisionBetweenGroupsDAO_body_group_b_association(
     target_bodydao_id: Mapped[int] = mapped_column(ForeignKey("BodyDAO.database_id"))
 
     target: Mapped[BodyDAO] = relationship("BodyDAO", foreign_keys=[target_bodydao_id])
+
+
+class EGRoomDAO_objects_association(Base, AssociationDataAccessObject):
+
+    __tablename__ = "_79128551152731288556494048842279711636958456908342055812371652"
+
+    database_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    source_egroomdao_id: Mapped[int] = mapped_column(
+        ForeignKey("EGRoomDAO.database_id")
+    )
+    target_egobjectdao_id: Mapped[int] = mapped_column(
+        ForeignKey("EGObjectDAO.database_id")
+    )
+
+    target: Mapped[EGObjectDAO] = relationship(
+        "EGObjectDAO", foreign_keys=[target_egobjectdao_id]
+    )
+
+
+class EGRoomDAO_walls_association(Base, AssociationDataAccessObject):
+
+    __tablename__ = "_32396811297833335864639596737864222050979830311347515880883892"
+
+    database_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    source_egroomdao_id: Mapped[int] = mapped_column(
+        ForeignKey("EGRoomDAO.database_id")
+    )
+    target_egwalldao_id: Mapped[int] = mapped_column(
+        ForeignKey("EGWallDAO.database_id")
+    )
+
+    target: Mapped[EGWallDAO] = relationship(
+        "EGWallDAO", foreign_keys=[target_egwalldao_id]
+    )
+
+
+class EGRoomDAO_doors_association(Base, AssociationDataAccessObject):
+
+    __tablename__ = "_10430686833933879170211242089568691264108532738698495129143161"
+
+    database_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    source_egroomdao_id: Mapped[int] = mapped_column(
+        ForeignKey("EGRoomDAO.database_id")
+    )
+    target_egdoordao_id: Mapped[int] = mapped_column(
+        ForeignKey("EGDoorDAO.database_id")
+    )
+
+    target: Mapped[EGDoorDAO] = relationship(
+        "EGDoorDAO", foreign_keys=[target_egdoordao_id]
+    )
 
 
 class HasArmsDAO_arms_association(Base, AssociationDataAccessObject):
@@ -2449,6 +2502,323 @@ class DofNotInWorldStateErrorDAO(
     )
 
 
+class EGBaseDAO(
+    Base,
+    DataAccessObject[
+        semantic_digital_twin.adapters.adaptive_environment_generation.schema.EGBase
+    ],
+):
+
+    __tablename__ = "EGBaseDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        Integer, primary_key=True, use_existing_column=True
+    )
+
+    polymorphic_type: Mapped[str] = mapped_column(
+        String(255), nullable=False, use_existing_column=True
+    )
+
+    __mapper_args__ = {
+        "polymorphic_on": "polymorphic_type",
+        "polymorphic_identity": "EGBaseDAO",
+    }
+
+
+class EGPoint2DDAO(
+    EGBaseDAO,
+    DataAccessObject[
+        semantic_digital_twin.adapters.adaptive_environment_generation.schema.EGPoint2D
+    ],
+):
+
+    __tablename__ = "EGPoint2DDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        ForeignKey(EGBaseDAO.database_id), primary_key=True, use_existing_column=True
+    )
+
+    x: Mapped[builtins.float] = mapped_column(use_existing_column=True)
+    y: Mapped[builtins.float] = mapped_column(use_existing_column=True)
+
+    __mapper_args__ = {
+        "polymorphic_identity": "EGPoint2DDAO",
+        "inherit_condition": database_id == EGBaseDAO.database_id,
+    }
+
+
+class EGOrientationDAO(
+    EGPoint2DDAO,
+    DataAccessObject[
+        semantic_digital_twin.adapters.adaptive_environment_generation.schema.EGOrientation
+    ],
+):
+
+    __tablename__ = "EGOrientationDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        ForeignKey(EGPoint2DDAO.database_id), primary_key=True, use_existing_column=True
+    )
+
+    z: Mapped[builtins.float] = mapped_column(use_existing_column=True)
+
+    __mapper_args__ = {
+        "polymorphic_identity": "EGOrientationDAO",
+        "inherit_condition": database_id == EGPoint2DDAO.database_id,
+    }
+
+
+class EGPositionDAO(
+    EGPoint2DDAO,
+    DataAccessObject[
+        semantic_digital_twin.adapters.adaptive_environment_generation.schema.EGPosition
+    ],
+):
+
+    __tablename__ = "EGPositionDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        ForeignKey(EGPoint2DDAO.database_id), primary_key=True, use_existing_column=True
+    )
+
+    z: Mapped[builtins.float] = mapped_column(use_existing_column=True)
+
+    __mapper_args__ = {
+        "polymorphic_identity": "EGPositionDAO",
+        "inherit_condition": database_id == EGPoint2DDAO.database_id,
+    }
+
+
+class EGSizeDAO(
+    EGBaseDAO,
+    DataAccessObject[
+        semantic_digital_twin.adapters.adaptive_environment_generation.schema.EGSize
+    ],
+):
+
+    __tablename__ = "EGSizeDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        ForeignKey(EGBaseDAO.database_id), primary_key=True, use_existing_column=True
+    )
+
+    height: Mapped[builtins.float] = mapped_column(use_existing_column=True)
+    length: Mapped[builtins.float] = mapped_column(use_existing_column=True)
+    width: Mapped[builtins.float] = mapped_column(use_existing_column=True)
+
+    __mapper_args__ = {
+        "polymorphic_identity": "EGSizeDAO",
+        "inherit_condition": database_id == EGBaseDAO.database_id,
+    }
+
+
+class EGWithIDDAO(
+    EGBaseDAO,
+    DataAccessObject[
+        semantic_digital_twin.adapters.adaptive_environment_generation.schema.EGWithID
+    ],
+):
+
+    __tablename__ = "EGWithIDDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        ForeignKey(EGBaseDAO.database_id), primary_key=True, use_existing_column=True
+    )
+
+    id: Mapped[builtins.str] = mapped_column(
+        sqlalchemy.sql.sqltypes.Text, use_existing_column=True
+    )
+
+    __mapper_args__ = {
+        "polymorphic_identity": "EGWithIDDAO",
+        "inherit_condition": database_id == EGBaseDAO.database_id,
+    }
+
+
+class EGDoorDAO(
+    EGWithIDDAO,
+    DataAccessObject[
+        semantic_digital_twin.adapters.adaptive_environment_generation.schema.EGDoor
+    ],
+):
+
+    __tablename__ = "EGDoorDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        ForeignKey(EGWithIDDAO.database_id), primary_key=True, use_existing_column=True
+    )
+
+    wall_id: Mapped[builtins.str] = mapped_column(
+        sqlalchemy.sql.sqltypes.Text, use_existing_column=True
+    )
+    position_on_wall: Mapped[builtins.float] = mapped_column(use_existing_column=True)
+    width: Mapped[builtins.float] = mapped_column(use_existing_column=True)
+    height: Mapped[builtins.float] = mapped_column(use_existing_column=True)
+    opens_inward: Mapped[builtins.bool] = mapped_column(use_existing_column=True)
+
+    __mapper_args__ = {
+        "polymorphic_identity": "EGDoorDAO",
+        "inherit_condition": database_id == EGWithIDDAO.database_id,
+    }
+
+
+class EGObjectDAO(
+    EGWithIDDAO,
+    DataAccessObject[
+        semantic_digital_twin.adapters.adaptive_environment_generation.schema.EGObject
+    ],
+):
+
+    __tablename__ = "EGObjectDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        ForeignKey(EGWithIDDAO.database_id), primary_key=True, use_existing_column=True
+    )
+
+    room_id: Mapped[builtins.str] = mapped_column(
+        sqlalchemy.sql.sqltypes.Text, use_existing_column=True
+    )
+    place_id: Mapped[builtins.str] = mapped_column(
+        sqlalchemy.sql.sqltypes.Text, use_existing_column=True
+    )
+    object_type: Mapped[builtins.str] = mapped_column(
+        sqlalchemy.sql.sqltypes.Text, use_existing_column=True
+    )
+
+    scale_id: Mapped[int] = mapped_column(
+        ForeignKey("EGSizeDAO.database_id", use_alter=True),
+        nullable=True,
+        use_existing_column=True,
+    )
+    position_id: Mapped[int] = mapped_column(
+        ForeignKey("EGPositionDAO.database_id", use_alter=True),
+        nullable=True,
+        use_existing_column=True,
+    )
+    orientation_id: Mapped[int] = mapped_column(
+        ForeignKey("EGOrientationDAO.database_id", use_alter=True),
+        nullable=True,
+        use_existing_column=True,
+    )
+
+    scale: Mapped[EGSizeDAO] = relationship(
+        "EGSizeDAO", uselist=False, foreign_keys=[scale_id], post_update=True
+    )
+    position: Mapped[EGPositionDAO] = relationship(
+        "EGPositionDAO", uselist=False, foreign_keys=[position_id], post_update=True
+    )
+    orientation: Mapped[EGOrientationDAO] = relationship(
+        "EGOrientationDAO",
+        uselist=False,
+        foreign_keys=[orientation_id],
+        post_update=True,
+    )
+
+    __mapper_args__ = {
+        "polymorphic_identity": "EGObjectDAO",
+        "inherit_condition": database_id == EGWithIDDAO.database_id,
+    }
+
+
+class EGRoomDAO(
+    EGWithIDDAO,
+    DataAccessObject[
+        semantic_digital_twin.adapters.adaptive_environment_generation.schema.EGRoom
+    ],
+):
+
+    __tablename__ = "EGRoomDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        ForeignKey(EGWithIDDAO.database_id), primary_key=True, use_existing_column=True
+    )
+
+    room_type: Mapped[builtins.str] = mapped_column(
+        sqlalchemy.sql.sqltypes.Text, use_existing_column=True
+    )
+
+    scale_id: Mapped[int] = mapped_column(
+        ForeignKey("EGSizeDAO.database_id", use_alter=True),
+        nullable=True,
+        use_existing_column=True,
+    )
+    position_id: Mapped[int] = mapped_column(
+        ForeignKey("EGPositionDAO.database_id", use_alter=True),
+        nullable=True,
+        use_existing_column=True,
+    )
+
+    scale: Mapped[EGSizeDAO] = relationship(
+        "EGSizeDAO", uselist=False, foreign_keys=[scale_id], post_update=True
+    )
+    position: Mapped[EGPositionDAO] = relationship(
+        "EGPositionDAO", uselist=False, foreign_keys=[position_id], post_update=True
+    )
+    objects: Mapped[builtins.list[EGRoomDAO_objects_association]] = relationship(
+        "EGRoomDAO_objects_association",
+        collection_class=builtins.list,
+        cascade="all, delete-orphan",
+        foreign_keys="[EGRoomDAO_objects_association.source_egroomdao_id]",
+    )
+    walls: Mapped[builtins.list[EGRoomDAO_walls_association]] = relationship(
+        "EGRoomDAO_walls_association",
+        collection_class=builtins.list,
+        cascade="all, delete-orphan",
+        foreign_keys="[EGRoomDAO_walls_association.source_egroomdao_id]",
+    )
+    doors: Mapped[builtins.list[EGRoomDAO_doors_association]] = relationship(
+        "EGRoomDAO_doors_association",
+        collection_class=builtins.list,
+        cascade="all, delete-orphan",
+        foreign_keys="[EGRoomDAO_doors_association.source_egroomdao_id]",
+    )
+
+    __mapper_args__ = {
+        "polymorphic_identity": "EGRoomDAO",
+        "inherit_condition": database_id == EGWithIDDAO.database_id,
+    }
+
+
+class EGWallDAO(
+    EGWithIDDAO,
+    DataAccessObject[
+        semantic_digital_twin.adapters.adaptive_environment_generation.schema.EGWall
+    ],
+):
+
+    __tablename__ = "EGWallDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        ForeignKey(EGWithIDDAO.database_id), primary_key=True, use_existing_column=True
+    )
+
+    height: Mapped[builtins.float] = mapped_column(use_existing_column=True)
+    thickness: Mapped[builtins.float] = mapped_column(use_existing_column=True)
+
+    start_point_id: Mapped[int] = mapped_column(
+        ForeignKey("EGPoint2DDAO.database_id", use_alter=True),
+        nullable=True,
+        use_existing_column=True,
+    )
+    end_point_id: Mapped[int] = mapped_column(
+        ForeignKey("EGPoint2DDAO.database_id", use_alter=True),
+        nullable=True,
+        use_existing_column=True,
+    )
+
+    start_point: Mapped[EGPoint2DDAO] = relationship(
+        "EGPoint2DDAO", uselist=False, foreign_keys=[start_point_id], post_update=True
+    )
+    end_point: Mapped[EGPoint2DDAO] = relationship(
+        "EGPoint2DDAO", uselist=False, foreign_keys=[end_point_id], post_update=True
+    )
+
+    __mapper_args__ = {
+        "polymorphic_identity": "EGWallDAO",
+        "inherit_condition": database_id == EGWithIDDAO.database_id,
+    }
+
+
 class ExternalCollisionVariableManagerDAO(
     BaseCollisionVariableManagerDAO,
     DataAccessObject[
@@ -3099,6 +3469,41 @@ class MismatchingIDsInWorldModificationDAO(
     )
     actual_uuids: Mapped[typing.List[uuid.UUID]] = mapped_column(
         JSON, nullable=False, use_existing_column=True
+    )
+
+
+class MockedNodeClassDAO(
+    Base, DataAccessObject[semantic_digital_twin.utils.MockedNodeClass]
+):
+
+    __tablename__ = "MockedNodeClassDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        Integer, primary_key=True, use_existing_column=True
+    )
+
+
+class MockedNodeModuleDAO(
+    Base, DataAccessObject[semantic_digital_twin.utils.MockedNodeModule]
+):
+
+    __tablename__ = "MockedNodeModuleDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        Integer, primary_key=True, use_existing_column=True
+    )
+
+    Node: Mapped[TypeType] = mapped_column(
+        TypeType, nullable=False, use_existing_column=True
+    )
+
+
+class MockedRCLPYDAO(Base, DataAccessObject[semantic_digital_twin.utils.MockedRCLPY]):
+
+    __tablename__ = "MockedRCLPYDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        Integer, primary_key=True, use_existing_column=True
     )
 
 
@@ -4053,6 +4458,39 @@ class ScaleDAO(
     x: Mapped[builtins.float] = mapped_column(use_existing_column=True)
     y: Mapped[builtins.float] = mapped_column(use_existing_column=True)
     z: Mapped[builtins.float] = mapped_column(use_existing_column=True)
+
+
+class SceneGeneratorDAO(
+    EGWithIDDAO,
+    DataAccessObject[
+        semantic_digital_twin.adapters.adaptive_environment_generation.schema.SceneGenerator
+    ],
+):
+
+    __tablename__ = "SceneGeneratorDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        ForeignKey(EGWithIDDAO.database_id), primary_key=True, use_existing_column=True
+    )
+
+    directory: Mapped[pathlib.Path] = mapped_column(
+        krrood.ormatic.custom_types.PathType, nullable=False, use_existing_column=True
+    )
+
+    room_id: Mapped[int] = mapped_column(
+        ForeignKey("EGRoomDAO.database_id", use_alter=True),
+        nullable=True,
+        use_existing_column=True,
+    )
+
+    room: Mapped[EGRoomDAO] = relationship(
+        "EGRoomDAO", uselist=False, foreign_keys=[room_id], post_update=True
+    )
+
+    __mapper_args__ = {
+        "polymorphic_identity": "SceneGeneratorDAO",
+        "inherit_condition": database_id == EGWithIDDAO.database_id,
+    }
 
 
 class SelfCollisionMatrixRuleDAO(
@@ -8740,7 +9178,7 @@ class NaturalLanguageDescriptionDAO(
         use_existing_column=True,
     )
 
-    description: Mapped[builtins.str] = mapped_column(
+    description: Mapped[typing.Optional[builtins.str]] = mapped_column(
         sqlalchemy.sql.sqltypes.Text, use_existing_column=True
     )
 

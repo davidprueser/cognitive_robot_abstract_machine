@@ -9,7 +9,7 @@ import tqdm
 from sqlalchemy.orm import Session
 
 from krrood.symbol_graph.symbol_graph import SymbolGraph
-from krrood.ormatic.dao import to_dao
+from krrood.ormatic.data_access_objects.dao import to_dao
 from krrood.ormatic.utils import drop_database, create_engine
 from krrood.utils import recursive_subclasses
 from semantic_digital_twin.world import World
@@ -116,7 +116,7 @@ def parse_fbx_file_to_world_mapping_daos(fbx_file_path: str) -> List[WorldMappin
         resolved = resolver.resolve(world.name)
         if resolved:
             with world.modify_world():
-                world.add_semantic_annotation(resolved(body=world.root))
+                world.add_semantic_annotation(resolved(root=world.root))
 
     return [to_dao(world) for world in worlds]
 
@@ -137,8 +137,7 @@ def parse_procthor_files_and_save_to_database(
         semantic_digital_twin_database_uri is not None
     ), "Please set the SEMANTIC_DIGITAL_TWIN_DATABASE_URI environment variable."
 
-    procthor_root = os.path.join(os.path.expanduser("~"), "ai2thor")
-    procthor_root = os.path.join(os.path.expanduser("~"), "work", "ai2thor")
+    procthor_root = os.path.join(os.path.expanduser("~"), "repos", "ai2thor")
 
     files = []
     for root, dirs, filenames in os.walk(procthor_root):
