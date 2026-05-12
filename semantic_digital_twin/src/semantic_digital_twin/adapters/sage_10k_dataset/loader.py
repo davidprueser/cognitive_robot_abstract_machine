@@ -36,6 +36,26 @@ class Sage10kDatasetLoader:
     The directory where the scene should be downloaded to.
     """
 
+    def download_specific_scene(self, layout_name: str):
+        """
+        Download a specific scene from the Sage10k dataset by its layout name.
+
+        :param layout_name: The name of the layout to download.
+        :return: The path to the downloaded scene.
+        """
+        from huggingface_hub import list_repo_files
+
+        files = list_repo_files(repo_id="nvidia/SAGE-10k", repo_type="dataset")
+
+        [matching_file] = [
+            f
+            for f in files
+            if f.startswith("scenes/") and f.endswith(f"_{layout_name}.zip")
+        ]
+
+        base_url = f"https://huggingface.co/datasets/nvidia/SAGE-10k/blob/main/"
+        return self._download_scene_if_not_exists(base_url + matching_file)
+
     def _download_scene_if_not_exists(self, scene_url: str) -> Path:
         """
         Download the scene from the Sage10k dataset and unzip it.

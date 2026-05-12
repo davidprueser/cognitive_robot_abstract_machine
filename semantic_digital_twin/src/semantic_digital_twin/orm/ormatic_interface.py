@@ -21,6 +21,7 @@ import krrood.adapters.json_serializer
 import krrood.ormatic.custom_types
 import krrood.ormatic.type_dict
 import pathlib
+import semantic_digital_twin.adapters.adaptive_environment_generation.sage10k_processing
 import semantic_digital_twin.adapters.adaptive_environment_generation.schema
 import semantic_digital_twin.adapters.sage_10k_dataset.loader
 import semantic_digital_twin.adapters.sage_10k_dataset.schema
@@ -2525,6 +2526,24 @@ class EGBaseDAO(
     }
 
 
+class EGDataProcessingDAO(
+    Base,
+    DataAccessObject[
+        semantic_digital_twin.adapters.adaptive_environment_generation.sage10k_processing.EGDataProcessing
+    ],
+):
+
+    __tablename__ = "EGDataProcessingDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        Integer, primary_key=True, use_existing_column=True
+    )
+
+    directory: Mapped[pathlib.Path] = mapped_column(
+        krrood.ormatic.custom_types.PathType, nullable=False, use_existing_column=True
+    )
+
+
 class EGPoint2DDAO(
     EGBaseDAO,
     DataAccessObject[
@@ -2682,6 +2701,9 @@ class EGObjectDAO(
         sqlalchemy.sql.sqltypes.Text, use_existing_column=True
     )
     object_type: Mapped[builtins.str] = mapped_column(
+        sqlalchemy.sql.sqltypes.Text, use_existing_column=True
+    )
+    source_id: Mapped[builtins.str] = mapped_column(
         sqlalchemy.sql.sqltypes.Text, use_existing_column=True
     )
 

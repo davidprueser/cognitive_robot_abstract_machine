@@ -189,6 +189,11 @@ class EGObject(EGWithID):
     The orientation of the object.
     """
 
+    source_id: str
+    """
+    id of the object. This is used to identify the object in the dataset.
+    """
+
     # children: List[Self] = field(default_factory=list)
     # """
     # List of the children of the object.
@@ -205,6 +210,7 @@ class EGObject(EGWithID):
             "position": to_json(self.position),
             "rotation": to_json(self.orientation),
             "dimensions": to_json(self.scale),
+            "source_id": self.source_id,
         }
 
     @classmethod
@@ -217,11 +223,14 @@ class EGObject(EGWithID):
             position=EGPosition._from_json(data["position"], **kwargs),
             orientation=EGOrientation._from_json(data["rotation"], **kwargs),
             scale=EGSize._from_json(data["dimensions"], **kwargs),
+            source_id=data["source_id"],
         )
 
     def create_in_world(
         self, world: World, directory: Path, parent: KinematicStructureEntity, **kwargs
     ):
+        ply_file = directory / "objects" / f"{self.source_id}.ply"
+        texture_file = directory / "objects" / f"{self.source_id}_texture.png"
 
         body = Body()
         body.name = PrefixedName(name=str(body.id), prefix=self.id)
@@ -237,8 +246,10 @@ class EGObject(EGWithID):
         )
 
         # Load the mesh and texture
-        mesh = Box(
-            scale=Scale(x=self.scale.width, y=self.scale.length, z=self.scale.height)
+        mesh = Mesh.from_ply_file(
+            ply_file_path=str(ply_file),
+            texture_file_path=str(texture_file),
+            origin=HomogeneousTransformationMatrix.from_xyz_rpy(reference_frame=body),
         )
 
         # Create a Body with the loaded mesh as both visual and collision geometry
