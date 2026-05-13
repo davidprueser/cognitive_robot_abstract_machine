@@ -1,12 +1,13 @@
 import math
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Self, Type, Dict, Any, Tuple, assert_never
+from typing import List, Self, Type, Dict, Any, Tuple, assert_never, Optional
 
 import numpy as np
 
 from krrood.adapters.json_serializer import SubclassJSONSerializer, to_json
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
+from semantic_digital_twin.datastructures.variables import SpatialVariables
 from semantic_digital_twin.semantic_annotations.natural_language import (
     NaturalLanguageWithTypeDescription,
 )
@@ -15,12 +16,20 @@ from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     RoomWithWallsAndDoors,
     Floor,
     Wall,
+    Door,
+    DoorWithType,
+    Handle,
+    Hinge,
 )
-from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
+from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix, Vector3
+from semantic_digital_twin.spatial_types.derivatives import DerivativeMap
 from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.connections import (
     FixedConnection,
     Connection6DoF,
+)
+from semantic_digital_twin.world_description.degree_of_freedom import (
+    DegreeOfFreedomLimits,
 )
 from semantic_digital_twin.world_description.geometry import Mesh, Box, Scale
 from semantic_digital_twin.world_description.shape_collection import ShapeCollection
@@ -42,15 +51,19 @@ class EGWithID(EGBase):
     id: str
 
     def create_in_world(
-        self, world: World, directory: Path, parent: KinematicStructureEntity, **kwargs
+        self,
+        world: World,
+        mesh_to_object_mapping: Optional[Dict[Path, "EGObject"]],
+        parent: KinematicStructureEntity,
+        **kwargs,
     ) -> WorldEntity:
         """
         Create the object in the world by getting its geometry from the provided information.
 
-        :param world:
-        :param directory:
-        :param parent:
-        :param kwargs:
+        :param world: The world where the object is created.
+        :param mesh_to_object_mapping: A mapping from mesh paths to object information.
+        :param parent: The parent of the object in the world.
+        :param kwargs: Additional keyword arguments.
         :return: The relevant created body
         """
 
@@ -227,10 +240,21 @@ class EGObject(EGWithID):
         )
 
     def create_in_world(
-        self, world: World, directory: Path, parent: KinematicStructureEntity, **kwargs
+        self,
+        world: World,
+        mesh_path: Optional[Path],
+        parent: KinematicStructureEntity,
+        **kwargs,
     ):
-        ply_file = directory / "objects" / f"{self.source_id}.ply"
-        texture_file = directory / "objects" / f"{self.source_id}_texture.png"
+        if mesh_path is None:
+            raise ValueError(
+                f"No mesh path found for object '{self.id}' (source_id='{self.source_id}'). "
+                "Ensure the object is present in the mesh_to_object_mapping."
+            )
+        if not mesh_path.exists():
+            raise ValueError(f"Directory {mesh_path} does not exist.")
+        ply_file = mesh_path / "objects" / f"{self.source_id}.ply"
+        texture_file = mesh_path / "objects" / f"{self.source_id}_texture.png"
 
         body = Body()
         body.name = PrefixedName(name=str(body.id), prefix=self.id)
@@ -345,9 +369,7 @@ class EGWall(EGWithID):
             assert_never(self)
         return wall_length, yaw
 
-    def create_in_world(
-        self, world: World, directory: Path, parent: Body, **kwargs
-    ) -> Wall:
+    def create_in_world(self, world: World, parent: Body, **kwargs) -> Wall:
         wall_name = PrefixedName(name=self.id)
 
         wall_length, yaw = self.wall_length_and_yaw
@@ -453,6 +475,141 @@ class EGDoor(EGWithID):
             opens_inward=data["opens_inward"],
         )
 
+    def create_in_world(
+        self,
+        world: World,
+        parent: KinematicStructureEntity,
+        **kwargs,
+    ) -> Door:
+        """
+        The parent must always be the wall body.
+
+        :param wall: The sage 10k wall that is referenced by `self.wall_id`.
+        :param wall_annotation: The wall annotation created in `world` before this call.
+        """
+        name = PrefixedName(name=self.id, prefix=kwargs["wall"].id)
+
+        scale = Scale(x=kwargs["wall"].thickness, y=self.width, z=self.height)
+
+        wall_length, _ = kwargs["wall"].wall_length_and_yaw
+
+        parent_T_body = HomogeneousTransformationMatrix.from_xyz_rpy(
+            y=-wall_length / 2 + (self.position_on_wall * wall_length),
+            z=self.height / 2,
+            reference_frame=parent,
+        )
+        world_root_T_self = world.transform(parent_T_body, world.root)
+
+        with world.modify_world():
+            annotation = DoorWithType.create_with_new_body_in_world(
+                name=name,
+                scale=scale,
+                world=world,
+                world_root_T_self=world_root_T_self,
+            )
+
+        body = annotation.root
+        door_mesh = body.collision.combined_mesh
+
+        door_mesh = Mesh.project_texture_coordinates(
+            mesh=door_mesh,
+            projection_axis=np.array([1, 0, 0]),
+            scale=np.array([kwargs["wall"].thickness, self.width, self.height]),
+        )
+
+        geometry_with_texture = ShapeCollection(
+            [
+                Mesh.from_trimesh(
+                    origin=HomogeneousTransformationMatrix(reference_frame=body),
+                    mesh=door_mesh,
+                )
+            ],
+            reference_frame=body,
+        )
+        body.collision = geometry_with_texture
+        body.visual = geometry_with_texture
+
+        with world.modify_world():
+            kwargs["wall_annotation"].add_aperture(annotation.entry_way)
+
+        self._create_handle_in_world(world, annotation)
+        self._create_hinge_in_world(world, annotation)
+        return annotation
+
+    def _create_handle_in_world(self, world: World, door: Door) -> Handle:
+        """
+        Create the handle of the door.
+
+        :param world: The world where the handle is created.
+        :param door: The door to create the handle for.
+        :return: The handle of the door.
+        """
+
+        floor = world.get_semantic_annotations_by_type(Floor)[0]
+
+        door_T_handle = HomogeneousTransformationMatrix.from_xyz_rpy(
+            y=0.1,
+            x=door.root.collision.min_point.x,
+            reference_frame=door.root,
+        )
+
+        door_T_world = world.transform(door_T_handle, world.root)
+        floor_bounding_box = floor.root.collision.as_bounding_box_collection_at_origin(
+            world.root.global_pose
+        )
+        is_handle_in_room = floor_bounding_box.event.marginal(
+            SpatialVariables.xy
+        ).contains((door_T_world.x, door_T_world.y))
+
+        if is_handle_in_room and self.opens_inward:
+            door_T_handle = HomogeneousTransformationMatrix.from_xyz_rpy(
+                y=0.1,
+                x=door.root.collision.max_point.x,
+                reference_frame=door.root,
+                yaw=np.pi,
+            )
+
+        world_root_T_handle = world.transform(door_T_handle, world.root)
+        handle_name = PrefixedName(name=f"{self.id}_handle", prefix=self.id)
+
+        with world.modify_world():
+            handle = Handle.create_with_new_body_in_world(
+                name=handle_name,
+                world=world,
+                world_root_T_self=world_root_T_handle,
+                scale=Scale(0.05, 0.02, 0.2),
+            )
+            door.add_handle(handle)
+        return handle
+
+    def _create_hinge_in_world(self, world: World, door: Door) -> Hinge:
+        """
+        Create the hinge (the joint that makes the door openable) of the door.
+        :param world: The world where the hinge is created.
+        :param door: The door to create the hinge for.
+        :return: The hinge
+        """
+        world_root_T_hinge = door.calculate_world_T_hinge_based_on_handle(Vector3.Z())
+
+        if self.opens_inward:
+            lower = DerivativeMap(position=0.0)
+            upper = DerivativeMap(position=np.pi / 2)
+        else:
+            upper = DerivativeMap(position=0.0)
+            lower = DerivativeMap(position=-np.pi / 2)
+
+        with world.modify_world():
+            hinge = Hinge.create_with_new_body_in_world(
+                name=PrefixedName(name="hinge", prefix=door.root.name.name),
+                world=world,
+                active_axis=Vector3.Z(),
+                world_root_T_self=world_root_T_hinge,
+                connection_limits=DegreeOfFreedomLimits(lower=lower, upper=upper),
+            )
+            door.add_hinge(hinge)
+
+        return hinge
+
 
 @dataclass
 class EGRoom(EGWithID):
@@ -512,22 +669,26 @@ class EGRoom(EGWithID):
             doors=[EGDoor._from_json(d, **kwargs) for d in data["doors"]],
         )
 
-    def _create_floor(
-        self, world: World, directory: Path, parent: KinematicStructureEntity
-    ) -> Floor:
+    def _create_floor(self, world: World, parent: KinematicStructureEntity) -> Floor:
         """
-        Create the floor of this room.
+        Create the floor of this room spanning the area enclosed by the walls.
 
         :param world: The world to create the floor in.
-        :param directory: The directory of this scene
         :param parent: The parent kinematic structure entity.
         :return: The annotation of the created floor.
         """
         floor_name = PrefixedName(name="floor", prefix=self.id)
 
-        # convert position from lower left to center point
-        x_center = self.position.x + (self.scale.width / 2)
-        y_center = self.position.y + (self.scale.length / 2)
+        all_x = [p.x for w in self.walls for p in (w.start_point, w.end_point)]
+        all_y = [p.y for w in self.walls for p in (w.start_point, w.end_point)]
+
+        min_x, max_x = min(all_x), max(all_x)
+        min_y, max_y = min(all_y), max(all_y)
+
+        floor_width = max_x - min_x
+        floor_length = max_y - min_y
+        x_center = (min_x + max_x) / 2
+        y_center = (min_y + max_y) / 2
 
         parent_T_floor = HomogeneousTransformationMatrix.from_xyz_rpy(
             x=x_center,
@@ -538,7 +699,7 @@ class EGRoom(EGWithID):
 
         with world.modify_world():
             floor_annotation = Floor.create_with_new_body_in_world(
-                scale=Scale(x=self.scale.width, y=self.scale.length, z=0.01),
+                scale=Scale(x=floor_width, y=floor_length, z=0.01),
                 world=world,
                 name=floor_name,
                 world_root_T_self=parent_T_floor,
@@ -547,15 +708,19 @@ class EGRoom(EGWithID):
         return floor_annotation
 
     def create_in_world(
-        self, world: World, directory: Path, parent: KinematicStructureEntity, **kwargs
+        self,
+        world: World,
+        mesh_to_object_mapping: Optional[Dict[Path, "EGObject"]],
+        parent: KinematicStructureEntity,
+        **kwargs,
     ) -> WorldEntity:
 
-        floor_annotation = self._create_floor(world, directory, parent)
+        floor_annotation = self._create_floor(world, parent)
         walls_of_room = []
         doors_of_room = []
 
         for wall in self.walls:
-            wall_annotation = wall.create_in_world(world, directory, parent)
+            wall_annotation = wall.create_in_world(world, parent)
             walls_of_room.append(wall_annotation)
             doors_of_this_wall = [
                 door for door in self.doors if door.wall_id == wall.id
@@ -564,7 +729,10 @@ class EGRoom(EGWithID):
             # create doors
             doors_of_room += [
                 door.create_in_world(
-                    world, directory, wall_annotation.root, wall, wall_annotation
+                    world,
+                    wall_annotation.root,
+                    wall=wall,
+                    wall_annotation=wall_annotation,
                 )
                 for door in doors_of_this_wall
             ]
@@ -579,9 +747,15 @@ class EGRoom(EGWithID):
         with world.modify_world():
             world.add_semantic_annotation(room_annotation)
 
-        # create the objects
-        for sage_object in self.objects:
-            sage_object.create_in_world(world, directory, parent=parent)
+        object_to_mesh_path: Dict[str, Path] = (
+            {obj.id: path for path, obj in mesh_to_object_mapping.items()}
+            if mesh_to_object_mapping
+            else {}
+        )
+
+        for obj in self.objects:
+            mesh_path = object_to_mesh_path.get(obj.id)
+            obj.create_in_world(world, mesh_path, parent=parent)
 
         return world.root
 
@@ -594,7 +768,11 @@ class SceneGenerator(EGWithID):
     Currently only one room is supported for simplicity.
     """
 
-    directory: Path = Path(".")
+    mesh_to_object_mapping: Dict[Path, "EGObject"] = field(default_factory=dict)
+    """
+    A mapping from the mesh directory path to the corresponding object in the scene.
+    Used to resolve per-object mesh paths when creating the world.
+    """
 
     def to_json(self) -> Dict[str, Any]:
         return {
@@ -617,6 +795,6 @@ class SceneGenerator(EGWithID):
         with world.modify_world():
             world.add_body(root)
 
-        self.room.create_in_world(world, Path("."), root)
+        self.room.create_in_world(world, self.mesh_to_object_mapping, root)
 
         return world

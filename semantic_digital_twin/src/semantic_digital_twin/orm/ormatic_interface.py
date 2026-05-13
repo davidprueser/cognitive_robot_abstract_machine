@@ -4495,10 +4495,6 @@ class SceneGeneratorDAO(
         ForeignKey(EGWithIDDAO.database_id), primary_key=True, use_existing_column=True
     )
 
-    directory: Mapped[pathlib.Path] = mapped_column(
-        krrood.ormatic.custom_types.PathType, nullable=False, use_existing_column=True
-    )
-
     room_id: Mapped[int] = mapped_column(
         ForeignKey("EGRoomDAO.database_id", use_alter=True),
         nullable=True,
