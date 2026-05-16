@@ -144,8 +144,22 @@ class UnderspecifiedParameters:
         krrood_variable = attribute_match.assigned_variable
         type_ = self._process_attribute_match_type(krrood_variable._type_)
 
+        if isinstance(value, (list, tuple)):
+            return self._extract_variables_from_iterable_literal(name, value)
+
         if isinstance(value, compatible_types) or isinstance(type_, compatible_types):
-            result = {name: variable_from_name_and_type(name=name, type_=type(value))}
+            effective_type = (
+                type_
+                if (
+                    type_ is not None
+                    and isinstance(type_, type)
+                    and issubclass(type_, compatible_types)
+                )
+                else type(value)
+            )
+            result = {
+                name: variable_from_name_and_type(name=name, type_=effective_type)
+            }
             self.conditioning_assignments_from_literal_values[result[name]] = value
             return result
 
@@ -157,6 +171,46 @@ class UnderspecifiedParameters:
             return {name: variable_from_name_and_type(name=name, type_=type_)}
 
         return self._extract_variables_from_non_primitive_literal(attribute_match)
+
+    def _extract_variables_from_iterable_literal(
+        self, name: str, value: Union[list, tuple]
+    ) -> Dict[str, random_events.variable.Variable]:
+        """
+        Extract variables from an iterable literal by processing each element with an
+        indexed name prefix (e.g. ``walls[0].height``, ``walls[1].start_point.x``).
+
+        Primitive elements become a single conditioning variable; non-primitive elements
+        are decomposed via :py:class:`~krrood.parametrization.feature_extractor.FeatureExtractor`.
+
+        :param name: Base variable name derived from the attribute access path.
+        :param value: The iterable assigned value.
+        :return: A dictionary of extracted variables.
+        """
+        result = {}
+        for i, element in enumerate(value):
+            if element is None:
+                continue
+            indexed_name = f"{name}[{i}]"
+            if isinstance(element, compatible_types):
+                re_var = variable_from_name_and_type(
+                    name=indexed_name, type_=type(element)
+                )
+                result[indexed_name] = re_var
+                self.conditioning_assignments_from_literal_values[re_var] = element
+            else:
+                dao_state = ToDataAccessObjectState()
+                extractor = FeatureExtractor.from_instances(
+                    [to_dao(element, dao_state)]
+                )
+                for feature in extractor.features:
+                    feature_name = f"{indexed_name}.{feature.get_clean_name_from_mapped_variable()}"
+                    re_var = random_events.variable.Continuous(name=feature_name)
+                    result[feature_name] = re_var
+                    mapping = feature.apply_mapping_on_external_root(element)
+                    if not isinstance(mapping, feature._type_):
+                        mapping = feature._type_(mapping)
+                    self.conditioning_assignments_from_literal_values[re_var] = mapping
+        return result
 
     def _extract_variables_from_non_primitive_literal(
         self, attribute_match: AttributeMatch

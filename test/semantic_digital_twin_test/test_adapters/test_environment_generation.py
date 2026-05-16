@@ -41,6 +41,7 @@ from semantic_digital_twin.adapters.ros.visualization.viz_marker import (
 )
 from semantic_digital_twin.adapters.sage_10k_dataset.loader import Sage10kDatasetLoader
 from semantic_digital_twin.orm.ormatic_interface import *  # type: ignore
+from semantic_digital_twin.reasoning.predicates import InsideOf
 from semantic_digital_twin.world_description.geometry import Scale
 
 
@@ -188,17 +189,17 @@ def test_simple_underspecified_environment(rclpy_node):
         room=underspecified(EGRoom)(
             id=None,
             room_type=None,
-            scale=underspecified(EGSize)(width=0, length=1, height=2),
-            position=underspecified(EGPosition)(x=0, y=0, z=0),
+            scale=underspecified(EGSize)(width=..., length=..., height=...),
+            position=underspecified(EGPosition)(x=..., y=..., z=...),
             objects=[
                 underspecified(EGObject)(
                     id=None,
                     room_id=None,
                     place_id=None,
                     object_type=None,
-                    scale=underspecified(EGSize)(width=0.5, length=0.5, height=0.5),
-                    position=underspecified(EGPosition)(x=0, y=0, z=0),
-                    orientation=underspecified(EGOrientation)(x=0, y=0, z=0),
+                    scale=underspecified(EGSize)(width=..., length=..., height=...),
+                    position=underspecified(EGPosition)(x=..., y=..., z=...),
+                    orientation=underspecified(EGOrientation)(x=..., y=..., z=...),
                     source_id=None,
                 ),
                 underspecified(EGObject)(
@@ -206,63 +207,62 @@ def test_simple_underspecified_environment(rclpy_node):
                     room_id=None,
                     place_id=None,
                     object_type=None,
-                    scale=underspecified(EGSize)(width=0.5, length=0.5, height=0.5),
-                    position=underspecified(EGPosition)(x=1, y=1, z=0),
-                    orientation=underspecified(EGOrientation)(x=0, y=0, z=0),
+                    scale=underspecified(EGSize)(width=..., length=..., height=...),
+                    position=underspecified(EGPosition)(x=..., y=..., z=...),
+                    orientation=underspecified(EGOrientation)(x=..., y=..., z=...),
                     source_id=None,
                 ),
             ],
-            walls=variable(
-                EGWall,
-                [
-                    EGWall(
-                        id="wall_1",
-                        start_point=EGPoint2D(0.0, 5.0),
-                        end_point=EGPoint2D(5.5, 5.0),
-                        height=2.7,
-                        thickness=0.1,
-                    ),
-                    EGWall(
-                        id="wall_2",
-                        start_point=EGPoint2D(0, 0),
-                        end_point=EGPoint2D(5.5, 0),
-                        height=2.7,
-                        thickness=0.1,
-                    ),
-                    EGWall(
-                        id="wall_3",
-                        start_point=EGPoint2D(5.5, 0),
-                        end_point=EGPoint2D(5.5, 5.0),
-                        height=2.7,
-                        thickness=0.1,
-                    ),
-                    EGWall(
-                        id="wall_4",
-                        start_point=EGPoint2D(0, 0),
-                        end_point=EGPoint2D(0, 5.0),
-                        height=2.7,
-                        thickness=0.1,
-                    ),
-                ],
-            ),
-            doors=variable(
-                EGDoor,
-                [
-                    EGDoor(
-                        id="door_1",
-                        wall_id="wall_1",
-                        position_on_wall=0.42,
-                        width=0.95,
-                        height=2.05,
-                        opens_inward=False,
-                    )
-                ],
-            ),
+            walls=[
+                EGWall(
+                    id="wall_1",
+                    start_point=EGPoint2D(0.0, 5.0),
+                    end_point=EGPoint2D(5.5, 5.0),
+                    height=2.7,
+                    thickness=0.1,
+                ),
+                EGWall(
+                    id="wall_2",
+                    start_point=EGPoint2D(0, 0),
+                    end_point=EGPoint2D(5.5, 0),
+                    height=2.7,
+                    thickness=0.1,
+                ),
+                EGWall(
+                    id="wall_3",
+                    start_point=EGPoint2D(5.5, 0),
+                    end_point=EGPoint2D(5.5, 5.0),
+                    height=2.7,
+                    thickness=0.1,
+                ),
+                EGWall(
+                    id="wall_4",
+                    start_point=EGPoint2D(0, 0),
+                    end_point=EGPoint2D(0, 5.0),
+                    height=2.7,
+                    thickness=0.1,
+                ),
+            ],
+            doors=[
+                EGDoor(
+                    id="door_1",
+                    wall_id="wall_1",
+                    position_on_wall=0.42,
+                    width=0.95,
+                    height=2.05,
+                    opens_inward=False,
+                ),
+            ],
         ),
+    )
+    scene_generator.resolve()
+    scene_generator.where(
+        InsideOf(scene_generator.variable.objects[0], scene_generator.variable.room)
     )
 
     prob_backend = ProbabilisticBackend(number_of_samples=1)
     samples = prob_backend.evaluate(scene_generator)
+    samples = list(samples)
 
     for sample in samples:
         world = sample.create_world()
