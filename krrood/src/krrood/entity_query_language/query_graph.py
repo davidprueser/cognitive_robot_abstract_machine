@@ -20,7 +20,7 @@ from krrood.entity_query_language.core.base_expressions import (
     SymbolicExpression,
     Filter,
 )
-from krrood.entity_query_language.evaluation import _is_condition_participant
+from krrood.entity_query_language.evaluation import is_condition_participant
 from krrood.entity_query_language.core.variable import (
     Variable,
     Literal,
@@ -74,7 +74,7 @@ def _is_faded_gate(node, satisfied_condition_ids: frozenset) -> bool:
     expr = node.data
     if expr is None:
         return False
-    if not _is_condition_participant(expr):
+    if not is_condition_participant(expr):
         return False
     return expr._id_ not in satisfied_condition_ids
 
@@ -230,9 +230,9 @@ class QueryGraph:
             return self.expression_node_map[expression]
 
         is_satisfied = (
-            self.satisfied_condition_ids is not None
-            and _is_condition_participant(expression)
-            and expression._id_ in self.satisfied_condition_ids
+                self.satisfied_condition_ids is not None
+                and is_condition_participant(expression)
+                and expression._id_ in self.satisfied_condition_ids
         )
         node = QueryNode(
             self.get_expression_name(expression),
@@ -324,7 +324,7 @@ class ColorLegend(RXUtilsColorLegend):
         if satisfied_condition_ids is not None:
             if (
                 expression._id_ not in satisfied_condition_ids
-                and _is_condition_participant(expression)
+                and is_condition_participant(expression)
             ):
                 faded_color = _fade_color(color, UNSATISFIED_CONDITION_ALPHA)
                 return cls(

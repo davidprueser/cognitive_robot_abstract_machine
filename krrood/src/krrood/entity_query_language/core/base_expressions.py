@@ -13,7 +13,9 @@ from collections import UserDict
 from copy import copy
 from dataclasses import dataclass, field
 from functools import cached_property, lru_cache
+from uuid import UUID
 
+from ordered_set import OrderedSet
 from typing_extensions import (
     Dict,
     Any,
@@ -666,15 +668,15 @@ class OperationResult:
     """
     The result of the operation that was evaluated before this one.
     """
-    satisfied_condition_ids: Optional[frozenset] = None
+    satisfied_condition_ids: Optional[OrderedSet[UUID]] = None
     """
-    A frozenset of UUIDs of condition expressions in the condition tree that were satisfied (truth value = True)
+    A set of UUIDs of condition expressions in the condition tree that were satisfied (truth value = True)
     during this evaluation. Populated at the conditions root after all conditions have been evaluated.
     Only set when the overall condition result is True.
     """
-    evaluated_expression_ids: Optional[frozenset] = None
+    evaluated_expression_ids: Optional[OrderedSet[UUID]] = None
     """
-    A frozenset of UUIDs of all expressions that were evaluated along the evaluation path that produced
+    A set of UUIDs of all expressions that were evaluated along the evaluation path that produced
     this result. Populated by the EvaluationTracker observer. Unlike satisfied_condition_ids, this
     includes all evaluated expressions regardless of truth value.
     """

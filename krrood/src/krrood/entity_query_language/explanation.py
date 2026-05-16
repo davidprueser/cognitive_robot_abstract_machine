@@ -4,20 +4,23 @@ import inspect
 import weakref
 from dataclasses import dataclass, field
 from functools import wraps
-from typing import Any, List, Optional, Type, Callable
+from types import ModuleType
+from typing import Any, List, Optional, Type, Callable, Union
+from uuid import UUID
 
 from typing_extensions import TYPE_CHECKING
 
+from krrood.entity_query_language.operators.core_logical_operators import LogicalOperator
 
 if TYPE_CHECKING:
     from krrood.entity_query_language.core.base_expressions import (
         OperationResult, SymbolicExpression,
-)
+    )
     from krrood.entity_query_language.query.query import Query
 
 
 def filter_stack(
-    stack: List[inspect.FrameInfo], internal_package: Optional[str] = None
+        stack: List[inspect.FrameInfo], internal_package: Optional[str] = None
 ) -> List[inspect.FrameInfo]:
     """
     Filter the stack to remove external libraries and optionally keep only a specific package.
@@ -41,28 +44,98 @@ def filter_stack(
     return filtered
 
 
-def monitored(cls: Type) -> Type:
+@dataclass
+class MonitoredRegistry:
     """
-    Class decorator to automatically record the creation stack for EQL objects.
-
-    :param cls: The class to monitor.
-    :return: The monitored class.
+    Registry for monitoring EQL object creation stacks.
+    Acts as a class decorator and provides lookup methods.
     """
-    # Inject the marker to indicate the class is monitored
-    cls._is_monitored_ = True
+    _monitored: set[type] = field(default_factory=set)
+    """
+    Set of classes that are currently being monitored.
+    """
 
-    original_post_init = getattr(cls, "__post_init__", lambda self: None)
+    def __call__(self, cls: Type) -> Type:
+        """
+        Decorate a class to automatically record its creation stack.
 
-    @wraps(original_post_init)
-    def new_post_init(self, *args, **kwargs):
-        # Capture stack, skip the first few frames (decorator internal)
-        raw_stack = inspect.stack()[1:]
-        # Store the filtered stack on the instance
-        self._creation_stack = filter_stack(raw_stack)
-        original_post_init(self, *args, **kwargs)
+        :param cls: The class to monitor.
+        :return: The monitored class.
+        """
+        cls._is_monitored_ = True
+        self._monitored.add(cls)
 
-    cls.__post_init__ = new_post_init
-    return cls
+        original_post_init = getattr(cls, "__post_init__", lambda self: None)
+
+        @wraps(original_post_init)
+        def new_post_init(self, *args, **kwargs):
+            raw_stack = inspect.stack()[1:]
+            self._creation_stack = filter_stack(raw_stack)
+            original_post_init(self, *args, **kwargs)
+
+        cls.__post_init__ = new_post_init
+        return cls
+
+    def get_stack(self, instance: Any) -> Optional[List[inspect.FrameInfo]]:
+        """
+        Retrieve the creation stack for a monitored instance.
+
+        :param instance: The instance to retrieve the stack for.
+        :return: The creation stack, or None if not monitored.
+        """
+        if not self.is_monitored(type(instance)):
+            return None
+        return instance._creation_stack
+
+    def is_monitored(self, target: Union[Type, Callable]) -> bool:
+        """
+        Check whether a class or callable is monitored.
+
+        :param target: The class or callable to check.
+        :return: True if monitored, False otherwise.
+        """
+        # Check the registry set first, then fall back to the marker attribute
+        return target in self._monitored or bool(getattr(target, "_is_monitored_", False))
+
+    def unregister(self, cls: Type) -> None:
+        """
+        Remove a class from monitoring.
+
+        :param cls: The class to stop monitoring.
+        """
+        self._monitored.discard(cls)
+        if hasattr(cls, "_is_monitored_"):
+            del cls._is_monitored_
+
+    @property
+    def monitored_classes(self) -> tuple[type, ...]:
+        """Return an immutable snapshot of all monitored classes."""
+        return tuple(self._monitored)
+
+
+# Singleton instance — use this as the decorator
+monitored = MonitoredRegistry()
+
+
+@dataclass
+class ConditionAndBindings:
+    """
+    Represents a condition and its associated bindings in the inference process.
+    """
+    condition: SymbolicExpression
+    """
+    The condition expression.
+    """
+    bindings: dict[UUID, Any]
+    """
+    A dictionary mapping UUIDs of condition children to their corresponding bindings.
+    """
+
+    def __str__(self):
+        return self.__repr__()
+
+    def __repr__(self):
+        return f"{self.condition} ({','.join(str(child) for child in self.condition._children_)})"
 
 
 @dataclass
@@ -99,6 +172,31 @@ class InferenceExplanation:
     satisfied_condition_ids. None if no result information is available.
     """
 
+    def get_satisfied_conditions_as_string(self) -> str:
+        """
+        Returns a string representation of the satisfied conditions, joined by ' AND '.
+        """
+        return '\nAND '.join(str(c) for c in self.get_satisfied_conditions_and_their_bindings())
+
+    def get_satisfied_conditions_and_their_bindings(self) -> List[ConditionAndBindings]:
+        """
+        Retrieve the list of satisfied condition expressions along with their bindings.
+
+        :return: A list of :class:`ConditionAndBindings` objects, each containing a satisfied condition expression and
+        its corresponding bindings. Returns an empty list if no satisfaction data is available.
+        """
+        if self.operation_result is None or not self.operation_result.satisfied_condition_ids:
+            return []
+
+        satisfied_conditions = []
+        for condition_id in self.operation_result.satisfied_condition_ids:
+            condition_expr = self.query_root._get_expression_by_id_(condition_id)
+            if isinstance(condition_expr, (LogicalOperator, )):
+                continue
+            if condition_expr is not None:
+                satisfied_conditions.append(ConditionAndBindings(condition_expr, self.operation_result.all_bindings))
+        return satisfied_conditions
+
     def condition_graph(self):
         """
         Build a QueryGraph of the full query tree with satisfaction data overlaid.
@@ -120,7 +218,7 @@ class InferenceExplanation:
         )
 
     def as_string(
-            self, focus_package: Optional[str] = None
+            self, focus_package: Optional[str | ModuleType] = None
     ) -> str:
         """
         Convert an InferenceExplanation into a human-readable string.
@@ -128,6 +226,8 @@ class InferenceExplanation:
         :param focus_package: Optional package name to filter the stack further.
         :return: A formatted string explaining the inference.
         """
+        if isinstance(focus_package, ModuleType):
+            focus_package = focus_package.__name__
         # Allow further filtering at explanation time
         display_stack = filter_stack(self.stack, internal_package=focus_package)
 
@@ -153,7 +253,7 @@ INFERENCE_RECORD: weakref.WeakKeyDictionary = weakref.WeakKeyDictionary()
 
 
 def register_inference(
-    instance: Any, variable_node: SymbolicExpression, result: Optional[OperationResult] = None
+        instance: Any, variable_node: SymbolicExpression, result: Optional[OperationResult] = None
 ) -> None:
     """
     Register an instance created via inference into the internal records.
@@ -162,17 +262,14 @@ def register_inference(
     :param variable_node: The variable node that produced the instance.
     :param result: The OperationResult from the evaluation, carrying satisfied condition IDs.
     """
-    # Robust check: Verify monitoring at the class level using type()
-    if not getattr(type(variable_node), "_is_monitored_", False):
+    if not monitored.is_monitored(type(variable_node)):
         return
 
     satisfied_ids = result.satisfied_condition_ids if result else None
     explanation = InferenceExplanation(
         instance=instance,
         query_node=variable_node,
-        # Monitored instances are guaranteed to have _creation_stack via __post_init__
-        stack=variable_node._creation_stack,
-        # _root_ is guaranteed by the SymbolicExpression base class
+        stack=monitored.get_stack(variable_node) or [],
         query_root=variable_node._root_,
         satisfied_condition_ids=satisfied_ids,
         operation_result=result,

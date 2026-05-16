@@ -15,7 +15,7 @@ from krrood.entity_query_language.explanation import (
 from krrood.entity_query_language.query.query import Query
 from krrood.rustworkx_utils import GraphVisualizer
 from krrood.entity_query_language.query_graph import QueryGraph
-from krrood.entity_query_language.evaluation import _is_condition_participant
+from krrood.entity_query_language.evaluation import is_condition_participant
 from krrood.entity_query_language.operators.comparator import Comparator
 
 
@@ -610,7 +610,7 @@ def test_query_graph_satisfaction_colors():
             assert "not satisfied" in node.color.name.lower()
 
     for node in qg.expression_node_map.values():
-        if not _is_condition_participant(node.data):
+        if not is_condition_participant(node.data):
             # Non-condition nodes may be faded if they are exclusive
             # descendants of an unsatisfied node (e.g. Literal(10) under <).
             # They may also be shared (same Variable used in both > and <).
@@ -673,7 +673,7 @@ def test_query_graph_satisfaction_colors_all_satisfied():
 
     for node in qg.expression_node_map.values():
         assert not node.faded
-        if _is_condition_participant(node.data):
+        if is_condition_participant(node.data):
             assert node.color.color == original_colors[id(node.data)]
 
 

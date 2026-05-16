@@ -8,14 +8,15 @@ evaluation pipeline without polluting the core evaluation methods.
 from __future__ import annotations
 
 from abc import ABC
-from collections import defaultdict
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 
-from graphql.pyutils import cached_property
+from ordered_set import OrderedSet
 from typing_extensions import Any, Dict, List, Optional
 
 from typing_extensions import TYPE_CHECKING
+
+from krrood.entity_query_language.enums import EvaluationContextKey
 
 if TYPE_CHECKING:
     from krrood.entity_query_language.core.base_expressions import (
@@ -37,30 +38,6 @@ def get_evaluation_context() -> Optional[EvaluationContext]:
 def set_evaluation_context(ctx: Optional[EvaluationContext]) -> None:
     """Set or clear the current evaluation context."""
     _evaluation_context_var.set(ctx)
-
-
-@dataclass
-class EvaluationContext:
-    """Carries observer state through the evaluation pipeline."""
-
-    observers: List[EvaluationObserver] = field(default_factory=list)
-    data: Dict[str, Any] = field(default_factory=dict)
-
-    def on_evaluate_enter(self, *, expression, sources):
-        for obs in self.observers:
-            obs.on_evaluate_enter(expression, sources)
-
-    def on_evaluate_exit(self, *, expression):
-        for obs in self.observers:
-            obs.on_evaluate_exit(expression)
-
-    def on_result_yielded(self, *, expression, result):
-        for obs in self.observers:
-            obs.on_result_yielded(expression, result)
-
-    def on_conclusions_processed(self, *, expression, result):
-        for obs in self.observers:
-            obs.on_conclusions_processed(expression, result)
 
 
 class EvaluationObserver(ABC):
@@ -85,7 +62,47 @@ class EvaluationObserver(ABC):
         """Called after _evaluate_conclusions_and_update_bindings_ completes."""
 
 
-def _is_condition_participant(expr) -> bool:
+@dataclass
+class EvaluationContext:
+    """Carries observer state through the evaluation pipeline."""
+
+    observers: List[EvaluationObserver] = field(default_factory=list)
+    """
+    List of observers to notify of evaluation events.
+    """
+    data: Dict[EvaluationContextKey, Any] = field(default_factory=dict)
+    """
+    Arbitrary data storage for observers to share information across events during evaluation.
+     Observers should use well-known keys defined in EvaluationContextKey to avoid collisions.
+     This is the primary mechanism for observers to maintain state across the evaluation of an expression
+     and its sub-expressions without needing to modify the expression classes or the core evaluation logic.
+     For example, the EvaluationTracker observer uses the EVALUATED_IDS_KEY to track which expressions have been 
+     evaluated in the current context, and the SatisfiedConditionTracker uses the SATISFIED_IDS_KEY to track which 
+     condition expressions have been satisfied.
+    """
+
+    def on_evaluate_enter(self, *, expression, sources):
+        """Notify all observers that an expression is about to be evaluated."""
+        for obs in self.observers:
+            obs.on_evaluate_enter(expression, sources)
+
+    def on_evaluate_exit(self, *, expression):
+        """Notify all observers that an expression has finished evaluating."""
+        for obs in self.observers:
+            obs.on_evaluate_exit(expression)
+
+    def on_result_yielded(self, *, expression, result):
+        """Notify all observers that a result has been yielded from an expression."""
+        for obs in self.observers:
+            obs.on_result_yielded(expression, result)
+
+    def on_conclusions_processed(self, *, expression, result):
+        """Notify all observers that conclusions have been processed for an expression."""
+        for obs in self.observers:
+            obs.on_conclusions_processed(expression, result)
+
+
+def is_condition_participant(expr) -> bool:
     """Return True if the expression participates in condition evaluation."""
     from krrood.entity_query_language.operators.comparator import Comparator
     from krrood.entity_query_language.predicate import Predicate
@@ -102,19 +119,6 @@ def _is_condition_participant(expr) -> bool:
     if isinstance(expr._parent_, TruthValueOperator):
         return True
     return False
-
-
-SATISFIED_IDS_KEY = "_satisfied_condition_ids"
-"""
-A reserved key in the evaluation context's data dictionary for tracking the set of satisfied condition expression IDs
-during the current evaluation iteration.
-"""
-
-EVALUATED_IDS_KEY = "_evaluated_expression_ids"
-"""
-A reserved key in the evaluation context's data dictionary for tracking the cumulative set of all expression IDs
-evaluated so far during the current evaluation.
-"""
 
 
 class EvaluationTracker(EvaluationObserver):
@@ -136,7 +140,7 @@ class EvaluationTracker(EvaluationObserver):
         ctx = get_evaluation_context()
         if ctx is None:
             return
-        evaluated = ctx.data.setdefault(EVALUATED_IDS_KEY, set())
+        evaluated = ctx.data.setdefault(EvaluationContextKey.EVALUATED_IDS_KEY, set())
         evaluated.add(expression._id_)
 
         if isinstance(sources, OperationResult) and sources.evaluated_expression_ids:
@@ -146,9 +150,9 @@ class EvaluationTracker(EvaluationObserver):
         ctx = get_evaluation_context()
         if ctx is None:
             return
-        evaluated = ctx.data.get(EVALUATED_IDS_KEY)
+        evaluated = ctx.data.get(EvaluationContextKey.EVALUATED_IDS_KEY)
         if evaluated is not None and result.evaluated_expression_ids is None:
-            result.evaluated_expression_ids = frozenset(evaluated)
+            result.evaluated_expression_ids = OrderedSet(evaluated)
 
 
 class SatisfiedConditionTracker(EvaluationObserver):
@@ -170,16 +174,14 @@ class SatisfiedConditionTracker(EvaluationObserver):
         satisfied = None
         if isinstance(sources, OperationResult):
             satisfied = sources.satisfied_condition_ids
-        elif hasattr(sources, "satisfied_condition_ids"):
-            satisfied = sources.satisfied_condition_ids
         if satisfied is not None:
-            ctx.data[SATISFIED_IDS_KEY] = satisfied
+            ctx.data[EvaluationContextKey.SATISFIED_IDS_KEY] = satisfied
 
     def on_result_yielded(self, expression, result):
         ctx = get_evaluation_context()
         if ctx is None:
             return
-        satisfied = ctx.data.get(SATISFIED_IDS_KEY)
+        satisfied = ctx.data.get(EvaluationContextKey.SATISFIED_IDS_KEY)
         if satisfied is not None and result.satisfied_condition_ids is None:
             result.satisfied_condition_ids = satisfied
 
@@ -193,7 +195,7 @@ class SatisfiedConditionTracker(EvaluationObserver):
             return
 
         ctx = get_evaluation_context()
-        evaluated = ctx.data.get(EVALUATED_IDS_KEY) if ctx is not None else None
+        evaluated = ctx.data.get(EvaluationContextKey.EVALUATED_IDS_KEY) if ctx is not None else None
         if evaluated is None:
             return
 
@@ -211,7 +213,7 @@ class SatisfiedConditionTracker(EvaluationObserver):
                 expr = expression._get_expression_by_id_(expr_id)
             except NoExpressionFoundForGivenID:
                 continue
-            if not _is_condition_participant(expr):
+            if not is_condition_participant(expr):
                 continue
             if isinstance(expr, LogicalOperator):
                 if not expr._is_false_:
@@ -242,10 +244,10 @@ class SatisfiedConditionTracker(EvaluationObserver):
             if ancestor_ok:
                 final_satisfied.add(expr_id)
 
-        satisfied_ids = frozenset(final_satisfied)
+        satisfied_ids = OrderedSet(final_satisfied)
         result.satisfied_condition_ids = satisfied_ids
         if ctx is not None:
-            ctx.data[SATISFIED_IDS_KEY] = satisfied_ids
+            ctx.data[EvaluationContextKey.SATISFIED_IDS_KEY] = satisfied_ids
 
 
 class InferenceRecorder(EvaluationObserver):
