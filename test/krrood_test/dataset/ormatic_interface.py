@@ -130,6 +130,23 @@ class PersonDAO_knows_association(Base, AssociationDataAccessObject):
     )
 
 
+class SceneObjectAggregationsDAO_objects_association(Base, AssociationDataAccessObject):
+
+    __tablename__ = "_54418398967437342317352839641938518276065704246265837189705949"
+
+    database_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    source_sceneobjectaggregationsdao_id: Mapped[int] = mapped_column(
+        ForeignKey("SceneObjectAggregationsDAO.database_id")
+    )
+    target_sceneobjectdao_id: Mapped[int] = mapped_column(
+        ForeignKey("SceneObjectDAO.database_id")
+    )
+
+    target: Mapped[SceneObjectDAO] = relationship(
+        "SceneObjectDAO", foreign_keys=[target_sceneobjectdao_id]
+    )
+
+
 class SceneRoomDAO_objects_association(Base, AssociationDataAccessObject):
 
     __tablename__ = "_41896291563655570123326561014529018280292791361420111771921539"
@@ -611,6 +628,34 @@ class GenericClassDAO(
     }
 
 
+class GenericClass_floatDAO(
+    GenericClassDAO,
+    DataAccessObject[test.krrood_test.dataset.example_classes.GenericClass[float]],
+):
+
+    __tablename__ = "GenericClass_floatDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        ForeignKey(GenericClassDAO.database_id),
+        primary_key=True,
+        use_existing_column=True,
+    )
+
+    value: Mapped[builtins.float] = mapped_column(use_existing_column=True)
+    optional_value: Mapped[typing.Optional[builtins.float]] = mapped_column(
+        use_existing_column=True
+    )
+
+    container: Mapped[typing.List[builtins.float]] = mapped_column(
+        JSON, nullable=False, use_existing_column=True
+    )
+
+    __mapper_args__ = {
+        "polymorphic_identity": "GenericClass_floatDAO",
+        "inherit_condition": database_id == GenericClassDAO.database_id,
+    }
+
+
 class GenericClass_KRROODPositionDAO(
     GenericClassDAO,
     DataAccessObject[
@@ -659,34 +704,6 @@ class GenericClass_KRROODPositionDAO(
 
     __mapper_args__ = {
         "polymorphic_identity": "GenericClass_KRROODPositionDAO",
-        "inherit_condition": database_id == GenericClassDAO.database_id,
-    }
-
-
-class GenericClass_floatDAO(
-    GenericClassDAO,
-    DataAccessObject[test.krrood_test.dataset.example_classes.GenericClass[float]],
-):
-
-    __tablename__ = "GenericClass_floatDAO"
-
-    database_id: Mapped[builtins.int] = mapped_column(
-        ForeignKey(GenericClassDAO.database_id),
-        primary_key=True,
-        use_existing_column=True,
-    )
-
-    value: Mapped[builtins.float] = mapped_column(use_existing_column=True)
-    optional_value: Mapped[typing.Optional[builtins.float]] = mapped_column(
-        use_existing_column=True
-    )
-
-    container: Mapped[typing.List[builtins.float]] = mapped_column(
-        JSON, nullable=False, use_existing_column=True
-    )
-
-    __mapper_args__ = {
-        "polymorphic_identity": "GenericClass_floatDAO",
         "inherit_condition": database_id == GenericClassDAO.database_id,
     }
 
@@ -1141,6 +1158,27 @@ class SceneObjectDAO(
 
     type: Mapped[builtins.str] = mapped_column(
         sqlalchemy.sql.sqltypes.Text, use_existing_column=True
+    )
+
+
+class SceneObjectAggregationsDAO(
+    Base,
+    DataAccessObject[test.krrood_test.dataset.example_classes.SceneObjectAggregations],
+):
+
+    __tablename__ = "SceneObjectAggregationsDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        Integer, primary_key=True, use_existing_column=True
+    )
+
+    objects: Mapped[builtins.list[SceneObjectAggregationsDAO_objects_association]] = (
+        relationship(
+            "SceneObjectAggregationsDAO_objects_association",
+            collection_class=builtins.list,
+            cascade="all, delete-orphan",
+            foreign_keys="[SceneObjectAggregationsDAO_objects_association.source_sceneobjectaggregationsdao_id]",
+        )
     )
 
 

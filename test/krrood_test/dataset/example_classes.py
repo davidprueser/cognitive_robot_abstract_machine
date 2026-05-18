@@ -18,7 +18,10 @@ from krrood.ormatic.data_access_objects.alternative_mappings import (
     AlternativeMapping,
     T,
 )
-from krrood.parametrization.feature_extractor import HasSceneGenerationAggregations
+from krrood.parametrization.feature_extractor import (
+    HasAggregationStatistics,
+    HasPartAggregations,
+)
 from krrood.symbol_graph.symbol_graph import Symbol
 from ..dataset.semantic_world_like_classes import Body
 
@@ -731,17 +734,20 @@ class SceneObject:
 
 
 @dataclass
-class SceneRoom(HasSceneGenerationAggregations):
+class SceneObjectAggregations(HasAggregationStatistics):
     objects: List[SceneObject]
 
-    def object_count_features(self):
+    def object_count_features(self) -> Dict[str, int]:
         result = {}
-        for object in self.objects:
-            result[object.type] = (
-                result[object.type] + 1 if object.type in result else 1
-            )
+        for obj in self.objects:
+            result[obj.type] = result[obj.type] + 1 if obj.type in result else 1
         return result
 
-    def spatial_relation_features(self):
-        # InsideOf, Near, On, Under
-        return NotImplementedError("Not implemented yet")
+
+@dataclass
+class SceneRoom(HasPartAggregations):
+    objects: List[SceneObject]
+
+    @classmethod
+    def aggregation_class_for_part(cls, part_name: str) -> Optional[type]:
+        return {"objects": SceneObjectAggregations}.get(part_name)

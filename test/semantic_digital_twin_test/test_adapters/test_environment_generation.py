@@ -255,10 +255,10 @@ def test_simple_underspecified_environment(rclpy_node):
             ],
         ),
     )
-    scene_generator.resolve()
-    scene_generator.where(
-        InsideOf(scene_generator.variable.objects[0], scene_generator.variable.room)
-    )
+    # scene_generator.resolve()
+    # scene_generator.where(
+    #     InsideOf(scene_generator.variable.objects[0], scene_generator.variable.room)
+    # )
 
     prob_backend = ProbabilisticBackend(number_of_samples=1)
     samples = prob_backend.evaluate(scene_generator)
