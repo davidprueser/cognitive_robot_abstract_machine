@@ -1,16 +1,19 @@
 from __future__ import annotations
 
 import enum
+import inspect
+from abc import ABC, abstractmethod
 from collections import deque
 from dataclasses import dataclass, field
 from functools import cached_property
-from typing import List, Type
+from typing import List, Type, Any, Dict
 
 import pandas as pd
 import sqlalchemy
 from sqlalchemy.orm import MANYTOONE, ONETOMANY
 from typing_extensions import TYPE_CHECKING
 
+from krrood.entity_query_language.core.base_expressions import SymbolicExpression
 from krrood.entity_query_language.core.mapped_variable import MappedVariable
 from krrood.entity_query_language.core.variable import Variable
 from krrood.entity_query_language.factories import variable
@@ -20,6 +23,34 @@ from random_events.variable import compatible_types
 
 if TYPE_CHECKING:
     from krrood.ormatic.data_access_objects.dao import DataAccessObject
+
+
+@dataclass
+class HasAggregationStatistics(ABC):
+
+    def get_aggregation_statistics(self):
+        """
+        Get the aggregation statistics for this feature extractor.
+        :return: A dictionary containing the aggregation statistics.
+        """
+        cls_functions = inspect.getmembers(self.__class__, predicate=inspect.isfunction)
+        return {
+            name: function(self)
+            for name, function in cls_functions
+            if function is not HasAggregationStatistics.get_aggregation_statistics
+            and not (name.startswith("__") and name.endswith("__"))
+        }
+
+
+@dataclass
+class HasSceneGenerationAggregations(HasAggregationStatistics):
+    @abstractmethod
+    def object_count_features(self):
+        pass
+
+    @abstractmethod
+    def spatial_relation_features(self):
+        pass
 
 
 @dataclass
@@ -33,6 +64,10 @@ class FeatureExtractor:
     """
     The features extracted from the class/instances.
     """
+
+    _aggregation_features: Dict[str, SymbolicExpression] = field(
+        init=False, default_factory=Dict
+    )
 
     def __post_init__(self):
         if not self.features:
@@ -52,12 +87,12 @@ class FeatureExtractor:
 
         dao_state = FromDataAccessObjectState()
         root = variable(type(instances[0].from_dao(dao_state)), [])
-        features = cls._extract_features(instances[0], root)
-        return FeatureExtractor(features)
+        extractor = cls.__new__(cls)
+        extractor.features = extractor._extract_features(instances[0], root)
+        return extractor
 
-    @classmethod
     def _extract_features(
-        cls, example_instance: DataAccessObject, symbolic_root: Variable
+        self, example_instance: DataAccessObject, symbolic_root: Variable
     ) -> List[MappedVariable]:
         result = []
         seen = set()
@@ -75,26 +110,79 @@ class FeatureExtractor:
                 type(current_instance)
             )
 
-            for attribute in specification.attributes:
-                value = getattr(current_instance, attribute.key)
-
-                if not isinstance(value, compatible_types):
-                    continue
-
-                symbolic_attribute = getattr(current_symbolic, attribute.name)
-                symbolic_attribute._type_ = get_python_type_from_sqlalchemy_column(
-                    attribute
+            result.extend(
+                self._process_attributes(
+                    current_instance, current_symbolic, specification
                 )
-                result.append(symbolic_attribute)
+            )
+            result.extend(
+                self._process_exchangeable_parts(
+                    current_instance, current_symbolic, specification
+                )
+            )
 
-            for part in specification.unique_parts:
-                value = getattr(current_instance, part)
+            queue.extend(
+                self._process_unique_parts(
+                    current_instance, current_symbolic, specification
+                )
+            )
 
-                if value is None:
-                    continue
+        return result
 
-                queue.append((value, getattr(current_symbolic, part)))
+    @staticmethod
+    def _process_attributes(
+        instance: DataAccessObject,
+        symbolic_root: Variable,
+        specification: RelationalSumProductNetworkSpecification,
+    ) -> List[MappedVariable]:
+        result = []
+        for attribute in specification.attributes:
+            value = getattr(instance, attribute.key)
 
+            if not isinstance(value, compatible_types):
+                continue
+
+            symbolic_attribute = getattr(symbolic_root, attribute.name)
+            symbolic_attribute._type_ = get_python_type_from_sqlalchemy_column(
+                attribute
+            )
+            result.append(symbolic_attribute)
+        return result
+
+    @staticmethod
+    def _process_unique_parts(
+        instance: DataAccessObject,
+        symbolic_root: Variable,
+        specification: RelationalSumProductNetworkSpecification,
+    ) -> deque[Any]:
+        queue = deque()
+        for part in specification.unique_parts:
+            value = getattr(instance, part)
+
+            if value is None:
+                continue
+
+            queue.append((value, getattr(symbolic_root, part)))
+        return queue
+
+    def _process_exchangeable_parts(
+        self, current_instance, current_symbolic, specification
+    ):
+        result = []
+        for exchangeable_part in specification.exchangeable_parts:
+            # multiple since exchang. parts are many to many rel. ships
+            aggregation_statistics = (
+                current_instance.from_dao().get_aggregation_statistics()
+            )
+
+            if not aggregation_statistics:
+                raise ValueError(
+                    f"No aggregation statistics found for {exchangeable_part}"
+                    f"This is not allowed for exchangeable parts."
+                )
+
+            self._aggregation_features[exchangeable_part] = aggregation_statistics
+            result.append(current_symbolic)
         return result
 
     def apply_mapping(self, instance: DataAccessObject) -> List:

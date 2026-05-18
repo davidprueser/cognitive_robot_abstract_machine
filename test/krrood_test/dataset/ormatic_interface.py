@@ -130,6 +130,23 @@ class PersonDAO_knows_association(Base, AssociationDataAccessObject):
     )
 
 
+class SceneRoomDAO_objects_association(Base, AssociationDataAccessObject):
+
+    __tablename__ = "_41896291563655570123326561014529018280292791361420111771921539"
+
+    database_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    source_sceneroomdao_id: Mapped[int] = mapped_column(
+        ForeignKey("SceneRoomDAO.database_id")
+    )
+    target_sceneobjectdao_id: Mapped[int] = mapped_column(
+        ForeignKey("SceneObjectDAO.database_id")
+    )
+
+    target: Mapped[SceneObjectDAO] = relationship(
+        "SceneObjectDAO", foreign_keys=[target_sceneobjectdao_id]
+    )
+
+
 class AlternativeMappingAggregatorDAO_entities1_association(
     Base, AssociationDataAccessObject
 ):
@@ -594,34 +611,6 @@ class GenericClassDAO(
     }
 
 
-class GenericClass_floatDAO(
-    GenericClassDAO,
-    DataAccessObject[test.krrood_test.dataset.example_classes.GenericClass[float]],
-):
-
-    __tablename__ = "GenericClass_floatDAO"
-
-    database_id: Mapped[builtins.int] = mapped_column(
-        ForeignKey(GenericClassDAO.database_id),
-        primary_key=True,
-        use_existing_column=True,
-    )
-
-    value: Mapped[builtins.float] = mapped_column(use_existing_column=True)
-    optional_value: Mapped[typing.Optional[builtins.float]] = mapped_column(
-        use_existing_column=True
-    )
-
-    container: Mapped[typing.List[builtins.float]] = mapped_column(
-        JSON, nullable=False, use_existing_column=True
-    )
-
-    __mapper_args__ = {
-        "polymorphic_identity": "GenericClass_floatDAO",
-        "inherit_condition": database_id == GenericClassDAO.database_id,
-    }
-
-
 class GenericClass_KRROODPositionDAO(
     GenericClassDAO,
     DataAccessObject[
@@ -670,6 +659,34 @@ class GenericClass_KRROODPositionDAO(
 
     __mapper_args__ = {
         "polymorphic_identity": "GenericClass_KRROODPositionDAO",
+        "inherit_condition": database_id == GenericClassDAO.database_id,
+    }
+
+
+class GenericClass_floatDAO(
+    GenericClassDAO,
+    DataAccessObject[test.krrood_test.dataset.example_classes.GenericClass[float]],
+):
+
+    __tablename__ = "GenericClass_floatDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        ForeignKey(GenericClassDAO.database_id),
+        primary_key=True,
+        use_existing_column=True,
+    )
+
+    value: Mapped[builtins.float] = mapped_column(use_existing_column=True)
+    optional_value: Mapped[typing.Optional[builtins.float]] = mapped_column(
+        use_existing_column=True
+    )
+
+    container: Mapped[typing.List[builtins.float]] = mapped_column(
+        JSON, nullable=False, use_existing_column=True
+    )
+
+    __mapper_args__ = {
+        "polymorphic_identity": "GenericClass_floatDAO",
         "inherit_condition": database_id == GenericClassDAO.database_id,
     }
 
@@ -1110,6 +1127,39 @@ class MultipleInheritanceDAO(
         "polymorphic_identity": "MultipleInheritanceDAO",
         "inherit_condition": database_id == PrimaryBaseDAO.database_id,
     }
+
+
+class SceneObjectDAO(
+    Base, DataAccessObject[test.krrood_test.dataset.example_classes.SceneObject]
+):
+
+    __tablename__ = "SceneObjectDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        Integer, primary_key=True, use_existing_column=True
+    )
+
+    type: Mapped[builtins.str] = mapped_column(
+        sqlalchemy.sql.sqltypes.Text, use_existing_column=True
+    )
+
+
+class SceneRoomDAO(
+    Base, DataAccessObject[test.krrood_test.dataset.example_classes.SceneRoom]
+):
+
+    __tablename__ = "SceneRoomDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        Integer, primary_key=True, use_existing_column=True
+    )
+
+    objects: Mapped[builtins.list[SceneRoomDAO_objects_association]] = relationship(
+        "SceneRoomDAO_objects_association",
+        collection_class=builtins.list,
+        cascade="all, delete-orphan",
+        foreign_keys="[SceneRoomDAO_objects_association.source_sceneroomdao_id]",
+    )
 
 
 class SymbolDAO(Base, DataAccessObject[krrood.symbol_graph.symbol_graph.Symbol]):

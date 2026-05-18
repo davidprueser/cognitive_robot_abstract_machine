@@ -18,6 +18,7 @@ from krrood.ormatic.data_access_objects.alternative_mappings import (
     AlternativeMapping,
     T,
 )
+from krrood.parametrization.feature_extractor import HasSceneGenerationAggregations
 from krrood.symbol_graph.symbol_graph import Symbol
 from ..dataset.semantic_world_like_classes import Body
 
@@ -722,3 +723,25 @@ class GenericClassAssociation:
 @dataclass
 class PathAssociation:
     path: Path
+
+
+@dataclass
+class SceneObject:
+    type: str
+
+
+@dataclass
+class SceneRoom(HasSceneGenerationAggregations):
+    objects: List[SceneObject]
+
+    def object_count_features(self):
+        result = {}
+        for object in self.objects:
+            result[object.type] = (
+                result[object.type] + 1 if object.type in result else 1
+            )
+        return result
+
+    def spatial_relation_features(self):
+        # InsideOf, Near, On, Under
+        return NotImplementedError("Not implemented yet")

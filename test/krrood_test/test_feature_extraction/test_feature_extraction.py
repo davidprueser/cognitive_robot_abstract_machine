@@ -9,14 +9,14 @@ from krrood.parametrization.feature_extractor import FeatureExtractor
 from krrood.parametrization.model_registries import DictRegistry
 from krrood.parametrization.parameterizer import UnderspecifiedParameters
 from probabilistic_model.probabilistic_circuit.rx.helper import fully_factorized
-from ..dataset import ormatic_interface  # type: ignore
-from ..dataset.example_classes import (
+from krrood_test.dataset import ormatic_interface  # type: ignore
+from krrood_test.dataset.example_classes import (
     NestedAction,
     KRROODPose,
     KRROODPosition,
     KRROODOrientation,
 )
-from ..dataset.semantic_world_like_classes import Body
+from krrood_test.dataset.semantic_world_like_classes import Body
 
 
 def test_features_extraction():
