@@ -27,6 +27,7 @@ from krrood.entity_query_language.factories import (
 from krrood.entity_query_language.operators.comparator import Comparator
 from krrood.entity_query_language.operators.core_logical_operators import LogicalOperator
 from krrood.entity_query_language.core.base_expressions import Selectable
+from krrood.symbol_graph.symbol_graph import Symbol
 
 if TYPE_CHECKING:
     from krrood.entity_query_language.core.base_expressions import (
@@ -61,15 +62,21 @@ class ConditionAndBindings:
 
 
 @dataclass
-class InferenceExplanation:
+class InferenceExplanation(Symbol):
     """
     Explanation of how an instance was created through inference.
+
+    Inherits from :class:`~krrood.symbol_graph.symbol_graph.Symbol` so that every
+    explanation is a first-class entity in the SymbolGraph and therefore queryable
+    via EQL like any other domain object.
+
+    Lifecycle is tied to the inferred instance: the instance stores a strong reference
+    to this object via its ``_inference_explanation_`` attribute (see
+    :func:`register_inference`), while this object stores only a *weak* reference back
+    to the instance.  This means the explanation is part of the same reference cluster
+    as the instance and is collected together with it — no global registry required.
     """
 
-    instance: Any
-    """
-    The instance that was created.
-    """
     query_node: SymbolicExpression
     """
     The query node that was used to create the instance.
@@ -93,6 +100,19 @@ class InferenceExplanation:
     Contains bindings, all_bindings, is_false, operand, previous_operation_result, and
     satisfied_condition_ids. None if no result information is available.
     """
+
+    # Internal weak reference to the inferred instance.  Not part of the public
+    # constructor — populated by __post_init__.
+    _instance_ref: Optional[weakref.ref] = field(
+        default=None, init=False, repr=False, compare=False
+    )
+
+    @property
+    def instance(self) -> Any:
+        """The inferred instance, or ``None`` if it has been garbage-collected."""
+        if self._instance_ref is None:
+            return None
+        return self._instance_ref()
 
     def get_satisfied_conditions_as_string(self) -> str:
         """
@@ -263,27 +283,33 @@ class InferenceExplanation:
         return variable_from(self)
 
 
-# Dictionary to store inference explanations for instances.
-# Uses weak references to allow instances to be garbage collected.
-INFERENCE_RECORD: weakref.WeakKeyDictionary = weakref.WeakKeyDictionary()
-
-
 def register_inference(
         instance: Any, variable_node: SymbolicExpression, result: Optional[OperationResult] = None
 ) -> None:
     """
-    Register an instance created via inference into the internal records.
+    Register an instance created via inference by attaching an :class:`InferenceExplanation`
+    directly to the instance.
+
+    Only :class:`~krrood.symbol_graph.symbol_graph.Symbol` instances are supported.
+    Non-Symbol values (plain ints, strings, frozen third-party objects) are silently
+    ignored so that callers need no special-casing.
+
+    The explanation is stored directly as the ``_inference_explanation_`` field on
+    the instance (declared in :class:`~krrood.symbol_graph.symbol_graph.Symbol`),
+    keeping the explanation's lifecycle identical to the instance's lifecycle — no
+    separate global registry is needed.
 
     :param instance: The instance to record.
     :param variable_node: The variable node that produced the instance.
     :param result: The OperationResult from the evaluation, carrying satisfied condition IDs.
     """
+    if not isinstance(instance, Symbol):
+        return
     if not monitored.is_monitored(type(variable_node)):
         return
 
     satisfied_ids = result.satisfied_condition_ids if result else None
     explanation = InferenceExplanation(
-        instance=instance,
         query_node=variable_node,
         stack=monitored.get_stack(variable_node) or [],
         query_root=variable_node._root_,
@@ -291,19 +317,22 @@ def register_inference(
         operation_result=result,
     )
     try:
-        INFERENCE_RECORD[instance] = explanation
+        explanation._instance_ref = weakref.ref(instance)
     except TypeError:
-        pass
+        explanation._instance_ref = lambda: instance  # type: ignore[assignment]
+    instance._inference_explanation_ = explanation
 
 
 def explain_inference(instance: Any) -> Optional[InferenceExplanation]:
     """
     Retrieve the explanation of how the given instance was created through inference.
 
+    Returns ``None`` for non-:class:`~krrood.symbol_graph.symbol_graph.Symbol` values
+    or for Symbol instances that were not produced by an inference variable.
+
     :param instance: The instance to explain.
-    :return: An InferenceExplanation object if found, otherwise None.
+    :return: An :class:`InferenceExplanation` if the instance was inferred, otherwise ``None``.
     """
-    try:
-        return INFERENCE_RECORD.get(instance)
-    except TypeError:
+    if not isinstance(instance, Symbol):
         return None
+    return instance._inference_explanation_

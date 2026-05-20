@@ -1,3 +1,4 @@
+import gc
 import operator
 from dataclasses import dataclass
 
@@ -21,16 +22,17 @@ from krrood.entity_query_language.factories import (
 from krrood.entity_query_language.operators.comparator import Comparator
 from krrood.entity_query_language.query.query import Query
 from krrood.entity_query_language.query_graph import QueryGraph
+from krrood.symbol_graph.symbol_graph import Symbol
 from ..dataset.semantic_world_like_classes import Handle, PrismaticConnection, FixedConnection, Drawer
 
 
-@dataclass(frozen=True)
-class Person:
+@dataclass(unsafe_hash=True)
+class Person(Symbol):
     name: str
 
 
-@dataclass(frozen=True)
-class Item:
+@dataclass(unsafe_hash=True)
+class Item(Symbol):
     value: int
 
 
@@ -565,13 +567,13 @@ def test_condition_graph_pipeline_multiple_results():
         assert comp_nodes[0].is_satisfied is True
 
 
-def test_condition_graph_pipeline_non_weakly_referenceable():
-    """explain_inference returns None for non-weakly-referenceable values (e.g. int)."""
+def test_condition_graph_pipeline_non_symbol():
+    """explain_inference returns None for non-Symbol values (e.g. plain int)."""
     val = variable_from([6])
     query = entity(val).where(val > 5)
     results = list(query.evaluate())
     assert len(results) == 1
-    # Plain integers cannot be weak-referenced, so register_inference silently fails
+    # Plain integers are not Symbol instances, so register_inference silently skips them
     assert explain_inference(results[0]) is None
 
 
@@ -738,6 +740,56 @@ def test_nested_rule_explanation(drawer_rule):
 def test_nested_rule_meta_queries(drawer_rule):
     explanation = explain_inference(drawer_rule)
 
+
+def test_explanation_lifecycle_tied_to_instance():
+    """
+    InferenceExplanation must not keep the inferred instance (or its World) alive
+    after all external references are released.
+
+    The world is created directly inside a helper closure so that no pytest fixture
+    machinery holds an external strong reference — pytest keeps fixture return-values
+    alive for the duration of the test function even after an explicit ``del``.
+    """
+    import weakref
+    from ..test_eql.conf.world.doors_and_drawers import DoorsAndDrawersWorld
+
+    world_ref: weakref.ref
+    drawer_ref: weakref.ref
+
+    def _run():
+        nonlocal world_ref, drawer_ref
+        world = DoorsAndDrawersWorld().create()
+
+        handle = variable(Handle, world.bodies)
+        prismatic_connection = variable(PrismaticConnection, world.connections)
+        fixed_connection = match_variable(FixedConnection, world.connections)(
+            parent=prismatic_connection.child, child=handle
+        )
+        drawers = inference(Drawer)(
+            container=fixed_connection.parent, handle=fixed_connection.child
+        ).tolist()
+        assert drawers, "Need at least one inferred Drawer for this test"
+
+        drawer = drawers[0]
+        explanation = explain_inference(drawer)
+        assert explanation is not None, "Drawer should have an inference explanation"
+
+        world_ref = weakref.ref(world)
+        drawer_ref = weakref.ref(drawer)
+
+    _run()
+    gc.collect()
+
+    # All strong references inside _run() are now gone.  InferenceExplanation is
+    # owned by the drawer (not a global registry), so the entire cluster — drawer,
+    # explanation, world entities — must be collectable.
+    assert world_ref() is None, (
+        "World should be garbage-collected after all local references are released. "
+        "If this fails, something outside the World cluster is keeping it alive — "
+        "likely an InferenceExplanation or a class-level cache holding a strong "
+        "reference to a WorldEntity."
+    )
+    assert drawer_ref() is None, "Drawer should have been garbage-collected together with its World."
 
 
 @pytest.fixture
