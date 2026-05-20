@@ -16,7 +16,9 @@ from typing_extensions import TYPE_CHECKING
 from krrood.entity_query_language.core.mapped_variable import MappedVariable, Apply
 from krrood.entity_query_language.core.variable import Variable
 from krrood.entity_query_language.factories import variable
+from krrood.entity_query_language.utils import is_iterable
 from krrood.ormatic.data_access_objects.from_dao import FromDataAccessObjectState
+from krrood.ormatic.data_access_objects.helper import to_dao
 from krrood.ormatic.utils import get_python_type_from_sqlalchemy_column, is_data_column
 from random_events.variable import compatible_types
 
@@ -77,6 +79,10 @@ class FeatureExtractor:
     The features extracted from the class/instances.
     """
 
+    exchangeable_features: Dict[MappedVariable, float] = field(
+        default_factory=dict, init=False
+    )
+
     def __post_init__(self):
         if not self.features:
             raise ValueError(
@@ -96,6 +102,7 @@ class FeatureExtractor:
         dao_state = FromDataAccessObjectState()
         root = variable(type(instances[0].from_dao(dao_state)), [])
         extractor = cls.__new__(cls)
+        extractor.exchangeable_features = {}
         extractor.features = extractor._extract_features(instances[0], root)
         return extractor
 
@@ -194,6 +201,13 @@ class FeatureExtractor:
                 )
 
             collection = getattr(domain_object, exchangeable_part)
+            feature_extractor = FeatureExtractor.from_instances(
+                [to_dao(item) for item in collection]
+            )
+            for feature in feature_extractor.features:
+                self.exchangeable_features[(feature, False)] = [
+                    feature.apply_mapping_on_external_root(item) for item in collection
+                ]
 
             # Composition chain:
             # current_symbolic → Apply(_to_domain) → Attribute(part) → Apply(agg_class)
@@ -214,6 +228,9 @@ class FeatureExtractor:
                 method_call_node = getattr(agg_node, method_name)()
                 for key, val in method_result.items():
                     feature = method_call_node[key]
+                    self.exchangeable_features[(feature, True)] = [
+                        val for _ in range(len(collection))
+                    ]
                     feature._type_ = type(val)
                     result.append(feature)
 
@@ -241,6 +258,22 @@ class FeatureExtractor:
             result.append(self.apply_mapping(instance))
         features_names = [feature._name_ for feature in self.features]
         return pd.DataFrame(columns=features_names, data=result)
+
+    def create_dataframe_for_exchangeable_parts_with_aggregations(
+        self, instances
+    ) -> pd.DataFrame:
+        """
+        Create a dataframe from the given instances.
+        :param instances: The instances to create the dataframe from.
+        :return: A dataframe containing the mapped values for each feature.
+        """
+        result = []
+        for instance in instances:
+            result.append(self.apply_mapping(instance))
+        return pd.DataFrame(
+            columns=[f[0] for f in self.exchangeable_features.keys()],
+            data=result,
+        )
 
     def preprocess_dataframe(self, df: pd.DataFrame) -> pd.DataFrame:
         """

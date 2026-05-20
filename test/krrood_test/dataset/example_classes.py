@@ -728,9 +728,14 @@ class PathAssociation:
     path: Path
 
 
+class SceneObjectType(Enum):
+    Table = "table"
+    Chair = "chair"
+
+
 @dataclass
 class SceneObject:
-    type: str
+    type: SceneObjectType
 
 
 @dataclass

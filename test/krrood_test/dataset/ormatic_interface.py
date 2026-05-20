@@ -1156,8 +1156,12 @@ class SceneObjectDAO(
         Integer, primary_key=True, use_existing_column=True
     )
 
-    type: Mapped[builtins.str] = mapped_column(
-        sqlalchemy.sql.sqltypes.Text, use_existing_column=True
+    type: Mapped[test.krrood_test.dataset.example_classes.SceneObjectType] = (
+        mapped_column(
+            krrood.ormatic.custom_types.PolymorphicEnumType,
+            nullable=False,
+            use_existing_column=True,
+        )
     )
 
 
