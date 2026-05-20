@@ -737,7 +737,7 @@ class SceneObject:
 class SceneObjectAggregations(HasAggregationStatistics):
     objects: List[SceneObject]
 
-    def object_count_features(self) -> Dict[str, int]:
+    def count(self) -> Dict[str, int]:
         result = {}
         for obj in self.objects:
             result[obj.type] = result[obj.type] + 1 if obj.type in result else 1
@@ -746,6 +746,8 @@ class SceneObjectAggregations(HasAggregationStatistics):
 
 @dataclass
 class SceneRoom(HasPartAggregations):
+    position: KRROODPosition
+    orientation: KRROODOrientation
     objects: List[SceneObject]
 
     @classmethod

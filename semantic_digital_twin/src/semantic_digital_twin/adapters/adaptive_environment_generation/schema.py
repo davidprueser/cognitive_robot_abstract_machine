@@ -1,7 +1,7 @@
 import math
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Self, Type, Dict, Any, Tuple, assert_never, Optional
+from typing import List, Self, Type, Dict, Any, Tuple, assert_never, Optional, Annotated
 
 import numpy as np
 

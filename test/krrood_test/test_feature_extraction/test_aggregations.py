@@ -3,6 +3,7 @@ from typing import List
 
 import pytest
 
+from krrood.entity_query_language.predicate import symbolic_function
 from krrood.ormatic.data_access_objects.helper import to_dao
 from krrood.parametrization.feature_extractor import FeatureExtractor
 from krrood.entity_query_language.core.mapped_variable import Index
@@ -28,7 +29,7 @@ def test_single_aggregation(example_scenario):
 def test_multiple_aggregations(example_scenario):
     obj1, obj2 = example_scenario
     agg = SceneObjectAggregations([obj1, obj2, SceneObject(type="table")])
-    result = agg.object_count_features()
+    result = agg.count()
     assert result["table"] == 2
     assert result["chair"] == 1
 
@@ -47,3 +48,11 @@ def test_feature_extraction_with_aggregation_statistics(example_scenario):
 
     values = extractor.apply_mapping(to_dao(room))
     assert 1 in values
+
+
+def test_prueser_skills_issue(example_scenario):
+    @symbolic_function
+    def count_aggregation(objects: List[SceneObject]):
+        return len(objects)
+
+    print(count_aggregation(example_scenario))
