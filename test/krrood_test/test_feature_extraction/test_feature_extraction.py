@@ -1,6 +1,7 @@
 import os
 
 import numpy as np
+import plotly.graph_objects
 from sqlalchemy.orm import Session
 
 from krrood.entity_query_language.backends import ProbabilisticBackend
@@ -102,24 +103,11 @@ def test_feature_extraction_with_aggregations():
     rpc = RelationalProbabilisticCircuit(SceneRoom)
     rpc.fit([room_dao, room2_dao], feature_extractor)
 
-    return
-    df = feature_extractor.create_dataframe([room_dao])
-    processed_df = feature_extractor.preprocess_dataframe(df)
-    assert processed_df.shape == (1, 9)
-
-    learned_circuit = learn_probabilistic_circuit([room_dao, room2_dao])
-    assert len(learned_circuit.variables) == 9
-    assert len(learned_circuit.leaves) == 9
-
     room_query = underspecified(SceneRoom)(
         position=underspecified(KRROODPosition)(x=..., y=..., z=...),
         orientation=underspecified(KRROODOrientation)(x=..., y=..., z=..., w=...),
-        objects=[SceneObject(type=...) for _ in range(4)],
+        objects=[underspecified(SceneObject)(type=...) for _ in range(4)],
     )
-
-    backend = ProbabilisticBackend(
-        DictRegistry({SceneRoom: learned_circuit}), number_of_samples=2
-    )
-    samples = list(backend.evaluate(room_query))
-    print([sample for sample in samples])
-    assert len(samples) == 2
+    room_query.resolve()
+    model = rpc.ground(room_query)
+    print(model)

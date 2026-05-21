@@ -748,6 +748,9 @@ class SceneObjectAggregations(HasAggregationStatistics):
             result[obj.type] = result[obj.type] + 1 if obj.type in result else 1
         return result
 
+    def total_count(self) -> int:
+        return len(self.objects)
+
 
 @dataclass
 class SceneRoom(HasPartAggregations):
