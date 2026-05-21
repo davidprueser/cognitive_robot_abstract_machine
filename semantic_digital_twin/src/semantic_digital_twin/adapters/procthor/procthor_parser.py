@@ -822,7 +822,7 @@ def get_world_by_asset_id(session: Session, asset_id: str) -> Optional[World]:
     """
     Queries the database for a WorldMapping with the given asset_id provided by the procthor file.
     """
-    from semantic_digital_twin.orm.ormatic_interface import *
+    from semantic_digital_twin.orm.ormatic_interface import WorldMappingDAO
 
     asset_id = asset_id.lower()
     other_possible_name = "_".join(asset_id.split("_")[:-1])

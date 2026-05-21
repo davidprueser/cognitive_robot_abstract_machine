@@ -505,7 +505,7 @@ class ModelReloadSynchronizer(Synchronizer):
 
         :param msg: The message containing the primary key of the model to be fetched.
         """
-        from semantic_digital_twin.orm.ormatic_interface import *
+        from semantic_digital_twin.orm.ormatic_interface import WorldMappingDAO
 
         query = select(WorldMappingDAO).where(
             WorldMappingDAO.database_id == msg.primary_key
