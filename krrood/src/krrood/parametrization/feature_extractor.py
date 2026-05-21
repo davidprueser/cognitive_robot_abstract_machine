@@ -79,9 +79,7 @@ class FeatureExtractor:
     The features extracted from the class/instances.
     """
 
-    exchangeable_features: Dict[MappedVariable, float] = field(
-        default_factory=dict, init=False
-    )
+    aggregations: Dict[MappedVariable, str] = field(default_factory=dict, init=False)
 
     def __post_init__(self):
         if not self.features:
@@ -102,7 +100,7 @@ class FeatureExtractor:
         dao_state = FromDataAccessObjectState()
         root = variable(type(instances[0].from_dao(dao_state)), [])
         extractor = cls.__new__(cls)
-        extractor.exchangeable_features = {}
+        extractor.aggregations = {}
         extractor.features = extractor._extract_features(instances[0], root)
         return extractor
 
@@ -201,13 +199,6 @@ class FeatureExtractor:
                 )
 
             collection = getattr(domain_object, exchangeable_part)
-            feature_extractor = FeatureExtractor.from_instances(
-                [to_dao(item) for item in collection]
-            )
-            for feature in feature_extractor.features:
-                self.exchangeable_features[(feature, False)] = [
-                    feature.apply_mapping_on_external_root(item) for item in collection
-                ]
 
             # Composition chain:
             # current_symbolic → Apply(_to_domain) → Attribute(part) → Apply(agg_class)
@@ -228,9 +219,7 @@ class FeatureExtractor:
                 method_call_node = getattr(agg_node, method_name)()
                 for key, val in method_result.items():
                     feature = method_call_node[key]
-                    self.exchangeable_features[(feature, True)] = [
-                        val for _ in range(len(collection))
-                    ]
+                    self.aggregations[feature] = exchangeable_part
                     feature._type_ = type(val)
                     result.append(feature)
 
@@ -260,20 +249,33 @@ class FeatureExtractor:
         return pd.DataFrame(columns=features_names, data=result)
 
     def create_dataframe_for_exchangeable_parts_with_aggregations(
-        self, instances
+        self,
+        instances: List[DataAccessObject],
+        aggregations: List[MappedVariable],
+        agg_values: List[List] = None,
     ) -> pd.DataFrame:
         """
         Create a dataframe from the given instances.
-        :param instances: The instances to create the dataframe from.
-        :return: A dataframe containing the mapped values for each feature.
+        :param instances: The child instances (exchangeable part objects).
+        :param aggregations: Aggregation features whose names form the aggregation columns.
+        :param agg_values: Pre-computed aggregation values per instance, one list per row.
+        :return: A dataframe with one row per child object and columns for its attributes and the aggregation statistics.
         """
-        result = []
-        for instance in instances:
-            result.append(self.apply_mapping(instance))
-        return pd.DataFrame(
-            columns=[f[0] for f in self.exchangeable_features.keys()],
-            data=result,
-        )
+        if not instances:
+            return pd.DataFrame()
+
+        specification = RelationalSumProductNetworkSpecification(type(instances[0]))
+        instance_attr_names = [col.key for col in specification.attributes]
+        agg_names = [aggregation._name_ for aggregation in aggregations]
+
+        if agg_values is None:
+            agg_values = [[] for _ in instances]
+
+        result = [
+            agg_row + [getattr(instance, name) for name in instance_attr_names]
+            for instance, agg_row in zip(instances, agg_values)
+        ]
+        return pd.DataFrame(columns=agg_names + instance_attr_names, data=result)
 
     def preprocess_dataframe(self, df: pd.DataFrame) -> pd.DataFrame:
         """

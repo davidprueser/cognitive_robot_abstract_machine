@@ -5,7 +5,10 @@ from dataclasses import dataclass, field
 from typing import List, Type, Optional
 
 from krrood.ormatic.data_access_objects.dao import DataAccessObject
-from krrood.parametrization.feature_extractor import FeatureExtractor
+from krrood.parametrization.feature_extractor import (
+    FeatureExtractor,
+    RelationalSumProductNetworkSpecification,
+)
 from probabilistic_model.learning.jpt.jpt import JointProbabilityTree
 from probabilistic_model.learning.jpt.variables import infer_variables_from_dataframe
 from probabilistic_model.probabilistic_circuit.rx.probabilistic_circuit import (
@@ -54,10 +57,31 @@ class RelationalProbabilisticCircuit:
         variables = infer_variables_from_dataframe(df)
         model = JointProbabilityTree(annotated_variables=variables)
         self.class_probabilistic_circuit = model.fit(df)
-
-        df = (
-            feature_extractor.create_dataframe_for_exchangeable_parts_with_aggregations()
-        )
+        specification = RelationalSumProductNetworkSpecification(instances[0].__class__)
+        for exchangeable_part in specification.exchangeable_parts:
+            aggregations = [
+                aggregation
+                for aggregation, part in feature_extractor.aggregations.items()
+                if part == exchangeable_part
+            ]
+            objects = [
+                assoc.target
+                for assoc in itertools.chain.from_iterable(
+                    getattr(instance, exchangeable_part) for instance in instances
+                )
+            ]
+            agg_values = [
+                [
+                    aggregation.apply_mapping_on_external_root(instance)
+                    for aggregation in aggregations
+                ]
+                for instance in instances
+                for _ in getattr(instance, exchangeable_part)
+            ]
+            df = feature_extractor.create_dataframe_for_exchangeable_parts_with_aggregations(
+                objects, aggregations, agg_values
+            )
+            x = 0
 
         # for every exchangeable part
         # collect all children from all instances
