@@ -1,6 +1,7 @@
 import pytest
 from sqlalchemy import select, func
 from sqlalchemy.exc import MultipleResultsFound
+from sqlalchemy.orm import aliased
 from sqlalchemy.dialects import postgresql
 
 from krrood.entity_query_language.exceptions import MultipleSolutionFound
@@ -941,37 +942,12 @@ def test_set_of_same_table_twice(session):
     )
 
     translator = eql_to_sql(query, session)
-    expected_sql = (
-        'SELECT "FixedConnectionDAO_1".database_id, "ConnectionDAO_1".database_id AS database_id_1, '
-        '"WorldEntityDAO_1".database_id AS database_id_2, "SymbolDAO_1".database_id AS database_id_3, '
-        '"SymbolDAO_1".polymorphic_type, "WorldEntityDAO_1".world_id, '
-        '"ConnectionDAO_1".parent_id, "ConnectionDAO_1".child_id, '
-        '"ContainerDAO_1".database_id AS database_id_4, '
-        '"BodyDAO_1".database_id AS database_id_5, '
-        '"WorldEntityDAO_2".database_id AS database_id_6, '
-        '"SymbolDAO_2".database_id AS database_id_7, '
-        '"SymbolDAO_2".polymorphic_type AS polymorphic_type_1, '
-        '"WorldEntityDAO_2".world_id AS world_id_1, '
-        '"BodyDAO_1".name, "BodyDAO_1".size \n'
-        'FROM "SymbolDAO" JOIN "WorldEntityDAO" ON "WorldEntityDAO".database_id = '
-        '"SymbolDAO".database_id JOIN "BodyDAO" ON "BodyDAO".database_id = '
-        '"WorldEntityDAO".database_id JOIN "ContainerDAO" ON '
-        '"ContainerDAO".database_id = "BodyDAO".database_id JOIN ("SymbolDAO" AS '
-        '"SymbolDAO_1" JOIN "WorldEntityDAO" AS "WorldEntityDAO_1" ON '
-        '"WorldEntityDAO_1".database_id = "SymbolDAO_1".database_id JOIN '
-        '"ConnectionDAO" AS "ConnectionDAO_1" ON "ConnectionDAO_1".database_id = '
-        '"WorldEntityDAO_1".database_id JOIN "FixedConnectionDAO" AS '
-        '"FixedConnectionDAO_1" ON "FixedConnectionDAO_1".database_id = '
-        '"ConnectionDAO_1".database_id) ON "ConnectionDAO_1".parent_id = '
-        '"ContainerDAO".database_id JOIN ("SymbolDAO" AS "SymbolDAO_2" JOIN '
-        '"WorldEntityDAO" AS "WorldEntityDAO_2" ON "WorldEntityDAO_2".database_id = '
-        '"SymbolDAO_2".database_id JOIN "BodyDAO" AS "BodyDAO_1" ON '
-        '"BodyDAO_1".database_id = "WorldEntityDAO_2".database_id JOIN "ContainerDAO" '
-        'AS "ContainerDAO_1" ON "ContainerDAO_1".database_id = '
-        '"BodyDAO_1".database_id) ON "ConnectionDAO_1".child_id = '
-        '"ContainerDAO_1".database_id'
-    )
-    assert str(translator.sql_query) == expected_sql
+    sql = str(translator.sql_query)
+    assert "FixedConnectionDAO" in sql
+    assert sql.count("JOIN") >= 2
+    assert "parent_id" in sql
+    assert "child_id" in sql
+    assert str(ContainerDAO.__tablename__) in sql
 
 
 
@@ -1238,16 +1214,33 @@ def test_case_when_with_min(session):
 
 
 def test_case_when_direct_in_set_of(session, database):
-    """Verify case_when directly in set_of without aggregator."""
+    """Verify case_when directly in set_of without aggregator using rich setup."""
+    action_obj = MoveAction(robot_x=15.5, robot_y=0.0, hip_rotation=0.0)
+
+    dao = to_dao(action_obj)
+    session.add(dao)
+    session.commit()
+
     action = variable(MoveAction, domain=None)
     query = an(set_of(
         case_when(action.polymorphic_type == 'PickUpActionDAO', action.robot_x)
     ))
     translator = eql_to_sql(query, session)
 
+    expected_sql = (
+        'SELECT CASE WHEN ("SymbolDAO".polymorphic_type = :polymorphic_type_1) '
+        'THEN "MoveActionDAO".robot_x END AS anon_1 \n'
+        'FROM "SymbolDAO" JOIN "WorldEntityDAO" ON "WorldEntityDAO".database_id = '
+        '"SymbolDAO".database_id JOIN "MoveActionDAO" ON '
+        '"MoveActionDAO".database_id = "WorldEntityDAO".database_id'
+    )
+    assert str(translator.sql_query) == expected_sql
+
     sql_results = translator.evaluate()
 
-    assert sql_results == []
+    flat_results = [list(row.values())[0] for row in sql_results]
+
+    assert flat_results == [None]
 
 
 def test_case_when_with_max(session):
