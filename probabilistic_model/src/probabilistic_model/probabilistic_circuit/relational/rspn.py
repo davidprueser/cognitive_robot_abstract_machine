@@ -38,6 +38,8 @@ class ExchangeableDistributionTemplate:
         for part in parts_to_ground:
             p_part = self.template_distribution.ground(part)
             p_part.log_conditional_in_place(aggregation_statistics)
+            non_latent = [v for v in p_part.variables if v not in self.latent_variables]
+            p_part.marginal_in_place(non_latent)
 
             variable_updates = {}
             for variable in p_part.variables:
@@ -89,7 +91,6 @@ class RelationalProbabilisticCircuit:
         instances: List[DataAccessObject],
         feature_extractor: FeatureExtractor,
         dataframe_from_parent: Optional[pd.DataFrame] = None,
-        aggregation_column_names: Optional[List[str]] = None,
     ):
         self.feature_extractor = feature_extractor
         if dataframe_from_parent is not None:
@@ -142,11 +143,11 @@ class RelationalProbabilisticCircuit:
                 RelationalProbabilisticCircuit(exchangeable_part_type),
                 latent_variables,
             )
+            child_feature_extractor = FeatureExtractor.from_instances(objects)
             exchangeable_distribution_template.template_distribution.fit(
                 objects,
-                feature_extractor,
+                child_feature_extractor,
                 dataframe_from_parent=df,
-                aggregation_column_names=aggregation_names,
             )
             self.exchangeable_distribution_templates[exchangeable_part] = (
                 exchangeable_distribution_template
@@ -166,15 +167,18 @@ class RelationalProbabilisticCircuit:
                 for f, name in self.feature_extractor.aggregations.items()
                 if name == exchangeable_part_name
             ]
+            latent_by_name = {
+                v.name: v for v in exchangeable_distribution_template.latent_variables
+            }
             aggregation_statistics = {}
             for feature_function in feature_functions:
-                try:
-                    feature = feature_function.apply_mapping_on_external_root(
-                        queryable_object
+                name = feature_function._name_
+                if name in latent_by_name:
+                    aggregation_statistics[latent_by_name[name]] = (
+                        feature_function.apply_mapping_on_external_root(
+                            queryable_object
+                        )
                     )
-                    aggregation_statistics[feature.variable] = feature.value
-                except Exception:
-                    continue
             result.log_conditional_in_place(aggregation_statistics)
             if len(result.nodes()) == 0:
                 raise ValueError("The grounding of the class failed.")
