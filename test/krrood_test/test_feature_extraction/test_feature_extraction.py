@@ -74,12 +74,12 @@ def test_features_extraction():
 def test_feature_extraction_with_aggregations():
 
     objects = [
-        SceneObject(type=SceneObjectType.Table),
-        SceneObject(type=SceneObjectType.Chair),
-        SceneObject(type=SceneObjectType.Chair),
-        SceneObject(type=SceneObjectType.Chair),
+        SceneObject(type=SceneObjectType.TABLE),
+        SceneObject(type=SceneObjectType.CHAIR),
+        SceneObject(type=SceneObjectType.CHAIR),
+        SceneObject(type=SceneObjectType.CHAIR),
     ]
-    chair_objects = [obj for obj in objects if obj.type == SceneObjectType.Chair]
+    chair_objects = [obj for obj in objects if obj.type == SceneObjectType.CHAIR]
     room = SceneRoom(
         position=KRROODPosition(x=2.0, y=1.0, z=0.0),
         orientation=KRROODOrientation(x=0.0, y=0.0, z=0.0, w=1.0),
@@ -100,6 +100,7 @@ def test_feature_extraction_with_aggregations():
     # )  # position: 3, orientation: 4, objects: 1 (count for chair, count for table)
     # assert len(chair_objects) in feature_extractor.apply_mapping(room_dao)
 
+    mapping = feature_extractor.apply_mapping(room_dao)
     rpc = RelationalProbabilisticCircuit(SceneRoom)
     rpc.fit([room_dao, room2_dao], feature_extractor)
 

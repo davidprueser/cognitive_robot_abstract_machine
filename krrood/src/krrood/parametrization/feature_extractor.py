@@ -5,6 +5,7 @@ import inspect
 from abc import ABC, abstractmethod
 from collections import deque
 from dataclasses import dataclass, field
+from enum import Enum
 from functools import cached_property
 from typing import List, Type, Any, Dict, Optional
 
@@ -12,7 +13,22 @@ import pandas as pd
 import sqlalchemy
 from sqlalchemy.orm import MANYTOONE, ONETOMANY
 from typing_extensions import TYPE_CHECKING
-
+import inspect
+from abc import ABC, abstractmethod
+from dataclasses import dataclass, fields
+from typing import (
+    Annotated,
+    Any,
+    Dict,
+    Generic,
+    Iterable,
+    List,
+    Optional,
+    TypeVar,
+    get_args,
+    get_origin,
+    get_type_hints,
+)
 from krrood.entity_query_language.core.mapped_variable import MappedVariable, Apply
 from krrood.entity_query_language.core.variable import Variable
 from krrood.entity_query_language.factories import variable
@@ -26,45 +42,201 @@ if TYPE_CHECKING:
     from krrood.ormatic.data_access_objects.dao import DataAccessObject
 
 
-def _to_domain(dao: Any) -> Any:
-    return dao.from_dao()
+@dataclass(frozen=True)
+class AggregatedBy:
+    """
+    Field-level annotation that declares which AggregationStatistic subclass
+    is responsible for a list field.
+
+    Usage::
+        objects: Annotated[list[SceneObject], AggregatedBy(SceneObjectAggregations)]
+    """
+
+    aggregation_class: type
 
 
 @dataclass
-class HasAggregationStatistics(ABC):
+class AggregationStatistic(ABC):
+    """
+    Base for all aggregation classes. Subclasses are dataclasses whose only
+    field is the list of items to aggregate, and whose methods (excluding
+    dunder and this base method) are the statistics.
+    """
 
-    def get_aggregation_statistics(self):
-        """
-        Get the aggregation statistics for this feature extractor.
-        :return: A dictionary containing the aggregation statistics.
-        """
+    aggregation_object: List[Any]
+
+    _internal_aggregation_mapping: Dict[Any, Any] = field(
+        init=False, default_factory=dict
+    )
+
+    def __post_init__(self):
+        if not self.aggregation_object:
+            raise ValueError("Aggregation object must not be empty")
+        self.variable = variable(type(self), [])
+
+    @property
+    def symbolic_aggregation_features(self) -> List[MappedVariable]:
+        result = []
+        for function in self.aggregation_features:
+            if function in self._internal_aggregation_mapping:
+                original_function_name = self._internal_aggregation_mapping[function]
+                function_variable = getattr(self.variable, original_function_name)()
+                function_variable._type = float
+                result.append(function_variable)
+            else:
+                function_variable = getattr(self.variable, function.__name__)()
+                function_variable._type = float
+                result.append(function_variable)
+        return result
+
+    @property
+    def aggregation_features(self) -> List[Any]:
         cls_functions = inspect.getmembers(self.__class__, predicate=inspect.isfunction)
-        return {
-            name: function(self)
-            for name, function in cls_functions
-            if function is not HasAggregationStatistics.get_aggregation_statistics
-            and not (name.startswith("__") and name.endswith("__"))
-        }
+        aggregations = []
+        for name, function in cls_functions:
+            if name.startswith("__") and name.endswith("__"):
+                continue
+            if name.startswith("_"):
+                continue
+            if function is AggregationStatistic.aggregation_features:
+                continue
+            if function is AggregationStatistic.apply_mapping:
+                continue
+            called_function = function(self)
+            if isinstance(called_function, dict):
+                aggregations.extend(
+                    self._process_nested_aggregation_statistics(
+                        called_function, function
+                    )
+                )
+            else:
+                aggregations.append(function)
+
+        return aggregations
+
+    def _process_nested_aggregation_statistics(
+        self, aggregation_statistics, original_function
+    ) -> Dict[str, Any]:
+        result = {}
+        for key, val in aggregation_statistics.items():
+            if isinstance(key, Enum):
+                key = key.value
+            function_name = f"{original_function.__name__}_{key}"
+            self._internal_aggregation_mapping[function_name] = (
+                original_function.__name__
+            )
+            result[function_name] = val
+
+        return result
+
+    def apply_mapping(self):
+        return [
+            feature.apply_mapping_on_external_root(self)
+            for feature in self.symbolic_aggregation_features
+        ]
 
 
 @dataclass
-class HasPartAggregations(ABC):
+class HasExchangeablePartAggregations(ABC):
     """
-    Mixin for domain classes that have exchangeable parts (one-to-many relationships) requiring
-    aggregation statistics. Subclasses declare which :class:`HasAggregationStatistics` class is
-    responsible for each named part.
+    Mixin for domain classes that use ``Annotated[list[X], AggregatedBy(Y)]``
+    to declare aggregation intent on their fields.
+
+    Validation runs once at class definition time (``__init_subclass__``) and
+    again at instance creation time (``__post_init__``).
     """
+
+    def __init_subclass__(cls, **kwargs: Any) -> None:
+        super().__init_subclass__(**kwargs)
+        cls._validate_aggregation_annotations()
 
     @classmethod
-    @abstractmethod
-    def aggregation_class_for_part(
-        cls, part_name: str
-    ) -> Optional[Type[HasAggregationStatistics]]:
+    def _validate_aggregation_annotations(cls) -> None:
         """
-        :param part_name: The name of an exchangeable part on this class.
-        :return: The aggregation statistics class for that part, or ``None`` if the part needs no aggregation.
+        Called at class definition time. Checks:
+        - AggregatedBy targets are proper AggregationStatistic subclasses
+        - The annotated field is actually a list type
         """
-        ...
+        hints = get_type_hints(cls, include_extras=True)
+        for field_name, hint in hints.items():
+            aggregation_marker = _extract_aggregated_by(hint)
+            if aggregation_marker is None:
+                continue
+
+            # Must target an AggregationStatistic subclass
+            if not (
+                isinstance(aggregation_marker.aggregation_class, type)
+                and issubclass(
+                    aggregation_marker.aggregation_class, AggregationStatistic
+                )
+            ):
+                raise TypeError(
+                    f"{cls.__name__}.{field_name}: AggregatedBy target "
+                    f"{aggregation_marker.aggregation_class} must be a subclass of AggregationStatistic."
+                )
+
+            # The field itself must be a list
+            inner = get_args(hint)[0]  # unwrap Annotated -> actual type
+            if get_origin(inner) not in (list, List):
+                raise TypeError(
+                    f"{cls.__name__}.{field_name}: AggregatedBy requires a list field, "
+                    f"got {inner!r}."
+                )
+
+    def __post_init__(self) -> None:
+        """
+        Called at instance creation time. Checks that each AggregatedBy field
+        is actually a list (not None, not a scalar).
+        """
+        hints = get_type_hints(self.__class__, include_extras=True)
+        for field_name, hint in hints.items():
+            if _extract_aggregated_by(hint) is None:
+                continue
+            value = getattr(self, field_name)
+            if not isinstance(value, list):
+                raise TypeError(
+                    f"{self.__class__.__name__}.{field_name} must be a list, "
+                    f"got {type(value).__name__}."
+                )
+
+    def get_aggregation_class_by_part_name(
+        self, part_name: str
+    ) -> Optional[AggregationStatistic]:
+        """
+        Returns an instantiated AggregationStatistic for the named field,
+        or raises KeyError if the field has no AggregatedBy annotation.
+        :param part_name: The name of the field to get the aggregation class for.
+        :return: An instantiated AggregationStatistic.
+        """
+        mapping = self._build_part_mapping()
+        if part_name not in mapping:
+            raise KeyError(
+                f"No AggregatedBy annotation found for field '{part_name}' "
+                f"on {self.__class__.__name__}. "
+                f"Annotated fields: {list(mapping.keys())}"
+            )
+        return mapping[part_name]
+
+    def _build_part_mapping(self) -> Dict[str, AggregationStatistic]:
+        hints = get_type_hints(self.__class__, include_extras=True)
+        result = {}
+        for field_name, hint in hints.items():
+            marker = _extract_aggregated_by(hint)
+            if marker is None:
+                continue
+            items = getattr(self, field_name)
+            result[field_name] = marker.aggregation_class(items)
+        return result
+
+
+def _extract_aggregated_by(hint: Any) -> Optional[AggregatedBy]:
+    """Returns the AggregatedBy marker from an Annotated hint, or None."""
+    if get_origin(hint) is not Annotated:
+        return None
+    for meta in get_args(hint)[1:]:
+        if isinstance(meta, AggregatedBy):
+            return meta
+    return None
 
 
 @dataclass
@@ -186,42 +358,17 @@ class FeatureExtractor:
         domain_class = type(domain_object)
 
         for exchangeable_part in specification.exchangeable_parts:
-            if not isinstance(domain_object, HasPartAggregations):
+            if not isinstance(domain_object, HasExchangeablePartAggregations):
                 raise ValueError(
                     f"{domain_class.__name__} has exchangeable part '{exchangeable_part}' "
                     f"but does not implement HasPartAggregations."
                 )
-            agg_class = domain_class.aggregation_class_for_part(exchangeable_part)
-            if agg_class is None:
-                raise ValueError(
-                    f"No aggregation class registered for part '{exchangeable_part}' "
-                    f"in {domain_class.__name__}."
-                )
-
-            collection = getattr(domain_object, exchangeable_part)
-
-            # Composition chain:
-            # current_symbolic → Apply(_to_domain) → Attribute(part) → Apply(agg_class)
-            #   → Attribute(method) → Call() → Index(key)
-            to_domain_node = Apply(_child_=current_symbolic, _callable_=_to_domain)
-            to_domain_node._type_ = domain_class
-            collection_node = getattr(to_domain_node, exchangeable_part)
-            agg_node = Apply(_child_=collection_node, _callable_=agg_class)
-            agg_node._type_ = agg_class
-
-            agg_instance = agg_class(collection)
-            for (
-                method_name,
-                method_result,
-            ) in agg_instance.get_aggregation_statistics().items():
-                if not isinstance(method_result, dict):
-                    continue
-                method_call_node = getattr(agg_node, method_name)()
-                for key, val in method_result.items():
-                    feature = method_call_node[key]
-                    self.aggregations[feature] = exchangeable_part
-                    feature._type_ = type(val)
-                    result.append(feature)
+            aggregation_instance = domain_object.get_aggregation_class_by_part_name(
+                exchangeable_part
+            )
+            for aggregation in aggregation_instance.symbolic_aggregation_features:
+                self.aggregations[aggregation] = exchangeable_part
+                result.append(aggregation)
 
         return result
 
@@ -231,10 +378,20 @@ class FeatureExtractor:
         :param instance: The instance to extract features from.
         :return: A list of mapped values.
         """
-        return [
-            feature.apply_mapping_on_external_root(instance)
-            for feature in self.features
-        ]
+        result = []
+        for feature in self.features:
+            if feature in self.aggregations:
+                part_name = self.aggregations[feature]
+                domain_object = instance.from_dao()
+                aggregation_instance = domain_object.get_aggregation_class_by_part_name(
+                    part_name
+                )
+                result.append(
+                    feature.apply_mapping_on_external_root(aggregation_instance)
+                )
+            else:
+                result.append(feature.apply_mapping_on_external_root(instance))
+        return result
 
     def create_dataframe(self, instances: List[DataAccessObject]) -> pd.DataFrame:
         """

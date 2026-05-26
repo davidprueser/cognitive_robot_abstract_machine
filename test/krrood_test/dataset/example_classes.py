@@ -10,17 +10,21 @@ from types import FunctionType
 from typing import Set, Generic
 
 from sqlalchemy import types, TypeDecorator
-from typing_extensions import Dict, Any, Sequence, Self
+from typing_extensions import Dict, Any, Sequence, Self, Annotated
 from typing_extensions import List, Optional, Type
 
 from krrood.adapters.json_serializer import SubclassJSONSerializer, to_json, from_json
+from krrood.entity_query_language.core.base_expressions import SymbolicExpression
+from krrood.entity_query_language.factories import set_of, a
+from krrood.entity_query_language.predicate import symbolic_function
 from krrood.ormatic.data_access_objects.alternative_mappings import (
     AlternativeMapping,
     T,
 )
 from krrood.parametrization.feature_extractor import (
-    HasAggregationStatistics,
-    HasPartAggregations,
+    AggregationStatistic,
+    HasExchangeablePartAggregations,
+    AggregatedBy,
 )
 from krrood.symbol_graph.symbol_graph import Symbol
 from ..dataset.semantic_world_like_classes import Body
@@ -729,8 +733,8 @@ class PathAssociation:
 
 
 class SceneObjectType(Enum):
-    Table = "table"
-    Chair = "chair"
+    TABLE = "table"
+    CHAIR = "chair"
 
 
 @dataclass
@@ -739,25 +743,47 @@ class SceneObject:
 
 
 @dataclass
-class SceneObjectAggregations(HasAggregationStatistics):
-    objects: List[SceneObject]
+class SceneObjectAggregations(AggregationStatistic):
+    aggregation_object: List[SceneObject]
 
-    def count(self) -> Dict[str, int]:
-        result = {}
-        for obj in self.objects:
-            result[obj.type] = result[obj.type] + 1 if obj.type in result else 1
-        return result
+    def table_count(self) -> int:
+        return len(
+            [
+                obj
+                for obj in self.aggregation_object
+                if obj.type == SceneObjectType.TABLE
+            ]
+        )
+
+    def chair_count(self) -> int:
+        return len(
+            [
+                obj
+                for obj in self.aggregation_object
+                if obj.type == SceneObjectType.CHAIR
+            ]
+        )
 
     def total_count(self) -> int:
-        return len(self.objects)
+        return len(self.aggregation_object)
 
 
 @dataclass
-class SceneRoom(HasPartAggregations):
+class RoomAggregations(AggregationStatistic):
+    rooms: List[SceneRoom]
+
+    def room_count(self) -> int:
+        return len(self.rooms)
+
+
+@dataclass
+class SceneRoom(HasExchangeablePartAggregations):
     position: KRROODPosition
     orientation: KRROODOrientation
-    objects: List[SceneObject]
+    objects: Annotated[List[SceneObject], AggregatedBy(SceneObjectAggregations)]
 
-    @classmethod
-    def aggregation_class_for_part(cls, part_name: str) -> Optional[type]:
-        return {"objects": SceneObjectAggregations}.get(part_name)
+
+@dataclass
+class TestExParts(HasExchangeablePartAggregations):
+    objects: Annotated[List[SceneObject], AggregatedBy(SceneObjectAggregations)]
+    rooms: Annotated[List[SceneRoom], AggregatedBy(RoomAggregations)]
