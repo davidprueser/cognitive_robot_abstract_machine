@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import types
 from dataclasses import dataclass, field
-from enum import Enum, EnumType
+from enum import EnumType
 from functools import cached_property
 from types import UnionType, EllipsisType
 from typing import Dict, Optional, Tuple, List, Iterable, Union
@@ -13,20 +13,20 @@ from krrood.parametrization.exceptions import EmptyVariableDomain, InvalidEllips
 import random_events.variable
 from krrood.entity_query_language.core.base_expressions import SymbolicExpression
 from krrood.entity_query_language.core.variable import Literal, Variable
-from krrood.entity_query_language.factories import and_, variable
+from krrood.entity_query_language.factories import and_
 from krrood.entity_query_language.core.mapped_variable import (
     Attribute,
 )
 from krrood.entity_query_language.query.match import MatchVariable, AttributeMatch
-from krrood.ormatic.data_access_objects.helper import to_dao, get_dao_class
+from krrood.ormatic.data_access_objects.helper import to_dao
 from krrood.ormatic.data_access_objects.to_dao import ToDataAccessObjectState
 from krrood.parametrization.random_events_translator import (
     WhereExpressionToRandomEventTranslator,
 )
-from krrood.parametrization.feature_extractor import FeatureExtractor
+from krrood.parametrization.feature_extraction.feature_extractor import FeatureExtractor
 from random_events.interval import singleton
 from random_events.product_algebra import Event, SimpleEvent
-from random_events.set import Set, SetElement
+from random_events.set import Set
 from random_events.variable import (
     compatible_types,
     variable_from_name_and_type,

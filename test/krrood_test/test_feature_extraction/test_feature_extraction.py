@@ -1,28 +1,17 @@
-import os
-
 import numpy as np
-import plotly.graph_objects
-from sqlalchemy.orm import Session
 
 from krrood.entity_query_language.backends import ProbabilisticBackend
 from krrood.entity_query_language.factories import (
     underspecified,
 )
 from krrood.ormatic.data_access_objects.helper import to_dao
-from krrood.ormatic.utils import create_engine
-from krrood.parametrization.feature_extractor import FeatureExtractor
+from krrood.parametrization.feature_extraction.feature_extractor import FeatureExtractor
 from krrood.parametrization.model_registries import DictRegistry
 from krrood.parametrization.parameterizer import UnderspecifiedParameters
-from probabilistic_model.probabilistic_circuit.relational.learn_rspn import (
-    learn_probabilistic_circuit,
-)
 from probabilistic_model.probabilistic_circuit.relational.rspn import (
     RelationalProbabilisticCircuit,
 )
 from probabilistic_model.probabilistic_circuit.rx.helper import fully_factorized
-from semantic_digital_twin_test.test_adapters.test_environment_generation import (
-    query_for_shelves,
-)
 from ..dataset import ormatic_interface  # type: ignore
 from ..dataset.example_classes import (
     NestedAction,
@@ -33,7 +22,6 @@ from ..dataset.example_classes import (
     SceneObject,
     SceneObjectType,
 )
-from ..dataset.ormatic_interface import Base
 from ..dataset.semantic_world_like_classes import Body
 
 

@@ -21,10 +21,10 @@ from krrood.ormatic.data_access_objects.alternative_mappings import (
     AlternativeMapping,
     T,
 )
-from krrood.parametrization.feature_extractor import (
+from krrood.parametrization.feature_extraction.aggregations import (
+    aggregation_for,
     AggregationStatistic,
     HasExchangeablePartAggregations,
-    aggregation_for,
 )
 from krrood.symbol_graph.symbol_graph import Symbol
 from ..dataset.semantic_world_like_classes import Body

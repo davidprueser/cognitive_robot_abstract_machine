@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from krrood.ormatic.data_access_objects.dao import DataAccessObject
-from krrood.parametrization.feature_extractor import FeatureExtractor
+from krrood.parametrization.feature_extraction.feature_extractor import FeatureExtractor
 from probabilistic_model.learning.jpt.jpt import JointProbabilityTree
 from probabilistic_model.learning.jpt.variables import infer_variables_from_dataframe
 from collections import deque

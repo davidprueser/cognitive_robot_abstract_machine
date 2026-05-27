@@ -1,20 +1,13 @@
-from dataclasses import dataclass
-from typing import List, Annotated
-
 import pytest
 
-from krrood.entity_query_language.predicate import symbolic_function
 from krrood.ormatic.data_access_objects.helper import to_dao
-from krrood.parametrization.feature_extractor import (
+from krrood.parametrization.feature_extraction.feature_extractor import (
     FeatureExtractor,
-    HasExchangeablePartAggregations,
-    AggregationStatistic,
 )
-from krrood.entity_query_language.core.mapped_variable import Index, Call
+from krrood.entity_query_language.core.mapped_variable import Call
 from ..dataset.ormatic_interface import *  # type: ignore
 from ..dataset.example_classes import (
     SceneObject,
-    SceneObjectAggregations,
     SceneRoom,
     KRROODPosition,
     KRROODOrientation,

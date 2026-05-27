@@ -3,7 +3,7 @@ import numpy as np
 from krrood.entity_query_language.backends import ProbabilisticBackend
 from krrood.entity_query_language.factories import underspecified
 from krrood.ormatic.data_access_objects.helper import to_dao
-from krrood.parametrization.feature_extractor import FeatureExtractor
+from krrood.parametrization.feature_extraction.feature_extractor import FeatureExtractor
 from krrood.parametrization.model_registries import DictRegistry
 from krrood.parametrization.parameterizer import UnderspecifiedParameters
 from probabilistic_model.probabilistic_circuit.relational.learn_rspn import (

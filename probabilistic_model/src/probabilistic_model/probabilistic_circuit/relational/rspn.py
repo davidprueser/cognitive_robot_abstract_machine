@@ -10,7 +10,7 @@ from sortedcontainers import SortedSet
 
 from krrood.ormatic.data_access_objects.dao import DataAccessObject
 from krrood.ormatic.data_access_objects.helper import to_dao
-from krrood.parametrization.feature_extractor import (
+from krrood.parametrization.feature_extraction.feature_extractor import (
     FeatureExtractor,
     EntityCompositionDescriptor,
 )
