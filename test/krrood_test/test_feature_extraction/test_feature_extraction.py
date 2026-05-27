@@ -122,7 +122,7 @@ def test_feature_extractor_on_non_compatible_attribute_types():
 
 
 def test_feature_extractor_on_unique_parts_with_none():
-    instance = NestedAction(Body(name="test"), None)
+    instance = NestedAction(obj=Body(name="test"), pose=None)
     feature_extractor = FeatureExtractor.from_instances([to_dao(instance)])
     assert (
         len(feature_extractor.features) == 1
