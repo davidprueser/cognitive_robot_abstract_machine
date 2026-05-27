@@ -94,6 +94,23 @@ class GenericClassAssociationDAO_associated_value_list_association(
     )
 
 
+class MissingBaseClassDAO_objects_association(Base, AssociationDataAccessObject):
+
+    __tablename__ = "_49116363858473014278438249507848772264681022340380896275396332"
+
+    database_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    source_missingbaseclassdao_id: Mapped[int] = mapped_column(
+        ForeignKey("MissingBaseClassDAO.database_id")
+    )
+    target_exampleintdao_id: Mapped[int] = mapped_column(
+        ForeignKey("ExampleIntDAO.database_id")
+    )
+
+    target: Mapped[ExampleIntDAO] = relationship(
+        "ExampleIntDAO", foreign_keys=[target_exampleintdao_id]
+    )
+
+
 class ParentAlternativelyMappedMappingDAO_entities_association(
     Base, AssociationDataAccessObject
 ):
@@ -663,6 +680,34 @@ class EnumActionDAO(
     )
 
 
+class ExampleIntDAO(
+    Base, DataAccessObject[test.krrood_test.dataset.example_classes.ExampleInt]
+):
+
+    __tablename__ = "ExampleIntDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        Integer, primary_key=True, use_existing_column=True
+    )
+
+    attribute: Mapped[builtins.int] = mapped_column(use_existing_column=True)
+
+
+class ExampleStringDAO(
+    Base, DataAccessObject[test.krrood_test.dataset.example_classes.ExampleString]
+):
+
+    __tablename__ = "ExampleStringDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        Integer, primary_key=True, use_existing_column=True
+    )
+
+    attribute: Mapped[builtins.str] = mapped_column(
+        sqlalchemy.sql.sqltypes.Text, use_existing_column=True
+    )
+
+
 class GenericClassDAO(
     Base, DataAccessObject[test.krrood_test.dataset.example_classes.GenericClass]
 ):
@@ -680,34 +725,6 @@ class GenericClassDAO(
     __mapper_args__ = {
         "polymorphic_on": "polymorphic_type",
         "polymorphic_identity": "GenericClassDAO",
-    }
-
-
-class GenericClass_floatDAO(
-    GenericClassDAO,
-    DataAccessObject[test.krrood_test.dataset.example_classes.GenericClass[float]],
-):
-
-    __tablename__ = "GenericClass_floatDAO"
-
-    database_id: Mapped[builtins.int] = mapped_column(
-        ForeignKey(GenericClassDAO.database_id),
-        primary_key=True,
-        use_existing_column=True,
-    )
-
-    value: Mapped[builtins.float] = mapped_column(use_existing_column=True)
-    optional_value: Mapped[typing.Optional[builtins.float]] = mapped_column(
-        use_existing_column=True
-    )
-
-    container: Mapped[typing.List[builtins.float]] = mapped_column(
-        JSON, nullable=False, use_existing_column=True
-    )
-
-    __mapper_args__ = {
-        "polymorphic_identity": "GenericClass_floatDAO",
-        "inherit_condition": database_id == GenericClassDAO.database_id,
     }
 
 
@@ -759,6 +776,34 @@ class GenericClass_KRROODPositionDAO(
 
     __mapper_args__ = {
         "polymorphic_identity": "GenericClass_KRROODPositionDAO",
+        "inherit_condition": database_id == GenericClassDAO.database_id,
+    }
+
+
+class GenericClass_floatDAO(
+    GenericClassDAO,
+    DataAccessObject[test.krrood_test.dataset.example_classes.GenericClass[float]],
+):
+
+    __tablename__ = "GenericClass_floatDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        ForeignKey(GenericClassDAO.database_id),
+        primary_key=True,
+        use_existing_column=True,
+    )
+
+    value: Mapped[builtins.float] = mapped_column(use_existing_column=True)
+    optional_value: Mapped[typing.Optional[builtins.float]] = mapped_column(
+        use_existing_column=True
+    )
+
+    container: Mapped[typing.List[builtins.float]] = mapped_column(
+        JSON, nullable=False, use_existing_column=True
+    )
+
+    __mapper_args__ = {
+        "polymorphic_identity": "GenericClass_floatDAO",
         "inherit_condition": database_id == GenericClassDAO.database_id,
     }
 
@@ -897,6 +942,26 @@ class JSONWrapperDAO(
     ] = mapped_column(JSON, nullable=False, use_existing_column=True)
 
 
+class MissingBaseClassDAO(
+    Base, DataAccessObject[test.krrood_test.dataset.example_classes.MissingBaseClass]
+):
+
+    __tablename__ = "MissingBaseClassDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        Integer, primary_key=True, use_existing_column=True
+    )
+
+    objects: Mapped[builtins.list[MissingBaseClassDAO_objects_association]] = (
+        relationship(
+            "MissingBaseClassDAO_objects_association",
+            collection_class=builtins.list,
+            cascade="all, delete-orphan",
+            foreign_keys="[MissingBaseClassDAO_objects_association.source_missingbaseclassdao_id]",
+        )
+    )
+
+
 class MixinDAO(Base, DataAccessObject[test.krrood_test.dataset.example_classes.Mixin]):
 
     __tablename__ = "MixinDAO"
@@ -953,7 +1018,7 @@ class NestedActionDAO(
         nullable=True,
         use_existing_column=True,
     )
-    pose_id: Mapped[int] = mapped_column(
+    pose_id: Mapped[typing.Optional[builtins.int]] = mapped_column(
         ForeignKey("KRROODPoseDAO.database_id", use_alter=True),
         nullable=True,
         use_existing_column=True,

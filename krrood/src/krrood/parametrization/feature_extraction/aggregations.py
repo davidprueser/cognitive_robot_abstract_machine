@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import inspect
+import warnings
 from abc import ABC
 from dataclasses import dataclass
 
@@ -145,6 +146,10 @@ class AggregationStatistic(ABC):
             else:
                 aggregations.append(function)
 
+        if not aggregations:
+            warnings.warn(
+                f"No aggregation features found for exchangeable part {self.aggregation_object} of type {type(self.aggregation_object)}"
+            )
         return aggregations
 
     def apply_mapping(self) -> List:

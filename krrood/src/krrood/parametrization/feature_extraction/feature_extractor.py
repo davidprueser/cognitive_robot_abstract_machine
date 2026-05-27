@@ -23,6 +23,9 @@ from krrood.ormatic.utils import get_python_type_from_sqlalchemy_column, is_data
 from krrood.parametrization.feature_extraction.aggregations import (
     HasExchangeablePartAggregations,
 )
+from krrood.parametrization.feature_extraction.exceptions import (
+    MissingBaseClassForClassWithExchangeableParts,
+)
 from random_events.variable import compatible_types
 
 if TYPE_CHECKING:
@@ -94,22 +97,24 @@ class FeatureExtractor:
                 continue
             seen.add(id(current_instance))
 
-            specification = EntityCompositionDescriptor(type(current_instance))
+            instance_composition = EntityCompositionDescriptor(type(current_instance))
 
             result.extend(
                 self._process_attributes(
-                    current_instance, current_symbolic, specification
-                )
-            )
-            result.extend(
-                self._process_exchangeable_parts(
-                    current_instance, current_symbolic, specification
+                    current_instance, current_symbolic, instance_composition.attributes
                 )
             )
 
+            self.exchangeable_features = self._process_exchangeable_parts(
+                current_instance, instance_composition.exchangeable_parts
+            )
+            result.extend(self.exchangeable_features.keys())
+
             queue.extend(
                 self._process_unique_parts(
-                    current_instance, current_symbolic, specification
+                    current_instance,
+                    current_symbolic,
+                    instance_composition.unique_parts,
                 )
             )
 
@@ -119,7 +124,7 @@ class FeatureExtractor:
     def _process_attributes(
         instance: DataAccessObject,
         symbolic_root: Variable,
-        specification: EntityCompositionDescriptor,
+        attributes: List[sqlalchemy.Column],
     ) -> List[MappedVariable]:
         """
         Collects symbolic variables for all scalar data columns of ``instance``.
@@ -127,11 +132,11 @@ class FeatureExtractor:
         Columns whose value is not a compatible primitive type are skipped.
         :param instance: The DAO instance to inspect.
         :param symbolic_root: The symbolic variable rooted at ``instance``.
-        :param specification: The RSPN specification describing the instance's schema.
+        :param attributes: The RSPN specification describing the instance's schema.
         :return: One typed ``MappedVariable`` per compatible scalar attribute.
         """
         result = []
-        for attribute in specification.attributes:
+        for attribute in attributes:
             value = getattr(instance, attribute.key)
 
             if not isinstance(value, compatible_types):
@@ -148,18 +153,18 @@ class FeatureExtractor:
     def _process_unique_parts(
         instance: DataAccessObject,
         symbolic_root: Variable,
-        specification: EntityCompositionDescriptor,
+        unique_parts: List[str],
     ) -> deque[Any]:
         """
         Enqueues non-null unique-part (many-to-one) relations for further traversal.
 
         :param instance: The DAO instance to inspect.
         :param symbolic_root: The symbolic variable rooted at ``instance``.
-        :param specification: The RSPN specification describing the instance's schema.
+        :param unique_parts: The RSPN specification describing the instance's schema.
         :return: ``(child_instance, child_symbolic)`` pairs ready for BFS expansion.
         """
         queue = deque()
-        for part in specification.unique_parts:
+        for part in unique_parts:
             value = getattr(instance, part)
 
             if value is None:
@@ -168,37 +173,27 @@ class FeatureExtractor:
             queue.append((value, getattr(symbolic_root, part)))
         return queue
 
-    def _process_exchangeable_parts(
-        self, current_instance, current_symbolic, specification
-    ):
+    @staticmethod
+    def _process_exchangeable_parts(current_instance, exchangeable_parts):
         """
         Collects aggregation statistic variables for all one-to-many relations of ``current_instance``.
 
-        Also records each aggregation variable in ``self.aggregations`` so
-        ``apply_mapping`` can route it to the correct ``AggregationStatistic``
-        at evaluation time.
-        :param current_instance: The DAO instance whose exchangeable parts are processed.
-        :param current_symbolic: Unused; kept for signature consistency with other process methods.
-        :param specification: The RSPN specification describing the instance's schema.
-        :return: Symbolic aggregation feature variables for all exchangeable parts.
-        :raises ValueError: If the domain class does not implement ``HasExchangeablePartAggregations``.
+        :param current_instance: The DAO instance to inspect.
+        :param exchangeable_parts: The RSPN specification describing the instance's schema.
+        :return: A mapping from each discovered aggregation variable to the exchangeable-part field name it
         """
-        result = []
-        domain_object = current_instance.from_dao()
-        domain_class = type(domain_object)
+        result = {}
+        dao_state = FromDataAccessObjectState()
+        domain_object = current_instance.from_dao(dao_state)
 
-        for exchangeable_part in specification.exchangeable_parts:
+        for exchangeable_part in exchangeable_parts:
             if not isinstance(domain_object, HasExchangeablePartAggregations):
-                raise ValueError(
-                    f"{domain_class.__name__} has exchangeable part '{exchangeable_part}' "
-                    f"but does not implement HasPartAggregations."
-                )
+                raise MissingBaseClassForClassWithExchangeableParts(type(domain_object))
             aggregation_instance = domain_object.get_aggregation_class_by_part_name(
                 exchangeable_part
             )
             for aggregation in aggregation_instance.symbolic_aggregation_features:
-                self.aggregations[aggregation] = exchangeable_part
-                result.append(aggregation)
+                result[aggregation] = exchangeable_part
 
         return result
 
@@ -209,12 +204,12 @@ class FeatureExtractor:
         :return: A list of mapped values.
         """
         result = []
+        dao_state = FromDataAccessObjectState()
+        domain_object = instance.from_dao(dao_state)
         for feature in self.features:
-            if feature in self.aggregations:
-                part_name = self.aggregations[feature]
-                domain_object = instance.from_dao()
+            if feature in self.exchangeable_features:
                 aggregation_instance = domain_object.get_aggregation_class_by_part_name(
-                    part_name
+                    self.exchangeable_features[feature]
                 )
                 result.append(
                     feature.apply_mapping_on_external_root(aggregation_instance)

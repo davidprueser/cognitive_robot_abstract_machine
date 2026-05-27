@@ -146,7 +146,7 @@ class KRROODBowl(KRROODPhysicalObject):
 @dataclass(unsafe_hash=True)
 class NestedAction:
     obj: Body
-    pose: KRROODPose
+    pose: Optional[KRROODPose]
 
 
 @dataclass
@@ -789,3 +789,18 @@ class RoomAggregations(AggregationStatistic):
 
     def room_count(self) -> int:
         return len(self.aggregation_object)
+
+
+@dataclass
+class ExampleInt:
+    attribute: int
+
+
+@dataclass
+class ExampleString:
+    attribute: str
+
+
+@dataclass
+class MissingBaseClass:
+    objects: List[ExampleInt] = field(default_factory=list)

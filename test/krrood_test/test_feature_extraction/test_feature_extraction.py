@@ -1,10 +1,14 @@
 import numpy as np
+import pytest
 
 from krrood.entity_query_language.backends import ProbabilisticBackend
 from krrood.entity_query_language.factories import (
     underspecified,
 )
 from krrood.ormatic.data_access_objects.helper import to_dao
+from krrood.parametrization.feature_extraction.exceptions import (
+    MissingBaseClassForClassWithExchangeableParts,
+)
 from krrood.parametrization.feature_extraction.feature_extractor import FeatureExtractor
 from krrood.parametrization.model_registries import DictRegistry
 from krrood.parametrization.parameterizer import UnderspecifiedParameters
@@ -21,6 +25,9 @@ from ..dataset.example_classes import (
     SceneRoom,
     SceneObject,
     SceneObjectType,
+    MissingBaseClass,
+    ExampleInt,
+    ExampleString,
 )
 from ..dataset.semantic_world_like_classes import Body
 
@@ -100,3 +107,23 @@ def test_feature_extraction_with_aggregations():
     room_query.resolve()
     model = rpc.ground(room_query)
     print(model)
+
+
+def test_missing_inheritance_from_mixin():
+    instance = MissingBaseClass([ExampleInt(1), ExampleInt(1), ExampleInt(1)])
+    with pytest.raises(MissingBaseClassForClassWithExchangeableParts):
+        FeatureExtractor.from_instances([to_dao(instance)])
+
+
+def test_feature_extractor_on_non_compatible_attribute_types():
+    instance = ExampleString("test")
+    extractor = FeatureExtractor.from_instances([to_dao(instance)])
+    assert extractor.features == []
+
+
+def test_feature_extractor_on_unique_parts_with_none():
+    instance = NestedAction(Body(name="test"), None)
+    feature_extractor = FeatureExtractor.from_instances([to_dao(instance)])
+    assert (
+        len(feature_extractor.features) == 1
+    )  # None gets filtered out though it is unique part
