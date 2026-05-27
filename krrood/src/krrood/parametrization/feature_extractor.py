@@ -329,9 +329,7 @@ class FeatureExtractor:
                 continue
             seen.add(id(current_instance))
 
-            specification = RelationalSumProductNetworkSpecification(
-                type(current_instance)
-            )
+            specification = EntityCompositionDescriptor(type(current_instance))
 
             result.extend(
                 self._process_attributes(
@@ -356,7 +354,7 @@ class FeatureExtractor:
     def _process_attributes(
         instance: DataAccessObject,
         symbolic_root: Variable,
-        specification: RelationalSumProductNetworkSpecification,
+        specification: EntityCompositionDescriptor,
     ) -> List[MappedVariable]:
         """
         Collects symbolic variables for all scalar data columns of ``instance``.
@@ -385,7 +383,7 @@ class FeatureExtractor:
     def _process_unique_parts(
         instance: DataAccessObject,
         symbolic_root: Variable,
-        specification: RelationalSumProductNetworkSpecification,
+        specification: EntityCompositionDescriptor,
     ) -> deque[Any]:
         """
         Enqueues non-null unique-part (many-to-one) relations for further traversal.
@@ -488,7 +486,7 @@ class FeatureExtractor:
         if not instances:
             return pd.DataFrame()
 
-        specification = RelationalSumProductNetworkSpecification(type(instances[0]))
+        specification = EntityCompositionDescriptor(type(instances[0]))
         instance_attr_names = [col.key for col in specification.attributes]
         agg_names = [aggregation._name_ for aggregation in aggregations]
 
@@ -522,27 +520,23 @@ class FeatureExtractor:
 
 
 @dataclass
-class RelationalSumProductNetworkSpecification:
+class EntityCompositionDescriptor:
     """
-    Schema descriptor for a DAO class, categorising its SQLAlchemy-mapped
-    columns and relationships into the roles they play in an RSPN.
-
-    :ivar attributes: Data columns (scalar, non-relationship fields).
-    :ivar unique_parts: Many-to-one relationship keys (one unique sub-object per instance).
-    :ivar exchangeable_parts: One-to-many relationship keys (lists of interchangeable objects).
-    :ivar relations: Reserved for future many-to-many relation keys.
+    Describes the composition of a domain class in terms of its scalar attributes, unique-part relations, and exchangeable-part relations.
+    It is constructed from a DAO class' SQLAlchemy mapper.
     """
 
-    spec: Type[DataAccessObject] = field(init=True)
-    """The DAO class whose SQLAlchemy mapper is inspected."""
+    dao_class: Type[DataAccessObject] = field(init=True)
+    """
+    The DAO class whose SQLAlchemy mapper is inspected.
+    """
 
     def __post_init__(self):
         self.attributes = []
         self.unique_parts = []
         self.exchangeable_parts = []
-        self.relations = []
 
-        mapper: sqlalchemy.orm.Mapper = sqlalchemy.inspection.inspect(self.spec)
+        mapper = sqlalchemy.inspection.inspect(self.dao_class)
 
         for relationship in mapper.relationships:
             if relationship.direction == MANYTOONE:

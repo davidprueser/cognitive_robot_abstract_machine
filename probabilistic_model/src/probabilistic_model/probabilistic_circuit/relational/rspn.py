@@ -12,7 +12,7 @@ from krrood.ormatic.data_access_objects.dao import DataAccessObject
 from krrood.ormatic.data_access_objects.helper import to_dao
 from krrood.parametrization.feature_extractor import (
     FeatureExtractor,
-    RelationalSumProductNetworkSpecification,
+    EntityCompositionDescriptor,
 )
 from probabilistic_model.learning.jpt.jpt import JointProbabilityTree
 from probabilistic_model.learning.jpt.variables import infer_variables_from_dataframe
@@ -80,7 +80,7 @@ class RelationalProbabilisticCircuit:
     The exchangeable distribution templates that are used to generate many-to-many relations.
     """
 
-    specification: Optional[RelationalSumProductNetworkSpecification] = field(
+    specification: Optional[EntityCompositionDescriptor] = field(
         init=False, default=None
     )
 
@@ -103,7 +103,7 @@ class RelationalProbabilisticCircuit:
         variables = infer_variables_from_dataframe(df)
         model = JointProbabilityTree(annotated_variables=variables)
         self.class_probabilistic_circuit = model.fit(df)
-        specification = RelationalSumProductNetworkSpecification(instances[0].__class__)
+        specification = EntityCompositionDescriptor(instances[0].__class__)
         self.specification = specification
         for exchangeable_part in specification.exchangeable_parts:
             aggregations = [
