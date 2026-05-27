@@ -1,40 +1,26 @@
 from __future__ import annotations
 
 import enum
-import inspect
-from abc import ABC, abstractmethod
 from collections import deque
-from dataclasses import dataclass, field
-from enum import Enum
-from functools import cached_property
-from typing import List, Tuple, Type, Any, Dict, Optional
+from dataclasses import field
+from typing import Tuple, Type
 
 import pandas as pd
 import sqlalchemy
 from sqlalchemy.orm import MANYTOONE, ONETOMANY
 from typing_extensions import TYPE_CHECKING
 import inspect
-from abc import ABC, abstractmethod
-from dataclasses import dataclass, fields
+from abc import ABC
+from dataclasses import dataclass
 from typing import (
-    Annotated,
     Any,
     Dict,
-    Generic,
-    Iterable,
     List,
-    Optional,
-    TypeVar,
-    get_args,
-    get_origin,
-    get_type_hints,
 )
-from krrood.entity_query_language.core.mapped_variable import MappedVariable, Apply
+from krrood.entity_query_language.core.mapped_variable import MappedVariable
 from krrood.entity_query_language.core.variable import Variable
 from krrood.entity_query_language.factories import variable
-from krrood.entity_query_language.utils import is_iterable
 from krrood.ormatic.data_access_objects.from_dao import FromDataAccessObjectState
-from krrood.ormatic.data_access_objects.helper import to_dao
 from krrood.ormatic.utils import get_python_type_from_sqlalchemy_column, is_data_column
 from random_events.variable import compatible_types
 
@@ -49,23 +35,17 @@ class AggregationStatistic(ABC):
 
     Subclasses declare one field holding the list of items to aggregate and
     expose one public method per statistic. Each method receives ``self`` and
-    returns either a scalar value or a ``dict`` mapping keys to scalar values
-    (for enum-keyed statistics that expand into one feature per key).
+    returns a scalar value.
     """
 
     aggregation_object: List[Any]
     """
-    The items over which statistics are computed.
+    The items over which statistics are to be computed.
     """
-
-    _internal_aggregation_mapping: Dict[Any, Any] = field(
-        init=False, default_factory=dict
-    )
 
     def __post_init__(self):
         if not self.aggregation_object:
             raise ValueError("Aggregation object must not be empty")
-        self.variable = variable(type(self), [])
 
     @property
     def symbolic_aggregation_features(self) -> List[MappedVariable]:
@@ -75,18 +55,12 @@ class AggregationStatistic(ABC):
         Dict-returning methods are expanded into one variable per key.
         :return: One ``MappedVariable`` per scalar statistic, typed as ``float``.
         """
-        result = []
+        symbolic_aggregations = []
+        aggregation_variable = variable(type(self), [])
         for function in self.aggregation_features:
-            if function in self._internal_aggregation_mapping:
-                original_function_name = self._internal_aggregation_mapping[function]
-                function_variable = getattr(self.variable, original_function_name)()
-                function_variable._type = float
-                result.append(function_variable)
-            else:
-                function_variable = getattr(self.variable, function.__name__)()
-                function_variable._type = float
-                result.append(function_variable)
-        return result
+            function_variable = getattr(aggregation_variable, function.__name__)()
+            symbolic_aggregations.append(function_variable)
+        return symbolic_aggregations
 
     @property
     def aggregation_features(self) -> List[Any]:
@@ -101,38 +75,16 @@ class AggregationStatistic(ABC):
         cls_functions = inspect.getmembers(self.__class__, predicate=inspect.isfunction)
         aggregations = []
         for name, function in cls_functions:
-            if name.startswith("__") and name.endswith("__"):
+            if (
+                name.startswith("__")
+                or name.startswith("_")
+                or function is AggregationStatistic.apply_mapping
+            ):
                 continue
-            if name.startswith("_"):
-                continue
-            if function is AggregationStatistic.apply_mapping:
-                continue
-            called_function = function(self)
-            if isinstance(called_function, dict):
-                aggregations.extend(
-                    self._process_nested_aggregation_statistics(
-                        called_function, function
-                    )
-                )
             else:
                 aggregations.append(function)
 
         return aggregations
-
-    def _process_nested_aggregation_statistics(
-        self, aggregation_statistics, original_function
-    ) -> Dict[str, Any]:
-        result = {}
-        for key, val in aggregation_statistics.items():
-            if isinstance(key, Enum):
-                key = key.value
-            function_name = f"{original_function.__name__}_{key}"
-            self._internal_aggregation_mapping[function_name] = (
-                original_function.__name__
-            )
-            result[function_name] = val
-
-        return result
 
     def apply_mapping(self) -> List:
         """
