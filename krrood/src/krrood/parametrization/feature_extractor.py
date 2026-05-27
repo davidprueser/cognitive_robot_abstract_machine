@@ -7,7 +7,7 @@ from collections import deque
 from dataclasses import dataclass, field
 from enum import Enum
 from functools import cached_property
-from typing import List, Type, Any, Dict, Optional
+from typing import List, Tuple, Type, Any, Dict, Optional
 
 import pandas as pd
 import sqlalchemy
@@ -42,28 +42,21 @@ if TYPE_CHECKING:
     from krrood.ormatic.data_access_objects.dao import DataAccessObject
 
 
-@dataclass(frozen=True)
-class AggregatedBy:
-    """
-    Field-level annotation that declares which AggregationStatistic subclass
-    is responsible for a list field.
-
-    Usage::
-        objects: Annotated[list[SceneObject], AggregatedBy(SceneObjectAggregations)]
-    """
-
-    aggregation_class: type
-
-
 @dataclass
 class AggregationStatistic(ABC):
     """
-    Base for all aggregation classes. Subclasses are dataclasses whose only
-    field is the list of items to aggregate, and whose methods (excluding
-    dunder and this base method) are the statistics.
+    Base class for aggregation statistics over a list of exchangeable domain objects.
+
+    Subclasses declare one field holding the list of items to aggregate and
+    expose one public method per statistic. Each method receives ``self`` and
+    returns either a scalar value or a ``dict`` mapping keys to scalar values
+    (for enum-keyed statistics that expand into one feature per key).
     """
 
     aggregation_object: List[Any]
+    """
+    The items over which statistics are computed.
+    """
 
     _internal_aggregation_mapping: Dict[Any, Any] = field(
         init=False, default_factory=dict
@@ -76,6 +69,12 @@ class AggregationStatistic(ABC):
 
     @property
     def symbolic_aggregation_features(self) -> List[MappedVariable]:
+        """
+        Symbolic variables corresponding to each aggregation statistic method.
+
+        Dict-returning methods are expanded into one variable per key.
+        :return: One ``MappedVariable`` per scalar statistic, typed as ``float``.
+        """
         result = []
         for function in self.aggregation_features:
             if function in self._internal_aggregation_mapping:
@@ -91,14 +90,20 @@ class AggregationStatistic(ABC):
 
     @property
     def aggregation_features(self) -> List[Any]:
+        """
+        All public, non-base statistic methods defined on the concrete subclass.
+
+        Dict-returning methods are flattened into per-key entries and recorded
+        in ``_internal_aggregation_mapping`` so symbolic lookup can recover
+        the original method name.
+        :return: A list of bound or flattened statistic callables.
+        """
         cls_functions = inspect.getmembers(self.__class__, predicate=inspect.isfunction)
         aggregations = []
         for name, function in cls_functions:
             if name.startswith("__") and name.endswith("__"):
                 continue
             if name.startswith("_"):
-                continue
-            if function is AggregationStatistic.aggregation_features:
                 continue
             if function is AggregationStatistic.apply_mapping:
                 continue
@@ -129,69 +134,115 @@ class AggregationStatistic(ABC):
 
         return result
 
-    def apply_mapping(self):
+    def apply_mapping(self) -> List:
+        """
+        Evaluates every symbolic aggregation feature against this instance.
+
+        :return: One concrete value per entry in ``symbolic_aggregation_features``.
+        """
         return [
             feature.apply_mapping_on_external_root(self)
             for feature in self.symbolic_aggregation_features
         ]
 
 
+class AggregationRegistry:
+    """
+    Class-level registry mapping ``(owner_class, attribute_name)`` pairs to
+    their ``AggregationStatistic`` subclass.
+
+    The registry is write-protected from outside this module: all entries are
+    created exclusively through the ``@aggregation_for`` decorator.
+    """
+
+    _registry: Dict[Tuple[Type, str], Type[AggregationStatistic]] = {}
+    """
+    The registry mapping ``(owner_class, attribute_name)`` pairs to their
+    ``AggregationStatistic`` subclass.
+    """
+
+    @classmethod
+    def _register(
+        cls,
+        owner: Type,
+        attribute_name: str,
+        aggregation_cls: Type[AggregationStatistic],
+    ) -> None:
+        """
+        Registers an aggregation class for the given owner field.
+        :param owner: The domain class that owns the exchangeable-part field.
+        :param attribute_name: The field name on ``owner``.
+        :param aggregation_cls: The ``AggregationStatistic`` subclass to register for the pair.
+        """
+        cls._registry[(owner, attribute_name)] = aggregation_cls
+
+    @classmethod
+    def get(cls, owner: Type, attribute_name: str) -> Type[AggregationStatistic]:
+        """
+        Returns the aggregation class registered for the given owner field.
+
+        :param owner: The domain class that owns the exchangeable-part field.
+        :param attribute_name: The field name on ``owner``.
+        :return: The registered ``AggregationStatistic`` subclass.
+        :raises KeyError: If no aggregation class has been registered for the pair.
+        """
+        key = (owner, attribute_name)
+        if key not in cls._registry:
+            raise KeyError(
+                f"No aggregation class registered for "
+                f"{owner.__name__}.{attribute_name}. "
+                f"Use @aggregation_for({owner.__name__!r}, {attribute_name!r}) "
+                f"to register one."
+            )
+        return cls._registry[key]
+
+    @classmethod
+    def get_fields_for(cls, owner: Type) -> List[str]:
+        """
+        Returns the names of all fields on ``owner`` that have a registered aggregation class.
+
+        :param owner: The domain class to query.
+        :return: Field names registered for ``owner``, in insertion order.
+        """
+        return [attr for (owner_cls, attr) in cls._registry if owner_cls is owner]
+
+
+def aggregation_for(*owner_attribute_pairs: Tuple[Type, str]):
+    """
+    Class decorator that registers an ``AggregationStatistic`` subclass in the
+    ``AggregationRegistry`` for one or more ``(owner, attribute_name)`` pairs.
+
+    :param owner_attribute_pairs: One or more ``(owner_class, attribute_name)`` tuples.
+    """
+
+    def wrapper(
+        aggregation_cls: Type[AggregationStatistic],
+    ) -> Type[AggregationStatistic]:
+        for owner, attribute_name in owner_attribute_pairs:
+            AggregationRegistry._register(owner, attribute_name, aggregation_cls)
+        return aggregation_cls
+
+    return wrapper
+
+
 @dataclass
 class HasExchangeablePartAggregations(ABC):
     """
-    Mixin for domain classes that use ``Annotated[list[X], AggregatedBy(Y)]``
-    to declare aggregation intent on their fields.
+    Mixin for domain classes whose exchangeable-part fields have aggregation
+    classes registered via ``@aggregation_for``.
 
-    Validation runs once at class definition time (``__init_subclass__``) and
-    again at instance creation time (``__post_init__``).
+    Subclasses must be dataclasses. Any field whose ``(owner, name)`` pair
+    appears in the ``AggregationRegistry`` is validated to be a list at
+    instance creation time.
     """
-
-    def __init_subclass__(cls, **kwargs: Any) -> None:
-        super().__init_subclass__(**kwargs)
-        cls._validate_aggregation_annotations()
-
-    @classmethod
-    def _validate_aggregation_annotations(cls) -> None:
-        """
-        Called at class definition time. Checks:
-        - AggregatedBy targets are proper AggregationStatistic subclasses
-        - The annotated field is actually a list type
-        """
-        hints = get_type_hints(cls, include_extras=True)
-        for field_name, hint in hints.items():
-            aggregation_marker = _extract_aggregated_by(hint)
-            if aggregation_marker is None:
-                continue
-
-            # Must target an AggregationStatistic subclass
-            if not (
-                isinstance(aggregation_marker.aggregation_class, type)
-                and issubclass(
-                    aggregation_marker.aggregation_class, AggregationStatistic
-                )
-            ):
-                raise TypeError(
-                    f"{cls.__name__}.{field_name}: AggregatedBy target "
-                    f"{aggregation_marker.aggregation_class} must be a subclass of AggregationStatistic."
-                )
-
-            # The field itself must be a list
-            inner = get_args(hint)[0]  # unwrap Annotated -> actual type
-            if get_origin(inner) not in (list, List):
-                raise TypeError(
-                    f"{cls.__name__}.{field_name}: AggregatedBy requires a list field, "
-                    f"got {inner!r}."
-                )
 
     def __post_init__(self) -> None:
         """
-        Called at instance creation time. Checks that each AggregatedBy field
-        is actually a list (not None, not a scalar).
+        Validates that every registered exchangeable-part field holds a list.
+
+        :raises TypeError: If a registered field is not a list at instance creation.
         """
-        hints = get_type_hints(self.__class__, include_extras=True)
-        for field_name, hint in hints.items():
-            if _extract_aggregated_by(hint) is None:
-                continue
+        for field_name in AggregationRegistry.get_fields_for(type(self)):
             value = getattr(self, field_name)
             if not isinstance(value, list):
                 raise TypeError(
@@ -201,57 +252,37 @@ class HasExchangeablePartAggregations(ABC):
 
     def get_aggregation_class_by_part_name(
         self, part_name: str
-    ) -> Optional[AggregationStatistic]:
+    ) -> AggregationStatistic:
         """
-        Returns an instantiated AggregationStatistic for the named field,
-        or raises KeyError if the field has no AggregatedBy annotation.
-        :param part_name: The name of the field to get the aggregation class for.
-        :return: An instantiated AggregationStatistic.
+        Instantiates and returns the aggregation class registered for the named field.
+
+        :param part_name: The name of the exchangeable-part field.
+        :return: An ``AggregationStatistic`` initialised with the field's current value.
+        :raises KeyError: If no aggregation class is registered for ``part_name``.
         """
-        mapping = self._build_part_mapping()
-        if part_name not in mapping:
-            raise KeyError(
-                f"No AggregatedBy annotation found for field '{part_name}' "
-                f"on {self.__class__.__name__}. "
-                f"Annotated fields: {list(mapping.keys())}"
-            )
-        return mapping[part_name]
-
-    def _build_part_mapping(self) -> Dict[str, AggregationStatistic]:
-        hints = get_type_hints(self.__class__, include_extras=True)
-        result = {}
-        for field_name, hint in hints.items():
-            marker = _extract_aggregated_by(hint)
-            if marker is None:
-                continue
-            items = getattr(self, field_name)
-            result[field_name] = marker.aggregation_class(items)
-        return result
-
-
-def _extract_aggregated_by(hint: Any) -> Optional[AggregatedBy]:
-    """Returns the AggregatedBy marker from an Annotated hint, or None."""
-    if get_origin(hint) is not Annotated:
-        return None
-    for meta in get_args(hint)[1:]:
-        if isinstance(meta, AggregatedBy):
-            return meta
-    return None
+        aggregation_cls = AggregationRegistry.get(type(self), part_name)
+        return aggregation_cls(getattr(self, part_name))
 
 
 @dataclass
 class FeatureExtractor:
     """
-    A class to extract features from a given class. Features are all attributes of the class, propagating custom types/objects down. The features are represented as symbolic variables.
-    A feature extractor provides additional knowledge about the class.
+    Extracts symbolic features from DAO instances, including scalar attributes,
+    unique-part sub-trees, and aggregation statistics over exchangeable parts.
+
+    Prefer ``FeatureExtractor.from_instances`` for construction; the direct
+    constructor is for cases where the feature list is already known.
     """
 
     features: List[MappedVariable]
     """
-    The features extracted from the class/instances.
+    Symbolic variables representing every extractable feature, in traversal order.
     """
 
     aggregations: Dict[MappedVariable, str] = field(default_factory=dict, init=False)
+    """
+    Maps each aggregation feature variable to the exchangeable-part field name it came from.
+    """
 
     def __post_init__(self):
         if not self.features:
@@ -279,6 +310,13 @@ class FeatureExtractor:
     def _extract_features(
         self, example_instance: DataAccessObject, symbolic_root: Variable
     ) -> List[MappedVariable]:
+        """
+        Traverses the DAO object graph breadth-first and collects all features.
+
+        :param example_instance: A representative DAO instance that defines the schema.
+        :param symbolic_root: The root symbolic variable for the traversal.
+        :return: All discovered feature variables in traversal order.
+        """
         result = []
         seen = set()
         queue = deque()
@@ -320,6 +358,15 @@ class FeatureExtractor:
         symbolic_root: Variable,
         specification: RelationalSumProductNetworkSpecification,
     ) -> List[MappedVariable]:
+        """
+        Collects symbolic variables for all scalar data columns of ``instance``.
+
+        Columns whose value is not a compatible primitive type are skipped.
+        :param instance: The DAO instance to inspect.
+        :param symbolic_root: The symbolic variable rooted at ``instance``.
+        :param specification: The RSPN specification describing the instance's schema.
+        :return: One typed ``MappedVariable`` per compatible scalar attribute.
+        """
         result = []
         for attribute in specification.attributes:
             value = getattr(instance, attribute.key)
@@ -340,6 +387,14 @@ class FeatureExtractor:
         symbolic_root: Variable,
         specification: RelationalSumProductNetworkSpecification,
     ) -> deque[Any]:
+        """
+        Enqueues non-null unique-part (many-to-one) relations for further traversal.
+
+        :param instance: The DAO instance to inspect.
+        :param symbolic_root: The symbolic variable rooted at ``instance``.
+        :param specification: The RSPN specification describing the instance's schema.
+        :return: ``(child_instance, child_symbolic)`` pairs ready for BFS expansion.
+        """
         queue = deque()
         for part in specification.unique_parts:
             value = getattr(instance, part)
@@ -353,6 +408,18 @@ class FeatureExtractor:
     def _process_exchangeable_parts(
         self, current_instance, current_symbolic, specification
     ):
+        """
+        Collects aggregation statistic variables for all one-to-many relations of ``current_instance``.
+
+        Also records each aggregation variable in ``self.aggregations`` so
+        ``apply_mapping`` can route it to the correct ``AggregationStatistic``
+        at evaluation time.
+        :param current_instance: The DAO instance whose exchangeable parts are processed.
+        :param current_symbolic: Unused; kept for signature consistency with other process methods.
+        :param specification: The RSPN specification describing the instance's schema.
+        :return: Symbolic aggregation feature variables for all exchangeable parts.
+        :raises ValueError: If the domain class does not implement ``HasExchangeablePartAggregations``.
+        """
         result = []
         domain_object = current_instance.from_dao()
         domain_class = type(domain_object)
@@ -457,15 +524,17 @@ class FeatureExtractor:
 @dataclass
 class RelationalSumProductNetworkSpecification:
     """
-    Specification used to learn a RelationalSumProductNetwork from a class.
-    It contains information about the attributes, unique parts, exchangeable parts, and relations of the class.
-    These are determined by the relationships and columns of the DAO class.
+    Schema descriptor for a DAO class, categorising its SQLAlchemy-mapped
+    columns and relationships into the roles they play in an RSPN.
+
+    :ivar attributes: Data columns (scalar, non-relationship fields).
+    :ivar unique_parts: Many-to-one relationship keys (one unique sub-object per instance).
+    :ivar exchangeable_parts: One-to-many relationship keys (lists of interchangeable objects).
+    :ivar relations: Reserved for future many-to-many relation keys.
     """
 
     spec: Type[DataAccessObject] = field(init=True)
-    """
-    The wrapped class that is supposed to be an RSPN.
-    """
+    """The DAO class whose SQLAlchemy mapper is inspected."""
 
     def __post_init__(self):
         self.attributes = []

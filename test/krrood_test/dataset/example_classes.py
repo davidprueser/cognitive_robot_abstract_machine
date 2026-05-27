@@ -24,7 +24,7 @@ from krrood.ormatic.data_access_objects.alternative_mappings import (
 from krrood.parametrization.feature_extractor import (
     AggregationStatistic,
     HasExchangeablePartAggregations,
-    AggregatedBy,
+    aggregation_for,
 )
 from krrood.symbol_graph.symbol_graph import Symbol
 from ..dataset.semantic_world_like_classes import Body
@@ -743,6 +743,20 @@ class SceneObject:
 
 
 @dataclass
+class SceneRoom(HasExchangeablePartAggregations):
+    position: KRROODPosition
+    orientation: KRROODOrientation
+    objects: List[SceneObject]
+
+
+@dataclass
+class TestExParts(HasExchangeablePartAggregations):
+    objects: List[SceneObject]
+    rooms: List[SceneRoom]
+
+
+@aggregation_for((SceneRoom, "objects"), (TestExParts, "objects"))
+@dataclass
 class SceneObjectAggregations(AggregationStatistic):
     aggregation_object: List[SceneObject]
 
@@ -768,22 +782,10 @@ class SceneObjectAggregations(AggregationStatistic):
         return len(self.aggregation_object)
 
 
+@aggregation_for((TestExParts, "rooms"))
 @dataclass
 class RoomAggregations(AggregationStatistic):
-    rooms: List[SceneRoom]
+    aggregation_object: List[SceneRoom]
 
     def room_count(self) -> int:
-        return len(self.rooms)
-
-
-@dataclass
-class SceneRoom(HasExchangeablePartAggregations):
-    position: KRROODPosition
-    orientation: KRROODOrientation
-    objects: Annotated[List[SceneObject], AggregatedBy(SceneObjectAggregations)]
-
-
-@dataclass
-class TestExParts(HasExchangeablePartAggregations):
-    objects: Annotated[List[SceneObject], AggregatedBy(SceneObjectAggregations)]
-    rooms: Annotated[List[SceneRoom], AggregatedBy(RoomAggregations)]
+        return len(self.aggregation_object)

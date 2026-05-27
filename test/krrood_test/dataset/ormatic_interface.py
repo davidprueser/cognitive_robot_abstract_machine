@@ -130,9 +130,11 @@ class PersonDAO_knows_association(Base, AssociationDataAccessObject):
     )
 
 
-class RoomAggregationsDAO_rooms_association(Base, AssociationDataAccessObject):
+class RoomAggregationsDAO_aggregation_object_association(
+    Base, AssociationDataAccessObject
+):
 
-    __tablename__ = "_34410314291427118707520957931787154880315394026545822593806933"
+    __tablename__ = "_35891099413275884720638211839951734652838102737564816247881459"
 
     database_id: Mapped[int] = mapped_column(Integer, primary_key=True)
     source_roomaggregationsdao_id: Mapped[int] = mapped_column(
@@ -156,6 +158,23 @@ class SceneObjectAggregationsDAO_aggregation_object_association(
     database_id: Mapped[int] = mapped_column(Integer, primary_key=True)
     source_sceneobjectaggregationsdao_id: Mapped[int] = mapped_column(
         ForeignKey("SceneObjectAggregationsDAO.database_id")
+    )
+    target_sceneobjectdao_id: Mapped[int] = mapped_column(
+        ForeignKey("SceneObjectDAO.database_id")
+    )
+
+    target: Mapped[SceneObjectDAO] = relationship(
+        "SceneObjectDAO", foreign_keys=[target_sceneobjectdao_id]
+    )
+
+
+class SceneRoomDAO_objects_association(Base, AssociationDataAccessObject):
+
+    __tablename__ = "_41896291563655570123326561014529018280292791361420111771921539"
+
+    database_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    source_sceneroomdao_id: Mapped[int] = mapped_column(
+        ForeignKey("SceneRoomDAO.database_id")
     )
     target_sceneobjectdao_id: Mapped[int] = mapped_column(
         ForeignKey("SceneObjectDAO.database_id")
@@ -390,6 +409,40 @@ class SymbolGraphMappingDAO_predicate_relations_association(
 
     target: Mapped[PredicateClassRelationDAO] = relationship(
         "PredicateClassRelationDAO", foreign_keys=[target_predicateclassrelationdao_id]
+    )
+
+
+class TestExPartsDAO_objects_association(Base, AssociationDataAccessObject):
+
+    __tablename__ = "_13414878723368313611184808466201711284901757356557250326094396"
+
+    database_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    source_testexpartsdao_id: Mapped[int] = mapped_column(
+        ForeignKey("TestExPartsDAO.database_id")
+    )
+    target_sceneobjectdao_id: Mapped[int] = mapped_column(
+        ForeignKey("SceneObjectDAO.database_id")
+    )
+
+    target: Mapped[SceneObjectDAO] = relationship(
+        "SceneObjectDAO", foreign_keys=[target_sceneobjectdao_id]
+    )
+
+
+class TestExPartsDAO_rooms_association(Base, AssociationDataAccessObject):
+
+    __tablename__ = "_91299099733580933622654779849770155284567250717459502838045192"
+
+    database_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    source_testexpartsdao_id: Mapped[int] = mapped_column(
+        ForeignKey("TestExPartsDAO.database_id")
+    )
+    target_sceneroomdao_id: Mapped[int] = mapped_column(
+        ForeignKey("SceneRoomDAO.database_id")
+    )
+
+    target: Mapped[SceneRoomDAO] = relationship(
+        "SceneRoomDAO", foreign_keys=[target_sceneroomdao_id]
     )
 
 
@@ -630,6 +683,34 @@ class GenericClassDAO(
     }
 
 
+class GenericClass_floatDAO(
+    GenericClassDAO,
+    DataAccessObject[test.krrood_test.dataset.example_classes.GenericClass[float]],
+):
+
+    __tablename__ = "GenericClass_floatDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        ForeignKey(GenericClassDAO.database_id),
+        primary_key=True,
+        use_existing_column=True,
+    )
+
+    value: Mapped[builtins.float] = mapped_column(use_existing_column=True)
+    optional_value: Mapped[typing.Optional[builtins.float]] = mapped_column(
+        use_existing_column=True
+    )
+
+    container: Mapped[typing.List[builtins.float]] = mapped_column(
+        JSON, nullable=False, use_existing_column=True
+    )
+
+    __mapper_args__ = {
+        "polymorphic_identity": "GenericClass_floatDAO",
+        "inherit_condition": database_id == GenericClassDAO.database_id,
+    }
+
+
 class GenericClass_KRROODPositionDAO(
     GenericClassDAO,
     DataAccessObject[
@@ -678,34 +759,6 @@ class GenericClass_KRROODPositionDAO(
 
     __mapper_args__ = {
         "polymorphic_identity": "GenericClass_KRROODPositionDAO",
-        "inherit_condition": database_id == GenericClassDAO.database_id,
-    }
-
-
-class GenericClass_floatDAO(
-    GenericClassDAO,
-    DataAccessObject[test.krrood_test.dataset.example_classes.GenericClass[float]],
-):
-
-    __tablename__ = "GenericClass_floatDAO"
-
-    database_id: Mapped[builtins.int] = mapped_column(
-        ForeignKey(GenericClassDAO.database_id),
-        primary_key=True,
-        use_existing_column=True,
-    )
-
-    value: Mapped[builtins.float] = mapped_column(use_existing_column=True)
-    optional_value: Mapped[typing.Optional[builtins.float]] = mapped_column(
-        use_existing_column=True
-    )
-
-    container: Mapped[typing.List[builtins.float]] = mapped_column(
-        JSON, nullable=False, use_existing_column=True
-    )
-
-    __mapper_args__ = {
-        "polymorphic_identity": "GenericClass_floatDAO",
         "inherit_condition": database_id == GenericClassDAO.database_id,
     }
 
@@ -1158,11 +1211,13 @@ class RoomAggregationsDAO(
         Integer, primary_key=True, use_existing_column=True
     )
 
-    rooms: Mapped[builtins.list[RoomAggregationsDAO_rooms_association]] = relationship(
-        "RoomAggregationsDAO_rooms_association",
+    aggregation_object: Mapped[
+        builtins.list[RoomAggregationsDAO_aggregation_object_association]
+    ] = relationship(
+        "RoomAggregationsDAO_aggregation_object_association",
         collection_class=builtins.list,
         cascade="all, delete-orphan",
-        foreign_keys="[RoomAggregationsDAO_rooms_association.source_roomaggregationsdao_id]",
+        foreign_keys="[RoomAggregationsDAO_aggregation_object_association.source_roomaggregationsdao_id]",
     )
 
 
@@ -1235,6 +1290,12 @@ class SceneRoomDAO(
         uselist=False,
         foreign_keys=[orientation_id],
         post_update=True,
+    )
+    objects: Mapped[builtins.list[SceneRoomDAO_objects_association]] = relationship(
+        "SceneRoomDAO_objects_association",
+        collection_class=builtins.list,
+        cascade="all, delete-orphan",
+        foreign_keys="[SceneRoomDAO_objects_association.source_sceneroomdao_id]",
     )
 
 
@@ -2395,6 +2456,19 @@ class TestExPartsDAO(
 
     database_id: Mapped[builtins.int] = mapped_column(
         Integer, primary_key=True, use_existing_column=True
+    )
+
+    objects: Mapped[builtins.list[TestExPartsDAO_objects_association]] = relationship(
+        "TestExPartsDAO_objects_association",
+        collection_class=builtins.list,
+        cascade="all, delete-orphan",
+        foreign_keys="[TestExPartsDAO_objects_association.source_testexpartsdao_id]",
+    )
+    rooms: Mapped[builtins.list[TestExPartsDAO_rooms_association]] = relationship(
+        "TestExPartsDAO_rooms_association",
+        collection_class=builtins.list,
+        cascade="all, delete-orphan",
+        foreign_keys="[TestExPartsDAO_rooms_association.source_testexpartsdao_id]",
     )
 
 

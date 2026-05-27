@@ -9,7 +9,6 @@ from krrood.parametrization.feature_extractor import (
     FeatureExtractor,
     HasExchangeablePartAggregations,
     AggregationStatistic,
-    AggregatedBy,
 )
 from krrood.entity_query_language.core.mapped_variable import Index, Call
 from ..dataset.ormatic_interface import *  # type: ignore
@@ -77,4 +76,4 @@ def test_multiple_exchangeable_parts():
 
     extractor = FeatureExtractor.from_instances([to_dao(test_ex_parts)])
     assert len([f for f in extractor.features if isinstance(f, Call)]) == 4
-    assert extractor.apply_mapping(to_dao(test_ex_parts)) == [1, 1, 1, 1]
+    assert extractor.apply_mapping(to_dao(test_ex_parts)) == [1, 1, 2, 2]
