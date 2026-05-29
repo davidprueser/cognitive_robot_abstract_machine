@@ -346,31 +346,6 @@ class FlatVariable(MappedVariable):
         return f"Flatten({self._child_._name_})"
 
 
-@dataclass(eq=False, repr=False)
-class Apply(MappedVariable):
-    """
-    Apply a fixed external callable to the current pipeline value.
-
-    This is the composition primitive for cases where neither attribute access (``Attribute``),
-    collection indexing (``Index``), nor direct invocation (``Call``) suffice — most commonly
-    when a constructor or a free function must be applied to the value flowing through the chain.
-    """
-
-    _callable_: Callable
-    """The callable to apply to the pipeline value."""
-
-    def _update_type_(self) -> None:
-        pass  # output type cannot be inferred generically; set _type_ explicitly if needed
-
-    def _apply_mapping_(self, value: Any) -> Iterable[Any]:
-        yield self._callable_(value)
-
-    @property
-    def _name_(self):
-        name = getattr(self._callable_, "__name__", repr(self._callable_))
-        return f"{name}({self._child_._name_})"
-
-
 @dataclass
 class MappedVariableCacheItem:
     """
