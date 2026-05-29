@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import enum
-from collections import deque
+import itertools
+from collections import defaultdict, deque
 from dataclasses import field
 from typing import Type
 
@@ -47,9 +48,11 @@ class FeatureExtractor:
     Symbolic variables representing every extractable feature, in traversal order.
     """
 
-    aggregations: Dict[MappedVariable, str] = field(default_factory=dict, init=False)
+    exchangeable_features: Dict[str, List[MappedVariable]] = field(
+        default_factory=lambda: defaultdict(list), init=False
+    )
     """
-    Maps each aggregation feature variable to the exchangeable-part field name it came from.
+    Mapping from each exchangeable-part field name to its discovered aggregation variables.
     """
 
     def __post_init__(self):
@@ -71,7 +74,7 @@ class FeatureExtractor:
         dao_state = FromDataAccessObjectState()
         root = variable(type(instances[0].from_dao(dao_state)), [])
         extractor = cls.__new__(cls)
-        extractor.aggregations = {}
+        extractor.exchangeable_features = defaultdict(list)
         extractor.features = extractor._extract_features(instances[0], root)
         return extractor
 
@@ -87,6 +90,7 @@ class FeatureExtractor:
         """
         result = []
         seen = set()
+        exchangeable_features = defaultdict(list)
         queue = deque()
         queue.append((example_instance, symbolic_root))
 
@@ -105,11 +109,11 @@ class FeatureExtractor:
                 )
             )
 
-            self.exchangeable_features = self._process_exchangeable_parts(
-                current_instance, instance_composition.exchangeable_parts
+            exchangeable_features.update(
+                self._process_exchangeable_parts(
+                    current_instance, instance_composition.exchangeable_parts
+                )
             )
-            result.extend(self.exchangeable_features.keys())
-
             queue.extend(
                 self._process_unique_parts(
                     current_instance,
@@ -118,6 +122,8 @@ class FeatureExtractor:
                 )
             )
 
+        result.extend(itertools.chain.from_iterable(exchangeable_features.values()))
+        self.exchangeable_features = exchangeable_features
         return result
 
     @staticmethod
@@ -182,7 +188,7 @@ class FeatureExtractor:
         :param exchangeable_parts: The RSPN specification describing the instance's schema.
         :return: A mapping from each discovered aggregation variable to the exchangeable-part field name it
         """
-        result = {}
+        result = defaultdict(list)
         dao_state = FromDataAccessObjectState()
         domain_object = current_instance.from_dao(dao_state)
 
@@ -193,7 +199,7 @@ class FeatureExtractor:
                 exchangeable_part
             )
             for aggregation in aggregation_instance.symbolic_aggregation_features:
-                result[aggregation] = exchangeable_part
+                result[exchangeable_part].append(aggregation)
 
         return result
 
@@ -203,13 +209,18 @@ class FeatureExtractor:
         :param instance: The instance to extract features from.
         :return: A list of mapped values.
         """
+        aggregation_to_part = {
+            aggregation: part
+            for part, aggregations in self.exchangeable_features.items()
+            for aggregation in aggregations
+        }
         result = []
         dao_state = FromDataAccessObjectState()
         domain_object = instance.from_dao(dao_state)
         for feature in self.features:
-            if feature in self.exchangeable_features:
+            if feature in aggregation_to_part:
                 aggregation_instance = domain_object.get_aggregation_class_by_part_name(
-                    self.exchangeable_features[feature]
+                    aggregation_to_part[feature]
                 )
                 result.append(
                     feature.apply_mapping_on_external_root(aggregation_instance)
@@ -224,40 +235,9 @@ class FeatureExtractor:
         :param instances: The instances to create the dataframe from.
         :return: A dataframe containing the mapped values for each feature.
         """
-        result = []
-        for instance in instances:
-            result.append(self.apply_mapping(instance))
+        result = [self.apply_mapping(instance) for instance in instances]
         features_names = [feature._name_ for feature in self.features]
         return pd.DataFrame(columns=features_names, data=result)
-
-    def create_dataframe_for_exchangeable_parts_with_aggregations(
-        self,
-        instances: List[DataAccessObject],
-        aggregations: List[MappedVariable],
-        agg_values: List[List] = None,
-    ) -> pd.DataFrame:
-        """
-        Create a dataframe from the given instances.
-        :param instances: The child instances (exchangeable part objects).
-        :param aggregations: Aggregation features whose names form the aggregation columns.
-        :param agg_values: Pre-computed aggregation values per instance, one list per row.
-        :return: A dataframe with one row per child object and columns for its attributes and the aggregation statistics.
-        """
-        if not instances:
-            return pd.DataFrame()
-
-        specification = EntityCompositionDescriptor(type(instances[0]))
-        instance_attr_names = [col.key for col in specification.attributes]
-        agg_names = [aggregation._name_ for aggregation in aggregations]
-
-        if agg_values is None:
-            agg_values = [[] for _ in instances]
-
-        result = [
-            agg_row + [getattr(instance, name) for name in instance_attr_names]
-            for instance, agg_row in zip(instances, agg_values)
-        ]
-        return pd.DataFrame(columns=agg_names + instance_attr_names, data=result)
 
     def preprocess_dataframe(self, df: pd.DataFrame) -> pd.DataFrame:
         """

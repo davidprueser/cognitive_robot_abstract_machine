@@ -37,7 +37,13 @@ class ExchangeableDistributionTemplate:
 
         for part in parts_to_ground:
             p_part = self.template_distribution.ground(part)
-            p_part.log_conditional_in_place(aggregation_statistics)
+            conditioning_result, _ = p_part.log_conditional_in_place(
+                aggregation_statistics
+            )
+            if conditioning_result is None:
+                # Impossible conditioning (e.g. unresolved query attributes produced
+                # out-of-distribution statistic values); fall back to unconditioned part.
+                p_part = self.template_distribution.ground(part)
             non_latent = [v for v in p_part.variables if v not in self.latent_variables]
             p_part.marginal_in_place(non_latent)
 
@@ -89,15 +95,14 @@ class RelationalProbabilisticCircuit:
     def fit(
         self,
         instances: List[DataAccessObject],
-        feature_extractor: FeatureExtractor,
         dataframe_from_parent: Optional[pd.DataFrame] = None,
     ):
-        self.feature_extractor = feature_extractor
+        self.feature_extractor = FeatureExtractor.from_instances(instances)
         if dataframe_from_parent is not None:
             df = dataframe_from_parent
         else:
-            df = feature_extractor.create_dataframe(instances)
-            df = feature_extractor.preprocess_dataframe(df)
+            df = self.feature_extractor.create_dataframe(instances)
+            df = self.feature_extractor.preprocess_dataframe(df)
             df = df.sort_index(axis=1)
 
         variables = infer_variables_from_dataframe(df)
@@ -106,30 +111,38 @@ class RelationalProbabilisticCircuit:
         specification = EntityCompositionDescriptor(instances[0].__class__)
         self.specification = specification
         for exchangeable_part in specification.exchangeable_parts:
-            aggregations = [
-                aggregation
-                for aggregation, part in feature_extractor.aggregations.items()
-                if part == exchangeable_part
+            aggregations = self.feature_extractor.exchangeable_features[
+                exchangeable_part
             ]
+            agg_indices = [
+                next(
+                    i for i, f in enumerate(self.feature_extractor.features) if f is agg
+                )
+                for agg in aggregations
+            ]
+            agg_names = [agg._name_ for agg in aggregations]
             objects = [
                 assoc.target
                 for assoc in itertools.chain.from_iterable(
                     getattr(instance, exchangeable_part) for instance in instances
                 )
             ]
-            agg_values = [
-                [
-                    aggregation.apply_mapping_on_external_root(instance)
-                    for aggregation in aggregations
-                ]
-                for instance in instances
-                for _ in getattr(instance, exchangeable_part)
+            first_child_type = type(getattr(instances[0], exchangeable_part)[0].target)
+            child_attr_names = [
+                col.key
+                for col in EntityCompositionDescriptor(first_child_type).attributes
             ]
-            df = feature_extractor.create_dataframe_for_exchangeable_parts_with_aggregations(
-                objects, aggregations, agg_values
-            )
-
-            aggregation_names = [aggregation._name_ for aggregation in aggregations]
+            rows = []
+            for instance in instances:
+                mapped = self.feature_extractor.apply_mapping(instance)
+                agg_row = [mapped[i] for i in agg_indices]
+                for assoc in getattr(instance, exchangeable_part):
+                    rows.append(
+                        agg_row
+                        + [getattr(assoc.target, name) for name in child_attr_names]
+                    )
+            df = pd.DataFrame(columns=agg_names + child_attr_names, data=rows)
+            aggregation_names = agg_names
 
             latent_variables = [
                 v.variable
@@ -143,10 +156,8 @@ class RelationalProbabilisticCircuit:
                 RelationalProbabilisticCircuit(exchangeable_part_type),
                 latent_variables,
             )
-            child_feature_extractor = FeatureExtractor.from_instances(objects)
             exchangeable_distribution_template.template_distribution.fit(
                 objects,
-                child_feature_extractor,
                 dataframe_from_parent=df,
             )
             self.exchangeable_distribution_templates[exchangeable_part] = (
@@ -162,10 +173,8 @@ class RelationalProbabilisticCircuit:
             exchangeable_distribution_template,
         ) in self.exchangeable_distribution_templates.items():
             parts_to_ground = query.kwargs[exchangeable_part_name]
-            feature_functions = [
-                f
-                for f, name in self.feature_extractor.aggregations.items()
-                if name == exchangeable_part_name
+            feature_functions = self.feature_extractor.exchangeable_features[
+                exchangeable_part_name
             ]
             latent_by_name = {
                 v.name: v for v in exchangeable_distribution_template.latent_variables
@@ -174,20 +183,52 @@ class RelationalProbabilisticCircuit:
             for feature_function in feature_functions:
                 name = feature_function._name_
                 if name in latent_by_name:
-                    aggregation_statistics[latent_by_name[name]] = (
-                        feature_function.apply_mapping_on_external_root(
-                            queryable_object
+                    aggregation_instance = (
+                        queryable_object.from_dao().get_aggregation_class_by_part_name(
+                            exchangeable_part_name
                         )
                     )
-            result.log_conditional_in_place(aggregation_statistics)
-            if len(result.nodes()) == 0:
-                raise ValueError("The grounding of the class failed.")
-
-            # find the lowest product nodes that have as scope of all the aggregations for this exchangeable part
+                    value = feature_function.apply_mapping_on_external_root(
+                        aggregation_instance,
+                    )
+                    latent_var = latent_by_name[name]
+                    # Only condition on statistics whose value is in the training domain;
+                    # unresolved query attributes (e.g. type=...) can produce impossible
+                    # values (e.g. chair_count=0 when the training data has no such rooms)
+                    # that would collapse the circuit.
+                    try:
+                        latent_var.make_value(value)
+                        aggregation_statistics[latent_var] = value
+                    except (ValueError, TypeError):
+                        pass
+            # find the lowest product nodes BEFORE conditioning — conditioning removes the latent
+            # variables from the circuit scope, so they cannot be found afterwards
             product_nodes_to_extend = find_lowest_product_nodes_that_model_variables(
                 result,
                 SortedSet(exchangeable_distribution_template.latent_variables),
             )
+
+            conditioning_result, _ = result.log_conditional_in_place(
+                aggregation_statistics
+            )
+            if conditioning_result is None:
+                # Impossible conditioning — unresolved query attributes produced
+                # out-of-distribution statistic values. Restore the unconditioned circuit
+                # so grounding can still produce a valid (if less specific) distribution.
+                result = self.class_probabilistic_circuit.__deepcopy__()
+                product_nodes_to_extend = (
+                    find_lowest_product_nodes_that_model_variables(
+                        result,
+                        SortedSet(exchangeable_distribution_template.latent_variables),
+                    )
+                )
+            if len(result.nodes()) == 0:
+                raise ValueError("The grounding of the class failed.")
+
+            # conditioning may have pruned some product nodes; keep only surviving ones
+            product_nodes_to_extend = [
+                n for n in product_nodes_to_extend if n.index is not None
+            ]
 
             grounded_exchangeable_distribution = (
                 exchangeable_distribution_template.ground(

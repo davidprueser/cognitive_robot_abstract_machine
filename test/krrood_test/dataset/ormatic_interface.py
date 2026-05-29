@@ -1336,6 +1336,10 @@ class SceneRoomDAO(
         Integer, primary_key=True, use_existing_column=True
     )
 
+    type_in_need_of_preprocessing: Mapped[builtins.bool] = mapped_column(
+        use_existing_column=True
+    )
+
     position_id: Mapped[int] = mapped_column(
         ForeignKey("KRROODPositionDAO.database_id", use_alter=True),
         nullable=True,

@@ -747,6 +747,7 @@ class SceneRoom(HasExchangeablePartAggregations):
     position: KRROODPosition
     orientation: KRROODOrientation
     objects: List[SceneObject]
+    type_in_need_of_preprocessing: bool = False
 
 
 @dataclass

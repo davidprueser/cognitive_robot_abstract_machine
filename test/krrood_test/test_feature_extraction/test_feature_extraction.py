@@ -32,6 +32,30 @@ from ..dataset.example_classes import (
 from ..dataset.semantic_world_like_classes import Body
 
 
+@pytest.fixture
+def scenario():
+    objects = [
+        SceneObject(type=SceneObjectType.TABLE),
+        SceneObject(type=SceneObjectType.CHAIR),
+        SceneObject(type=SceneObjectType.CHAIR),
+        SceneObject(type=SceneObjectType.CHAIR),
+    ]
+    room = SceneRoom(
+        position=KRROODPosition(x=2.0, y=1.0, z=0.0),
+        orientation=KRROODOrientation(x=0.0, y=0.0, z=0.0, w=1.0),
+        objects=objects[:3],
+    )
+    room2 = SceneRoom(
+        position=KRROODPosition(x=4.0, y=3.0, z=0.0),
+        orientation=KRROODOrientation(x=0.0, y=0.0, z=0.0, w=1.0),
+        objects=objects,
+    )
+    room_dao = to_dao(room)
+    room2_dao = to_dao(room2)
+    feature_extractor = FeatureExtractor.from_instances([room_dao])
+    return room, room2, room_dao, room2_dao, feature_extractor
+
+
 def test_features_extraction():
     action = underspecified(NestedAction)(
         pose=underspecified(KRROODPose)(
@@ -66,28 +90,8 @@ def test_features_extraction():
     assert dataframe.shape == (len(samples_to_daos), len(feature_extractor.features))
 
 
-def test_feature_extraction_with_aggregations():
-
-    objects = [
-        SceneObject(type=SceneObjectType.TABLE),
-        SceneObject(type=SceneObjectType.CHAIR),
-        SceneObject(type=SceneObjectType.CHAIR),
-        SceneObject(type=SceneObjectType.CHAIR),
-    ]
-    chair_objects = [obj for obj in objects if obj.type == SceneObjectType.CHAIR]
-    room = SceneRoom(
-        position=KRROODPosition(x=2.0, y=1.0, z=0.0),
-        orientation=KRROODOrientation(x=0.0, y=0.0, z=0.0, w=1.0),
-        objects=objects[:3],
-    )
-    room2 = SceneRoom(
-        position=KRROODPosition(x=4.0, y=3.0, z=0.0),
-        orientation=KRROODOrientation(x=0.0, y=0.0, z=0.0, w=1.0),
-        objects=objects,
-    )
-    room_dao = to_dao(room)
-    room2_dao = to_dao(room2)
-    feature_extractor = FeatureExtractor.from_instances([room_dao])
+def test_feature_extraction_with_aggregations(scenario):
+    room, room2, room_dao, room2_dao, feature_extractor = scenario
 
     # print(feature_extractor.features)
     # assert (
@@ -97,7 +101,7 @@ def test_feature_extraction_with_aggregations():
 
     mapping = feature_extractor.apply_mapping(room_dao)
     rpc = RelationalProbabilisticCircuit(SceneRoom)
-    rpc.fit([room_dao, room2_dao], feature_extractor)
+    rpc.fit([room_dao, room2_dao])
 
     room_query = underspecified(SceneRoom)(
         position=underspecified(KRROODPosition)(x=..., y=..., z=...),
@@ -107,6 +111,34 @@ def test_feature_extraction_with_aggregations():
     room_query.resolve()
     model = rpc.ground(room_query)
     print(model)
+
+
+def test_create_dataframe_with_aggregations(scenario):
+    room, room2, room_dao, room2_dao, feature_extractor = scenario
+    dataframe = feature_extractor.create_dataframe([room_dao, room2_dao])
+    assert dataframe.shape == (2, len(feature_extractor.features))
+    assert dataframe.columns.tolist() == feature_extractor.features
+    assert dataframe.iloc[0, 1] == room_dao.position.x
+    assert dataframe.iloc[1, 1] == room2_dao.position.x
+
+
+def test_apply_mapping_with_aggregations(scenario):
+    room, room2, room_dao, room2_dao, feature_extractor = scenario
+    mapping = feature_extractor.apply_mapping(room_dao)
+    assert len(mapping) == 11
+    assert mapping[10] == 3  # count of chairs in room
+
+
+def test_dataframe_preprocessing(scenario):
+    room, room2, room_dao, room2_dao, feature_extractor = scenario
+    dataframe = feature_extractor.create_dataframe([room_dao, room2_dao])
+    preprocessed_df = feature_extractor.preprocess_dataframe(dataframe)
+    assert preprocessed_df.shape == (2, len(feature_extractor.features))
+    assert preprocessed_df.columns.tolist() == feature_extractor.features
+    assert preprocessed_df.iloc[0, 0] == room_dao.type_in_need_of_preprocessing
+    assert preprocessed_df.iloc[1, 0] == room2_dao.type_in_need_of_preprocessing
+    assert preprocessed_df.iat[0, 0] == 0  # 0 for False, 1 for True
+    assert preprocessed_df.iat[1, 0] == 0  # 0 for False, 1 for True
 
 
 def test_missing_inheritance_from_mixin():
