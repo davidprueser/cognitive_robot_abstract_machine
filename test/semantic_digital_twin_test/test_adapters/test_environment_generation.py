@@ -22,6 +22,10 @@ from krrood.ormatic.data_access_objects.helper import to_dao
 from krrood.ormatic.data_access_objects.to_dao import ToDataAccessObjectState
 from krrood.ormatic.ormatic import ORMatic
 from krrood.ormatic.utils import create_engine
+from krrood.parametrization.model_registries import ModelRegistry, DictRegistry
+from probabilistic_model.probabilistic_circuit.relational.rspn import (
+    RelationalProbabilisticCircuit,
+)
 from semantic_digital_twin.adapters.adaptive_environment_generation.sage10k_processing import (
     EGDataProcessing,
 )
@@ -161,7 +165,7 @@ def create_environment(scene_to_obj):
 
     # for q in query:
     #     print(q)
-    return world
+    return scene_generator, world
 
 
 def test_simple_manual_environment(rclpy_node):
@@ -172,18 +176,19 @@ def test_simple_manual_environment(rclpy_node):
 
     # session = add_to_database(session)
     result = query_for_shelves(session)
-    world = create_environment(result)
+    scene_generator, world = create_environment(result)
     viz_marker = VizMarkerPublisher(node=rclpy_node, _world=world)
     viz_marker.with_tf_publisher()
 
 
 def test_simple_underspecified_environment(rclpy_node):
-    # uri = os.environ.get("SEMANTIC_DIGITAL_TWIN_DATABASE_URI")
-    # engine = create_engine(uri)
-    # session = Session(engine)
+    uri = os.environ.get("SEMANTIC_DIGITAL_TWIN_DATABASE_URI")
+    engine = create_engine(uri)
+    session = Session(engine)
     # Base.metadata.create_all(bind=engine)
+    scene_generator, world = create_environment(query_for_shelves(session))
 
-    scene_generator = underspecified(SceneGenerator)(
+    underspecified_scene_generator = underspecified(SceneGenerator)(
         id=None,
         mesh_to_object_mapping=None,
         room=underspecified(EGRoom)(
@@ -256,12 +261,12 @@ def test_simple_underspecified_environment(rclpy_node):
         ),
     )
     # scene_generator.resolve()
-    # scene_generator.where(
-    #     InsideOf(scene_generator.variable.objects[0], scene_generator.variable.room)
-    # )
+    rspn = RelationalProbabilisticCircuit(SceneGenerator)
+    rspn = rspn.fit([to_dao(obj) for obj in scene_generator.room.objects])
 
-    prob_backend = ProbabilisticBackend(number_of_samples=1)
-    samples = prob_backend.evaluate(scene_generator)
+    registry = DictRegistry({SceneGenerator: rspn.class_probabilistic_circuit})
+    prob_backend = ProbabilisticBackend(model_registry=registry, number_of_samples=1)
+    samples = prob_backend.evaluate(underspecified_scene_generator)
     samples = list(samples)
 
     for sample in samples:

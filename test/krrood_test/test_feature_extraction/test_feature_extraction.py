@@ -106,6 +106,7 @@ def test_feature_extraction_with_aggregations(scenario):
     )
     room_query.resolve()
     model = rpc.ground(room_query)
+    model = model.simplify()
     model.plot_structure()
     plt.savefig("test_feature_extraction_with_aggregations_model.png")
     plt.show()

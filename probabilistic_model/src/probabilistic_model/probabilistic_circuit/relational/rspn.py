@@ -27,31 +27,6 @@ from probabilistic_model.probabilistic_circuit.rx.probabilistic_circuit import (
 from random_events.variable import Variable
 
 
-def _reindex_circuit_nodes(circuit: ProbabilisticCircuit) -> None:
-    """
-    Rebuild the circuit graph with contiguous node indices.
-
-    ``log_conditional_in_place`` and ``marginal_in_place`` can remove nodes,
-    leaving index gaps. ``rustworkx.subgraph()`` then remaps indices to
-    0, 1, 2, … which mismatches ``Unit.index`` values inside
-    ``add_from_subgraph``.
-
-    :param circuit: The circuit whose internal graph is rebuilt in-place.
-    """
-    new_graph = rustworkx.PyDAG(multigraph=False)
-    old_to_new_index = {}
-    for old_index in circuit.graph.node_indices():
-        unit = circuit.graph[old_index]
-        new_index = new_graph.add_node(unit)
-        unit.index = new_index
-        old_to_new_index[old_index] = new_index
-    for source, destination, weight in circuit.graph.weighted_edge_list():
-        new_graph.add_edge(
-            old_to_new_index[source], old_to_new_index[destination], weight
-        )
-    circuit.graph = new_graph
-
-
 def _rename_variables_with_part_prefix(
     circuit: ProbabilisticCircuit,
     part,
@@ -116,8 +91,6 @@ class ExchangeableDistributionTemplate:
         conditioning_result, _ = part_circuit.log_conditional_in_place(
             aggregation_statistics
         )
-        if conditioning_result is None:
-            part_circuit = self.template_distribution.ground(part)
         non_latent_variables = [
             variable
             for variable in part_circuit.variables
@@ -127,9 +100,6 @@ class ExchangeableDistributionTemplate:
         _rename_variables_with_part_prefix(part_circuit, part, self.latent_variables)
         if len(part_circuit.nodes()) == 0:
             raise ValueError("The grounding of the part failed.")
-        _reindex_circuit_nodes(part_circuit)
-        part_circuit.plot_structure()
-        plt.savefig(f"grounded_part_{part.variable}.png")
         return part_circuit
 
     def ground(

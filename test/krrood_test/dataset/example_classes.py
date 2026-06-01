@@ -772,7 +772,7 @@ class SceneObjectAggregations(AggregationStatistic):
 
     @cached_property
     def _eql_variable(self):
-        return variable(SceneObject, self.object_to_aggregate_on)
+        return variable(SceneObject, self.objects_to_aggregate_on)
 
     # def table_count(self) -> int:
     #     [cou] = (
@@ -798,11 +798,11 @@ class SceneObjectAggregations(AggregationStatistic):
 @aggregation_for((TestExParts, "rooms"))
 @dataclass
 class RoomAggregations(AggregationStatistic):
-    aggregation_object: List[SceneRoom]
+    objects_to_aggregate_on: List[SceneRoom]
 
     @cached_property
     def _eql_variable(self):
-        return variable(SceneRoom, self.aggregation_object)
+        return variable(SceneRoom, self.objects_to_aggregate_on)
 
     def room_count(self) -> int:
         [cou] = count(self._eql_variable).tolist()

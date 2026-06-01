@@ -986,8 +986,8 @@ class ProbabilisticCircuit(ProbabilisticModel, SubclassJSONSerializer):
 
         [
             self.graph.add_edge(
-                new_nodes[parent].index,
-                new_nodes[child].index,
+                new_nodes[subgraph.get_node_data(parent).index].index,
+                new_nodes[subgraph.get_node_data(child).index].index,
                 subgraph.get_edge_data(parent, child),
             )
             for parent, child in subgraph.edge_list()
