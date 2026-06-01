@@ -854,18 +854,22 @@ def test_set_of_transitive_attributes(session):
     ))
 
     translator = eql_to_sql(query, session)
-    expected_sql = (
-        'SELECT "PickUpActionDAO".arm, "GraspDescriptionDAO_1".rotate_gripper, '
-        '"GraspDescriptionDAO_1".approach_direction, '
-        '"GraspDescriptionDAO_1".manipulation_offset \n'
-        'FROM "DesignatorDAO" JOIN "ActionDescriptionDAO" ON '
-        '"ActionDescriptionDAO".database_id = "DesignatorDAO".database_id '
-        'JOIN "PickUpActionDAO" ON "PickUpActionDAO".database_id = '
-        '"ActionDescriptionDAO".database_id JOIN "GraspDescriptionDAO" AS '
-        '"GraspDescriptionDAO_1" ON "GraspDescriptionDAO_1".database_id = '
-        '"PickUpActionDAO".grasp_description_id'
+
+    grasp_alias = aliased(GraspDescriptionDAO, flat=True)
+
+    expected = (
+        select(PickUpActionDAO)
+        .join(grasp_alias,
+              onclause=grasp_alias.database_id == PickUpActionDAO.grasp_description_id)
+        .with_only_columns(
+            PickUpActionDAO.arm,
+            grasp_alias.rotate_gripper,
+            grasp_alias.approach_direction,
+            grasp_alias.manipulation_offset,
+        )
     )
-    assert str(translator.sql_query) == expected_sql
+
+    assert str(translator.sql_query) == str(expected)
 
 def test_set_of_move_action_transitive(session):
     """
@@ -1168,42 +1172,36 @@ def test_cte_from_eql(session, database):
 
     b = variable(type_=Body, domain=[])
     inner_query = an(entity(b).where(b.size > 5))
-    large_bodies = eql_to_sql(inner_query, session, as_common_table_expression="large_bodies")
+    large_bodies = eql_to_sql(
+        inner_query, session,
+        as_common_table_expression="large_bodies"
+    )
 
     c = variable(type_=Container, domain=[])
     outer_translator = eql_to_sql(an(entity(c)), session)
-
     outer_translator.sql_query = (
         outer_translator.sql_query
         .join(large_bodies, large_bodies.c.database_id == ContainerDAO.database_id)
     )
 
-    expected_sql = (
-        'WITH large_bodies AS \n'
-        '(SELECT "BodyDAO".database_id AS database_id, '
-        '"WorldEntityDAO".database_id AS database_id_2, '
-        '"SymbolDAO".database_id AS database_id_3, '
-        '"SymbolDAO".polymorphic_type AS polymorphic_type, '
-        '"WorldEntityDAO".world_id AS world_id, '
-        '"BodyDAO".name AS name, "BodyDAO".size AS size \n'
-        'FROM "SymbolDAO" JOIN "WorldEntityDAO" ON '
-        '"WorldEntityDAO".database_id = "SymbolDAO".database_id '
-        'JOIN "BodyDAO" ON "BodyDAO".database_id = '
-        '"WorldEntityDAO".database_id \n'
-        'WHERE "BodyDAO".size > :size_1)\n'
-        ' SELECT "ContainerDAO".database_id, "BodyDAO".database_id AS database_id_1, '
-        '"WorldEntityDAO".database_id AS database_id_2, '
-        '"SymbolDAO".database_id AS database_id_3, '
-        '"SymbolDAO".polymorphic_type, "WorldEntityDAO".world_id, '
-        '"BodyDAO".name, "BodyDAO".size \n'
-        'FROM "SymbolDAO" JOIN "WorldEntityDAO" ON '
-        '"WorldEntityDAO".database_id = "SymbolDAO".database_id '
-        'JOIN "BodyDAO" ON "BodyDAO".database_id = '
-        '"WorldEntityDAO".database_id JOIN "ContainerDAO" ON '
-        '"ContainerDAO".database_id = "BodyDAO".database_id '
-        'JOIN large_bodies ON large_bodies.database_id = "ContainerDAO".database_id'
+    # Build expected using SQLAlchemy objects — same starting point as the translator
+    inner_expected = (
+        select(BodyDAO)
+        .where(BodyDAO.size > 5)
+        .cte("large_bodies")
     )
-    assert str(outer_translator.sql_query) == expected_sql
+
+    expected = (
+        select(ContainerDAO)
+        .join(inner_expected,
+              onclause=inner_expected.c.database_id == ContainerDAO.database_id)
+    )
+
+    assert str(outer_translator.sql_query) == str(expected)
+
+    # Verify that the CTE filters correctly — only LargeContainer has size > 5
+    results = session.execute(outer_translator.sql_query).all()
+    assert len(results) == 1
 
 
 def test_case_when_with_min(session):
