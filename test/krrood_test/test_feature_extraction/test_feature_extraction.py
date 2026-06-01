@@ -1,3 +1,4 @@
+import matplotlib.pyplot as plt
 import numpy as np
 import pytest
 
@@ -92,16 +93,11 @@ def test_features_extraction():
 
 def test_feature_extraction_with_aggregations(scenario):
     room, room2, room_dao, room2_dao, feature_extractor = scenario
-
-    # print(feature_extractor.features)
-    # assert (
-    #     len(feature_extractor.features) == 9
-    # )  # position: 3, orientation: 4, objects: 1 (count for chair, count for table)
-    # assert len(chair_objects) in feature_extractor.apply_mapping(room_dao)
-
-    mapping = feature_extractor.apply_mapping(room_dao)
     rpc = RelationalProbabilisticCircuit(SceneRoom)
     rpc.fit([room_dao, room2_dao])
+    rpc.class_probabilistic_circuit.plot_structure()
+    plt.savefig("test_feature_extraction_with_aggregations.png")
+    plt.clf()
 
     room_query = underspecified(SceneRoom)(
         position=underspecified(KRROODPosition)(x=..., y=..., z=...),
@@ -110,7 +106,11 @@ def test_feature_extraction_with_aggregations(scenario):
     )
     room_query.resolve()
     model = rpc.ground(room_query)
-    print(model)
+    model.plot_structure()
+    plt.savefig("test_feature_extraction_with_aggregations_model.png")
+    plt.show()
+
+    assert model.is_valid()
 
 
 def test_create_dataframe_with_aggregations(scenario):
@@ -125,8 +125,8 @@ def test_create_dataframe_with_aggregations(scenario):
 def test_apply_mapping_with_aggregations(scenario):
     room, room2, room_dao, room2_dao, feature_extractor = scenario
     mapping = feature_extractor.apply_mapping(room_dao)
-    assert len(mapping) == 11
-    assert mapping[10] == 3  # count of chairs in room
+    assert len(mapping) == 9
+    assert mapping[8] == 3  # total count
 
 
 def test_dataframe_preprocessing(scenario):

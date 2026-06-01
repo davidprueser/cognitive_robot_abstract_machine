@@ -5,6 +5,7 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum, auto, StrEnum
+from functools import cached_property
 from pathlib import Path
 from types import FunctionType
 from typing import Set, Generic
@@ -15,7 +16,15 @@ from typing_extensions import List, Optional, Type
 
 from krrood.adapters.json_serializer import SubclassJSONSerializer, to_json, from_json
 from krrood.entity_query_language.core.base_expressions import SymbolicExpression
-from krrood.entity_query_language.factories import set_of, a
+from krrood.entity_query_language.core.mapped_variable import MappedVariable
+from krrood.entity_query_language.factories import (
+    set_of,
+    a,
+    variable,
+    count,
+    the,
+    entity,
+)
 from krrood.entity_query_language.predicate import symbolic_function
 from krrood.ormatic.data_access_objects.alternative_mappings import (
     AlternativeMapping,
@@ -759,28 +768,31 @@ class TestExParts(HasExchangeablePartAggregations):
 @aggregation_for((SceneRoom, "objects"), (TestExParts, "objects"))
 @dataclass
 class SceneObjectAggregations(AggregationStatistic):
-    aggregation_object: List[SceneObject]
+    objects_to_aggregate_on: List[SceneObject]
 
-    def table_count(self) -> int:
-        return len(
-            [
-                obj
-                for obj in self.aggregation_object
-                if obj.type == SceneObjectType.TABLE
-            ]
-        )
+    @cached_property
+    def _eql_variable(self):
+        return variable(SceneObject, self.object_to_aggregate_on)
 
-    def chair_count(self) -> int:
-        return len(
-            [
-                obj
-                for obj in self.aggregation_object
-                if obj.type == SceneObjectType.CHAIR
-            ]
-        )
+    # def table_count(self) -> int:
+    #     [cou] = (
+    #         entity(count(self._eql_variable))
+    #         .where(self._eql_variable.type == SceneObjectType.TABLE)
+    #         .tolist()
+    #     )
+    #     return cou
+    #
+    # def chair_count(self) -> int:
+    #     [cou] = (
+    #         entity(count(self._eql_variable))
+    #         .where(self._eql_variable.type == SceneObjectType.CHAIR)
+    #         .tolist()
+    #     )
+    #     return cou
 
     def total_count(self) -> int:
-        return len(self.aggregation_object)
+        [cou] = count(self._eql_variable).tolist()
+        return cou
 
 
 @aggregation_for((TestExParts, "rooms"))
@@ -788,8 +800,13 @@ class SceneObjectAggregations(AggregationStatistic):
 class RoomAggregations(AggregationStatistic):
     aggregation_object: List[SceneRoom]
 
+    @cached_property
+    def _eql_variable(self):
+        return variable(SceneRoom, self.aggregation_object)
+
     def room_count(self) -> int:
-        return len(self.aggregation_object)
+        [cou] = count(self._eql_variable).tolist()
+        return cou
 
 
 @dataclass

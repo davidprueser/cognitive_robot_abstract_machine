@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import inspect
 import warnings
-from abc import ABC
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from functools import cached_property
 
 from typing import Dict, Tuple, Type, List, Any
 
+from krrood.entity_query_language.core.base_expressions import SymbolicExpression
 from krrood.entity_query_language.core.mapped_variable import MappedVariable
 from krrood.entity_query_language.factories import variable
 
@@ -100,14 +102,21 @@ class AggregationStatistic(ABC):
     returns a scalar value.
     """
 
-    aggregation_object: List[Any]
+    objects_to_aggregate_on: List[Any]
     """
     The items over which statistics are to be computed.
     """
 
     def __post_init__(self):
-        if not self.aggregation_object:
+        if not self.objects_to_aggregate_on:
             raise ValueError("Aggregation object must not be empty")
+
+    @abstractmethod
+    @cached_property
+    def _eql_variable(self) -> SymbolicExpression:
+        """
+        The symbolic variable that is used to compute aggregations on.
+        """
 
     @property
     def symbolic_aggregation_features(self) -> List[MappedVariable]:
@@ -148,7 +157,7 @@ class AggregationStatistic(ABC):
 
         if not aggregations:
             warnings.warn(
-                f"No aggregation features found for exchangeable part {self.aggregation_object} of type {type(self.aggregation_object)}"
+                f"No aggregation features found for exchangeable part {self.objects_to_aggregate_on} of type {type(self.objects_to_aggregate_on)}"
             )
         return aggregations
 

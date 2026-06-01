@@ -1262,7 +1262,7 @@ class ProbabilisticCircuit(ProbabilisticModel, SubclassJSONSerializer):
         new_root = ProductUnit(probabilistic_circuit=self)
 
         if len(remaining_variables) > 0:
-            new_root.add_subcircuit(root, False)
+            new_root.add_subcircuit(root)
 
         for variable, value in point.items():
             new_root.add_subcircuit(leaf(make_dirac(variable, value), self))
