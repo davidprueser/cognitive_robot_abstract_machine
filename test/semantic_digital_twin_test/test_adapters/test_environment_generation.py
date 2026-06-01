@@ -22,7 +22,11 @@ from krrood.ormatic.data_access_objects.helper import to_dao
 from krrood.ormatic.data_access_objects.to_dao import ToDataAccessObjectState
 from krrood.ormatic.ormatic import ORMatic
 from krrood.ormatic.utils import create_engine
-from krrood.parametrization.model_registries import ModelRegistry, DictRegistry
+from krrood.parametrization.model_registries import (
+    ModelRegistry,
+    DictRegistry,
+    RelationalCircuitRegistry,
+)
 from probabilistic_model.probabilistic_circuit.relational.rspn import (
     RelationalProbabilisticCircuit,
 )
@@ -260,17 +264,21 @@ def test_simple_underspecified_environment(rclpy_node):
             ],
         ),
     )
-    # scene_generator.resolve()
-    rspn = RelationalProbabilisticCircuit(SceneGenerator)
-    rspn = rspn.fit([to_dao(obj) for obj in scene_generator.room.objects])
+    # The RSPN models EGRoom directly: that is the class that owns the exchangeable parts
+    # (objects, walls, doors) via ONETOMANY relationships in the DAO.
+    underspecified_room = underspecified_scene_generator.kwargs["room"]
+    rspn = RelationalProbabilisticCircuit(EGRoom)
+    rspn = rspn.fit([to_dao(scene_generator.room)])
 
-    registry = DictRegistry({SceneGenerator: rspn.class_probabilistic_circuit})
+    registry = RelationalCircuitRegistry(
+        relational_probabilistic_circuit=rspn, query=underspecified_room
+    )
     prob_backend = ProbabilisticBackend(model_registry=registry, number_of_samples=1)
-    samples = prob_backend.evaluate(underspecified_scene_generator)
-    samples = list(samples)
+    samples = list(prob_backend.evaluate(underspecified_room))
 
-    for sample in samples:
-        world = sample.create_world()
+    for room_sample in samples:
+        scene = SceneGenerator(id="generated", room=room_sample)
+        world = scene.create_world()
 
     viz_marker = VizMarkerPublisher(node=rclpy_node, _world=world)
     viz_marker.with_tf_publisher()

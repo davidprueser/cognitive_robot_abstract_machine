@@ -1,11 +1,19 @@
 import math
 from dataclasses import dataclass, field
+from functools import cached_property
 from pathlib import Path
 from typing import List, Self, Type, Dict, Any, Tuple, assert_never, Optional, Annotated
 
 import numpy as np
 
 from krrood.adapters.json_serializer import SubclassJSONSerializer, to_json
+from krrood.entity_query_language.core.base_expressions import SymbolicExpression
+from krrood.entity_query_language.factories import variable
+from krrood.parametrization.feature_extraction.aggregations import (
+    HasExchangeablePartAggregations,
+    aggregation_for,
+    AggregationStatistic,
+)
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.datastructures.variables import SpatialVariables
 from semantic_digital_twin.semantic_annotations.natural_language import (
@@ -620,7 +628,7 @@ class EGDoor(EGWithID):
 
 
 @dataclass
-class EGRoom(EGWithID):
+class EGRoom(EGWithID, HasExchangeablePartAggregations):
     room_type: str
     """
     The type of the room.
@@ -766,6 +774,70 @@ class EGRoom(EGWithID):
             obj.create_in_world(world, mesh_path, parent=parent)
 
         return world.root
+
+
+@aggregation_for((EGRoom, "objects"))
+@dataclass
+class RoomObjectAggregations(AggregationStatistic):
+    """Aggregation statistics over the objects in a room."""
+
+    objects_to_aggregate_on: List[EGObject]
+
+    @cached_property
+    def _eql_variable(self) -> SymbolicExpression:
+        return variable(EGObject, self.objects_to_aggregate_on)
+
+    def total_count(self) -> int:
+        """Number of objects placed in the room."""
+        return len(self.objects_to_aggregate_on)
+
+
+@aggregation_for((EGRoom, "walls"))
+@dataclass
+class RoomWallAggregations(AggregationStatistic):
+    """Aggregation statistics over the walls of a room."""
+
+    objects_to_aggregate_on: List[EGWall]
+
+    @cached_property
+    def _eql_variable(self) -> SymbolicExpression:
+        return variable(EGWall, self.objects_to_aggregate_on)
+
+    def total_count(self) -> int:
+        """Number of walls enclosing the room."""
+        return len(self.objects_to_aggregate_on)
+
+    def total_perimeter(self) -> float:
+        """Sum of all wall lengths — equals the room's floor perimeter."""
+        return float(
+            sum(
+                math.sqrt(
+                    (w.end_point.x - w.start_point.x) ** 2
+                    + (w.end_point.y - w.start_point.y) ** 2
+                )
+                for w in self.objects_to_aggregate_on
+            )
+        )
+
+
+@aggregation_for((EGRoom, "doors"))
+@dataclass
+class RoomDoorAggregations(AggregationStatistic):
+    """Aggregation statistics over the doors of a room."""
+
+    objects_to_aggregate_on: List[EGDoor]
+
+    @cached_property
+    def _eql_variable(self) -> SymbolicExpression:
+        return variable(EGDoor, self.objects_to_aggregate_on)
+
+    def total_count(self) -> int:
+        """Number of doors in the room."""
+        return len(self.objects_to_aggregate_on)
+
+    def mean_width(self) -> float:
+        """Mean door width across all doors in the room."""
+        return float(np.mean([d.width for d in self.objects_to_aggregate_on]))
 
 
 @dataclass

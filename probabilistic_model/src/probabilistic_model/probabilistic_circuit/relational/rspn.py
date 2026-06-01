@@ -10,6 +10,7 @@ import rustworkx
 from sortedcontainers import SortedSet
 
 from krrood.ormatic.data_access_objects.dao import DataAccessObject
+from krrood.ormatic.data_access_objects.from_dao import FromDataAccessObjectState
 from krrood.ormatic.data_access_objects.helper import to_dao
 from krrood.parametrization.feature_extraction.feature_extractor import (
     FeatureExtractor,
@@ -29,23 +30,21 @@ from random_events.variable import Variable
 
 def _rename_variables_with_part_prefix(
     circuit: ProbabilisticCircuit,
-    part,
+    prefix: str,
     excluded_variables: List[Variable],
 ) -> None:
     """
-    Rename each variable in the circuit to include the part's variable as a prefix.
+    Rename each variable in the circuit to include ``prefix`` as a namespace.
 
-    Produces names of the form ``"{part.variable}.{variable.name}"``.
+    Produces names of the form ``"{prefix}.{variable.name}"``.
     Variables listed in ``excluded_variables`` are left unchanged.
 
     :param circuit: The circuit whose variables are renamed in-place.
-    :param part: The query part whose ``variable`` attribute supplies the prefix.
+    :param prefix: String prefix to prepend to every variable name.
     :param excluded_variables: Variables that should keep their current names.
     """
     variable_renames = {
-        variable: type(variable)(
-            f"{part.variable}.{variable.name}", domain=variable.domain
-        )
+        variable: type(variable)(f"{prefix}.{variable.name}", domain=variable.domain)
         for variable in circuit.variables
         if variable not in excluded_variables
     }
@@ -74,7 +73,7 @@ class ExchangeableDistributionTemplate:
     """
 
     def _ground_part_circuit(
-        self, part, aggregation_statistics: Dict[Variable, Any]
+        self, part, aggregation_statistics: Dict[Variable, Any], index: int = 0
     ) -> ProbabilisticCircuit:
         """
         Ground and prepare the circuit for a single exchangeable part.
@@ -83,21 +82,26 @@ class ExchangeableDistributionTemplate:
         away the latent variables, renames surviving variables with the part's
         prefix, and reindexes the graph for safe mounting.
 
-        :param part: The query part that provides the variable name prefix.
+        :param part: The query part (a ``Match`` or a concrete domain object).
         :param aggregation_statistics: Observed aggregation values to condition on.
+        :param index: Position of this part in its parent list; used as fallback prefix
+            when ``part`` does not carry a symbolic variable.
         :return: A self-contained circuit ready to be mounted into the parent.
         """
         part_circuit = self.template_distribution.ground(part)
         conditioning_result, _ = part_circuit.log_conditional_in_place(
             aggregation_statistics
         )
+        if conditioning_result is None:
+            part_circuit = self.template_distribution.ground(part)
         non_latent_variables = [
             variable
             for variable in part_circuit.variables
             if variable not in self.latent_variables
         ]
         part_circuit.marginal_in_place(non_latent_variables)
-        _rename_variables_with_part_prefix(part_circuit, part, self.latent_variables)
+        prefix = str(part.variable) if hasattr(part, "variable") else str(index)
+        _rename_variables_with_part_prefix(part_circuit, prefix, self.latent_variables)
         if len(part_circuit.nodes()) == 0:
             raise ValueError("The grounding of the part failed.")
         return part_circuit
@@ -114,8 +118,10 @@ class ExchangeableDistributionTemplate:
         """
         result = ProbabilisticCircuit()
         root = ProductUnit(probabilistic_circuit=result)
-        for part in parts_to_ground:
-            part_circuit = self._ground_part_circuit(part, aggregation_statistics)
+        for index, part in enumerate(parts_to_ground):
+            part_circuit = self._ground_part_circuit(
+                part, aggregation_statistics, index
+            )
             part_root_index = part_circuit.root.index
             node_index_map = result.mount(part_circuit.root)
             root.add_subcircuit(node_index_map[part_root_index])
@@ -185,21 +191,24 @@ class RelationalProbabilisticCircuit:
         instances: List[DataAccessObject],
         aggregation_indices: List[int],
         aggregation_names: List[str],
-        child_attribute_names: List[str],
+        child_feature_extractor: FeatureExtractor,
+        child_class_prefix: str,
     ) -> pd.DataFrame:
         """
         Build a dataframe combining aggregation statistics with per-child-object attributes.
 
         Each row corresponds to one child object and contains the parent instance's
-        aggregation values followed by the child's scalar attributes.  This joint
-        representation lets the child template learn a conditional distribution over
-        child attributes given the parent's aggregation context.
+        aggregation values followed by all child features (including nested unique-part
+        attributes). Column names strip the child class prefix so that, after variable
+        renaming, they align with the krrood access-path convention.
 
         :param exchangeable_part: Field name of the one-to-many relation on each instance.
         :param instances: Training instances from which rows are generated.
         :param aggregation_indices: Positions of aggregation features in the feature vector.
         :param aggregation_names: Column names for the aggregation portion of each row.
-        :param child_attribute_names: Column names for the child-attribute portion of each row.
+        :param child_feature_extractor: Feature extractor built from the child instances.
+        :param child_class_prefix: Class name prefix to strip from child feature names
+            (e.g. ``"EGObject."``).
         :return: A dataframe with one row per child object across all instances.
         """
         rows = []
@@ -207,16 +216,20 @@ class RelationalProbabilisticCircuit:
             feature_vector = self.feature_extractor.apply_mapping(instance)
             aggregation_row = [feature_vector[index] for index in aggregation_indices]
             for association in getattr(instance, exchangeable_part):
-                rows.append(
-                    aggregation_row
-                    + [
-                        getattr(association.target, name)
-                        for name in child_attribute_names
-                    ]
+                child_features = child_feature_extractor.apply_mapping(
+                    association.target
                 )
-        return pd.DataFrame(
-            columns=aggregation_names + child_attribute_names, data=rows
-        )
+                rows.append(aggregation_row + child_features)
+        full_names = [f._name_ for f in child_feature_extractor.features]
+        short_names = [
+            (
+                name[len(child_class_prefix) :]
+                if name.startswith(child_class_prefix)
+                else name
+            )
+            for name in full_names
+        ]
+        return pd.DataFrame(columns=aggregation_names + short_names, data=rows)
 
     def _fit_exchangeable_part(
         self,
@@ -255,15 +268,18 @@ class RelationalProbabilisticCircuit:
             )
         ]
         child_type = type(getattr(instances[0], exchangeable_part)[0].target)
-        child_attribute_names = [
-            column.key for column in EntityCompositionDescriptor(child_type).attributes
-        ]
+        child_feature_extractor = FeatureExtractor.from_instances(child_instances)
+        child_class_name = type(
+            child_instances[0].from_dao(FromDataAccessObjectState())
+        ).__name__
+        child_class_prefix = f"{child_class_name}."
         child_dataframe = self._build_child_joint_dataframe(
             exchangeable_part,
             instances,
             aggregation_indices,
             aggregation_names,
-            child_attribute_names,
+            child_feature_extractor,
+            child_class_prefix,
         )
         latent_variables = [
             inferred.variable
@@ -408,7 +424,12 @@ class RelationalProbabilisticCircuit:
             by the query.
         """
         circuit = self.class_probabilistic_circuit.__deepcopy__()
-        queryable_object = to_dao(query.construct_instance())
+        instance = (
+            query.construct_instance()
+            if hasattr(query, "construct_instance")
+            else query
+        )
+        queryable_object = to_dao(instance)
         for (
             exchangeable_part_name,
             template,
