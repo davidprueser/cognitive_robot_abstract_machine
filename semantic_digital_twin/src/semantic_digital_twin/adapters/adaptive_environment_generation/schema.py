@@ -841,6 +841,70 @@ class RoomDoorAggregations(AggregationStatistic):
 
 
 @dataclass
+class EGShelf(HasExchangeablePartAggregations):
+    """A shelf and the objects placed on it, ready for relational RSPN fitting."""
+
+    position: EGPosition
+    scale: EGSize
+    orientation: EGOrientation
+    objects: List[EGObject]
+
+    @classmethod
+    def from_eg_object_and_contents(
+        cls,
+        shelf_obj: EGObject,
+        contents: List[EGObject],
+    ) -> "EGShelf":
+        """Build an EGShelf from a raw shelf EGObject and its contents.
+
+        Object positions are normalised to shelf-relative coordinates
+        (shelf centre = origin) so the RSPN generalises across scene positions.
+        """
+        cx = shelf_obj.position.x
+        cy = shelf_obj.position.y
+        cz = shelf_obj.position.z
+        relative_objects = [
+            EGObject(
+                id=obj.id,
+                room_id=obj.room_id,
+                place_id=obj.place_id,
+                object_type=obj.object_type,
+                scale=obj.scale,
+                position=EGPosition(
+                    x=obj.position.x - cx,
+                    y=obj.position.y - cy,
+                    z=obj.position.z - cz,
+                ),
+                orientation=obj.orientation,
+                source_id=obj.source_id,
+            )
+            for obj in contents
+        ]
+        return cls(
+            position=shelf_obj.position,
+            scale=shelf_obj.scale,
+            orientation=shelf_obj.orientation,
+            objects=relative_objects,
+        )
+
+
+@aggregation_for((EGShelf, "objects"))
+@dataclass
+class EGObjectOnShelfAggregations(AggregationStatistic):
+    """Aggregation statistics for objects placed on a shelf."""
+
+    objects_to_aggregate_on: List[EGObject]
+
+    @cached_property
+    def _eql_variable(self) -> SymbolicExpression:
+        return variable(EGObject, self.objects_to_aggregate_on)
+
+    def total_object_count(self) -> int:
+        """Number of objects on the shelf."""
+        return len(self.objects_to_aggregate_on)
+
+
+@dataclass
 class SceneGenerator(EGWithID):
     room: EGRoom
     """

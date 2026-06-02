@@ -176,12 +176,21 @@ class CountRange(Count[T]):
         if ellipsis_count == 0:
             yield {self._id_: concrete_count}
         else:
-            yield {self._id_: SimpleInterval.from_data(concrete_count, concrete_count + ellipsis_count, Bound.CLOSED, Bound.CLOSED)}
+            yield {
+                self._id_: SimpleInterval.from_data(
+                    concrete_count,
+                    concrete_count + ellipsis_count,
+                    Bound.CLOSED,
+                    Bound.CLOSED,
+                )
+            }
 
     def _count_ellipsis_in_domain_(self) -> int:
         if self._original_child_ is None:
             return 0
-        return sum(1 for result in self._original_child_._evaluate_({}) if result.value is ...)
+        return sum(
+            1 for result in self._original_child_._evaluate_({}) if result.value is ...
+        )
 
 
 @dataclass(eq=False, repr=False)

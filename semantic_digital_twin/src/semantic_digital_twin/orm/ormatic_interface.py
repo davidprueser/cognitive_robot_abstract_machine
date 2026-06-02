@@ -293,6 +293,42 @@ class AvoidCollisionBetweenGroupsDAO_body_group_b_association(
     target: Mapped[BodyDAO] = relationship("BodyDAO", foreign_keys=[target_bodydao_id])
 
 
+class EGObjectOnShelfAggregationsDAO_objects_to_aggregate_on_association(
+    Base, AssociationDataAccessObject
+):
+
+    __tablename__ = "_10288906647134475732909158652619177627240759120657347944704659"
+
+    database_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    source_egobjectonshelfaggregationsdao_id: Mapped[int] = mapped_column(
+        ForeignKey("EGObjectOnShelfAggregationsDAO.database_id")
+    )
+    target_egobjectdao_id: Mapped[int] = mapped_column(
+        ForeignKey("EGObjectDAO.database_id")
+    )
+
+    target: Mapped[EGObjectDAO] = relationship(
+        "EGObjectDAO", foreign_keys=[target_egobjectdao_id]
+    )
+
+
+class EGShelfDAO_objects_association(Base, AssociationDataAccessObject):
+
+    __tablename__ = "_77561375796748590372608561529713410294055883339356546829308788"
+
+    database_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    source_egshelfdao_id: Mapped[int] = mapped_column(
+        ForeignKey("EGShelfDAO.database_id")
+    )
+    target_egobjectdao_id: Mapped[int] = mapped_column(
+        ForeignKey("EGObjectDAO.database_id")
+    )
+
+    target: Mapped[EGObjectDAO] = relationship(
+        "EGObjectDAO", foreign_keys=[target_egobjectdao_id]
+    )
+
+
 class EGRoomDAO_objects_association(Base, AssociationDataAccessObject):
 
     __tablename__ = "_79128551152731288556494048842279711636958456908342055812371652"
@@ -2601,6 +2637,31 @@ class EGDataProcessingDAO(
     )
 
 
+class EGObjectOnShelfAggregationsDAO(
+    Base,
+    DataAccessObject[
+        semantic_digital_twin.adapters.adaptive_environment_generation.schema.EGObjectOnShelfAggregations
+    ],
+):
+
+    __tablename__ = "EGObjectOnShelfAggregationsDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        Integer, primary_key=True, use_existing_column=True
+    )
+
+    objects_to_aggregate_on: Mapped[
+        builtins.list[
+            EGObjectOnShelfAggregationsDAO_objects_to_aggregate_on_association
+        ]
+    ] = relationship(
+        "EGObjectOnShelfAggregationsDAO_objects_to_aggregate_on_association",
+        collection_class=builtins.list,
+        cascade="all, delete-orphan",
+        foreign_keys="[EGObjectOnShelfAggregationsDAO_objects_to_aggregate_on_association.source_egobjectonshelfaggregationsdao_id]",
+    )
+
+
 class EGPoint2DDAO(
     EGBaseDAO,
     DataAccessObject[
@@ -2663,6 +2724,55 @@ class EGPositionDAO(
         "polymorphic_identity": "EGPositionDAO",
         "inherit_condition": database_id == EGPoint2DDAO.database_id,
     }
+
+
+class EGShelfDAO(
+    Base,
+    DataAccessObject[
+        semantic_digital_twin.adapters.adaptive_environment_generation.schema.EGShelf
+    ],
+):
+
+    __tablename__ = "EGShelfDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        Integer, primary_key=True, use_existing_column=True
+    )
+
+    position_id: Mapped[int] = mapped_column(
+        ForeignKey("EGPositionDAO.database_id", use_alter=True),
+        nullable=True,
+        use_existing_column=True,
+    )
+    scale_id: Mapped[int] = mapped_column(
+        ForeignKey("EGSizeDAO.database_id", use_alter=True),
+        nullable=True,
+        use_existing_column=True,
+    )
+    orientation_id: Mapped[int] = mapped_column(
+        ForeignKey("EGOrientationDAO.database_id", use_alter=True),
+        nullable=True,
+        use_existing_column=True,
+    )
+
+    position: Mapped[EGPositionDAO] = relationship(
+        "EGPositionDAO", uselist=False, foreign_keys=[position_id], post_update=True
+    )
+    scale: Mapped[EGSizeDAO] = relationship(
+        "EGSizeDAO", uselist=False, foreign_keys=[scale_id], post_update=True
+    )
+    orientation: Mapped[EGOrientationDAO] = relationship(
+        "EGOrientationDAO",
+        uselist=False,
+        foreign_keys=[orientation_id],
+        post_update=True,
+    )
+    objects: Mapped[builtins.list[EGShelfDAO_objects_association]] = relationship(
+        "EGShelfDAO_objects_association",
+        collection_class=builtins.list,
+        cascade="all, delete-orphan",
+        foreign_keys="[EGShelfDAO_objects_association.source_egshelfdao_id]",
+    )
 
 
 class EGSizeDAO(

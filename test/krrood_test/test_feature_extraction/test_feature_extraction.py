@@ -126,8 +126,8 @@ def test_create_dataframe_with_aggregations(scenario):
 def test_apply_mapping_with_aggregations(scenario):
     room, room2, room_dao, room2_dao, feature_extractor = scenario
     mapping = feature_extractor.apply_mapping(room_dao)
-    assert len(mapping) == 9
-    assert mapping[8] == 3  # total count
+    assert len(mapping) == 11
+    assert mapping[10] == 3  # total count
 
 
 def test_dataframe_preprocessing(scenario):
