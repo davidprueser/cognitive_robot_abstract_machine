@@ -466,10 +466,18 @@ class PR2(AbstractRobot, HasMobileBase[PR2MobileBase]):
                     buffer_zone_distance=0.05,
                     violated_distance=0.0,
                     robot=self,
-                    body_subset=set(
-                        self.mobile_base.torso.left_arm.bodies_with_collision
+                    body_subset=(
+                        set(self.mobile_base.torso.left_arm.bodies_with_collision)
+                        - set(
+                            self.mobile_base.torso.left_arm.end_effector.bodies_with_collision
+                        )
                     )
-                    | set(self.mobile_base.torso.right_arm.bodies_with_collision),
+                    | (
+                        set(self.mobile_base.torso.right_arm.bodies_with_collision)
+                        - set(
+                            self.mobile_base.torso.right_arm.end_effector.bodies_with_collision
+                        )
+                    ),
                 ),
                 AvoidExternalCollisions(
                     buffer_zone_distance=0.2,
