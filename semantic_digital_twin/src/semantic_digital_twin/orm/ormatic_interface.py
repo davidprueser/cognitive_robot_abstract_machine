@@ -422,6 +422,63 @@ class PipelineDAO_steps_association(Base, AssociationDataAccessObject):
     target: Mapped[StepDAO] = relationship("StepDAO", foreign_keys=[target_stepdao_id])
 
 
+class RoomDoorAggregationsDAO_objects_to_aggregate_on_association(
+    Base, AssociationDataAccessObject
+):
+
+    __tablename__ = "_55123942086815126689906484887168284767290604345038200854928935"
+
+    database_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    source_roomdooraggregationsdao_id: Mapped[int] = mapped_column(
+        ForeignKey("RoomDoorAggregationsDAO.database_id")
+    )
+    target_egdoordao_id: Mapped[int] = mapped_column(
+        ForeignKey("EGDoorDAO.database_id")
+    )
+
+    target: Mapped[EGDoorDAO] = relationship(
+        "EGDoorDAO", foreign_keys=[target_egdoordao_id]
+    )
+
+
+class RoomObjectAggregationsDAO_objects_to_aggregate_on_association(
+    Base, AssociationDataAccessObject
+):
+
+    __tablename__ = "_18261210457269033574798857998244462933448740404810599557402990"
+
+    database_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    source_roomobjectaggregationsdao_id: Mapped[int] = mapped_column(
+        ForeignKey("RoomObjectAggregationsDAO.database_id")
+    )
+    target_egobjectdao_id: Mapped[int] = mapped_column(
+        ForeignKey("EGObjectDAO.database_id")
+    )
+
+    target: Mapped[EGObjectDAO] = relationship(
+        "EGObjectDAO", foreign_keys=[target_egobjectdao_id]
+    )
+
+
+class RoomWallAggregationsDAO_objects_to_aggregate_on_association(
+    Base, AssociationDataAccessObject
+):
+
+    __tablename__ = "_90268975665871538454641027871736228846893684319661073469116923"
+
+    database_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    source_roomwallaggregationsdao_id: Mapped[int] = mapped_column(
+        ForeignKey("RoomWallAggregationsDAO.database_id")
+    )
+    target_egwalldao_id: Mapped[int] = mapped_column(
+        ForeignKey("EGWallDAO.database_id")
+    )
+
+    target: Mapped[EGWallDAO] = relationship(
+        "EGWallDAO", foreign_keys=[target_egwalldao_id]
+    )
+
+
 class Sage10kRoomDAO_objects_association(Base, AssociationDataAccessObject):
 
     __tablename__ = "_50527165745583492520861687878274343628149206398247113551967909"
@@ -3992,6 +4049,75 @@ class QPProblemDAO(
         uselist=False,
         foreign_keys=[target_id],
         post_update=True,
+    )
+
+
+class RoomDoorAggregationsDAO(
+    Base,
+    DataAccessObject[
+        semantic_digital_twin.adapters.adaptive_environment_generation.schema.RoomDoorAggregations
+    ],
+):
+
+    __tablename__ = "RoomDoorAggregationsDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        Integer, primary_key=True, use_existing_column=True
+    )
+
+    objects_to_aggregate_on: Mapped[
+        builtins.list[RoomDoorAggregationsDAO_objects_to_aggregate_on_association]
+    ] = relationship(
+        "RoomDoorAggregationsDAO_objects_to_aggregate_on_association",
+        collection_class=builtins.list,
+        cascade="all, delete-orphan",
+        foreign_keys="[RoomDoorAggregationsDAO_objects_to_aggregate_on_association.source_roomdooraggregationsdao_id]",
+    )
+
+
+class RoomObjectAggregationsDAO(
+    Base,
+    DataAccessObject[
+        semantic_digital_twin.adapters.adaptive_environment_generation.schema.RoomObjectAggregations
+    ],
+):
+
+    __tablename__ = "RoomObjectAggregationsDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        Integer, primary_key=True, use_existing_column=True
+    )
+
+    objects_to_aggregate_on: Mapped[
+        builtins.list[RoomObjectAggregationsDAO_objects_to_aggregate_on_association]
+    ] = relationship(
+        "RoomObjectAggregationsDAO_objects_to_aggregate_on_association",
+        collection_class=builtins.list,
+        cascade="all, delete-orphan",
+        foreign_keys="[RoomObjectAggregationsDAO_objects_to_aggregate_on_association.source_roomobjectaggregationsdao_id]",
+    )
+
+
+class RoomWallAggregationsDAO(
+    Base,
+    DataAccessObject[
+        semantic_digital_twin.adapters.adaptive_environment_generation.schema.RoomWallAggregations
+    ],
+):
+
+    __tablename__ = "RoomWallAggregationsDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        Integer, primary_key=True, use_existing_column=True
+    )
+
+    objects_to_aggregate_on: Mapped[
+        builtins.list[RoomWallAggregationsDAO_objects_to_aggregate_on_association]
+    ] = relationship(
+        "RoomWallAggregationsDAO_objects_to_aggregate_on_association",
+        collection_class=builtins.list,
+        cascade="all, delete-orphan",
+        foreign_keys="[RoomWallAggregationsDAO_objects_to_aggregate_on_association.source_roomwallaggregationsdao_id]",
     )
 
 

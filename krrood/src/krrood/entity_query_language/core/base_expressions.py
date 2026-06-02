@@ -621,14 +621,17 @@ class OperationResult:
     """
     The bindings resulting from the operation, mapping variable IDs to their values.
     """
+
     is_false: bool
     """
     Whether the operation resulted in a false value (i.e., The operation condition was not satisfied)
     """
+
     operand: SymbolicExpression
     """
     The operand that produced the result.
     """
+
     previous_operation_result: Optional[OperationResult] = None
     """
     The result of the operation that was evaluated before this one.

@@ -147,11 +147,11 @@ class PersonDAO_knows_association(Base, AssociationDataAccessObject):
     )
 
 
-class RoomAggregationsDAO_aggregation_object_association(
+class RoomAggregationsDAO_objects_to_aggregate_on_association(
     Base, AssociationDataAccessObject
 ):
 
-    __tablename__ = "_35891099413275884720638211839951734652838102737564816247881459"
+    __tablename__ = "_11414036677671943841298588721487530740577869993035292873662401"
 
     database_id: Mapped[int] = mapped_column(Integer, primary_key=True)
     source_roomaggregationsdao_id: Mapped[int] = mapped_column(
@@ -728,34 +728,6 @@ class GenericClassDAO(
     }
 
 
-class GenericClass_floatDAO(
-    GenericClassDAO,
-    DataAccessObject[test.krrood_test.dataset.example_classes.GenericClass[float]],
-):
-
-    __tablename__ = "GenericClass_floatDAO"
-
-    database_id: Mapped[builtins.int] = mapped_column(
-        ForeignKey(GenericClassDAO.database_id),
-        primary_key=True,
-        use_existing_column=True,
-    )
-
-    value: Mapped[builtins.float] = mapped_column(use_existing_column=True)
-    optional_value: Mapped[typing.Optional[builtins.float]] = mapped_column(
-        use_existing_column=True
-    )
-
-    container: Mapped[typing.List[builtins.float]] = mapped_column(
-        JSON, nullable=False, use_existing_column=True
-    )
-
-    __mapper_args__ = {
-        "polymorphic_identity": "GenericClass_floatDAO",
-        "inherit_condition": database_id == GenericClassDAO.database_id,
-    }
-
-
 class GenericClass_KRROODPositionDAO(
     GenericClassDAO,
     DataAccessObject[
@@ -804,6 +776,34 @@ class GenericClass_KRROODPositionDAO(
 
     __mapper_args__ = {
         "polymorphic_identity": "GenericClass_KRROODPositionDAO",
+        "inherit_condition": database_id == GenericClassDAO.database_id,
+    }
+
+
+class GenericClass_floatDAO(
+    GenericClassDAO,
+    DataAccessObject[test.krrood_test.dataset.example_classes.GenericClass[float]],
+):
+
+    __tablename__ = "GenericClass_floatDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        ForeignKey(GenericClassDAO.database_id),
+        primary_key=True,
+        use_existing_column=True,
+    )
+
+    value: Mapped[builtins.float] = mapped_column(use_existing_column=True)
+    optional_value: Mapped[typing.Optional[builtins.float]] = mapped_column(
+        use_existing_column=True
+    )
+
+    container: Mapped[typing.List[builtins.float]] = mapped_column(
+        JSON, nullable=False, use_existing_column=True
+    )
+
+    __mapper_args__ = {
+        "polymorphic_identity": "GenericClass_floatDAO",
         "inherit_condition": database_id == GenericClassDAO.database_id,
     }
 
@@ -1276,13 +1276,13 @@ class RoomAggregationsDAO(
         Integer, primary_key=True, use_existing_column=True
     )
 
-    aggregation_object: Mapped[
-        builtins.list[RoomAggregationsDAO_aggregation_object_association]
+    objects_to_aggregate_on: Mapped[
+        builtins.list[RoomAggregationsDAO_objects_to_aggregate_on_association]
     ] = relationship(
-        "RoomAggregationsDAO_aggregation_object_association",
+        "RoomAggregationsDAO_objects_to_aggregate_on_association",
         collection_class=builtins.list,
         cascade="all, delete-orphan",
-        foreign_keys="[RoomAggregationsDAO_aggregation_object_association.source_roomaggregationsdao_id]",
+        foreign_keys="[RoomAggregationsDAO_objects_to_aggregate_on_association.source_roomaggregationsdao_id]",
     )
 
 

@@ -259,7 +259,7 @@ class EGObject(EGWithID):
                 Path.home()
                 / "Documents"
                 / "sage-10k-scenes"
-                / "20251218_093809_layout_6fa8d766"
+                / "20251230_060038_layout_fd6894a7"
             )
             # raise ValueError(
             #     f"No mesh path found for object '{self.id}' (source_id='{self.source_id}'). "
@@ -268,7 +268,7 @@ class EGObject(EGWithID):
         if not mesh_path.exists():
             raise ValueError(f"Directory {mesh_path} does not exist.")
         if self.source_id is None:
-            self.source_id = "0a4b8a10"
+            self.source_id = "0e00397f"
         ply_file = mesh_path / "objects" / f"{self.source_id}.ply"
         texture_file = mesh_path / "objects" / f"{self.source_id}_texture.png"
 

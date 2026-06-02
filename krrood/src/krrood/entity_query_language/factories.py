@@ -31,6 +31,7 @@ from krrood.entity_query_language.operators.aggregators import (
     Average,
     Count,
     CountAll,
+    CountRange,
     Mode,
     MultiMode,
 )
@@ -549,6 +550,20 @@ def count_all(distinct: bool = False) -> Union[T, Count[T]]:
     :return: A Count object that can be evaluated to count the number of values.
     """
     return CountAll(_distinct_=distinct)
+
+
+def count_range(variable: Selectable[T], distinct: bool = False) -> Union[T, CountRange[T]]:
+    """
+    Count values produced by the given variable and return a closed interval reflecting uncertainty.
+
+    Concrete (non-``...``) values set the lower bound; ``...`` (Ellipsis) values are added to
+    the upper bound to represent items whose category is unknown.
+
+    :param variable: The variable whose values are counted.
+    :param distinct: Whether to only consider distinct values.
+    :return: A CountRange that evaluates to a SimpleInterval ``[concrete_count, concrete_count + ellipsis_count]``.
+    """
+    return CountRange(variable, _distinct_=distinct)
 
 
 def distinct(

@@ -24,6 +24,7 @@ from krrood.entity_query_language.factories import (
     count,
     the,
     entity,
+    count_range,
 )
 from krrood.entity_query_language.predicate import symbolic_function
 from krrood.ormatic.data_access_objects.alternative_mappings import (
@@ -774,21 +775,23 @@ class SceneObjectAggregations(AggregationStatistic):
     def _eql_variable(self):
         return variable(SceneObject, self.objects_to_aggregate_on)
 
-    # def table_count(self) -> int:
-    #     [cou] = (
-    #         entity(count(self._eql_variable))
-    #         .where(self._eql_variable.type == SceneObjectType.TABLE)
-    #         .tolist()
-    #     )
-    #     return cou
-    #
-    # def chair_count(self) -> int:
-    #     [cou] = (
-    #         entity(count(self._eql_variable))
-    #         .where(self._eql_variable.type == SceneObjectType.CHAIR)
-    #         .tolist()
-    #     )
-    #     return cou
+    def table_count(self) -> int:
+        type_var = self._eql_variable.type
+        [cou] = (
+            entity(count_range(type_var))
+            .where(type_var == SceneObjectType.TABLE)
+            .tolist()
+        )
+        return cou
+
+    def chair_count(self) -> int:
+        type_var = self._eql_variable.type
+        [cou] = (
+            entity(count_range(type_var))
+            .where(type_var == SceneObjectType.CHAIR)
+            .tolist()
+        )
+        return cou
 
     def total_count(self) -> int:
         [cou] = count(self._eql_variable).tolist()
