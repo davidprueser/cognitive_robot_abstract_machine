@@ -1,9 +1,12 @@
 import json
 import os
+import random
+from collections import defaultdict
 from pathlib import Path
-from typing import List
+from typing import Dict, List
 
 from sqlalchemy import select
+from sqlalchemy.dialects.oracle.dictionary import all_objects
 from sqlalchemy.orm import Session
 
 from conftest import rclpy_node
@@ -44,6 +47,8 @@ from semantic_digital_twin.adapters.adaptive_environment_generation.schema impor
     EGWall,
     EGOrientation,
     EGShelf,
+    ObjectType,
+    build_source_id_to_path,
 )
 from semantic_digital_twin.adapters.ros.visualization.viz_marker import (
     VizMarkerPublisher,
@@ -51,8 +56,8 @@ from semantic_digital_twin.adapters.ros.visualization.viz_marker import (
 from semantic_digital_twin.adapters.sage_10k_dataset.loader import Sage10kDatasetLoader
 from semantic_digital_twin.orm.ormatic_interface import *  # type: ignore
 from semantic_digital_twin.reasoning.predicates import InsideOf
-from semantic_digital_twin.world_description.geometry import Scale
-from semantic_digital_twin.world_description.world_entity import Region
+from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix, Point3
+from semantic_digital_twin.world_description.geometry import Scale, BoundingBox
 
 
 def parse_json(path):
@@ -293,133 +298,67 @@ def test_simple_underspecified_environment(rclpy_node):
     viz_marker.with_tf_publisher()
 
 
-def test_rspn_fitting():
-    uri = os.environ.get("SEMANTIC_DIGITAL_TWIN_DATABASE_URI")
-    engine = create_engine(uri)
-    session = Session(engine)
-    scenes, objects = query_environments(session)
-
-    dao_state = FromDataAccessObjectState()
-    rooms = [scene.from_dao(dao_state).room for scene in scenes]
-
-    rspn = RelationalProbabilisticCircuit(EGRoom)
-    rspn = rspn.fit(rooms)
-
-
-def _shelf_bounding_box(
-    shelf: EGObject,
-) -> tuple[float, float, float, float, float, float]:
-    """Axis-aligned bounding box (min_x, max_x, min_y, max_y, min_z, max_z)
-    for a shelf derived from its world-space position and scale.
-    Shelf rotation is not taken into account; the box is world-axis-aligned.
-    """
-    cx, cy, cz = shelf.position.x, shelf.position.y, shelf.position.z
-    hw = shelf.scale.width / 2
-    hl = shelf.scale.length / 2
-    hh = shelf.scale.height / 2
-    return cx - hw, cx + hw, cy - hl, cy + hl, cz - hh, cz + hh
-
-
-def _objects_in_region(
-    region: tuple[float, float, float, float, float, float],
-    candidates: List[EGObject],
-) -> List[EGObject]:
-    """Return objects whose centre position falls within the axis-aligned region."""
-    min_x, max_x, min_y, max_y, min_z, max_z = region
-    return [
-        obj
-        for obj in candidates
-        if min_x <= obj.position.x <= max_x
-        and min_y <= obj.position.y <= max_y
-        and min_z <= obj.position.z <= max_z
-    ]
-
-
-def _collect_shelves_with_objects(session: Session) -> List[EGShelf]:
+def _query_shelves_with_contents(session: Session) -> List[EGShelf]:
     """Load all scenes and group objects by the shelf they are placed on.
 
     Uses bounding-box spatial reasoning (not place_id alone) so the grouping
     mirrors what a robot would perceive from geometry rather than metadata.
     """
     dao_state = FromDataAccessObjectState()
-    scene_daos = session.scalars(select(SceneGeneratorDAO)).all()
+    rooms = session.scalars(select(EGRoomDAO)).all()
+    source_id_to_path = build_source_id_to_path()
 
     result: List[EGShelf] = []
-    for scene_dao in scene_daos:
-        scene: SceneGenerator = scene_dao.from_dao(dao_state)
-        room: EGRoom = scene.room
+    for room in rooms:
+        room: EGRoom = room.from_dao(dao_state)
 
-        shelves = [obj for obj in room.objects if obj.object_type == "shelf"]
-        non_shelves = [obj for obj in room.objects if obj.object_type != "shelf"]
+        shelves = [obj for obj in room.objects if obj.object_type == ObjectType.SHELF]
+        non_shelves = [
+            obj for obj in room.objects if obj.object_type != ObjectType.SHELF
+        ]
 
         for shelf in shelves:
-            region = _shelf_bounding_box(shelf)
-            contents = _objects_in_region(region, non_shelves)
+            region = BoundingBox(
+                min_x=shelf.position.x - shelf.scale.width / 2,
+                max_x=shelf.position.x + shelf.scale.width / 2,
+                min_y=shelf.position.y - shelf.scale.length / 2,
+                max_y=shelf.position.y + shelf.scale.length / 2,
+                min_z=shelf.position.z - shelf.scale.height / 2,
+                max_z=shelf.position.z + shelf.scale.height / 2,
+                origin=HomogeneousTransformationMatrix(reference_frame=None),
+            )
+            contents = [
+                non_shelf
+                for non_shelf in non_shelves
+                if region.contains(
+                    Point3(
+                        non_shelf.position.x,
+                        non_shelf.position.y,
+                        non_shelf.position.z,
+                        None,
+                    )
+                )
+            ]
             if not contents:
                 continue
-            result.append(EGShelf.from_eg_object_and_contents(shelf, contents))
+            result.append(
+                EGShelf.create_shelf_with_contents(shelf, contents, source_id_to_path)
+            )
 
     return result
-
-
-def _eg_shelf_to_scene(shelf_sample: EGShelf) -> SceneGenerator:
-    """Build a minimal SceneGenerator from a sampled EGShelf.
-
-    Object positions stored on the shelf are shelf-relative; this converts them
-    back to world-space so the world is self-consistent.
-    """
-    cx, cy, cz = shelf_sample.position.x, shelf_sample.position.y, shelf_sample.position.z
-    shelf_obj = EGObject(
-        id="shelf",
-        room_id="room_1",
-        place_id="floor",
-        object_type="shelf",
-        scale=shelf_sample.scale,
-        position=shelf_sample.position,
-        orientation=shelf_sample.orientation,
-        source_id="efb30c99",
-    )
-    room_objects = [shelf_obj] + [
-        EGObject(
-            id=f"object_{i}",
-            room_id="room_1",
-            place_id="shelf",
-            object_type="",
-            scale=obj.scale,
-            position=EGPosition(
-                x=cx + obj.position.x,
-                y=cy + obj.position.y,
-                z=cz + obj.position.z,
-            ),
-            orientation=obj.orientation,
-            source_id="0e00397f",
-        )
-        for i, obj in enumerate(shelf_sample.objects)
-    ]
-    room = EGRoom(
-        id="room_1",
-        room_type="living_room",
-        scale=EGSize(width=10, length=10, height=3),
-        position=EGPosition(x=0, y=0, z=0),
-        objects=room_objects,
-        walls=[
-            EGWall(id="wall_1", start_point=EGPoint2D(0, 10), end_point=EGPoint2D(10, 10), height=3, thickness=0.1),
-            EGWall(id="wall_2", start_point=EGPoint2D(0, 0), end_point=EGPoint2D(10, 0), height=3, thickness=0.1),
-            EGWall(id="wall_3", start_point=EGPoint2D(10, 0), end_point=EGPoint2D(10, 10), height=3, thickness=0.1),
-            EGWall(id="wall_4", start_point=EGPoint2D(0, 0), end_point=EGPoint2D(0, 10), height=3, thickness=0.1),
-        ],
-        doors=[],
-    )
-    return SceneGenerator(id="generated", room=room)
 
 
 def test_rspn_fitting_on_shelves(rclpy_node):
     uri = os.environ.get("SEMANTIC_DIGITAL_TWIN_DATABASE_URI")
     engine = create_engine(uri)
+    Base.metadata.create_all(bind=engine)
     session = Session(engine)
 
-    shelves = _collect_shelves_with_objects(session)
-    assert shelves, "No shelves with objects found — load the database first."
+    if not session.scalars(select(EGRoomDAO)).first():
+        session = add_to_database(session)
+
+    shelves = _query_shelves_with_contents(session)
+    assert shelves, "No shelves with objects found — check the sage-10k-layouts path."
 
     shelf_daos = [to_dao(shelf) for shelf in shelves]
 
@@ -434,17 +373,18 @@ def test_rspn_fitting_on_shelves(rclpy_node):
     assert "EGShelf.position.x" in class_var_names
     assert "EGObjectOnShelfAggregations.total_object_count()" in class_var_names
 
-    num_objects = 4
+    num_objects = 10
     query = underspecified(EGShelf)(
         position=underspecified(EGPosition)(x=..., y=..., z=...),
         scale=underspecified(EGSize)(width=..., length=..., height=...),
         orientation=underspecified(EGOrientation)(x=..., y=..., z=...),
+        source_id=None,
         objects=[
             underspecified(EGObject)(
                 id=None,
                 room_id=None,
                 place_id=None,
-                object_type=None,
+                object_type=...,
                 scale=underspecified(EGSize)(width=..., length=..., height=...),
                 position=underspecified(EGPosition)(x=..., y=..., z=...),
                 orientation=underspecified(EGOrientation)(x=..., y=..., z=...),
@@ -453,7 +393,6 @@ def test_rspn_fitting_on_shelves(rclpy_node):
             for _ in range(num_objects)
         ],
     )
-    query.resolve()
 
     registry = RelationalCircuitRegistry(
         relational_probabilistic_circuit=rspn, query=query
@@ -461,8 +400,22 @@ def test_rspn_fitting_on_shelves(rclpy_node):
     prob_backend = ProbabilisticBackend(model_registry=registry, number_of_samples=1)
     [shelf_sample] = list(prob_backend.evaluate(query))
 
-    scene = _eg_shelf_to_scene(shelf_sample)
-    world = scene.create_world()
+    # Pick a random training shelf for the mesh; the RSPN provides geometry only.
+    training_shelf = random.choice(
+        [s for s in shelves if s.shelf_scene_dir is not None]
+    )
+    print(training_shelf.source_id)
+    shelf_sample.source_id = training_shelf.source_id
+    shelf_sample.shelf_scene_dir = training_shelf.shelf_scene_dir
+
+    merged: Dict[ObjectType, list] = defaultdict(list)
+    for shelf in shelves:
+        if shelf.object_type_to_source_ids:
+            for obj_type, entries in shelf.object_type_to_source_ids.items():
+                merged[obj_type].extend(entries)
+    shelf_sample.object_type_to_source_ids = merged
+
+    world = shelf_sample.create_world()
 
     viz_marker = VizMarkerPublisher(node=rclpy_node, _world=world)
     viz_marker.with_tf_publisher()

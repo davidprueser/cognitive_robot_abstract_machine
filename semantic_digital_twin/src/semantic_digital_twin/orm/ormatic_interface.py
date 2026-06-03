@@ -1108,6 +1108,21 @@ class DishwasherDAO_doors_association(Base, AssociationDataAccessObject):
     target: Mapped[DoorDAO] = relationship("DoorDAO", foreign_keys=[target_doordao_id])
 
 
+class ShelfDAO_objects_association(Base, AssociationDataAccessObject):
+
+    __tablename__ = "_11320785231300784509825124631139288554035232259597878954213901"
+
+    database_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    source_shelfdao_id: Mapped[int] = mapped_column(ForeignKey("ShelfDAO.database_id"))
+    target_hasrootbodydao_id: Mapped[int] = mapped_column(
+        ForeignKey("HasRootBodyDAO.database_id")
+    )
+
+    target: Mapped[HasRootBodyDAO] = relationship(
+        "HasRootBodyDAO", foreign_keys=[target_hasrootbodydao_id]
+    )
+
+
 class SofaDAO_objects_association(Base, AssociationDataAccessObject):
 
     __tablename__ = "_94393988479730442605207881991662733321301694888106448637684645"
@@ -2739,6 +2754,14 @@ class EGShelfDAO(
         Integer, primary_key=True, use_existing_column=True
     )
 
+    source_id: Mapped[builtins.str] = mapped_column(
+        sqlalchemy.sql.sqltypes.Text, use_existing_column=True
+    )
+
+    shelf_scene_dir: Mapped[typing.Optional[pathlib.Path]] = mapped_column(
+        krrood.ormatic.custom_types.PathType, nullable=True, use_existing_column=True
+    )
+
     position_id: Mapped[int] = mapped_column(
         ForeignKey("EGPositionDAO.database_id", use_alter=True),
         nullable=True,
@@ -2867,11 +2890,16 @@ class EGObjectDAO(
     place_id: Mapped[builtins.str] = mapped_column(
         sqlalchemy.sql.sqltypes.Text, use_existing_column=True
     )
-    object_type: Mapped[builtins.str] = mapped_column(
-        sqlalchemy.sql.sqltypes.Text, use_existing_column=True
-    )
     source_id: Mapped[builtins.str] = mapped_column(
         sqlalchemy.sql.sqltypes.Text, use_existing_column=True
+    )
+
+    object_type: Mapped[
+        semantic_digital_twin.adapters.adaptive_environment_generation.schema.ObjectType
+    ] = mapped_column(
+        krrood.ormatic.custom_types.PolymorphicEnumType,
+        nullable=False,
+        use_existing_column=True,
     )
 
     scale_id: Mapped[int] = mapped_column(
@@ -9103,6 +9131,52 @@ class PlateDAO(
     __mapper_args__ = {
         "polymorphic_identity": "PlateDAO",
         "inherit_condition": database_id == HasSupportingSurfaceDAO.database_id,
+    }
+
+
+class ShelfDAO(
+    FurnitureDAO,
+    DataAccessObject[
+        semantic_digital_twin.semantic_annotations.semantic_annotations.Shelf
+    ],
+):
+
+    __tablename__ = "ShelfDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        ForeignKey(FurnitureDAO.database_id), primary_key=True, use_existing_column=True
+    )
+
+    root_id: Mapped[int] = mapped_column(
+        ForeignKey("BodyDAO.database_id", use_alter=True),
+        nullable=True,
+        use_existing_column=True,
+    )
+    supporting_surface_id: Mapped[int] = mapped_column(
+        ForeignKey("RegionDAO.database_id", use_alter=True),
+        nullable=True,
+        use_existing_column=True,
+    )
+
+    root: Mapped[BodyDAO] = relationship(
+        "BodyDAO", uselist=False, foreign_keys=[root_id], post_update=True
+    )
+    objects: Mapped[builtins.list[ShelfDAO_objects_association]] = relationship(
+        "ShelfDAO_objects_association",
+        collection_class=builtins.list,
+        cascade="all, delete-orphan",
+        foreign_keys="[ShelfDAO_objects_association.source_shelfdao_id]",
+    )
+    supporting_surface: Mapped[RegionDAO] = relationship(
+        "RegionDAO",
+        uselist=False,
+        foreign_keys=[supporting_surface_id],
+        post_update=True,
+    )
+
+    __mapper_args__ = {
+        "polymorphic_identity": "ShelfDAO",
+        "inherit_condition": database_id == FurnitureDAO.database_id,
     }
 
 

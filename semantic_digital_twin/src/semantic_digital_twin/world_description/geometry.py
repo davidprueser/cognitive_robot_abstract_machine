@@ -1040,10 +1040,13 @@ class BoundingBox:
         """
         Check if the bounding box contains a point.
         """
-        point_in_bb = point.reference_frame._world.transform(
-            point, self.origin.reference_frame
-        )
-        x, y, z = (float(point_in_bb.x), float(point_in_bb.y), float(point_in_bb.z))
+        if point.reference_frame is None and self.origin.reference_frame is None:
+            x, y, z = float(point.x), float(point.y), float(point.z)
+        else:
+            point_in_bb = point.reference_frame._world.transform(
+                point, self.origin.reference_frame
+            )
+            x, y, z = (float(point_in_bb.x), float(point_in_bb.y), float(point_in_bb.z))
         return self.simple_event.contains((x, y, z))
 
     @classmethod

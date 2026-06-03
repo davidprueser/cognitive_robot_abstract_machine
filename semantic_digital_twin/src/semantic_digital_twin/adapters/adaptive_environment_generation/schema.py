@@ -1,4 +1,7 @@
+import enum
 import math
+import random
+from collections import defaultdict
 from dataclasses import dataclass, field
 from functools import cached_property
 from pathlib import Path
@@ -28,6 +31,7 @@ from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     DoorWithType,
     Handle,
     Hinge,
+    Shelf,
 )
 from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix, Vector3
 from semantic_digital_twin.spatial_types.derivatives import DerivativeMap
@@ -39,7 +43,7 @@ from semantic_digital_twin.world_description.connections import (
 from semantic_digital_twin.world_description.degree_of_freedom import (
     DegreeOfFreedomLimits,
 )
-from semantic_digital_twin.world_description.geometry import Mesh, Box, Scale
+from semantic_digital_twin.world_description.geometry import Mesh, Scale
 from semantic_digital_twin.world_description.shape_collection import ShapeCollection
 from semantic_digital_twin.world_description.world_entity import (
     SemanticAnnotation,
@@ -177,6 +181,140 @@ class EGOrientation(EGPoint2D):
         )
 
 
+class ObjectType(enum.Enum):
+    """Canonical object types present in the sage10k dataset."""
+
+    ADJUSTABLEWRENCH = "adjustablewrench"
+    ART = "art"
+    BAKINGPOWDER1 = "bakingpowder1"
+    BAKINGPOWDER2 = "bakingpowder2"
+    BOOK = "book"
+    BOOK1 = "book1"
+    BOOK2 = "book2"
+    BOOK4E33D6C6 = "book4e33d6c6"
+    BOOK_SHELF_D8061277 = "book_shelf_d8061277"
+    BOOK_SHELF_F9F248CD = "book_shelf_f9f248cd"
+    BOOK_TABLE1 = "book_table1"
+    BOOK_TABLE2 = "book_table2"
+    BOOKCHAIR6 = "bookchair6"
+    BOOKCHAIR8 = "bookchair8"
+    BOOKCHAIR8EBA7FDC = "bookchair8eba7fdc"
+    BOOKCHAIR9 = "bookchair9"
+    BOOKMUSTARD = "bookmustard"
+    BOOKMUSTARD4E33D6C6 = "bookmustard4e33d6c6"
+    BOOKOLIVE2 = "bookolive2"
+    CABINET = "cabinet"
+    CANDLE2 = "candle2"
+    CART = "cart"
+    CHAIR = "chair"
+    CHANGEJAR = "changejar"
+    CLOCK = "clock"
+    CONTAINER = "container"
+    CONTAINER2 = "container2"
+    CONTAINER_1 = "container_1"
+    CONTAINER_2 = "container_2"
+    CONTAINER_3 = "container_3"
+    CONTAINER_CABINET_250E2E93 = "container_cabinet_250e2e93"
+    CONTAINER_CABINET_88534706 = "container_cabinet_88534706"
+    CONTAINER_CABINET_B7A01281 = "container_cabinet_b7a01281"
+    CONTAINER_SHELF = "container_shelf"
+    CONTAINERCABINET250 = "containercabinet250"
+    CONTAINERCABINET88534706 = "containercabinet88534706"
+    COUNTER = "counter"
+    CROISSANT = "croissant"
+    CROISSANT1 = "croissant1"
+    CUP = "cup"
+    CUP1 = "cup1"
+    CUP2 = "cup2"
+    CUP_TABLE1 = "cup_table1"
+    CUP_TABLE2 = "cup_table2"
+    DISPLAYCASE = "displaycase"
+    DRILL = "drill"
+    DRYER = "dryer"
+    FLOURBAG = "flourbag"
+    FOUNTAIN = "fountain"
+    HAMMER = "hammer"
+    LADDER = "ladder"
+    LAUNDRYBASKET = "laundrybasket"
+    LIGHT_FIXTURE = "light_fixture"
+    LIGHTFIXTURE = "lightfixture"
+    LIGHTING = "lighting"
+    MEASURINGCUP1 = "measuringcup1"
+    MEASURINGCUP2 = "measuringcup2"
+    MEASURINGCUP3 = "measuringcup3"
+    MEASURINGCUP4 = "measuringcup4"
+    MEASURINGCUPS = "measuringcups"
+    MIRROR = "mirror"
+    MIXINGBOWL = "mixingbowl"
+    MIXINGBOWL2 = "mixingbowl2"
+    NEON = "neon"
+    NOTEBOOK = "notebook"
+    NOTEBOOK1 = "notebook1"
+    NOTEBOOKEXTRA = "notebookextra"
+    NOTEPAD = "notepad"
+    OVEN = "oven"
+    PAINTING = "painting"
+    PAPERTOWELDISPENSER = "papertoweldispenser"
+    PEGBOARD = "pegboard"
+    PEN = "pen"
+    PEN2 = "pen2"
+    PEN_TABLE2 = "pen_table2"
+    PENCOUNTER = "pencounter"
+    PENEXTRA = "penextra"
+    PENSHELF = "penshelf"
+    PIPINGBAG = "pipingbag"
+    PIPINGBAG1 = "pipingbag1"
+    PLANT = "plant"
+    PLANT1 = "plant1"
+    PLANTFLOOR = "plantfloor"
+    PLASTICBIN_2 = "plasticbin_2"
+    PLIERS = "pliers"
+    POSTER = "poster"
+    POSTERWALL = "posterwall"
+    PRINT = "print"
+    RADIO = "radio"
+    ROLLINGPIN = "rollingpin"
+    ROLLINGPIN1 = "rollingpin1"
+    ROLLINGPIN2 = "rollingpin2"
+    SANDER = "sander"
+    SCONCE = "sconce"
+    SCONCEWALL = "sconcewall"
+    SCREWDRIVER = "screwdriver"
+    SHELF = "shelf"
+    SHELFBOOK_3 = "shelfbook_3"
+    SHELFPEN = "shelfpen"
+    SHOWCASE = "showcase"
+    SIGN = "sign"
+    SIGNWALL = "signwall"
+    SOAPDISPENSER = "soapdispenser"
+    SPATULA = "spatula"
+    STAINEDGLASS = "stainedglass"
+    STOOL = "stool"
+    STORAGEBIN = "storagebin"
+    STORAGEBIN_FLOOR = "storagebin_floor"
+    SUCCULENT = "succulent"
+    SUGARJAR = "sugarjar"
+    SUGARJAR1 = "sugarjar1"
+    SUGARJAR2 = "sugarjar2"
+    SUGARJAR3 = "sugarjar3"
+    TABLE = "table"
+    TIRE = "tire"
+    TOOLBOX = "toolbox"
+    TOOLBOX_FLOOR = "toolbox_floor"
+    TRASH = "trash"
+    WALLART = "wallart"
+    WALLART_1 = "wallart_1"
+    WALLPAINTING = "wallpainting"
+    WALLSCONCE = "wallsconce"
+    WALLSIGN = "wallsign"
+    WASHER = "washer"
+    WORKBENCH = "workbench"
+    WORKBENCHCUP = "workbenchcup"
+    WORKBENCHNOTEBOOK = "workbenchnotebook"
+    WRENCH = "wrench"
+    OTHER = "other"
+
+
 # %%
 @dataclass
 class EGObject(EGWithID):
@@ -190,7 +328,7 @@ class EGObject(EGWithID):
     The id of the object where the object is located/placed on/at, e.g. wall, floor, table.
     """
 
-    object_type: str
+    object_type: ObjectType
     """
     The type of the object.
     """
@@ -239,7 +377,9 @@ class EGObject(EGWithID):
         return cls(
             id=data["id"],
             room_id=data["room_id"],
-            object_type=data["type"],
+            object_type=ObjectType._value2member_map_.get(
+                data["type"], ObjectType.OTHER
+            ),
             place_id=data["place_id"],
             position=EGPosition._from_json(data["position"], **kwargs),
             orientation=EGOrientation._from_json(data["rotation"], **kwargs),
@@ -253,7 +393,7 @@ class EGObject(EGWithID):
         mesh_path: Optional[Path],
         parent: KinematicStructureEntity,
         **kwargs,
-    ):
+    ) -> Body:
         if mesh_path is None:
             mesh_path = (
                 Path.home()
@@ -840,6 +980,29 @@ class RoomDoorAggregations(AggregationStatistic):
         return float(np.mean([d.width for d in self.objects_to_aggregate_on]))
 
 
+def build_source_id_to_path(
+    scenes_root: Path = Path.home() / "Documents" / "sage-10k-scenes",
+) -> Dict[str, Path]:
+    """Scan *scenes_root* and return a mapping from source_id to its scene directory.
+
+    Each scene directory is expected to contain an ``objects/`` sub-folder with
+    files named ``{source_id}.ply``.
+
+    :param scenes_root: Root directory that contains individual scene folders.
+    :return: ``{source_id: scene_dir}`` for every PLY file found under any scene.
+    """
+    mapping: Dict[str, Path] = {}
+    for scene_dir in scenes_root.iterdir():
+        objects_dir = scene_dir / "objects"
+        if not objects_dir.is_dir():
+            continue
+        for ply_file in objects_dir.glob("*.ply"):
+            texture_file = objects_dir / f"{ply_file.stem}_texture.png"
+            if texture_file.exists():
+                mapping[ply_file.stem] = scene_dir
+    return mapping
+
+
 @dataclass
 class EGShelf(HasExchangeablePartAggregations):
     """A shelf and the objects placed on it, ready for relational RSPN fitting."""
@@ -847,22 +1010,40 @@ class EGShelf(HasExchangeablePartAggregations):
     position: EGPosition
     scale: EGSize
     orientation: EGOrientation
+    source_id: str
     objects: List[EGObject]
+    object_type_to_source_ids: Optional[Dict[ObjectType, List[Tuple[Path, str]]]] = (
+        field(default=None)
+    )
+    shelf_scene_dir: Optional[Path] = field(default=None)
 
     @classmethod
-    def from_eg_object_and_contents(
+    def create_shelf_with_contents(
         cls,
-        shelf_obj: EGObject,
+        shelf_object: EGObject,
         contents: List[EGObject],
+        source_id_to_path: Optional[Dict[str, Path]] = None,
     ) -> "EGShelf":
-        """Build an EGShelf from a raw shelf EGObject and its contents.
+        """
+        Build a Shelf from a raw shelf EGObject and its contents.
 
         Object positions are normalised to shelf-relative coordinates
         (shelf centre = origin) so the RSPN generalises across scene positions.
+
+        :param source_id_to_path: Mapping from source_id to the scene directory
+            containing its mesh. Build one with :func:`build_source_id_to_path`.
+            When omitted the path component of each entry is ``None``.
         """
-        cx = shelf_obj.position.x
-        cy = shelf_obj.position.y
-        cz = shelf_obj.position.z
+        x = shelf_object.position.x
+        y = shelf_object.position.y
+        z = shelf_object.position.z
+        object_type_to_source_ids: Dict[ObjectType, List[Tuple[Path, str]]] = (
+            defaultdict(list)
+        )
+        for obj in contents:
+            path = source_id_to_path.get(obj.source_id) if source_id_to_path else None
+            if path is not None:
+                object_type_to_source_ids[obj.object_type].append((path, obj.source_id))
         relative_objects = [
             EGObject(
                 id=obj.id,
@@ -871,21 +1052,82 @@ class EGShelf(HasExchangeablePartAggregations):
                 object_type=obj.object_type,
                 scale=obj.scale,
                 position=EGPosition(
-                    x=obj.position.x - cx,
-                    y=obj.position.y - cy,
-                    z=obj.position.z - cz,
+                    x=obj.position.x - x,
+                    y=obj.position.y - y,
+                    z=obj.position.z - z,
                 ),
                 orientation=obj.orientation,
                 source_id=obj.source_id,
             )
             for obj in contents
         ]
-        return cls(
-            position=shelf_obj.position,
-            scale=shelf_obj.scale,
-            orientation=shelf_obj.orientation,
-            objects=relative_objects,
+        shelf_scene_dir = (
+            source_id_to_path.get(shelf_object.source_id) if source_id_to_path else None
         )
+        return cls(
+            position=shelf_object.position,
+            scale=shelf_object.scale,
+            orientation=shelf_object.orientation,
+            source_id=shelf_object.source_id,
+            objects=relative_objects,
+            object_type_to_source_ids=object_type_to_source_ids,
+            shelf_scene_dir=shelf_scene_dir,
+        )
+
+    def create_world(self) -> World:
+        world = World()
+        root = Body(name=PrefixedName(name="map"))
+
+        with world.modify_world():
+            world.add_body(root)
+
+        if self.object_type_to_source_ids is None:
+            raise ValueError(
+                "object_type_to_source_ids must be set before calling create_world()"
+            )
+
+        if self.shelf_scene_dir is not None:
+            shelf_eg_obj = EGObject(
+                id="shelf",
+                room_id="",
+                place_id="floor",
+                object_type=ObjectType.SHELF,
+                scale=self.scale,
+                position=self.position,
+                orientation=self.orientation,
+                source_id=self.source_id,
+            )
+            shelf_eg_obj.create_in_world(world, self.shelf_scene_dir, parent=world.root)
+
+        all_candidates = [
+            entry
+            for entries in self.object_type_to_source_ids.values()
+            for entry in entries
+        ]
+        for obj in self.objects:
+            candidates = self.object_type_to_source_ids.get(obj.object_type, [])
+            if not candidates:
+                if not all_candidates:
+                    continue
+                candidates = all_candidates
+            scene_dir, source_id = random.choice(candidates)
+            absolute_obj = EGObject(
+                id=obj.id,
+                room_id=obj.room_id,
+                place_id=obj.place_id,
+                object_type=obj.object_type,
+                scale=obj.scale,
+                position=EGPosition(
+                    x=obj.position.x + self.position.x,
+                    y=obj.position.y + self.position.y,
+                    z=obj.position.z + self.position.z,
+                ),
+                orientation=obj.orientation,
+                source_id=source_id,
+            )
+            absolute_obj.create_in_world(world, scene_dir, parent=world.root)
+
+        return world
 
 
 @aggregation_for((EGShelf, "objects"))
