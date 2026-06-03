@@ -164,7 +164,7 @@ class PR2LeftGripperRightFinger(Finger):
         return False
 
     def setup_hardware_interfaces(self):
-        pass
+        return
 
     def setup_joint_states(self) -> List[JointState]:
         return []
@@ -206,7 +206,7 @@ class PR2RightGripper(
         return [right_gripper_open, right_gripper_close]
 
     def setup_hardware_interfaces(self):
-        self._setup_hardware_interfaces_for_active_connections()
+        return
 
     @classmethod
     def setup_default_configuration_in_world_below_robot_root(
@@ -259,14 +259,23 @@ class PR2LeftGripper(
         )
 
     def setup_hardware_interfaces(self):
-        self._setup_hardware_interfaces_for_active_connections()
+        return
 
 
 @dataclass(eq=False)
 class PR2Neck(Neck[PR2KinectV1]):
 
     def setup_hardware_interfaces(self):
-        self._setup_hardware_interfaces_for_active_connections()
+
+        controlled_joints = [
+            "head_pan_joint",
+            "head_tilt_joint",
+        ]
+        for joint_name in controlled_joints:
+            connection: ActiveConnection = self._world.get_connection_by_name(
+                joint_name
+            )
+            connection.has_hardware_interface = True
 
     def setup_joint_states(self) -> List[JointState]:
         return []
@@ -289,7 +298,20 @@ class PR2Neck(Neck[PR2KinectV1]):
 class PR2LeftArm(Arm[PR2LeftGripper]):
 
     def setup_hardware_interfaces(self):
-        self._setup_hardware_interfaces_for_active_connections()
+        controlled_joints = [
+            "l_shoulder_pan_joint",
+            "l_shoulder_lift_joint",
+            "l_upper_arm_roll_joint",
+            "l_forearm_roll_joint",
+            "l_elbow_flex_joint",
+            "l_wrist_flex_joint",
+            "l_wrist_roll_joint",
+        ]
+        for joint_name in controlled_joints:
+            connection: ActiveConnection = self._world.get_connection_by_name(
+                joint_name
+            )
+            connection.has_hardware_interface = True
 
     def setup_joint_states(self) -> List[JointState]:
         left_arm_park = JointState.from_mapping(
@@ -331,7 +353,20 @@ class PR2LeftArm(Arm[PR2LeftGripper]):
 class PR2RightArm(Arm[PR2RightGripper]):
 
     def setup_hardware_interfaces(self):
-        self._setup_hardware_interfaces_for_active_connections()
+        controlled_joints = [
+            "r_shoulder_pan_joint",
+            "r_shoulder_lift_joint",
+            "r_upper_arm_roll_joint",
+            "r_forearm_roll_joint",
+            "r_elbow_flex_joint",
+            "r_wrist_flex_joint",
+            "r_wrist_roll_joint",
+        ]
+        for joint_name in controlled_joints:
+            connection: ActiveConnection = self._world.get_connection_by_name(
+                joint_name
+            )
+            connection.has_hardware_interface = True
 
     def setup_joint_states(self) -> List[JointState]:
         right_arm_park = JointState.from_mapping(
@@ -376,7 +411,14 @@ class PR2Torso(Torso, HasLeftRightArm[PR2LeftArm, PR2RightArm], HasNeck[PR2Neck]
         )
 
     def setup_hardware_interfaces(self):
-        self._setup_hardware_interfaces_for_active_connections()
+        controlled_joints = [
+            "torso_lift_joint",
+        ]
+        for joint_name in controlled_joints:
+            connection: ActiveConnection = self._world.get_connection_by_name(
+                joint_name
+            )
+            connection.has_hardware_interface = True
 
     def setup_joint_states(self) -> List[JointState]:
         torso_joint = self.active_connections
