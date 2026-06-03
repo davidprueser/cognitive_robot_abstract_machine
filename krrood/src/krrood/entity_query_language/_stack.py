@@ -89,6 +89,9 @@ class CallStack:
     """An ordered sequence of :class:`StackFrame` objects, innermost frame first."""
 
     frames: List[StackFrame]
+    """
+    The captured stack frames.
+    """
 
     def __len__(self) -> int:
         return len(self.frames)
