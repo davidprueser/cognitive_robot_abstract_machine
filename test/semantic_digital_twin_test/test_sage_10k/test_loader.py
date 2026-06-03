@@ -154,7 +154,6 @@ def test_loader(rclpy_node, sage10k_scene):
 @pytest.mark.skipif(get_sage10k_scene() is None, reason="Sage10k dataset not available")
 def test_loader_with_robot(rclpy_node, sage10k_scene, pr2_world_copy):
     pr2_world = pr2_world_copy
-    VizMarkerPublisher(_world=pr2_world, node=rclpy_node).with_tf_publisher()
     try:
         loader = Sage10kDatasetLoader()
         scene = loader.create_scene(

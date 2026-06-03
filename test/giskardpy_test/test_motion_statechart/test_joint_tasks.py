@@ -26,12 +26,7 @@ from krrood.symbolic_math.symbolic_math import (
     trinary_logic_and,
     shortest_angular_distance,
 )
-from semantic_digital_twin.adapters.ros.visualization.viz_marker import (
-    VizMarkerPublisher,
-)
-from semantic_digital_twin.datastructures.definitions import StaticJointState
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
-from semantic_digital_twin.robots.pr2 import PR2
 from semantic_digital_twin.spatial_types import (
     HomogeneousTransformationMatrix,
     Vector3,
@@ -288,48 +283,6 @@ def test_joint_sequence(pr2_world_state_reset):
         )
     )
     msc.add_node(EndMotion.when_true(sequence))
-
-    kin_sim = Executor(
-        MotionStatechartContext(
-            world=pr2_world_state_reset,
-        )
-    )
-    kin_sim.compile(motion_statechart=msc)
-    kin_sim.tick_until_end()
-
-
-def test_revolute_joint2(pr2_world_state_reset, rclpy_node):
-    # VizMarkerPublisher(
-    #     _world=pr2_world_state_reset, node=rclpy_node
-    # ).with_tf_publisher()
-    head_pan_joint = pr2_world_state_reset.get_connection_by_name("head_pan_joint")
-    head_tilt_joint = pr2_world_state_reset.get_connection_by_name("head_tilt_joint")
-    msc = MotionStatechart()
-    pr2 = pr2_world_state_reset.get_semantic_annotations_by_type(PR2)[0]
-    joint_goal = JointPositionList(
-        goal_state=pr2.left_arm.get_joint_state_by_type(StaticJointState.PARK),
-    )
-    msc.add_node(joint_goal)
-    end = EndMotion()
-    msc.add_node(end)
-    end.start_condition = joint_goal.observation_variable
-
-    kin_sim = Executor(
-        MotionStatechartContext(
-            world=pr2_world_state_reset,
-        )
-    )
-    kin_sim.compile(motion_statechart=msc)
-    kin_sim.tick_until_end()
-
-    msc = MotionStatechart()
-    joint_goal = JointPositionList(
-        goal_state=pr2.left_arm.get_joint_state_by_type(StaticJointState.PARK),
-    )
-    msc.add_node(joint_goal)
-    end = EndMotion()
-    msc.add_node(end)
-    end.start_condition = joint_goal.observation_variable
 
     kin_sim = Executor(
         MotionStatechartContext(
