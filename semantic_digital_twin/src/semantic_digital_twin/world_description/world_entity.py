@@ -645,10 +645,10 @@ class SemanticAnnotation(WorldEntityWithSimulatorProperties):
     ) -> list[KinematicStructureEntity]:
         """
         Returns the kinematic structure entities that are part of this semantic annotation.
-         This is done by iterating over all fields of the semantic annotation and checking if they are kinematic
-         structure entities or lists of kinematic structure entities.
-         If a field is a semantic annotation, its kinematic structure entities are also added to the result, via the
-         potentially overridden `kinematic_structure_entities` property.
+        This is done by iterating over all fields of the semantic annotation and checking if they are kinematic
+        structure entities or lists of kinematic structure entities.
+        If a field is a semantic annotation, its kinematic structure entities are also added to the result, via the
+        potentially overridden `kinematic_structure_entities` property.
 
         :param visited: A set of ids of semantic annotations that have already been visited in the current chain of calls.
         :returns: A list of kinematic structure entities that are part of this semantic annotation.

@@ -573,7 +573,11 @@ class AbstractRobot(Agent, HasRobotParts, ABC):
         """
         dofs = []
         for connection in self.connections:
-            dofs.extend(connection.controlled_dofs)
+            dofs = connection.controlled_dofs
+            for dof in dofs:
+                if dof in dofs:
+                    continue
+                dofs.append(dof)
         return dofs
 
     def validate(self) -> bool:
@@ -608,7 +612,7 @@ class AbstractRobot(Agent, HasRobotParts, ABC):
         vel_limits = defaultdict(
             lambda: 1.0,
         )
-        self.tighten_dof_velocity_limits_of_1dof_connections(new_limits=vel_limits)
+        self.tighten_dof_velocity_limits_proportionally(maximum_velocity=1)
 
     @property
     def drive(self) -> Optional[Drive]:
@@ -685,16 +689,13 @@ class AbstractRobot(Agent, HasRobotParts, ABC):
                 new_upper_limits=DerivativeMap(None, scaled_limit, None, None),
             )
 
-    @property
-    def all_end_effectors(self) -> list[EndEffector]:
+    def get_end_effectors(self) -> list[EndEffector]:
         return [p for p in self._robot_parts if isinstance(p, EndEffector)]
 
-    @property
-    def all_arms(self) -> list[Arm]:
+    def get_arms(self) -> list[Arm]:
         return [p for p in self._robot_parts if isinstance(p, Arm)]
 
-    @property
-    def all_sensors(self) -> list[Sensor]:
+    def get_sensors(self) -> list[Sensor]:
         return [p for p in self._robot_parts if isinstance(p, Sensor)]
 
     def get_torso(self):

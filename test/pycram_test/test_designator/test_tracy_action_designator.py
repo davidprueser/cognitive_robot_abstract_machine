@@ -106,7 +106,7 @@ def test_park_arms_tracy(immutable_tracy_block_world):
 
     joints = []
     states = []
-    for arm in view.all_arms:
+    for arm in view.get_arms():
         joint_state = arm.get_joint_state_by_type(StaticJointState.PARK)
         joints.extend(joint_state.connections)
         states.extend(joint_state.target_values)
@@ -169,7 +169,7 @@ def test_move_gripper_multi(immutable_tracy_block_world):
     with simulated_robot:
         plan.perform()
 
-    arm = view.all_arms[0]
+    arm = view.get_arms()[0]
     open_state = arm.end_effector.get_joint_state_by_type(GripperState.OPEN)
     close_state = arm.end_effector.get_joint_state_by_type(GripperState.CLOSE)
 

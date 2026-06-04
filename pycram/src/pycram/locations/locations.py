@@ -507,7 +507,7 @@ class AccessingLocation(Location):
             except RobotInCollision:
                 continue
 
-            for arm_chain in test_robot.all_arms:
+            for arm_chain in test_robot.get_arms():
                 grasp = GraspDescription(
                     ApproachDirection.FRONT,
                     VerticalAlignment.NoAlignment,

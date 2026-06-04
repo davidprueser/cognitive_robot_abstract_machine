@@ -415,14 +415,14 @@ def test_pr2_semantic_annotation(pr2_world_state_reset):
     # Ensure there are no loose bodies
     pr2_world_state_reset._notify_model_change()
 
-    assert len(pr2.all_end_effectors) == 2
-    assert len(pr2.all_arms) == 2
-    assert len(pr2.all_sensors) == 1
+    assert len(pr2.get_end_effectors()) == 2
+    assert len(pr2.get_arms()) == 2
+    assert len(pr2.get_sensors()) == 1
     assert pr2.torso.name.name == "PR2Torso"
     assert len(pr2.torso.neck.sensors) == 1
     assert pr2.left_arm and pr2.right_arm
     assert pr2.left_arm != pr2.right_arm
-    assert pr2.all_sensors[0] == pr2.get_default_camera()
+    assert pr2.get_sensors()[0] == pr2.get_default_camera()
 
 
 def test_has_left_right_arm_mixin(pr2_world_state_reset):
@@ -450,18 +450,18 @@ def test_tracy_semantic_annotation(tracy_world):
 
     tracy_world._notify_model_change()
 
-    assert len(tracy.all_end_effectors) == 2
-    assert len(tracy.all_sensors) == 1
+    assert len(tracy.get_end_effectors()) == 2
+    assert len(tracy.get_sensors()) == 1
 
 
 def test_hsrb_semantic_annotation(hsr_world_setup):
     hsrb = hsr_world_setup.get_semantic_annotations_by_type(HSRB)[0]
     hsr_world_setup._notify_model_change()
 
-    assert len(hsrb.all_end_effectors) == 1
-    assert len(hsrb.all_arms) == 1
+    assert len(hsrb.get_end_effectors()) == 1
+    assert len(hsrb.get_arms()) == 1
 
-    assert len(hsrb.all_sensors) == 5
+    assert len(hsrb.get_sensors()) == 5
     assert hsrb.mobile_base.torso is not None
 
 

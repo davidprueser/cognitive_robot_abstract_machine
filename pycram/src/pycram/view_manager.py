@@ -46,14 +46,14 @@ class ViewManager:
         :param robot_view: The robot view to search in.
         :return: The Manipulator object representing the arm.
         """
-        if len(robot_view.all_arms) == 1:
-            return (robot_view.all_arms[0],)
+        if len(robot_view.get_arms()) == 1:
+            return (robot_view.get_arms()[0],)
         elif arm == Arms.LEFT:
             return (robot_view.get_left_arm_if_specified(),)
         elif arm == Arms.RIGHT:
             return (robot_view.get_right_arm_if_specified(),)
         elif arm == Arms.BOTH:
-            return robot_view.all_arms
+            return robot_view.get_arms()
         return None
 
     @staticmethod
