@@ -85,8 +85,8 @@ def wall_door_handle_world():
             active_axis=Vector3.Z(),
             world_root_T_self=world_T_hinge,
             connection_limits=DegreeOfFreedomLimits(
-                lower=DerivativeMap(position=0.0),
-                upper=DerivativeMap(position=np.pi / 2),
+                lower=DerivativeMap(position=0.0, velocity=0.0),
+                upper=DerivativeMap(position=np.pi / 2, velocity=1.0),
             ),
         )
         door.add_hinge(hinge)
