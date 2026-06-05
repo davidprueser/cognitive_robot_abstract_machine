@@ -27,6 +27,7 @@ from krrood.class_diagrams.attribute_introspector import (
 )
 from krrood.entity_query_language.factories import variable, contains, a, entity
 from semantic_digital_twin.datastructures.definitions import JointStateType
+from semantic_digital_twin.datastructures.field_of_view import FieldOfView
 from semantic_digital_twin.datastructures.joint_state import JointState
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.exceptions import (
@@ -38,8 +39,8 @@ from semantic_digital_twin.exceptions import (
 from semantic_digital_twin.robots.robot_part_mixins import (
     HasEndEffector,
     HasSensors,
-    GenericSensor,
-    GenericEndEffector,
+    TGenericSensor,
+    TGenericEndEffector,
     HasLeftRightArm,
 )
 from semantic_digital_twin.semantic_annotations.mixins import HasRootBody
@@ -53,7 +54,7 @@ from semantic_digital_twin.spatial_types import (
 from semantic_digital_twin.spatial_types.derivatives import DerivativeMap
 from semantic_digital_twin.world_description.connections import (
     ActiveConnection,
-    Drive,
+    WheeledDrive,
     ActiveConnection1DOF,
 )
 from semantic_digital_twin.world_description.degree_of_freedom import (
@@ -350,23 +351,6 @@ class KinematicChain(AbstractRobotPart, ABC):
         return self._world.compute_chain_of_connections(self.root, self.tip)
 
 
-@dataclass
-class FieldOfView:
-    """
-    Represents the field of view of a camera sensor, defined by the vertical and horizontal angles of the camera's view.
-    """
-
-    vertical_angle: float
-    """
-    The vertical angle of the camera's field of view, in radians.
-    """
-
-    horizontal_angle: float
-    """
-    The horizontal angle of the camera's field of view, in radians.
-    """
-
-
 @dataclass(eq=False)
 class Sensor(AbstractRobotPart, ABC):
     """
@@ -454,14 +438,14 @@ class Torso(KinematicChain, ABC):
 
 
 @dataclass(eq=False)
-class Arm(KinematicChain, HasEndEffector[GenericEndEffector], ABC):
+class Arm(KinematicChain, HasEndEffector[TGenericEndEffector], ABC):
     """
     An arm is a kinematic chain that has an end effector attached to it.
     """
 
 
 @dataclass(eq=False)
-class Neck(KinematicChain, HasSensors[GenericSensor], ABC):
+class Neck(KinematicChain, HasSensors[TGenericSensor], ABC):
     """
     The neck of a robot, which is a kinematic chain that has a camera attached to it.
     """
@@ -608,13 +592,13 @@ class AbstractRobot(Agent, HasRobotParts, ABC):
         self.tighten_dof_velocity_limits_proportionally(maximum_velocity=1)
 
     @property
-    def drive(self) -> Optional[Drive]:
+    def drive(self) -> Optional[WheeledDrive]:
         """
         The connection which the robot uses for driving.
         """
         try:
             parent_connection = self.root.parent_connection
-            if isinstance(parent_connection, Drive):
+            if isinstance(parent_connection, WheeledDrive):
                 return parent_connection
         except AttributeError:
             pass

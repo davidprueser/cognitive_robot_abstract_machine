@@ -576,14 +576,14 @@ class Connection6DoF(Connection):
 
 
 @dataclass(eq=False)
-class Drive(ActiveConnection, HasUpdateState, ABC):
+class WheeledDrive(ActiveConnection, HasUpdateState, ABC):
     """
     Superclass for connections that describe a drive, e.g., an omnidirectional drive or a differential drive.
     """
 
 
 @dataclass(eq=False)
-class OmniDrive(Drive):
+class OmniDrive(WheeledDrive):
     """
     A connection describing an omnidirectional drive.
     It can rotate about its z-axis and drive on the x-y plane simultaneously.
@@ -880,7 +880,7 @@ class OmniDrive(Drive):
 
 
 @dataclass(eq=False)
-class DifferentialDrive(Drive):
+class DifferentialDrive(WheeledDrive):
     """
     A connection describing a differential drive.
     It can rotate around its z-axis and drive in x-direction. It allows movement in the x-y plane.

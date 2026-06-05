@@ -191,6 +191,7 @@ from krrood.ormatic.data_access_objects.dao import (
     AssociationDataAccessObject,
 )
 from krrood.ormatic.custom_types import TypeType
+from semantic_digital_twin.datastructures import field_of_view
 
 
 class Base(DeclarativeBase):
@@ -3702,9 +3703,7 @@ class FaceAtActionDAO(
     }
 
 
-class FieldOfViewDAO(
-    Base, DataAccessObject[semantic_digital_twin.robots.robot_parts.FieldOfView]
-):
+class FieldOfViewDAO(Base, DataAccessObject[field_of_view.FieldOfView]):
 
     __tablename__ = "FieldOfViewDAO"
 
@@ -15069,7 +15068,7 @@ class RevoluteConnectionDAO(
 
 class DriveDAO(
     ActiveConnectionDAO,
-    DataAccessObject[semantic_digital_twin.world_description.connections.Drive],
+    DataAccessObject[semantic_digital_twin.world_description.connections.WheeledDrive],
 ):
 
     __tablename__ = "DriveDAO"

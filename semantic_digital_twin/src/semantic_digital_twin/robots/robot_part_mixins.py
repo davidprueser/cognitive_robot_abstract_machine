@@ -21,30 +21,30 @@ from semantic_digital_twin.world_description.world_modification import (
 
 logger = logging.getLogger("semantic_digital_twin")
 
-GenericFingerOtherThanThumb = TypeVar("GenericFingerOtherThanThumb")
-GenericThumb = TypeVar("GenericThumb")
-GenericSensor = TypeVar("GenericSensor")
-GenericCamera = TypeVar("GenericCamera")
-GenericEndEffector = TypeVar("GenericEndEffector")
-GenericArm = TypeVar("GenericArm")
-GenericMobileBase = TypeVar("GenericMobileBase")
-GenericTorso = TypeVar("GenericTorso")
-GenericNeck = TypeVar("GenericNeck")
-GenericLeftArm = TypeVar("GenericLeftArm")
-GenericRightArm = TypeVar("GenericRightArm")
-GenericLeftFinger = TypeVar("GenericLeftFinger")
-GenericRightFinger = TypeVar("GenericRightFinger")
+TGenericFingerOtherThanThumb = TypeVar("TGenericFingerOtherThanThumb")
+TGenericThumb = TypeVar("TGenericThumb")
+TGenericSensor = TypeVar("TGenericSensor")
+TGenericCamera = TypeVar("TGenericCamera")
+TGenericEndEffector = TypeVar("TGenericEndEffector")
+TGenericArm = TypeVar("TGenericArm")
+TGenericMobileBase = TypeVar("TGenericMobileBase")
+TGenericTorso = TypeVar("TGenericTorso")
+TGenericNeck = TypeVar("TGenericNeck")
+TGenericLeftArm = TypeVar("TGenericLeftArm")
+TGenericRightArm = TypeVar("TGenericRightArm")
+TGenericLeftFinger = TypeVar("TGenericLeftFinger")
+TGenericRightFinger = TypeVar("TGenericRightFinger")
 
 
 @dataclass(eq=False)
 class HasFingers(
-    Generic[GenericThumb, GenericFingerOtherThanThumb], AbstractSubClassSafeGeneric, ABC
+    Generic[TGenericThumb, TGenericFingerOtherThanThumb], AbstractSubClassSafeGeneric, ABC
 ):
     """
     Mixin class for robots or robot parts that have fingers as their direct children.
     """
 
-    fingers: list[Union[GenericThumb, GenericFingerOtherThanThumb]] = field(
+    fingers: list[Union[TGenericThumb, TGenericFingerOtherThanThumb]] = field(
         default_factory=list, kw_only=True
     )
     """
@@ -52,7 +52,7 @@ class HasFingers(
     """
 
     @property
-    def thumb(self) -> GenericThumb:
+    def thumb(self) -> TGenericThumb:
         concrete_thumb_class = get_generic_type_params(self, HasFingers)[0]
         [thumb] = [
             finger
@@ -64,8 +64,8 @@ class HasFingers(
 
 @dataclass(eq=False)
 class HasTwoFingers(
-    Generic[GenericLeftFinger, GenericRightFinger],
-    HasFingers[GenericLeftFinger, GenericRightFinger],
+    Generic[TGenericLeftFinger, TGenericRightFinger],
+    HasFingers[TGenericLeftFinger, TGenericRightFinger],
     AbstractSubClassSafeGeneric,
     ABC,
 ):
@@ -74,7 +74,7 @@ class HasTwoFingers(
     """
 
     @property
-    def finger(self) -> Union[GenericLeftFinger, GenericRightFinger]:
+    def finger(self) -> Union[TGenericLeftFinger, TGenericRightFinger]:
         concrete_thumb_class = get_generic_type_params(self, HasFingers)[0]
 
         [finger] = [
@@ -86,57 +86,57 @@ class HasTwoFingers(
 
 
 @dataclass(eq=False)
-class HasSensors(Generic[GenericSensor], AbstractSubClassSafeGeneric, ABC):
+class HasSensors(Generic[TGenericSensor], AbstractSubClassSafeGeneric, ABC):
     """
     Mixin class for robots or robot parts that have sensors
     """
 
-    sensors: list[GenericSensor] = field(default_factory=list, kw_only=True)
+    sensors: list[TGenericSensor] = field(default_factory=list, kw_only=True)
     """
     The list of sensors associated with the robot part.GenericFinger
     """
 
 
 @dataclass(eq=False)
-class HasEndEffector(Generic[GenericEndEffector], AbstractSubClassSafeGeneric, ABC):
+class HasEndEffector(Generic[TGenericEndEffector], AbstractSubClassSafeGeneric, ABC):
     """
     Mixin class for robots or robot parts that have an end effector as their direct child.
     """
 
-    end_effector: GenericEndEffector = field(default=None, kw_only=True)
+    end_effector: TGenericEndEffector = field(default=None, kw_only=True)
     """
     The end effector attached to the robot part.
     """
 
 
 @dataclass(eq=False)
-class HasArms(Generic[GenericArm], AbstractSubClassSafeGeneric, ABC):
+class HasArms(Generic[TGenericArm], AbstractSubClassSafeGeneric, ABC):
     """
     Mixin class for robots or robot parts that have arms as their direct children.
     """
 
-    arms: list[GenericArm] = field(default_factory=list, kw_only=True)
+    arms: list[TGenericArm] = field(default_factory=list, kw_only=True)
     """
     The list of arms attached to the robot part.
     """
 
 
 @dataclass(eq=False)
-class HasOneArm(HasArms[GenericArm], ABC):
+class HasOneArm(HasArms[TGenericArm], ABC):
     """
     Mixin class for robots or robot parts that have exactly one arm.
     """
 
     @property
-    def arm(self) -> GenericArm:
+    def arm(self) -> TGenericArm:
         [arm] = self.arms
         return arm
 
 
 @dataclass(eq=False)
 class HasLeftRightArm(
-    Generic[GenericLeftArm, GenericRightArm],
-    HasArms[Union[GenericLeftArm, GenericRightArm]],
+    Generic[TGenericLeftArm, TGenericRightArm],
+    HasArms[Union[TGenericLeftArm, TGenericRightArm]],
     AbstractSubClassSafeGeneric,
     ABC,
 ):
@@ -145,20 +145,20 @@ class HasLeftRightArm(
     """
 
     @cached_property
-    def left_arm(self) -> GenericLeftArm:
+    def left_arm(self) -> TGenericLeftArm:
         from semantic_digital_twin.reasoning.predicates import LeftOf
 
         return self._assign_left_right_arms(LeftOf)
 
     @cached_property
-    def right_arm(self) -> GenericRightArm:
+    def right_arm(self) -> TGenericRightArm:
         from semantic_digital_twin.reasoning.predicates import RightOf
 
         return self._assign_left_right_arms(RightOf)
 
     def _assign_left_right_arms(
         self, relation: Type[Union[LeftOf, RightOf]]
-    ) -> Union[GenericLeftArm, GenericRightArm]:
+    ) -> Union[TGenericLeftArm, TGenericRightArm]:
         """
         Assigns the left and right arms based on their position relative to the robot's root body.
         :param relation: The relation to use for determining left or right (LeftOf or RightOf).
@@ -185,36 +185,36 @@ class HasLeftRightArm(
 
 
 @dataclass(eq=False)
-class HasMobileBase(Generic[GenericMobileBase], AbstractSubClassSafeGeneric, ABC):
+class HasMobileBase(Generic[TGenericMobileBase], AbstractSubClassSafeGeneric, ABC):
     """
     Mixin class for robots that have a mobile base.
     """
 
-    mobile_base: GenericMobileBase = field(default=None, kw_only=True)
+    mobile_base: TGenericMobileBase = field(default=None, kw_only=True)
     """
     The mobile base attached to the robot part.
     """
 
 
 @dataclass(eq=False)
-class HasTorso(Generic[GenericTorso], AbstractSubClassSafeGeneric, ABC):
+class HasTorso(Generic[TGenericTorso], AbstractSubClassSafeGeneric, ABC):
     """
     Mixin class for robots or robot parts that have a torso as their direct child.
     """
 
-    torso: GenericTorso = field(default=None, kw_only=True)
+    torso: TGenericTorso = field(default=None, kw_only=True)
     """
     The torso attached to the robot part.
     """
 
 
 @dataclass(eq=False)
-class HasNeck(Generic[GenericNeck], AbstractSubClassSafeGeneric, ABC):
+class HasNeck(Generic[TGenericNeck], AbstractSubClassSafeGeneric, ABC):
     """
     Mixin class for robots or robot parts that have a neck as their direct child.
     """
 
-    neck: GenericNeck = field(default=None, kw_only=True)
+    neck: TGenericNeck = field(default=None, kw_only=True)
     """
     The neck attached to the robot part.
     """

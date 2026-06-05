@@ -25,12 +25,12 @@ from semantic_digital_twin.robots.robot_parts import (
     AbstractRobot,
     Arm,
     Camera,
-    FieldOfView,
     Finger,
     Torso,
     MobileBase,
     EndEffector,
 )
+from semantic_digital_twin.datastructures.field_of_view import FieldOfView
 from semantic_digital_twin.spatial_types import Quaternion, Vector3
 from semantic_digital_twin.world_description.world_entity import (
     KinematicStructureEntity,

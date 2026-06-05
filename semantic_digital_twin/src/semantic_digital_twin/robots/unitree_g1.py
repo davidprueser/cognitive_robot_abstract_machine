@@ -28,7 +28,7 @@ from semantic_digital_twin.robots.robot_part_mixins import (
     HasTorso,
     HasMobileBase,
     HasFingers,
-    GenericFingerOtherThanThumb,
+    TGenericFingerOtherThanThumb,
     HasEndEffector,
     HasSensors,
 )
@@ -36,13 +36,13 @@ from semantic_digital_twin.robots.robot_parts import (
     AbstractRobot,
     Arm,
     Camera,
-    FieldOfView,
     Finger,
     Neck,
     Torso,
     MobileBase,
     EndEffector,
 )
+from semantic_digital_twin.datastructures.field_of_view import FieldOfView
 from semantic_digital_twin.spatial_types import Quaternion, Vector3
 from semantic_digital_twin.world_description.world_entity import (
     KinematicStructureEntity,

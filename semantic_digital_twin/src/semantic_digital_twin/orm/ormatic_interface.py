@@ -32,6 +32,7 @@ import semantic_digital_twin.collision_checking.collision_rules
 import semantic_digital_twin.collision_checking.collision_variable_managers
 import semantic_digital_twin.collision_checking.pybullet_collision_detector
 import semantic_digital_twin.collision_checking.trimesh_collision_detector
+import semantic_digital_twin.datastructures.field_of_view
 import semantic_digital_twin.datastructures.joint_state
 import semantic_digital_twin.datastructures.prefixed_name
 import semantic_digital_twin.exceptions
@@ -2368,7 +2369,8 @@ class ExternalCollisionVariableManagerDAO(
 
 
 class FieldOfViewDAO(
-    Base, DataAccessObject[semantic_digital_twin.robots.robot_parts.FieldOfView]
+    Base,
+    DataAccessObject[semantic_digital_twin.datastructures.field_of_view.FieldOfView],
 ):
 
     __tablename__ = "FieldOfViewDAO"
@@ -6154,12 +6156,12 @@ class RevoluteConnectionDAO(
     }
 
 
-class DriveDAO(
+class WheeledDriveDAO(
     ActiveConnectionDAO,
-    DataAccessObject[semantic_digital_twin.world_description.connections.Drive],
+    DataAccessObject[semantic_digital_twin.world_description.connections.WheeledDrive],
 ):
 
-    __tablename__ = "DriveDAO"
+    __tablename__ = "WheeledDriveDAO"
 
     database_id: Mapped[builtins.int] = mapped_column(
         ForeignKey(ActiveConnectionDAO.database_id),
@@ -6168,13 +6170,13 @@ class DriveDAO(
     )
 
     __mapper_args__ = {
-        "polymorphic_identity": "DriveDAO",
+        "polymorphic_identity": "WheeledDriveDAO",
         "inherit_condition": database_id == ActiveConnectionDAO.database_id,
     }
 
 
 class DifferentialDriveDAO(
-    DriveDAO,
+    WheeledDriveDAO,
     DataAccessObject[
         semantic_digital_twin.world_description.connections.DifferentialDrive
     ],
@@ -6183,7 +6185,9 @@ class DifferentialDriveDAO(
     __tablename__ = "DifferentialDriveDAO"
 
     database_id: Mapped[builtins.int] = mapped_column(
-        ForeignKey(DriveDAO.database_id), primary_key=True, use_existing_column=True
+        ForeignKey(WheeledDriveDAO.database_id),
+        primary_key=True,
+        use_existing_column=True,
     )
 
     x_id: Mapped[uuid.UUID] = mapped_column(
@@ -6207,19 +6211,21 @@ class DifferentialDriveDAO(
 
     __mapper_args__ = {
         "polymorphic_identity": "DifferentialDriveDAO",
-        "inherit_condition": database_id == DriveDAO.database_id,
+        "inherit_condition": database_id == WheeledDriveDAO.database_id,
     }
 
 
 class OmniDriveDAO(
-    DriveDAO,
+    WheeledDriveDAO,
     DataAccessObject[semantic_digital_twin.world_description.connections.OmniDrive],
 ):
 
     __tablename__ = "OmniDriveDAO"
 
     database_id: Mapped[builtins.int] = mapped_column(
-        ForeignKey(DriveDAO.database_id), primary_key=True, use_existing_column=True
+        ForeignKey(WheeledDriveDAO.database_id),
+        primary_key=True,
+        use_existing_column=True,
     )
 
     x_id: Mapped[uuid.UUID] = mapped_column(
@@ -6246,7 +6252,7 @@ class OmniDriveDAO(
 
     __mapper_args__ = {
         "polymorphic_identity": "OmniDriveDAO",
-        "inherit_condition": database_id == DriveDAO.database_id,
+        "inherit_condition": database_id == WheeledDriveDAO.database_id,
     }
 
 
