@@ -1607,5 +1607,91 @@ def test_reentrant_modify_world_same_thread():
     }
 
 
+def test_state_update_before_model_update_handled_gracefully(rclpy_node):
+    """
+    Regression test for the cross-topic ordering bug.
+
+    When a model change adds new DOFs, two messages are published on separate topics:
+      1. A model update on /world_model
+      2. A full state snapshot (all DOF positions) on /world_state
+
+    Because these are different topics, DDS gives no ordering guarantee.  The state
+    message can be delivered to the subscriber before the model message is applied.
+    When that happens, StateSynchronizer.apply_message does:
+
+        indices = [self._world.state._index[_id] for _id in msg.ids]
+
+    ...and raises KeyError for every DOF UUID that does not yet exist in the
+    receiving world's state index.
+
+    This test simulates the race by pausing model_sync_2 (holding back the model
+    update) while leaving state_sync_2 running, so the state update is processed
+    against a world that has no knowledge of the new DOFs yet.
+
+    The test asserts the DESIRED behaviour: apply_message must not raise.
+    It currently FAILS because the dict lookup is unguarded.
+    """
+    w1 = World(name="w1")
+    w2 = World(name="w2")
+
+    model_sync_1 = ModelSynchronizer(node=rclpy_node, _world=w1)
+    model_sync_2 = ModelSynchronizer(node=rclpy_node, _world=w2)
+    state_sync_1 = StateSynchronizer(node=rclpy_node, _world=w1)
+    state_sync_2 = StateSynchronizer(node=rclpy_node, _world=w2)
+
+    time.sleep(0.2)
+
+    # Hold back model updates on w2 — simulates the state message winning the race.
+    model_sync_2.pause()
+
+    apply_was_called = threading.Event()
+    key_error_caught = threading.Event()
+    original_apply = state_sync_2.apply_message
+
+    def catching_apply(msg):
+        apply_was_called.set()
+        try:
+            original_apply(msg)
+        except KeyError:
+            key_error_caught.set()
+
+    state_sync_2.apply_message = catching_apply
+
+    b1 = Body(name=PrefixedName("b1"))
+    b2 = Body(name=PrefixedName("b2"))
+
+    # Adding a PrismaticConnection creates a new DOF.  _notify_model_change then:
+    #   1. notifies model callbacks  → model_sync_1 publishes the model update
+    #   2. calls notify_state_change → state_sync_1 detects a shape change and
+    #      publishes a full DOF snapshot (including the new DOF's UUID)
+    # On w2 the model update is buffered (paused); the state update is processed
+    # immediately against a world that has no record of the new DOF.
+    with w1.modify_world():
+        w1.add_body(b1)
+        w1.add_body(b2)
+        connection = PrismaticConnection.create_with_dofs(
+            world=w1, parent=b1, child=b2, axis=Vector3.X()
+        )
+        w1.add_connection(connection)
+
+    time.sleep(0.5)
+
+    assert apply_was_called.is_set(), (
+        "state_sync_2.apply_message was never called — the state update did not "
+        "arrive. Check that the model change triggers a state publish."
+    )
+    assert not key_error_caught.is_set(), (
+        "state_sync_2.apply_message raised KeyError: the state update referenced "
+        "DOF UUIDs that do not yet exist in w2 because the model update has not "
+        "been applied yet. apply_message must handle unknown DOF UUIDs gracefully "
+        "instead of crashing."
+    )
+
+    model_sync_1.close()
+    model_sync_2.close()
+    state_sync_1.close()
+    state_sync_2.close()
+
+
 if __name__ == "__main__":
     unittest.main()
