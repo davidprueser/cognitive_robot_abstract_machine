@@ -69,7 +69,7 @@ class ActionServerHandler:
         self.goal_handle = None
         self.result_msg = None
         self.cancel_requested = False
-        self.payload()
+        self.payload(result_msg)
         return result_msg
 
     def is_client_alive(self) -> bool:

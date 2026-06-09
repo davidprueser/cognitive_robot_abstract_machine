@@ -523,6 +523,12 @@ def apartment_world_setup():
     return apartment_world
 
 
+@pytest.fixture(scope="function")
+def apartment_world_copy(apartment_world_setup):
+    result = deepcopy(apartment_world_setup)
+    return result
+
+
 @pytest.fixture(scope="session")
 def simple_apartment_setup():
     world = World()

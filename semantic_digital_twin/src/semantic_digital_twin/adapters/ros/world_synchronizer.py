@@ -54,9 +54,8 @@ class Synchronizer(WorldEntityWithClassBasedID):
 
     .. warning::
 
-        When ``synchronous=True`` is used on a :class:`WorldSynchronizer`, publication
-        blocks until **all** current subscribers acknowledge receipt or a 5-second timeout
-        elapses. If a subscriber process crashes or exits without unsubscribing, the publisher
+        When ``synchronous=True``, publication blocks until **all** current subscribers acknowledge receipt or
+        a 5-second timeout elapses. If a subscriber process crashes or exits without unsubscribing, the publisher
         will wait for the full timeout on every synchronous publish because the dead process
         never acknowledges.
 
@@ -79,6 +78,11 @@ class Synchronizer(WorldEntityWithClassBasedID):
     topic_name: Optional[str] = None
     """
     The topic name of the publisher and subscriber.
+    """
+
+    synchronous: bool = False
+    """
+    If ``True``, publish blocks until all subscribers acknowledge receipt.
     """
 
     acknowledge_topic_name: Optional[str] = "/acknowledge"
@@ -135,14 +139,14 @@ class Synchronizer(WorldEntityWithClassBasedID):
             callback=self.subscription_callback,
             qos_profile=10,
         )
+        self.publisher = self.node.create_publisher(
+            std_msgs.msg.String, topic=self.topic_name, qos_profile=10
+        )
         self.acknowledge_subscriber = self.node.create_subscription(
             std_msgs.msg.String,
             topic=self.acknowledge_topic_name,
             callback=self.acknowledge_callback,
             qos_profile=10,
-        )
-        self.publisher = self.node.create_publisher(
-            std_msgs.msg.String, topic=self.topic_name, qos_profile=10
         )
         self.acknowledge_publisher = self.node.create_publisher(
             std_msgs.msg.String, topic=self.acknowledge_topic_name, qos_profile=10
@@ -238,16 +242,15 @@ class Synchronizer(WorldEntityWithClassBasedID):
         """
         raise NotImplementedError
 
-    def publish(self, msg: Message, synchronous: bool = False):
+    def publish(self, msg: Message):
         """
         Publish a message to the synchronization topic.
 
         :param msg: The message to publish.
-        :param synchronous: If True, block until all subscribers acknowledge receipt.
         """
         self._current_publication_event_id = msg.publication_event_id
 
-        if synchronous:
+        if self.synchronous:
             with self._acknowledge_condition_variable:
                 self._expected_acknowledgment_count = self._snapshot_subscribers()
                 self._received_acknowledgments = set()
@@ -374,9 +377,6 @@ class WorldSynchronizer(Synchronizer, ModelChangeCallback, StateChangeCallback):
 
     topic_name: str = "/semantic_digital_twin/world_sync"
 
-    synchronous: bool = False
-    """If ``True``, publish blocks until all subscribers acknowledge receipt."""
-
     synchronize_model: bool = True
     """
     If ``True``, model changes on this world are published to the synchronization topic.
@@ -419,7 +419,7 @@ class WorldSynchronizer(Synchronizer, ModelChangeCallback, StateChangeCallback):
             ],
         )
         update = WorldUpdate(meta_data=self.meta_data, modification_block=model_block)
-        self.publish(update, synchronous=self.synchronous)
+        self.publish(update)
 
     def on_state_change(self, **kwargs):
         publish_changes = kwargs.get("publish_changes")
@@ -438,7 +438,7 @@ class WorldSynchronizer(Synchronizer, ModelChangeCallback, StateChangeCallback):
             states=list(changes.values()),
         )
         update = WorldUpdate(meta_data=self.meta_data, state_update=state_message)
-        self.publish(update, synchronous=self.synchronous)
+        self.publish(update)
         self.update_previous_world_state()
 
     def compute_state_changes(self) -> Dict[UUID, float]:
