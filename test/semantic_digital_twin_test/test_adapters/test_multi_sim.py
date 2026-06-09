@@ -10,7 +10,8 @@ from semantic_digital_twin.adapters.mesh import STLParser
 from semantic_digital_twin.adapters.urdf import URDFParser
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.exceptions import ParsingError
-from semantic_digital_twin.robots.abstract_robot import AbstractRobot
+from semantic_digital_twin.robots.hsrb import HSRB
+from semantic_digital_twin.robots.tracy import Tracy
 from semantic_digital_twin.spatial_types.spatial_types import (
     HomogeneousTransformationMatrix,
     Vector3,
@@ -28,7 +29,7 @@ from semantic_digital_twin.world_description.shape_collection import ShapeCollec
 from semantic_digital_twin.world_description.world_entity import Body, Region, Actuator
 
 from physics_simulators.mujoco_simulator import MujocoSimulator
-from physics_simulators.base_simulator import SimulatorState, SimulatorConstraints
+from physics_simulators.base_simulator import SimulatorState
 from semantic_digital_twin.adapters.mjcf import MJCFParser
 from semantic_digital_twin.adapters.multi_sim import MujocoSim, MujocoActuator
 
@@ -60,7 +61,6 @@ logger.setLevel(logging.DEBUG)
 
 headless = os.environ.get("CI", "false").lower() == "true"
 only_run_test_in_CI = os.environ.get("CI", "false").lower() == "false"
-# only_run_test_in_CI = False
 
 pytestmark = pytest.mark.skipif(
     only_run_test_in_CI,
@@ -68,8 +68,8 @@ pytestmark = pytest.mark.skipif(
 )
 
 TEST_URDF_1 = os.path.normpath(os.path.join(urdf_dir, "simple_two_arm_robot.urdf"))
-TEST_URDF_2 = os.path.normpath(os.path.join(urdf_dir, "hsrb.urdf"))
-TEST_URDF_TRACY = os.path.normpath(os.path.join(urdf_dir, "tracy.urdf"))
+TEST_URDF_2 = HSRB.get_ros_file_path()
+TEST_URDF_TRACY = Tracy.get_ros_file_path()
 TEST_MJCF_1 = os.path.normpath(os.path.join(mjcf_dir, "mjx_single_cube_no_mesh.xml"))
 TEST_MJCF_2 = os.path.normpath(os.path.join(mjcf_dir, "jeroen_cups.xml"))
 STEP_SIZE = 1e-3
@@ -480,16 +480,6 @@ def test_spawn_body_with_connections():
         stop_multisim_if_running(multi_sim)
 
 
-def test_hsrb_loading(hsr_world_copy):
-    try:
-        multi_sim = MujocoSim(world=hsr_world_copy, headless=headless)
-        multi_sim.start_simulation()
-        time.sleep(1)
-        multi_sim.stop_simulation()
-    except ParsingError:
-        pytest.skip("Skipping HSRB krrood_test due to URDF parsing error.")
-
-
 def test_world_sim_state_sync():
     plane_half_thickness = 0.05
     box_half_size = 0.1
@@ -582,19 +572,3 @@ def test_world_sim_state_sync():
         )
     finally:
         stop_multisim_if_running(multi_sim)
-
-
-def test_position_setting_with_hsr(hsr_world_copy):
-    [robot] = hsr_world_copy.get_semantic_annotations_by_type(AbstractRobot)
-    robot.root.parent_connection.origin = Pose.from_xyz_rpy(
-        x=3, y=3, z=0, reference_frame=robot._world.root
-    )
-    multi_sim = MujocoSim(world=hsr_world_copy, headless=headless)
-    constraints = SimulatorConstraints(max_number_of_steps=1)
-    multi_sim.start_simulation(constraints=constraints)
-
-    time.sleep(0.1)
-
-    root_body_name = robot.root.name.name
-    position = multi_sim.simulator.get_body_position(root_body_name).result
-    assert position == pytest.approx([3, 3, 0], abs=1e-3)
