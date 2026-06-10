@@ -1,4 +1,7 @@
+import time
+
 import numpy as np
+import os
 import pytest
 from requests import HTTPError
 
@@ -55,20 +58,25 @@ def get_sage10k_scene():
     try:
         loader = Sage10kDatasetLoader()
         return loader.create_scene(scene_url=Sage10kDatasetLoader.available_scenes()[0])
-    except HTTPError as e:
+    except HTTPError:
         return None
 
 
-@pytest.fixture
+@pytest.fixture(scope="session")
 def sage10k_scene():
-    return get_sage10k_scene()
+    worker = os.environ.get("PYTEST_XDIST_WORKER")
+    if worker:
+        worker_num = int(worker.removeprefix("gw"))
+        time.sleep(worker_num)
+    scene = get_sage10k_scene()
+    if scene is None:
+        pytest.skip("Sage10k dataset not available")
+
+    return scene
 
 
-@pytest.mark.skipif(get_sage10k_scene() is None, reason="Sage10k dataset not available")
 def test_loader(rclpy_node, sage10k_scene):
     scene = sage10k_scene
-    if scene is None:
-        return
     world = scene.create_world()
     pub = VizMarkerPublisher(
         _world=world,
@@ -82,11 +90,8 @@ def test_loader(rclpy_node, sage10k_scene):
     )
 
 
-@pytest.mark.skipif(get_sage10k_scene() is None, reason="Sage10k dataset not available")
 def test_different_decomposition_methods(rclpy_node, sage10k_scene):
     scene = sage10k_scene
-    if scene is None:
-        return
     for room in scene.rooms:
         new_objects = []
         for obj in room.objects:

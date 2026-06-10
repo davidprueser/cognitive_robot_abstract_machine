@@ -66,11 +66,7 @@ class Sage10kDatasetLoader:
         # unzip the scene
         extraction_directory.mkdir(parents=True, exist_ok=True)
         with ZipFile(zipped_scene, "r") as zip_ref:
-            try:
-                zip_ref.extractall(extraction_directory)
-            except FileExistsError:
-                extraction_directory = self.directory / zipped_scene.stem / str(random.randint(0, 100000))
-                zip_ref.extractall(extraction_directory)
+            zip_ref.extractall(extraction_directory)
 
         os.remove(str(zipped_scene))
         logger.info(f"Downloaded and extracted {scene_url} to {extraction_directory}")
