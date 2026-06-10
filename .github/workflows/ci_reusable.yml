@@ -50,7 +50,7 @@ jobs:
           cd cognitive_robot_abstract_machine/${{ inputs.lib }}/scripts/
           source /opt/ros/cram-env/bin/activate
           source /opt/ros/overlay_ws/install/setup.bash
-          python generate_orm.py
+          poetry run python generate_orm.py
 
       - name: Run CPP tests
         if: ${{inputs.lib == 'random_events'}}
