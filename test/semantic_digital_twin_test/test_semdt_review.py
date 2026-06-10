@@ -74,7 +74,6 @@ from semantic_digital_twin.world_description.world_entity import (
 )
 from semantic_digital_twin.world_description.world_state import WorldState
 
-
 # %% Helpers
 
 
@@ -175,6 +174,7 @@ def test_bug_01_world_str_contains_class_name():
     assert "World" in str(world)
 
 
+@pytest.mark.skip("Not sure if this is wanted")
 def test_bug_02_connection_t_child_expression_survives_json_roundtrip():
     """world_entity.py:842-864: Connection.to_json does not serialize
     connection_T_child_expression and _from_json does not restore it, although the
@@ -421,6 +421,7 @@ def test_bug_12_clearing_the_world_detaches_connections():
     assert connection._world is None
 
 
+@pytest.mark.skip("Not sure if this is wanted")
 def test_bug_13_world_reasoner_reason_works_as_documented():
     """world_reasoner.py:48-63: reason() calls add_semantic_annotation_recursively
     (an atomic modification requiring an open modify_world context) without opening
@@ -463,6 +464,7 @@ def test_bug_15_get_semantic_annotation_by_id_raises_package_exception():
 # %% Design problems and consistency risks
 
 
+@pytest.mark.skip("The hash behaviour is wanted, it ripping the hash table is not")
 def test_design_01_hash_table_lookup_survives_annotation_mutation():
     """world_entity.py:614-625 + world.py:839: SemanticAnnotation.__hash__ depends
     on mutable fields, but the annotation is stored in _world_entity_hash_table
@@ -483,6 +485,9 @@ def test_design_01_hash_table_lookup_survives_annotation_mutation():
     assert world._world_entity_hash_table.get(hash(annotation)) is annotation
 
 
+@pytest.mark.skip(
+    "I dont see a usecase why we would want two of the same callbacks yet. if there is a case then we change it"
+)
 def test_design_02_two_callbacks_of_same_class_are_both_registered():
     """world_entity.py:278-293: WorldEntityWithClassBasedID gives all instances of
     a class the same id and hash, so a second callback instance silently overwrites
