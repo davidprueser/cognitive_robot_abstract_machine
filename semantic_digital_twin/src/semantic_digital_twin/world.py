@@ -519,7 +519,9 @@ class World(HasSimulatorProperties):
             dof for connection in self.connections for dof in connection.dofs
         }
         if actual_dofs != set(self.degrees_of_freedom):
-            raise WorldContainsOrphanedDegreeOfFreedom(world=self, actual_dofs=actual_dofs)
+            raise WorldContainsOrphanedDegreeOfFreedom(
+                world=self, actual_dofs=actual_dofs
+            )
 
     # %% Properties
     @property
