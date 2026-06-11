@@ -98,7 +98,7 @@ with simulated_robot:
 ```python
 from coraplex.robot_plans.actions.core.navigation import NavigateAction
 from coraplex.motion_executor import simulated_robot
-
+from coraplex.locations.factories import reachability_location
 location = reachability_location(world.get_body_by_name("milk.stl"), context=context, arm=Arms.LEFT)
 
 plan = execute_single(NavigateAction(next(iter(location))), context=context)
