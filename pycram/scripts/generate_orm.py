@@ -43,7 +43,7 @@ logging.getLogger("krrood").setLevel(logging.DEBUG)
 ormatic.make_all_tables()
 
 ormatic_interface_path = (
-    Path(__file__).parent.parent / "src" / "pycram" / "orm" / "ormatic_interface.py"
+    Path(__file__).parents[1] / "src" / "pycram" / "orm" / "ormatic_interface.py"
 )
 with open(ormatic_interface_path, "w") as f:
     ormatic.to_sqlalchemy_file(f)

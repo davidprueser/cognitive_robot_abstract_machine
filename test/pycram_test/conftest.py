@@ -10,7 +10,7 @@ from pathlib import Path
 from krrood.ormatic.utils import create_engine, drop_database
 from pycram.datastructures.dataclasses import Context
 
-from pycram.orm.ormatic_interface import Base
+import pycram.orm.ormatic_interface as pycram_orm
 
 from semantic_digital_twin.adapters.ros.visualization.viz_marker import (
     VizMarkerPublisher,
@@ -77,7 +77,7 @@ def pycram_testing_session():
     engine = create_engine("sqlite:///:memory:")
     session_maker = sessionmaker(engine)
     session = session_maker()
-    Base.metadata.create_all(bind=session.bind)
+    pycram_orm.Base.metadata.create_all(bind=session.bind)
     yield session
     drop_database(session.bind)
     session.close()
