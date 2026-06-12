@@ -144,7 +144,7 @@ class ConstraintCollection:
         :param upper_slack_limit: how much the upper error can be violated, don't use unless you know what you are doing
         """
         if task_expression.shape != (1, 1):
-            raise InvalidConstraintExpressionShapeError(task_expression.shape)
+            raise InvalidConstraintExpressionShapeError(list(task_expression.shape))
 
         lower_slack_limit = (
             lower_slack_limit if lower_slack_limit is not None else -float("inf")
@@ -191,7 +191,7 @@ class ConstraintCollection:
         :param upper_slack_limit: how much the upper error can be violated, don't use unless you know what you are doing
         """
         if task_expression.shape != (1, 1):
-            raise InvalidConstraintExpressionShapeError(task_expression.shape)
+            raise InvalidConstraintExpressionShapeError(list(task_expression.shape))
         name = name or ""
         lower_slack_limit = (
             lower_slack_limit if lower_slack_limit is not None else -float("inf")

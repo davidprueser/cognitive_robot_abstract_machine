@@ -74,10 +74,10 @@ class EndMotionInGoalError(NodeInitializationError):
 
 @dataclass
 class InvalidConstraintExpressionShapeError(MotionStatechartError):
-    actual_shape: tuple
+    actual_shape: list[int]
 
     def error_message(self) -> str:
-        return f"Constraint expression must have shape (1, 1), has {self.actual_shape}."
+        return f"Constraint expression must have shape (1, 1), has ({" ".join(map(str, self.actual_shape))})."
 
 
 @dataclass
@@ -133,9 +133,7 @@ class MissingContextExtensionError(MotionStatechartError):
     expected_extension: Type
 
     def error_message(self) -> str:
-        return (
-            f'Missing context extension "{self.expected_extension.__name__}".'
-        )
+        return f'Missing context extension "{self.expected_extension.__name__}".'
 
 
 @dataclass

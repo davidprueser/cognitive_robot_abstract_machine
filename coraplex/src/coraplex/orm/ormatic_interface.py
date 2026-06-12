@@ -6177,7 +6177,9 @@ class InvalidConstraintExpressionShapeErrorDAO(
         use_existing_column=True,
     )
 
-    actual_shape: Mapped[builtins.tuple] = mapped_column(use_existing_column=True)
+    actual_shape: Mapped[typing.List[builtins.int]] = mapped_column(
+        JSON, nullable=False, use_existing_column=True
+    )
 
     __mapper_args__ = {
         "polymorphic_identity": "InvalidConstraintExpressionShapeErrorDAO",
