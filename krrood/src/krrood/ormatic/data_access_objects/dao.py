@@ -9,7 +9,13 @@ from functools import lru_cache
 import sqlalchemy.inspection
 import sqlalchemy.orm
 from sqlalchemy import event
-from sqlalchemy.orm import MANYTOONE, MANYTOMANY, ONETOMANY, RelationshipProperty, selectinload
+from sqlalchemy.orm import (
+    MANYTOONE,
+    MANYTOMANY,
+    ONETOMANY,
+    RelationshipProperty,
+    selectinload,
+)
 from typing_extensions import (
     Type,
     get_origin,
@@ -565,31 +571,35 @@ class DataAccessObject(HasGeneric[T]):
         :param collection_relationships: The collection relationship entries.
         :param state: The conversion state.
         """
-        for rel in single_relationships:
-            value = getattr(source_object, rel.key)
+        for relationship in single_relationships:
+            value = getattr(source_object, relationship.key)
             if value is None:
-                setattr(self, rel.key, None)
+                setattr(self, relationship.key, None)
             else:
-                setattr(self, rel.key, self._get_or_queue_dao(value, state, rel.domain_type))
+                setattr(
+                    self,
+                    relationship.key,
+                    self._get_or_queue_dao(value, state, relationship.domain_type),
+                )
 
-        for rel in collection_relationships:
-            source_collection = getattr(source_object, rel.key)
+        for relationship in collection_relationships:
+            source_collection = getattr(source_object, relationship.key)
 
-            if rel.association_class is not None:
+            if relationship.association_class is not None:
                 dao_collection = []
                 for item in source_collection:
-                    association_dao = rel.association_class()
+                    association_dao = relationship.association_class()
                     association_dao.target = self._get_or_queue_dao(
-                        item, state, rel.domain_type
+                        item, state, relationship.domain_type
                     )
                     dao_collection.append(association_dao)
             else:
                 dao_collection = [
-                    self._get_or_queue_dao(item, state, rel.domain_type)
+                    self._get_or_queue_dao(item, state, relationship.domain_type)
                     for item in source_collection
                 ]
 
-            setattr(self, rel.key, type(source_collection)(dao_collection))
+            setattr(self, relationship.key, type(source_collection)(dao_collection))
 
     def _get_or_queue_dao(
         self,
@@ -849,13 +859,17 @@ class DataAccessObject(HasGeneric[T]):
             object.__setattr__(domain_object, name, getattr(self, name))
 
         # Populate all relationships
-        for rel in plan.single_relationships:
+        for relationship in plan.single_relationships:
             self._populate_single_relationship(
-                domain_object, rel.key, getattr(self, rel.key), state
+                domain_object, relationship.key, getattr(self, relationship.key), state
             )
-        for rel in plan.collection_relationships:
+        for relationship in plan.collection_relationships:
             self._populate_collection_relationship(
-                domain_object, rel.key, getattr(self, rel.key), state, rel.association_class
+                domain_object,
+                relationship.key,
+                getattr(self, relationship.key),
+                state,
+                relationship.association_class,
             )
 
     def _fill_from_dao(self, domain_object: T, state: FromDataAccessObjectState) -> T:
@@ -887,16 +901,16 @@ class DataAccessObject(HasGeneric[T]):
         """
         plan = _get_conversion_plan(type(self))
 
-        for rel in plan.single_relationships:
-            value = getattr(self, rel.key)
+        for relationship in plan.single_relationships:
+            value = getattr(self, relationship.key)
             if value is not None:
                 value.from_dao(state=state)
 
-        for rel in plan.collection_relationships:
-            value = getattr(self, rel.key)
+        for relationship in plan.collection_relationships:
+            value = getattr(self, relationship.key)
             if not value:
                 continue
-            if rel.association_class is not None:
+            if relationship.association_class is not None:
                 for item in value:
                     if item.target is not None:
                         item.target.from_dao(state=state)
@@ -1093,7 +1107,7 @@ def selectin_loading(session: sqlalchemy.orm.Session):
     :param session: The SQLAlchemy session whose queries should use selectin loading.
     """
 
-    def _add_selectin(orm_execute_state) -> None:
+    def _add_selectin(orm_execute_state: sqlalchemy.orm.ORMExecuteState) -> None:
         if orm_execute_state.is_select and not orm_execute_state.is_relationship_load:
             return orm_execute_state.invoke_statement(
                 statement=orm_execute_state.statement.options(selectinload("*"))
