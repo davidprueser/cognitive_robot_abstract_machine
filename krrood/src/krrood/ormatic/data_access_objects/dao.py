@@ -73,6 +73,38 @@ class AssociationDataAccessObject:
 
 
 @dataclass(frozen=True)
+class SingleRelationship:
+    """
+    Metadata for a single-valued (many-to-one or one-to-one) DAO relationship.
+    """
+
+    key: str
+    """The attribute name of the relationship on the DAO."""
+
+    domain_type: Type
+    """The expected domain type of the related object."""
+
+
+@dataclass(frozen=True)
+class CollectionRelationship:
+    """
+    Metadata for a collection-valued (one-to-many or many-to-many) DAO relationship.
+    """
+
+    key: str
+    """The attribute name of the relationship on the DAO."""
+
+    association_class: Optional[Type]
+    """
+    The association DAO class used as an intermediary, or ``None`` for direct
+    collection relationships.
+    """
+
+    domain_type: Type
+    """The expected domain type of the items in the collection."""
+
+
+@dataclass(frozen=True)
 class DataAccessObjectConversionPlan:
     """
     Precomputed, class-level metadata used by the to_dao/from_dao hot paths.
@@ -87,15 +119,14 @@ class DataAccessObjectConversionPlan:
     Names of all data columns (no primary keys, foreign keys or polymorphic markers).
     """
 
-    single_relationships: Tuple[Tuple[str, Type], ...]
+    single_relationships: Tuple[SingleRelationship, ...]
     """
-    Pairs of (relationship key, expected domain type) for single-valued relationships.
+    Single-valued relationships of this DAO class.
     """
 
-    collection_relationships: Tuple[Tuple[str, Optional[Type], Type], ...]
+    collection_relationships: Tuple[CollectionRelationship, ...]
     """
-    Triples of (relationship key, association class or None, expected domain type)
-    for collection relationships.
+    Collection-valued relationships of this DAO class.
     """
 
     relationship_keys: Tuple[str, ...]
@@ -129,7 +160,10 @@ def _get_conversion_plan(dao_class: Type) -> DataAccessObjectConversionPlan:
     for relationship in mapper.relationships:
         if DataAccessObject._is_single_relationship(relationship):
             single_relationships.append(
-                (relationship.key, relationship.mapper.class_.original_class())
+                SingleRelationship(
+                    key=relationship.key,
+                    domain_type=relationship.mapper.class_.original_class(),
+                )
             )
         elif relationship.direction in (ONETOMANY, MANYTOMANY):
             target_dao_clazz = relationship.mapper.class_
@@ -138,15 +172,19 @@ def _get_conversion_plan(dao_class: Type) -> DataAccessObjectConversionPlan:
                     target_dao_clazz
                 ).relationships["target"]
                 collection_relationships.append(
-                    (
-                        relationship.key,
-                        target_dao_clazz,
-                        target_relationship.mapper.class_.original_class(),
+                    CollectionRelationship(
+                        key=relationship.key,
+                        association_class=target_dao_clazz,
+                        domain_type=target_relationship.mapper.class_.original_class(),
                     )
                 )
             else:
                 collection_relationships.append(
-                    (relationship.key, None, target_dao_clazz.original_class())
+                    CollectionRelationship(
+                        key=relationship.key,
+                        association_class=None,
+                        domain_type=target_dao_clazz.original_class(),
+                    )
                 )
 
     return DataAccessObjectConversionPlan(
@@ -185,27 +223,26 @@ class AlternativePartitionPlan:
     Column attribute keys of intermediate ancestors not covered by the parent.
     """
 
-    parent_single_relationships: Tuple[Tuple[str, Type], ...]
+    parent_single_relationships: Tuple[SingleRelationship, ...]
     """
-    Single-valued relationships (key, domain type) that belong to the alternatively mapped base.
-    """
-
-    parent_collection_relationships: Tuple[Tuple[str, Optional[Type], Type], ...]
-    """
-    Collection relationships (key, association class or None, domain type) that belong to the
-    alternatively mapped base.
+    Single-valued relationships that belong to the alternatively mapped base.
     """
 
-    own_single_relationships: Tuple[Tuple[str, Type], ...]
+    parent_collection_relationships: Tuple[CollectionRelationship, ...]
     """
-    Single-valued relationships (key, domain type) that belong to this DAO's own tables,
+    Collection relationships that belong to the alternatively mapped base.
+    """
+
+    own_single_relationships: Tuple[SingleRelationship, ...]
+    """
+    Single-valued relationships that belong to this DAO's own tables,
     i.e. those not covered by the alternatively mapped base.
     """
 
-    own_collection_relationships: Tuple[Tuple[str, Optional[Type], Type], ...]
+    own_collection_relationships: Tuple[CollectionRelationship, ...]
     """
-    Collection relationships (key, association class or None, domain type) that belong to this
-    DAO's own tables, i.e. those not covered by the alternatively mapped base.
+    Collection relationships that belong to this DAO's own tables,
+    i.e. those not covered by the alternatively mapped base.
     """
 
 
@@ -248,12 +285,12 @@ def _get_alternative_partition_plan(
         own_single_relationships=tuple(
             entry
             for entry in plan.single_relationships
-            if entry[0] not in parent_relationship_keys
+            if entry.key not in parent_relationship_keys
         ),
         own_collection_relationships=tuple(
             entry
             for entry in plan.collection_relationships
-            if entry[0] not in parent_relationship_keys
+            if entry.key not in parent_relationship_keys
         ),
     )
 
@@ -516,8 +553,8 @@ class DataAccessObject(HasGeneric[T]):
     def _fill_relationships_from_plan(
         self,
         source_object: Any,
-        single_relationships: Tuple[Tuple[str, Type], ...],
-        collection_relationships: Tuple[Tuple[str, Optional[Type], Type], ...],
+        single_relationships: Tuple[SingleRelationship, ...],
+        collection_relationships: Tuple[CollectionRelationship, ...],
         state: ToDataAccessObjectState,
     ) -> None:
         """
@@ -528,31 +565,31 @@ class DataAccessObject(HasGeneric[T]):
         :param collection_relationships: The collection relationship entries.
         :param state: The conversion state.
         """
-        for key, expected_type in single_relationships:
-            value = getattr(source_object, key)
+        for rel in single_relationships:
+            value = getattr(source_object, rel.key)
             if value is None:
-                setattr(self, key, None)
+                setattr(self, rel.key, None)
             else:
-                setattr(self, key, self._get_or_queue_dao(value, state, expected_type))
+                setattr(self, rel.key, self._get_or_queue_dao(value, state, rel.domain_type))
 
-        for key, association_class, expected_type in collection_relationships:
-            source_collection = getattr(source_object, key)
+        for rel in collection_relationships:
+            source_collection = getattr(source_object, rel.key)
 
-            if association_class is not None:
+            if rel.association_class is not None:
                 dao_collection = []
                 for item in source_collection:
-                    association_dao = association_class()
+                    association_dao = rel.association_class()
                     association_dao.target = self._get_or_queue_dao(
-                        item, state, expected_type
+                        item, state, rel.domain_type
                     )
                     dao_collection.append(association_dao)
             else:
                 dao_collection = [
-                    self._get_or_queue_dao(item, state, expected_type)
+                    self._get_or_queue_dao(item, state, rel.domain_type)
                     for item in source_collection
                 ]
 
-            setattr(self, key, type(source_collection)(dao_collection))
+            setattr(self, rel.key, type(source_collection)(dao_collection))
 
     def _get_or_queue_dao(
         self,
@@ -813,13 +850,13 @@ class DataAccessObject(HasGeneric[T]):
             object.__setattr__(domain_object, name, getattr(self, name))
 
         # Populate all relationships
-        for key, _ in plan.single_relationships:
+        for rel in plan.single_relationships:
             self._populate_single_relationship(
-                domain_object, key, getattr(self, key), state
+                domain_object, rel.key, getattr(self, rel.key), state
             )
-        for key, association_class, _ in plan.collection_relationships:
+        for rel in plan.collection_relationships:
             self._populate_collection_relationship(
-                domain_object, key, getattr(self, key), state, association_class
+                domain_object, rel.key, getattr(self, rel.key), state, rel.association_class
             )
 
     def _fill_from_dao(self, domain_object: T, state: FromDataAccessObjectState) -> T:
@@ -851,17 +888,16 @@ class DataAccessObject(HasGeneric[T]):
         """
         plan = _get_conversion_plan(type(self))
 
-        for key, _ in plan.single_relationships:
-            value = getattr(self, key)
+        for rel in plan.single_relationships:
+            value = getattr(self, rel.key)
             if value is not None:
                 value.from_dao(state=state)
 
-        for key, association_class, _ in plan.collection_relationships:
-            value = getattr(self, key)
+        for rel in plan.collection_relationships:
+            value = getattr(self, rel.key)
             if not value:
                 continue
-            if association_class is not None:
-                # Collection of Association Objects
+            if rel.association_class is not None:
                 for item in value:
                     if item.target is not None:
                         item.target.from_dao(state=state)
