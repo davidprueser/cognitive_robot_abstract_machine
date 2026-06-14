@@ -8,10 +8,10 @@ from experiments.sage_10k.sage10k_actions import Sage10kOpenDoor
 from krrood.entity_query_language.factories import underspecified
 from krrood.entity_query_language.backends import ProbabilisticBackend
 from krrood.parametrization.parameterizer import UnderspecifiedParameters
-from pycram.datastructures.dataclasses import Context
-from pycram.motion_executor import simulated_robot
-from pycram.plans.factories import execute_single
-from pycram.robot_plans.actions.core.misc import MoveToReach
+from coraplex.datastructures.dataclasses import Context
+from coraplex.motion_executor import simulated_robot
+from coraplex.plans.factories import execute_single
+from coraplex.robot_plans.actions.core.misc import MoveToReach
 from random_events.variable import Continuous
 from semantic_digital_twin.adapters.ros.visualization.viz_marker import (
     VizMarkerPublisher,

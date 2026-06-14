@@ -44,7 +44,7 @@ ignore_classes = {
 
 def generate_orm():
     """
-    Generate the ORM classes for the pycram package.
+    Generate the ORM classes for the coraplex package.
     """
 
     logging.basicConfig(level=logging.INFO)  # Or your preferred config
