@@ -330,6 +330,60 @@ class CannotBeAPartOf(UsageError):
 
 
 @dataclass
+class AmbiguousPart(UsageError):
+    """
+    Raised when ``add`` is called with a part whose type matches more than one composition field of
+    the annotation, so the target slot is ambiguous.
+    """
+
+    annotation: SemanticAnnotation
+    """
+    The annotation the part was being added to.
+    """
+
+    part: SemanticAnnotation
+    """
+    The part that could not be unambiguously added.
+    """
+
+    fields: List[str]
+    """
+    The names of the composition fields whose element type accepts the part.
+    """
+
+    def __post_init__(self):
+        self.message = (
+            f"{type(self.part).__name__} cannot be unambiguously added as a part of "
+            f"{type(self.annotation).__name__}: it matches multiple composition fields "
+            f"({', '.join(self.fields)})."
+        )
+
+
+@dataclass
+class MechanicalJointAlreadyMounted(UsageError):
+    """
+    Raised when a mechanical joint that already connects a child is mounted onto a different host.
+    If you think a single Mechanical Joint should be able to have multiple children, contact @LucaKro.
+    """
+
+    joint: SemanticAnnotation
+    """
+    The mechanical joint being mounted.
+    """
+
+    host: SemanticAnnotation
+    """
+    The host the joint was being mounted onto.
+    """
+
+    def __post_init__(self):
+        self.message = (
+            f"{type(self.joint).__name__} already connects a child and cannot be mounted onto "
+            f"{type(self.host).__name__}: a mechanical joint connects exactly one child."
+        )
+
+
+@dataclass
 class SemanticAnnotationCircularDependencyError(UsageError):
     """
     Raised when a circular dependency between semantic annotations is detected.

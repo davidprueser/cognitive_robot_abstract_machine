@@ -16,6 +16,7 @@ from semantic_digital_twin.exceptions import (
     InvalidPlaneDimensions,
     InvalidHingeActiveAxis,
     MissingSemanticAnnotationError,
+    MechanicalJointAlreadyMounted,
 )
 from semantic_digital_twin.reasoning.predicates import InsideOf
 from semantic_digital_twin.semantic_annotations.mixins import (
@@ -232,9 +233,20 @@ class MechanicalJoint(HasRootBody):
     """
 
     def _mount_strategy(self, host):
-        # A hinge re-parents its host onto itself (the host rotates about the hinge).
-        # host._attach_parent_entity_in_kinematic_structure(self.root)
-        host._attach_entities_in_kinematic_structure(self.root, host.root)
+        """
+        Splices the joint between the host and the host's current parent, preserving the host's
+        ancestry:  host_parent -(active)-> joint -(fixed)-> host. The joint keeps its active
+        connection (now anchored at the host's parent); the host hangs rigidly off the joint.
+        """
+        if host.root.parent_kinematic_structure_entity == self.root:
+            return
+        # used instead of World.compute_child_kinematic_structure_entities because its memoized
+        if list(self._world.kinematic_structure.successors(self.root.index)):
+            raise MechanicalJointAlreadyMounted(self, host)
+
+        host_parent = host.root.parent_kinematic_structure_entity
+        self._reparent_root_preserving_connection(host_parent)
+        host._world.move_branch(host.root, self.root, True)
 
 
 @dataclass(eq=False)

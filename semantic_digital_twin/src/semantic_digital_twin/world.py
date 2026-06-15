@@ -55,6 +55,7 @@ from semantic_digital_twin.exceptions import (
     WorldIsNotATreeError,
     WorldContainsOrphanedDegreeOfFreedom,
     BrokenWorldModificationHistoryError,
+    MismatchingWorld,
 )
 from semantic_digital_twin.mixin import HasSimulatorProperties
 from semantic_digital_twin.robots.robot_parts import AbstractRobot
@@ -1470,6 +1471,7 @@ class World(HasSimulatorProperties):
         self,
         branch_root: KinematicStructureEntity,
         new_parent: KinematicStructureEntity,
+        use_manual_forward_kinematic_calculation: bool = False,
     ) -> None:
         """
         Destroys the connection between branch_root and its parent, and moves it to a new parent using a new connection
@@ -1477,15 +1479,35 @@ class World(HasSimulatorProperties):
 
         :param branch_root: The root of the branch to be moved.
         :param new_parent: The new parent of the branch.
+        :param use_manual_forward_kinematic_calculation: If ``True``, compute the preserved pose with
+            :meth:`_manually_compute_forward_kinematics` instead of the forward kinematics manager.
+            This skips the Forward Kinematic recompile and lets the move happen within a single still-open
+            ``modify_world`` block (used when attaching freshly created entities). Be warned that this is slower
+            than using the Forward Kinematic Manager
         """
-        # Ensure FK is up to date before computing the relative pose
-        # can be problematic in a large merge world block
-        self.update_forward_kinematics()
+        if branch_root._world != new_parent._world:
+            raise MismatchingWorld(branch_root._world, new_parent._world)
 
-        new_connection = None
-        new_parent_T_root = self.compute_forward_kinematics(new_parent, branch_root)
+        if branch_root.parent_kinematic_structure_entity == new_parent:
+            return
+
+        if use_manual_forward_kinematic_calculation:
+
+            root_T_parent = self._manually_compute_world_root_T_self(new_parent)
+            root_T_child = self._manually_compute_world_root_T_self(branch_root)
+
+            new_parent_T_root = HomogeneousTransformationMatrix(
+                (root_T_parent.inverse() @ root_T_child).evaluate()
+            )
+        else:
+            # Ensure FK is up to date before computing the relative pose
+            # can be problematic in a large merge world block
+            self.update_forward_kinematics()
+            new_parent_T_root = self.compute_forward_kinematics(new_parent, branch_root)
         old_connection = branch_root.parent_connection
 
+        # The online path preserves the connection type and only supports Fixed/6DoF. The offline
+        # (manual) path rigidly attaches anything that is not a 6DoF as a FixedConnection.
         assert isinstance(
             old_connection, (FixedConnection, Connection6DoF)
         ), "The branch root must be connected to a Connection6DoF or FixedConnection."
@@ -1495,7 +1517,6 @@ class World(HasSimulatorProperties):
                 new_connection = FixedConnection(
                     parent=new_parent,
                     child=branch_root,
-                    _world=self,
                     parent_T_connection_expression=new_parent_T_root,
                 )
 
@@ -1900,6 +1921,31 @@ class World(HasSimulatorProperties):
         """
         self._forward_kinematic_manager.notify_model_change()
         self._forward_kinematic_manager.recompute()
+
+    def _manually_compute_world_root_T_self(
+        self, entity: KinematicStructureEntity
+    ) -> HomogeneousTransformationMatrix:
+        """
+        Computes world_root_T_self without using the world's forward kinematics manager. This is done to avoid having to
+        recompile and compute the forwardkinematics in this case.
+        This can be used in cases were you need to calculate global poses for Kinematic Structure Entities which have
+        been added to the world in the currently active World.modify_world() block.
+
+        :param entity: The entity to compute the root_T_entity for.
+
+        :return: The root_T_entity of the entity.
+        """
+        world = entity._world
+        future_root_T_self = entity.parent_connection.origin_expression
+        parent_entity = entity.parent_kinematic_structure_entity
+        while True:
+            if parent_entity == world.root:
+                break
+            future_root_T_self = (
+                parent_entity.parent_connection.origin_expression @ future_root_T_self
+            )
+            parent_entity = parent_entity.parent_kinematic_structure_entity
+        return future_root_T_self
 
     # %% Inverse Kinematics
     def compute_inverse_kinematics(

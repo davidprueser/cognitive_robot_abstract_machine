@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
+from functools import lru_cache
 from typing import Tuple
 
 import numpy as np
@@ -35,8 +36,8 @@ from random_events.variable import Symbolic
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.datastructures.variables import SpatialVariables
 from semantic_digital_twin.exceptions import (
-    MismatchingWorld,
     CannotBeAPartOf,
+    AmbiguousPart,
 )
 from semantic_digital_twin.reasoning.predicates import is_supported_by
 from semantic_digital_twin.spatial_types import (
@@ -46,6 +47,7 @@ from semantic_digital_twin.spatial_types import (
 )
 from semantic_digital_twin.world_description.connections import (
     FixedConnection,
+    ActiveConnection1DOF,
 )
 from semantic_digital_twin.world_description.degree_of_freedom import (
     DegreeOfFreedomLimits,
@@ -199,104 +201,78 @@ class HasRootKinematicStructureEntity(SemanticAnnotation, ABC):
         )
         return new_hinge_parent
 
-    def _attach_parent_entity_in_kinematic_structure(
-        self,
-        new_parent_entity: KinematicStructureEntity,
-    ):
+    def _reparent_root_preserving_connection(
+        self, new_parent_entity: KinematicStructureEntity
+    ) -> None:
         """
-        Attach a new parent entity to this entity in the kinematic structure.
+        Move this annotation's root under ``new_parent_entity``, recreating its parent connection with
+        the **same** type, degree of freedom, axis, multiplier, offset and child offset, so an active
+        joint (revolute/prismatic) is preserved and the root keeps its world pose. No-op if the root is
+        already a child of ``new_parent_entity``.
 
-        :param new_parent_entity: The new parent entity to attach.
+        Used to splice a mechanical joint in between a host and the host's current parent without
+        collapsing the joint to a rigid connection.
         """
-        if new_parent_entity._world != self._world:
-            raise MismatchingWorld(self._world, new_parent_entity._world)
-        if new_parent_entity == self.root.parent_kinematic_structure_entity:
+        old_connection = self.root.parent_connection
+        if old_connection.parent == new_parent_entity:
             return
 
         world = self._world
 
-        root_T_self = self._offline_root_T_entity(self.root)
-        root_T_new_parent = self._offline_root_T_entity(new_parent_entity)
+        # root_T_entity is the identity for the world root itself (it has no parent connection).
+        def root_T(entity: KinematicStructureEntity) -> HomogeneousTransformationMatrix:
+            if entity == world.root:
+                return HomogeneousTransformationMatrix()
+            return world._manually_compute_world_root_T_self(entity)
 
-        new_parent_T_self = root_T_new_parent.inverse() @ root_T_self
-
-        parent_C_self = self.root.parent_connection
-        world.remove_connection(parent_C_self)
-
-        new_parent_C_self = FixedConnection(
-            parent=new_parent_entity,
-            child=self.root,
-            parent_T_connection_expression=HomogeneousTransformationMatrix(
-                new_parent_T_self.evaluate()
-            ),
+        new_parent_T_old_parent = root_T(new_parent_entity).inverse() @ root_T(
+            old_connection.parent
         )
-        world.add_connection(new_parent_C_self)
-
-    def _attach_child_entity_in_kinematic_structure(
-        self,
-        child_kinematic_structure_entity: KinematicStructureEntity,
-    ):
-        """
-        Attach a new child entity to this entity in the kinematic structure.
-
-        :param child_kinematic_structure_entity: The new child entity to attach.
-        """
-        if child_kinematic_structure_entity._world != self._world:
-            raise MismatchingWorld(self._world, child_kinematic_structure_entity._world)
-
-        if self == child_kinematic_structure_entity.parent_kinematic_structure_entity:
-            return
-
-        world = self._world
-        root_T_self = self._offline_root_T_entity(self.root)
-        root_T_new_child = self._offline_root_T_entity(child_kinematic_structure_entity)
-
-        self_T_new_child = root_T_self.inverse() @ root_T_new_child
-
-        parent_C_new_child = child_kinematic_structure_entity.parent_connection
-        world.remove_connection(parent_C_new_child)
-
-        self_C_new_child = FixedConnection(
-            parent=self.root,
-            child=child_kinematic_structure_entity,
-            parent_T_connection_expression=HomogeneousTransformationMatrix(
-                self_T_new_child.evaluate()
-            ),
+        old_parent_T_connection = (
+            old_connection.parent_T_connection_expression
+            or HomogeneousTransformationMatrix()
         )
-        world.add_connection(self_C_new_child)
-
-    def _attach_entities_in_kinematic_structure(
-        self,
-        parent_entity: KinematicStructureEntity,
-        child_entity: KinematicStructureEntity,
-    ):
-        """
-        Attach child_entity under parent_entity in the kinematic structure.
-        """
-        if parent_entity._world != child_entity._world:
-            raise MismatchingWorld(parent_entity._world, child_entity._world)
-
-        if child_entity.parent_kinematic_structure_entity == parent_entity:
-            return
-
-        world = parent_entity._world
-
-        root_T_parent = self._offline_root_T_entity(parent_entity)
-        root_T_child = self._offline_root_T_entity(child_entity)
-
-        parent_T_child = root_T_parent.inverse() @ root_T_child
-
-        old_parent_connection = child_entity.parent_connection
-        world.remove_connection(old_parent_connection)
-
-        new_connection = FixedConnection(
-            parent=parent_entity,
-            child=child_entity,
-            parent_T_connection_expression=HomogeneousTransformationMatrix(
-                parent_T_child.evaluate()
-            ),
+        new_parent_T_connection = HomogeneousTransformationMatrix(
+            (new_parent_T_old_parent @ old_parent_T_connection).evaluate()
         )
+
+        new_connection = self._clone_connection_with_new_parent(
+            old_connection, new_parent_entity, new_parent_T_connection
+        )
+        world.remove_connection(old_connection)
         world.add_connection(new_connection)
+
+    @staticmethod
+    def _clone_connection_with_new_parent(
+        old_connection: Connection,
+        new_parent_entity: KinematicStructureEntity,
+        new_parent_T_connection: HomogeneousTransformationMatrix,
+    ) -> Connection:
+        """
+        Recreate ``old_connection`` under ``new_parent_entity`` with ``new_parent_T_connection`` as the
+        parent offset, keeping everything else identical. Active 1-DOF connections reuse the same
+        ``dof_id`` (the degree of freedom persists across remove/add), so the joint state is preserved.
+        """
+        shared = dict(
+            parent=new_parent_entity,
+            child=old_connection.child,
+            parent_T_connection_expression=new_parent_T_connection,
+            connection_T_child_expression=old_connection.connection_T_child_expression,
+        )
+        if isinstance(old_connection, ActiveConnection1DOF):
+            return type(old_connection)(
+                axis=old_connection.axis,
+                multiplier=old_connection.multiplier,
+                offset=old_connection.offset,
+                dof_id=old_connection.dof_id,
+                dynamics=old_connection.dynamics,
+                **shared,
+            )
+        if isinstance(old_connection, FixedConnection):
+            return FixedConnection(**shared)
+        raise NotImplementedError(
+            f"Cannot reparent a connection of type {type(old_connection).__name__} while preserving it."
+        )
 
     def _mount_strategy(self, host: HasRootBody) -> None:
         """
@@ -307,34 +283,7 @@ class HasRootKinematicStructureEntity(SemanticAnnotation, ABC):
 
         :param host: The annotation this one is being added to as a part.
         """
-        # host._attach_child_entity_in_kinematic_structure(self.root)
-        host._attach_entities_in_kinematic_structure(host.root, self.root)
-
-    def _offline_root_T_entity(
-        self, entity: KinematicStructureEntity
-    ) -> HomogeneousTransformationMatrix:
-        """
-        Computes root_T_entity without using the world's forward kinematics manager. This is done to avoid having to
-        recompile and compute the forwardkinematics in this case.
-        My reason of adding this is because otherwise, we would not be able to create for example a door and a handle
-        in one modification block, and add the handle to the door in the same block. we would need to close the
-        block, open a new one, and add the handle there. This is possible, but i think usage wise this is a lot nicer.
-
-        :param entity: The entity to compute the root_T_entity for.
-
-        :return: The root_T_entity of the entity.
-        """
-        world = entity._world
-        future_root_T_self = entity.parent_connection.origin_expression
-        parent_entity = entity.parent_kinematic_structure_entity
-        while True:
-            if parent_entity == world.root:
-                break
-            future_root_T_self = (
-                parent_entity.parent_connection.origin_expression @ future_root_T_self
-            )
-            parent_entity = parent_entity.parent_kinematic_structure_entity
-        return future_root_T_self
+        host._world.move_branch(self.root, host.root, True)
 
     @property
     def global_transform(self) -> HomogeneousTransformationMatrix:
@@ -463,48 +412,66 @@ class HasRootRegion(HasRootKinematicStructureEntity, ABC):
         )
 
 
+@lru_cache(maxsize=None)
+def _composition_field_specs(
+    cls: Type[CompositionMixin],
+) -> Tuple[Tuple[str, type, bool], ...]:
+    """
+    Resolve the composition slots of ``cls`` as ``(field_name, element_type, is_plural)`` tuples.
+
+    Composition slots are the dataclass fields declared on the part mixins that inherit *directly*
+    from :class:`CompositionMixin` (e.g. ``HasHandle.handle``), not the fields a concrete annotation
+    merely adds on top while inheriting such a mixin (e.g. ``Door.entry_way``). Memoized per class
+    because the slot set is immutable and resolving it re-introspects the whole dataclass.
+    """
+    slot_names = {
+        name
+        for clazz in cls.__mro__
+        if CompositionMixin in clazz.__bases__
+        for name in vars(clazz).get("__annotations__", {})
+    }
+    return tuple(
+        (wf.name, wf.type_endpoint, wf.is_one_to_many_relationship)
+        for wf in WrappedClass(cls).fields
+        if wf.name in slot_names
+    )
+
+
 @dataclass(eq=False)
 class CompositionMixin(HasRootKinematicStructureEntity, ABC):
     """
     Base for annotations that have structural *parts* (the composition / part-of relation).
 
-    Each part mixin (``HasHandle``, ``HasDoors``, ...) declares a typed containment field. The
-    unified :meth:`add` routes a part to the field whose element type matches it and lets the part
-    mount itself (:meth:`HasRootKinematicStructureEntity._mount_strategy`). This is distinct from the
-    containment / occupancy relation (see :class:`ContainmentMixin`), which is added via ``place``
-    and is deliberately not reachable through ``add``.
+    Each part mixin (``HasHandle``, ``HasDoors``, ...) declares a typed composition slot. The unified
+    :meth:`add` routes a part to the slot whose element type matches it and lets the part mount itself
+    (:meth:`HasRootKinematicStructureEntity._mount_strategy`).
     """
 
     @synchronized_attribute_modification
     def add(self, part: HasRootKinematicStructureEntity) -> None:
         """
-        Add ``part`` as a structural part, routing it to the matching composition field by type.
+        Add ``part`` as a structural part, routing it to the matching composition slot by type.
 
         :param part: The part to add.
-        :raises CannotBeAPartOf: If no composition field of this annotation accepts ``type(part)``.
+        :raises CannotBeAPartOf: If no composition slot of this annotation accepts ``type(part)``.
+        :raises AmbiguousPart: If ``type(part)`` matches more than one composition slot.
         """
-        composition_fields = {
-            name
-            # Composition slots are declared on part mixins (e.g. HasHandle) inheriting directly from Composition mixins
-            # but not on concrete annotation classes that merely inherit them and add their own fields (like Door.entry_way).
-            for clazz in type(self).__mro__
-            if CompositionMixin in clazz.__bases__
-            for name in vars(clazz).get("__annotations__", {})
-        }
-        for wrapped_field in WrappedClass(type(self)).fields:
-            element_type = wrapped_field.type_endpoint
-            if wrapped_field.name not in composition_fields or not isinstance(
-                part, element_type
-            ):
-                continue
+        matches = [
+            (name, is_plural)
+            for name, element_type, is_plural in _composition_field_specs(type(self))
+            if isinstance(part, element_type)
+        ]
+        if not matches:
+            raise CannotBeAPartOf(self, part)
+        if len(matches) > 1:
+            raise AmbiguousPart(self, part, [name for name, _ in matches])
 
-            part._mount_strategy(self)
-            if wrapped_field.is_one_to_many_relationship:
-                getattr(self, wrapped_field.name).append(part)
-            else:
-                setattr(self, wrapped_field.name, part)
-            return
-        raise CannotBeAPartOf(self, part)
+        name, is_plural = matches[0]
+        part._mount_strategy(self)
+        if is_plural:
+            getattr(self, name).append(part)
+        else:
+            setattr(self, name, part)
 
 
 @dataclass(eq=False)
@@ -594,7 +561,7 @@ class IsStorageSpace(HasRootBody, ABC):
 
     @synchronized_attribute_modification
     def add_object(self, object: HasRootBody):
-        self._attach_child_entity_in_kinematic_structure(object.root)
+        self._world.move_branch(object.root, self.root, True)
         self.objects.append(object)
 
     def get_objects_of_type(
@@ -748,7 +715,7 @@ class HasSupportingSurface(IsStorageSpace, ABC):
 
     @synchronized_attribute_modification
     def add_supporting_surface(self, region: Region):
-        self._attach_child_entity_in_kinematic_structure(region)
+        self._world.move_branch(region, self.root, True)
         self.supporting_surface = region
 
     def sample_points_from_surface(

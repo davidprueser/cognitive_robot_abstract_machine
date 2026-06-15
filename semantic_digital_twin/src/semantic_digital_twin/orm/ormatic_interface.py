@@ -16,6 +16,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import relationship, Mapped, mapped_column, DeclarativeBase
 
 import builtins
+import coraplex.orm.model
 import enum
 import krrood.adapters.json_serializer
 import krrood.ormatic.custom_types
@@ -4738,6 +4739,27 @@ class PipelineDAO(
     )
 
 
+class PlanMappingDAO(Base, DataAccessObject[coraplex.orm.model.PlanMapping]):
+    __tablename__ = "PlanMappingDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        Integer, primary_key=True, use_existing_column=True
+    )
+
+    initial_world_id: Mapped[typing.Optional[builtins.int]] = mapped_column(
+        ForeignKey("WorldMappingDAO.database_id", use_alter=True),
+        nullable=True,
+        use_existing_column=True,
+    )
+
+    initial_world: Mapped[WorldMappingDAO] = relationship(
+        "WorldMappingDAO",
+        uselist=False,
+        foreign_keys=[initial_world_id],
+        post_update=True,
+    )
+
+
 class PointOccupiedErrorDAO(
     Base, DataAccessObject[semantic_digital_twin.exceptions.PointOccupiedError]
 ):
@@ -7198,6 +7220,29 @@ class PoseMappingDAO(
     }
 
 
+class GrasPoseMappingDAO(
+    PoseMappingDAO, DataAccessObject[coraplex.orm.model.GrasPoseMapping]
+):
+    __tablename__ = "GrasPoseMappingDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        ForeignKey(PoseMappingDAO.database_id),
+        primary_key=True,
+        use_existing_column=True,
+    )
+
+    arm: Mapped[typing.Optional[coraplex.datastructures.enums.Arms]] = mapped_column(
+        krrood.ormatic.custom_types.PolymorphicEnumType,
+        nullable=True,
+        use_existing_column=True,
+    )
+
+    __mapper_args__ = {
+        "polymorphic_identity": "GrasPoseMappingDAO",
+        "inherit_condition": database_id == PoseMappingDAO.database_id,
+    }
+
+
 class Pose2DMappingDAO(
     SpatialTypeDAO, DataAccessObject[semantic_digital_twin.orm.model.Pose2DMapping]
 ):
@@ -7760,6 +7805,48 @@ class AlreadyBelongsToAWorldErrorDAO(
     }
 
 
+class AmbiguousPartDAO(
+    UsageErrorDAO, DataAccessObject[semantic_digital_twin.exceptions.AmbiguousPart]
+):
+    __tablename__ = "AmbiguousPartDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        ForeignKey(UsageErrorDAO.database_id),
+        primary_key=True,
+        use_existing_column=True,
+    )
+
+    fields: Mapped[typing.List[builtins.str]] = mapped_column(
+        JSON, nullable=False, use_existing_column=True
+    )
+
+    annotation_id: Mapped[int] = mapped_column(
+        ForeignKey("SemanticAnnotationDAO.database_id", use_alter=True),
+        nullable=True,
+        use_existing_column=True,
+    )
+    part_id: Mapped[int] = mapped_column(
+        ForeignKey("SemanticAnnotationDAO.database_id", use_alter=True),
+        nullable=True,
+        use_existing_column=True,
+    )
+
+    annotation: Mapped[SemanticAnnotationDAO] = relationship(
+        "SemanticAnnotationDAO",
+        uselist=False,
+        foreign_keys=[annotation_id],
+        post_update=True,
+    )
+    part: Mapped[SemanticAnnotationDAO] = relationship(
+        "SemanticAnnotationDAO", uselist=False, foreign_keys=[part_id], post_update=True
+    )
+
+    __mapper_args__ = {
+        "polymorphic_identity": "AmbiguousPartDAO",
+        "inherit_condition": database_id == UsageErrorDAO.database_id,
+    }
+
+
 class ApplyMissedMessagesWhileWorldIsBeingModifiedErrorDAO(
     UsageErrorDAO,
     DataAccessObject[
@@ -8039,6 +8126,45 @@ class InvalidPlaneDimensionsDAO(
 
     __mapper_args__ = {
         "polymorphic_identity": "InvalidPlaneDimensionsDAO",
+        "inherit_condition": database_id == UsageErrorDAO.database_id,
+    }
+
+
+class MechanicalJointAlreadyMountedDAO(
+    UsageErrorDAO,
+    DataAccessObject[semantic_digital_twin.exceptions.MechanicalJointAlreadyMounted],
+):
+    __tablename__ = "MechanicalJointAlreadyMountedDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        ForeignKey(UsageErrorDAO.database_id),
+        primary_key=True,
+        use_existing_column=True,
+    )
+
+    joint_id: Mapped[int] = mapped_column(
+        ForeignKey("SemanticAnnotationDAO.database_id", use_alter=True),
+        nullable=True,
+        use_existing_column=True,
+    )
+    host_id: Mapped[int] = mapped_column(
+        ForeignKey("SemanticAnnotationDAO.database_id", use_alter=True),
+        nullable=True,
+        use_existing_column=True,
+    )
+
+    joint: Mapped[SemanticAnnotationDAO] = relationship(
+        "SemanticAnnotationDAO",
+        uselist=False,
+        foreign_keys=[joint_id],
+        post_update=True,
+    )
+    host: Mapped[SemanticAnnotationDAO] = relationship(
+        "SemanticAnnotationDAO", uselist=False, foreign_keys=[host_id], post_update=True
+    )
+
+    __mapper_args__ = {
+        "polymorphic_identity": "MechanicalJointAlreadyMountedDAO",
         "inherit_condition": database_id == UsageErrorDAO.database_id,
     }
 

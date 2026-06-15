@@ -1,17 +1,17 @@
-import time
 import unittest
 from dataclasses import dataclass
-
-from random_events.product_algebra import Event, SimpleEvent
-
-from semantic_digital_twin.orm.ormatic_interface import *
+from typing import Optional
 
 import numpy as np
 import pytest
 
-from krrood.adapters.json_serializer import to_json
-from krrood.ormatic.data_access_objects.helper import to_dao
+from random_events.product_algebra import Event
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
+from semantic_digital_twin.exceptions import (
+    CannotBeAPartOf,
+    AmbiguousPart,
+    MechanicalJointAlreadyMounted,
+)
 from semantic_digital_twin.exceptions import (
     InvalidPlaneDimensions,
     InvalidHingeActiveAxis,
@@ -20,8 +20,19 @@ from semantic_digital_twin.exceptions import (
     MismatchingWorld,
     MissingWorldModificationContextError,
 )
+from semantic_digital_twin.orm.ormatic_interface import *
+from semantic_digital_twin.semantic_annotations.mixins import (
+    CompositionMixin,
+    HasRootBody,
+)
 from semantic_digital_twin.semantic_annotations.mixins import (
     HasCaseAsRootBody,
+)
+from semantic_digital_twin.semantic_annotations.semantic_annotations import (
+    DoubleDoor,
+    Floor,
+    Cup,
+    Cabinet,
 )
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Handle,
@@ -30,37 +41,35 @@ from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Wall,
     Hinge,
     Fridge,
-    DoubleDoor,
     Slider,
-    Floor,
     Aperture,
+    MechanicalJoint,
     Table,
-    Cup,
-    Cabinet,
     Milk,
     Cereal,
 )
 from semantic_digital_twin.spatial_types import (
-    Vector3,
     HomogeneousTransformationMatrix,
     Point3,
 )
+from semantic_digital_twin.spatial_types import Vector3
 from semantic_digital_twin.spatial_types.derivatives import DerivativeMap
 from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.connections import (
-    RevoluteConnection,
-    PrismaticConnection,
     FixedConnection,
 )
-from semantic_digital_twin.world_description.geometry import Scale, Box
-from semantic_digital_twin.world_description.shape_collection import (
-    ShapeCollection,
-    BoundingBoxCollection,
+from semantic_digital_twin.world_description.connections import (
+    RevoluteConnection,
+    PrismaticConnection,
 )
-from semantic_digital_twin.world_description.world_entity import Body, Region
 from semantic_digital_twin.world_description.degree_of_freedom import (
     DegreeOfFreedomLimits,
 )
+from semantic_digital_twin.world_description.geometry import Scale
+from semantic_digital_twin.world_description.shape_collection import (
+    BoundingBoxCollection,
+)
+from semantic_digital_twin.world_description.world_entity import Body
 
 
 class TestFactories(unittest.TestCase):
@@ -999,40 +1008,15 @@ class TestFactories(unittest.TestCase):
         )
 
 
-"""
-Tests for the unified composition ``add`` interface (``CompositionMixin.add``) and the
-containment ``place`` interface (``ContainmentMixin.place`` / ``add_object``).
+@dataclass(eq=False)
+class _HostWithOverlappingSlots(HasRootBody, CompositionMixin):
+    """
+    Throwaway host whose two composition slots have overlapping element types
+    (``Hinge`` is a subclass of ``MechanicalJoint``), so a ``Hinge`` matches both.
+    """
 
-``add`` routes a part to the composition field whose element type matches it, and lets the part
-mount itself via ``_mount_strategy``. Containment occupants are added via ``place`` and are
-intentionally not reachable through ``add``.
-"""
-
-import pytest
-
-from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
-from semantic_digital_twin.exceptions import CannotBeAPartOf
-from semantic_digital_twin.semantic_annotations.semantic_annotations import (
-    Handle,
-    Door,
-    Drawer,
-    Wall,
-    Hinge,
-    Fridge,
-    Slider,
-    Aperture,
-    Table,
-    Milk,
-    Cereal,
-)
-from semantic_digital_twin.spatial_types import Vector3
-from semantic_digital_twin.world import World
-from semantic_digital_twin.world_description.connections import (
-    RevoluteConnection,
-    PrismaticConnection,
-)
-from semantic_digital_twin.world_description.geometry import Scale
-from semantic_digital_twin.world_description.world_entity import Body
+    joint: Optional[MechanicalJoint] = None
+    specific_joint: Optional[Hinge] = None
 
 
 def _world_with_root() -> World:
@@ -1134,8 +1118,8 @@ def test_add_routes_aperture_with_cut():
     assert aperture.root.parent_kinematic_structure_entity == wall.root
 
 
-def test_place_and_add_object_alias_store_occupants():
-    """Containment occupants are placed via place() and its add_object alias."""
+def test_add_object_stores_occupants():
+    """Containment occupants are stored via add_object (occupancy, not parthood)."""
     world = _world_with_root()
     with world.modify_world():
         table = Table.create_with_new_body_in_world(
@@ -1185,6 +1169,100 @@ def test_add_rejects_unsupported_part_type():
         # A Door has handle/hinge composition fields but no drawer field.
         with pytest.raises(CannotBeAPartOf):
             door.add(drawer)
+
+
+def test_add_raises_on_ambiguous_part():
+    """add() of a part matching more than one composition slot raises AmbiguousPart."""
+    world = _world_with_root()
+    with world.modify_world():
+        host = _HostWithOverlappingSlots.create_with_new_body_in_world(
+            name=PrefixedName("host"), world=world
+        )
+        hinge = Hinge.create_with_new_body_in_world(
+            name=PrefixedName("hinge"), world=world, active_axis=Vector3.Z()
+        )
+        # A Hinge is both a MechanicalJoint (joint slot) and a Hinge (specific_joint slot).
+        with pytest.raises(AmbiguousPart):
+            host.add(hinge)
+
+
+def test_containment_only_annotation_has_no_add():
+    """A pure-containment annotation (Table) exposes add_object but not the composition add()."""
+    assert not hasattr(Table, "add")
+    assert hasattr(Table, "add_object")
+
+
+def test_mechanical_joint_mount_splices_under_host_parent():
+    """
+    When the host already sits under a non-root parent, mounting a mechanical joint splices the joint
+    between the host and that parent (parent -> joint -> host): the host's ancestry is preserved and
+    the joint keeps its active (revolute) connection, now anchored at the host's parent.
+    """
+    world = _world_with_root()
+    with world.modify_world():
+        fridge = Fridge.create_with_new_body_in_world(
+            name=PrefixedName("fridge"), world=world, scale=Scale(1, 1, 2.0)
+        )
+        door = Door.create_with_new_body_in_world(
+            name=PrefixedName("door"), scale=Scale(0.03, 1, 2), world=world
+        )
+        # Place the door inside the fridge first, so its parent is the fridge (not the world root).
+        fridge.add(door)
+        assert door.root.parent_kinematic_structure_entity == fridge.root
+
+        hinge = Hinge.create_with_new_body_in_world(
+            name=PrefixedName("hinge"), world=world, active_axis=Vector3.Z()
+        )
+        door.add(hinge)
+
+    # Spliced topology: fridge -> hinge -> door.
+    assert door.root.parent_kinematic_structure_entity == hinge.root
+    assert hinge.root.parent_kinematic_structure_entity == fridge.root
+    # The joint kept its active connection (it was not collapsed to a FixedConnection).
+    assert isinstance(hinge.root.parent_connection, RevoluteConnection)
+
+    # The fridge is still upstream of the door (its parent was not dropped).
+    ancestors = []
+    entity = door.root.parent_kinematic_structure_entity
+    while entity is not None and entity != world.root:
+        ancestors.append(entity)
+        entity = entity.parent_kinematic_structure_entity
+    assert fridge.root in ancestors
+
+
+def test_mechanical_joint_mount_onto_same_host_is_idempotent():
+    """Mounting the same joint onto the host it already connects is a no-op (no self-loop, no error)."""
+    world = _world_with_root()
+    with world.modify_world():
+        door = Door.create_with_new_body_in_world(
+            name=PrefixedName("door"), scale=Scale(0.03, 1, 2), world=world
+        )
+        hinge = Hinge.create_with_new_body_in_world(
+            name=PrefixedName("hinge"), world=world, active_axis=Vector3.Z()
+        )
+        door.add(hinge)
+        door.add(hinge)
+
+    assert door.mechanical_joint == hinge
+    assert door.root.parent_kinematic_structure_entity == hinge.root
+
+
+def test_mechanical_joint_cannot_be_mounted_onto_a_second_host():
+    """A joint already connecting one host rejects being mounted onto a different host."""
+    world = _world_with_root()
+    with world.modify_world():
+        door1 = Door.create_with_new_body_in_world(
+            name=PrefixedName("door1"), scale=Scale(0.03, 1, 2), world=world
+        )
+        door2 = Door.create_with_new_body_in_world(
+            name=PrefixedName("door2"), scale=Scale(0.03, 1, 2), world=world
+        )
+        hinge = Hinge.create_with_new_body_in_world(
+            name=PrefixedName("hinge"), world=world, active_axis=Vector3.Z()
+        )
+        door1.add(hinge)
+        with pytest.raises(MechanicalJointAlreadyMounted):
+            door2.add(hinge)
 
 
 if __name__ == "__main__":
