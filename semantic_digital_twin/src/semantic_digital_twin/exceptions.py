@@ -1,9 +1,10 @@
 from __future__ import annotations, absolute_import
 
 from dataclasses import dataclass, field
-from typing import Dict, Set
+from typing import Dict, Set, Any
 from uuid import UUID
 
+import mujoco
 from typing_extensions import (
     Optional,
     List,
@@ -1046,6 +1047,59 @@ class PointOccupiedError(DataclassException):
 
     def error_message(self) -> str:
         return f"The point {self.point} is occupied."
+
+    def suggest_correction(self) -> str:
+        return ""
+
+
+@dataclass
+class MultiSimError(DataclassException):
+    """Base class for all MultiSim-related exceptions."""
+
+
+@dataclass
+class QuaternionConversionError(MultiSimError):
+    """
+    Raised when a rotation matrix cannot be converted to a quaternion.
+    """
+
+    rotation_matrix: Any
+    """
+    The rotation matrix that could not be converted.
+    """
+
+    reason: str
+    """
+    The error message of the underlying conversion failure.
+    """
+
+    def error_message(self) -> str:
+        return (
+            f"Error converting rotation matrix to quaternion. "
+            f"Rotation matrix:\n{self.rotation_matrix}\nError message: {self.reason}"
+        )
+
+    def suggest_correction(self) -> str:
+        return ""
+
+
+class MujocoError(MultiSimError):
+    """
+    Base class for all MuJoCo-related exceptions.
+    """
+
+
+class MujocoEntityNotFoundError(MujocoError):
+    """
+    Raised when a MuJoCo entity of a given type and name cannot be found.
+    """
+
+    entity_name: str
+    entity_type: mujoco.mjtObj
+    action: str = "find"
+
+    def error_message(self) -> str:
+        return f"Failed to {self.action}: type={self.entity_type}, name='{self.entity_name}'"
 
     def suggest_correction(self) -> str:
         return ""

@@ -4276,7 +4276,7 @@ class MujocoBuilderDAO(
 
 
 class MultiSimErrorDAO(
-    Base, DataAccessObject[semantic_digital_twin.adapters.multi_sim.MultiSimError]
+    Base, DataAccessObject[semantic_digital_twin.exceptions.MultiSimError]
 ):
     __tablename__ = "MultiSimErrorDAO"
 
@@ -4295,8 +4295,7 @@ class MultiSimErrorDAO(
 
 
 class MujocoErrorDAO(
-    MultiSimErrorDAO,
-    DataAccessObject[semantic_digital_twin.adapters.multi_sim.MujocoError],
+    MultiSimErrorDAO, DataAccessObject[semantic_digital_twin.exceptions.MujocoError]
 ):
     __tablename__ = "MujocoErrorDAO"
 
@@ -4314,9 +4313,7 @@ class MujocoErrorDAO(
 
 class MujocoEntityNotFoundErrorDAO(
     MujocoErrorDAO,
-    DataAccessObject[
-        semantic_digital_twin.adapters.multi_sim.MujocoEntityNotFoundError
-    ],
+    DataAccessObject[semantic_digital_twin.exceptions.MujocoEntityNotFoundError],
 ):
     __tablename__ = "MujocoEntityNotFoundErrorDAO"
 
@@ -5055,9 +5052,7 @@ class QoSProfileJSONSerializerDAO(
 
 class QuaternionConversionErrorDAO(
     MultiSimErrorDAO,
-    DataAccessObject[
-        semantic_digital_twin.adapters.multi_sim.QuaternionConversionError
-    ],
+    DataAccessObject[semantic_digital_twin.exceptions.QuaternionConversionError],
 ):
     __tablename__ = "QuaternionConversionErrorDAO"
 

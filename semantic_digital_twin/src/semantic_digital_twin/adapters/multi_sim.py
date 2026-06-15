@@ -5,7 +5,6 @@ import inspect
 import os
 from typing import Tuple
 
-import shutil
 import time
 import trimesh
 from abc import ABC, abstractmethod
@@ -24,7 +23,6 @@ from physics_simulators.base_simulator import (
     SimulatorConstraints,
 )
 from krrood.utils import recursive_subclasses
-from krrood.exceptions import DataclassException
 from scipy.spatial.transform import Rotation
 from trimesh.visual import TextureVisuals
 
@@ -33,6 +31,10 @@ from semantic_digital_twin.callbacks.callback import (
     StateChangeCallback,
 )
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
+from semantic_digital_twin.exceptions import (
+    QuaternionConversionError,
+    MujocoEntityNotFoundError,
+)
 from semantic_digital_twin.spatial_types.spatial_types import (
     HomogeneousTransformationMatrix,
     Point3,
@@ -134,37 +136,6 @@ class GeomVisibilityAndCollisionType(IntEnum):
     """
     Undefined geometry type (variant 2).
     """
-
-
-@dataclass
-class MultiSimError(DataclassException):
-    """Base class for all MultiSim-related exceptions."""
-
-
-@dataclass
-class QuaternionConversionError(MultiSimError):
-    """
-    Raised when a rotation matrix cannot be converted to a quaternion.
-    """
-
-    rotation_matrix: Any
-    """
-    The rotation matrix that could not be converted.
-    """
-
-    reason: str
-    """
-    The error message of the underlying conversion failure.
-    """
-
-    def error_message(self) -> str:
-        return (
-            f"Error converting rotation matrix to quaternion. "
-            f"Rotation matrix:\n{self.rotation_matrix}\nError message: {self.reason}"
-        )
-
-    def suggest_correction(self) -> str:
-        return ""
 
 
 @dataclass(eq=False)
@@ -702,28 +673,6 @@ class CameraConverter(EntityConverter, ABC):
         camera_props = EntityConverter._convert(self, entity)
         camera_props["body"] = entity.body.name.name
         return camera_props
-
-
-class MujocoError(MultiSimError):
-    """
-    Base class for all MuJoCo-related exceptions.
-    """
-
-
-class MujocoEntityNotFoundError(MujocoError):
-    """
-    Raised when a MuJoCo entity of a given type and name cannot be found.
-    """
-
-    entity_name: str
-    entity_type: mujoco.mjtObj
-    action: str = "find"
-
-    def error_message(self) -> str:
-        return f"Failed to {self.action}: type={self.entity_type}, name='{self.entity_name}'"
-
-    def suggest_correction(self) -> str:
-        return ""
 
 
 @dataclass
