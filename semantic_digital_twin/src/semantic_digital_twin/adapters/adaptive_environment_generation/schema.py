@@ -31,7 +31,7 @@ from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     DoorWithType,
     Handle,
     Hinge,
-    Shelf,
+    ShelfLayer,
 )
 from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix, Vector3
 from semantic_digital_twin.spatial_types.derivatives import DerivativeMap
@@ -455,6 +455,124 @@ class EGObject(EGWithID):
             world.add_connection(root_C_body)
 
         # create semantic annotation
+        annotation = NaturalLanguageWithTypeDescription(
+            root=body, description=None, type_description=self.object_type
+        )
+
+        with world.modify_world():
+            world.add_semantic_annotation(annotation)
+
+        return body
+
+
+@dataclass
+class EGObject2D(EGWithID):
+    """
+    An object on a shelf layer — position is 2-D since z is determined by the layer.
+    """
+
+    room_id: str
+    place_id: str
+    object_type: ObjectType
+    scale: EGSize
+    position: EGPoint2D
+    orientation: EGOrientation
+    source_id: str
+
+    def to_json(self) -> Dict[str, Any]:
+        return {
+            **super().to_json(),
+            "id": self.id,
+            "room_id": self.room_id,
+            "type": self.object_type,
+            "place_id": self.place_id,
+            "position": to_json(self.position),
+            "rotation": to_json(self.orientation),
+            "dimensions": to_json(self.scale),
+            "source_id": self.source_id,
+        }
+
+    @classmethod
+    def _from_json(cls, data: Dict[str, Any], **kwargs) -> Self:
+        return cls(
+            id=data["id"],
+            room_id=data["room_id"],
+            object_type=ObjectType._value2member_map_.get(
+                data["type"], ObjectType.OTHER
+            ),
+            place_id=data["place_id"],
+            position=EGPoint2D._from_json(data["position"], **kwargs),
+            orientation=EGOrientation._from_json(data["rotation"], **kwargs),
+            scale=EGSize._from_json(data["dimensions"], **kwargs),
+            source_id=data["source_id"],
+        )
+
+    def create_in_world(
+        self,
+        world: World,
+        mesh_path: Optional[Path],
+        parent: KinematicStructureEntity,
+        x: Optional[float] = None,
+        y: Optional[float] = None,
+        z: float = 0.0,
+        **kwargs,
+    ) -> Body:
+        """
+        Create the object in the world at the given absolute pose.
+
+        :param x: Absolute x in world coordinates (defaults to ``self.position.x``).
+        :param y: Absolute y in world coordinates (defaults to ``self.position.y``).
+        :param z: Absolute z in world coordinates.
+        """
+        if mesh_path is None:
+            mesh_path = (
+                Path.home()
+                / "Documents"
+                / "sage-10k-scenes"
+                / "20251230_060038_layout_fd6894a7"
+            )
+        if not mesh_path.exists():
+            raise ValueError(f"Directory {mesh_path} does not exist.")
+        if self.source_id is None:
+            self.source_id = "0e00397f"
+        ply_file = mesh_path / "objects" / f"{self.source_id}.ply"
+        texture_file = mesh_path / "objects" / f"{self.source_id}_texture.png"
+
+        body = Body()
+        body.name = PrefixedName(name=str(body.id), prefix=self.id)
+
+        root_T_body = HomogeneousTransformationMatrix.from_xyz_rpy(
+            self.position.x if x is None else x,
+            self.position.y if y is None else y,
+            z,
+            *self.orientation.as_roll_pitch_yaw_in_radians(),
+            reference_frame=parent,
+            child_frame=body,
+        )
+
+        mesh = Mesh.from_ply_file(
+            ply_file_path=str(ply_file),
+            texture_file_path=str(texture_file),
+            origin=HomogeneousTransformationMatrix.from_xyz_rpy(reference_frame=body),
+        )
+
+        visual = ShapeCollection([mesh], reference_frame=body)
+        collision = ShapeCollection([mesh], reference_frame=body)
+        body.visual = visual
+        body.collision = collision
+
+        connection_type = Connection6DoF
+
+        with world.modify_world():
+            root_C_body = connection_type.create_with_dofs(
+                world=world,
+                parent=parent,
+                child=body,
+                parent_T_connection_expression=root_T_body,
+            )
+            world.add_body(body)
+            world.add_connection(root_C_body)
+
         annotation = NaturalLanguageWithTypeDescription(
             root=body, description=None, type_description=self.object_type
         )
@@ -1005,17 +1123,58 @@ def build_source_id_to_path(
 
 @dataclass
 class EGShelf(HasExchangeablePartAggregations):
-    """A shelf and the objects placed on it, ready for relational RSPN fitting."""
+    """
+    A shelf with four explicit horizontal layers.
+    """
 
-    position: EGPosition
+    position: EGPoint2D
+    """
+    Position of the Shelf in the World.
+    """
+
     scale: EGSize
+    """
+    Scale of the Shelf.
+    """
+
     orientation: EGOrientation
+    """
+    Orientation of the Shelf in the World.
+    """
+
     source_id: str
-    objects: List[EGObject]
+    """
+    The mesh path for this Shelf.
+    """
+
+    layer_1: ShelfLayer
+    """
+    Bottom layer.
+    """
+
+    layer_2: ShelfLayer
+    """
+    Second layer from bottom.
+    """
+
+    layer_3: ShelfLayer
+    """
+    Third layer from bottom.
+    """
+
+    layer_4: ShelfLayer
+    """
+    Top layer.
+    """
+
     object_type_to_source_ids: Optional[Dict[ObjectType, List[Tuple[Path, str]]]] = (
         field(default=None)
     )
     shelf_scene_dir: Optional[Path] = field(default=None)
+
+    @property
+    def layers(self) -> List[ShelfLayer]:
+        return [self.layer_1, self.layer_2, self.layer_3, self.layer_4]
 
     @classmethod
     def create_shelf_with_contents(
@@ -1025,51 +1184,61 @@ class EGShelf(HasExchangeablePartAggregations):
         source_id_to_path: Optional[Dict[str, Path]] = None,
     ) -> "EGShelf":
         """
-        Build a Shelf from a raw shelf EGObject and its contents.
+        Build an EGShelf from a raw shelf EGObject and its contents.
 
-        Object positions are normalised to shelf-relative coordinates
-        (shelf centre = origin) so the RSPN generalises across scene positions.
+        Objects are assigned to four layers via K-means clustering on their
+        z-positions. Within each layer every object is represented as an
+        :class:`EGObject2D` with shelf-relative (x, y) coordinates; the z
+        component is captured by the layer's ``z_height``.
 
         :param source_id_to_path: Mapping from source_id to the scene directory
             containing its mesh. Build one with :func:`build_source_id_to_path`.
             When omitted the path component of each entry is ``None``.
         """
-        x = shelf_object.position.x
-        y = shelf_object.position.y
-        z = shelf_object.position.z
+        sx = shelf_object.position.x
+        sy = shelf_object.position.y
+        sz = shelf_object.position.z
+
         object_type_to_source_ids: Dict[ObjectType, List[Tuple[Path, str]]] = (
             defaultdict(list)
         )
+        relative_contents: List[Tuple[EGObject2D, float, float, float]] = []
         for obj in contents:
             path = source_id_to_path.get(obj.source_id) if source_id_to_path else None
             if path is not None:
                 object_type_to_source_ids[obj.object_type].append((path, obj.source_id))
-        relative_objects = [
-            EGObject(
+            obj2d = EGObject2D(
                 id=obj.id,
                 room_id=obj.room_id,
                 place_id=obj.place_id,
                 object_type=obj.object_type,
                 scale=obj.scale,
-                position=EGPosition(
-                    x=obj.position.x - x,
-                    y=obj.position.y - y,
-                    z=obj.position.z - z,
+                position=EGPoint2D(
+                    x=obj.position.x - sx,
+                    y=obj.position.y - sy,
                 ),
                 orientation=obj.orientation,
                 source_id=obj.source_id,
             )
-            for obj in contents
-        ]
+            relative_contents.append(
+                (obj2d, obj.position.x - sx, obj.position.y - sy, obj.position.z - sz)
+            )
+
+        # ??
+        # layers = _assign_objects_to_layers(relative_contents)
+
         shelf_scene_dir = (
             source_id_to_path.get(shelf_object.source_id) if source_id_to_path else None
         )
         return cls(
-            position=shelf_object.position,
+            position=EGPoint2D(x=sx, y=sy),
             scale=shelf_object.scale,
             orientation=shelf_object.orientation,
             source_id=shelf_object.source_id,
-            objects=relative_objects,
+            layer_1=layers[0],
+            layer_2=layers[1],
+            layer_3=layers[2],
+            layer_4=layers[3],
             object_type_to_source_ids=object_type_to_source_ids,
             shelf_scene_dir=shelf_scene_dir,
         )
@@ -1093,7 +1262,7 @@ class EGShelf(HasExchangeablePartAggregations):
                 place_id="floor",
                 object_type=ObjectType.SHELF,
                 scale=self.scale,
-                position=self.position,
+                position=EGPosition(x=self.position.x, y=self.position.y, z=0.0),
                 orientation=self.orientation,
                 source_id=self.source_id,
             )
@@ -1104,46 +1273,32 @@ class EGShelf(HasExchangeablePartAggregations):
             for entries in self.object_type_to_source_ids.values()
             for entry in entries
         ]
-        for obj in self.objects:
-            candidates = self.object_type_to_source_ids.get(obj.object_type, [])
-            if not candidates:
-                if not all_candidates:
+        for layer in self.layers:
+            for obj in layer.objects:
+                # Skip objects whose positions were not grounded (no training data
+                # for this layer means the position stays as an Ellipsis placeholder).
+                if not isinstance(obj.position.x, (int, float)):
                     continue
-                candidates = all_candidates
-            scene_dir, source_id = random.choice(candidates)
-            absolute_obj = EGObject(
-                id=obj.id,
-                room_id=obj.room_id,
-                place_id=obj.place_id,
-                object_type=obj.object_type,
-                scale=obj.scale,
-                position=EGPosition(
-                    x=obj.position.x + self.position.x,
-                    y=obj.position.y + self.position.y,
-                    z=obj.position.z + self.position.z,
-                ),
-                orientation=obj.orientation,
-                source_id=source_id,
-            )
-            absolute_obj.create_in_world(world, scene_dir, parent=world.root)
+                candidates = self.object_type_to_source_ids.get(obj.object_type, [])
+                if not candidates:
+                    if not all_candidates:
+                        continue
+                    candidates = all_candidates
+                scene_dir, source_id = random.choice(candidates)
+                absolute_x = self.position.x + obj.position.x
+                absolute_y = self.position.y + obj.position.y
+                absolute_z = layer.z_height + obj.scale.height / 2
+                obj.source_id = source_id
+                obj.create_in_world(
+                    world,
+                    scene_dir,
+                    parent=world.root,
+                    x=absolute_x,
+                    y=absolute_y,
+                    z=absolute_z,
+                )
 
         return world
-
-
-@aggregation_for((EGShelf, "objects"))
-@dataclass
-class EGObjectOnShelfAggregations(AggregationStatistic):
-    """Aggregation statistics for objects placed on a shelf."""
-
-    objects_to_aggregate_on: List[EGObject]
-
-    @cached_property
-    def _eql_variable(self) -> SymbolicExpression:
-        return variable(EGObject, self.objects_to_aggregate_on)
-
-    def total_object_count(self) -> int:
-        """Number of objects on the shelf."""
-        return len(self.objects_to_aggregate_on)
 
 
 @dataclass
