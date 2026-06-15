@@ -2,26 +2,37 @@
 End-to-end performance benchmark for the Graph of Convex Sets free-space pipeline
 on the IAI Apartment world loaded via the semantic_digital_twin package.
 
-The benchmark measures each phase of the pipeline independently to show exactly
-where time is spent:
+Results are collected into a GCSFreespaceExperimentResult dataclass and printed
+as a Typst table, following the same pattern used by other experiments in this
+repository.
 
+Phases measured:
   Phase 1 – World loading    : URDF parse and pybullet collision setup
-  Phase 2 – Search space     : define the bounding box of the navigable volume
   Phase 3 – Collect obstacles: gather all obstacle bounding boxes from the world
   Phase 4+5 – Free space     : bounded incremental subtraction via subtract_disjoint
   Phase 6 – Materialise      : convert the free-space Event to a BoundingBoxCollection
   Phase 7 – Connectivity     : build the R-tree intersection graph
+  Phase 8 – End-to-end       : single call to GraphOfConvexSets.free_space_from_world
 
 Run with:
     python3 coraplex/demos/coraplex_gcs_demo/experiments/benchmark_gcs_apartment.py
 
 Requirements (all installed in-repo):
-    semantic_digital_twin, random_events, rtree, trimesh, urdf_parser_py
+    semantic_digital_twin, random_events, rtree, trimesh, urdf_parser_py, experiments
 """
 from __future__ import annotations
 
 import time
-import statistics
+from dataclasses import dataclass
+from pathlib import Path
+from typing import List
+
+from experiments.experiment_definitions import (
+    ExperimentResult,
+    ExperimentsTable,
+    MeanAndStandardDeviation,
+    TypstRenderer,
+)
 
 from semantic_digital_twin.adapters.urdf import URDFParser
 from semantic_digital_twin.world_description.geometry import BoundingBox
@@ -37,41 +48,67 @@ from semantic_digital_twin.world_description.world_entity import (
 )
 from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
 
-import os
-
-_APARTMENT_URDF_PATH = os.path.join(
-    os.path.dirname(__file__),
-    "..", "..", "..", "..",
-    "semantic_digital_twin", "resources", "urdf", "apartment.urdf",
+_APARTMENT_URDF_PATH = (
+    Path(__file__).parent / ".." / ".." / ".." / ".."
+    / "semantic_digital_twin" / "resources" / "urdf" / "apartment.urdf"
 )
 
 
-def _format_milliseconds(seconds: float) -> str:
-    """Format a duration given in seconds as a human-readable milliseconds string."""
-    return f"{seconds * 1000:.1f} ms"
+@dataclass
+class GCSFreespaceExperimentResult(ExperimentResult):
+    """
+    Performance measurements for the Graph of Convex Sets free-space pipeline
+    on the IAI Apartment world.
+
+    All duration fields are in milliseconds.
+    """
+
+    world_loading_duration_milliseconds: float
+    """Wall-clock time to parse the URDF and set up pybullet collision geometry."""
+
+    obstacle_count: int
+    """Number of obstacle bounding boxes found in the apartment world."""
+
+    free_space_computation_duration_milliseconds: MeanAndStandardDeviation
+    """Time to compute the free-space event via subtract_disjoint (mean and standard deviation)."""
+
+    free_space_simple_set_count: int
+    """Number of simple sets (axis-aligned boxes) in the resulting free-space event."""
+
+    materialise_duration_milliseconds: MeanAndStandardDeviation
+    """Time to convert the free-space event into a BoundingBoxCollection (mean and standard deviation)."""
+
+    free_space_bounding_box_count: int
+    """Number of bounding boxes in the materialised free-space collection."""
+
+    connectivity_duration_milliseconds: MeanAndStandardDeviation
+    """Time to build the R-tree intersection graph (mean and standard deviation)."""
+
+    graph_node_count: int
+    """Number of nodes (free-space bounding boxes) in the connectivity graph."""
+
+    graph_edge_count: int
+    """Number of edges (adjacencies) in the connectivity graph."""
+
+    end_to_end_duration_milliseconds: float
+    """Wall-clock time for a complete free_space_from_world call including world loading."""
 
 
-def _time_function(label: str, function_to_time, *, repetitions: int = 1):
-    """
-    Run function_to_time the requested number of times, print the mean (and
-    standard deviation when repetitions > 1), and return the last result.
-    """
-    elapsed_times = []
+def _measure(function_to_time, repetitions: int = 1):
+    """Run function_to_time the given number of times and return (result, elapsed_seconds_list)."""
+    elapsed_times: List[float] = []
     result = None
     for _ in range(repetitions):
-        start_time = time.perf_counter()
+        start = time.perf_counter()
         result = function_to_time()
-        elapsed_times.append(time.perf_counter() - start_time)
-    mean_time = statistics.mean(elapsed_times)
-    if repetitions > 1:
-        standard_deviation = statistics.stdev(elapsed_times)
-        print(
-            f"  {label:<40s}  {_format_milliseconds(mean_time):>10s}"
-            f"  ±{_format_milliseconds(standard_deviation)}"
-        )
-    else:
-        print(f"  {label:<40s}  {_format_milliseconds(mean_time):>10s}")
-    return result
+        elapsed_times.append(time.perf_counter() - start)
+    return result, elapsed_times
+
+
+def _to_mean_and_standard_deviation_milliseconds(elapsed_seconds: List[float]) -> MeanAndStandardDeviation:
+    return MeanAndStandardDeviation.from_measurements(
+        [seconds * 1000.0 for seconds in elapsed_seconds]
+    )
 
 
 def main():
@@ -79,23 +116,20 @@ def main():
     print("Graph of Convex Sets Free-Space Benchmark  –  IAI Apartment World")
     print("=" * 65)
 
-    # ── Phase 1: World loading ───────────────────────────────────────────
-    print("\n[1] World loading")
-
     def _load_apartment_world():
         parser = URDFParser.from_file(_APARTMENT_URDF_PATH)
         return parser.parse()
 
-    world = _time_function("URDF parse + pybullet setup", _load_apartment_world)
+    world, world_loading_elapsed = _measure(_load_apartment_world)
+    world_loading_duration_milliseconds = world_loading_elapsed[0] * 1000.0
 
     body_count = len(list(world.bodies))
     collision_body_count = sum(
         1 for body in world.bodies if isinstance(body, Body) and body.has_collision()
     )
-    print(f"      bodies={body_count}  with-collision={collision_body_count}")
+    print(f"  World loaded: {body_count} bodies, {collision_body_count} with collision")
 
-    # ── Phase 2: Define search space ─────────────────────────────────────
-    print("\n[2] Search space")
+    # Define the navigable search volume of the apartment.
     # The apartment furniture root is at (8.85, 1.75, 0).
     # Walls span roughly x ∈ [-1, 12],  y ∈ [-3, 5],  z ∈ [0, 3].
     search_space = BoundingBoxCollection(
@@ -113,24 +147,14 @@ def main():
         reference_frame=world.root,
     )
     search_event = search_space.event
-    print(f"  Search box  x[-1,12]  y[-3,5]  z[0,3]")
-    print(f"  Search event variables: {list(search_event.variables)}")
-
-    # ── Phase 3: Collect obstacle bounding boxes ─────────────────────────
-    print("\n[3] Collect obstacle bounding boxes")
 
     def _collect_obstacle_bounding_boxes():
         annotation = SemanticEnvironmentAnnotation(root=world.root, _world=world)
         origin = HomogeneousTransformationMatrix(reference_frame=world.root)
         return list(annotation.as_bounding_box_collection_at_origin(origin))
 
-    obstacle_bounding_boxes = _time_function(
-        "as_bounding_box_collection_at_origin", _collect_obstacle_bounding_boxes
-    )
-    print(f"      obstacle bounding boxes: {len(obstacle_bounding_boxes)}")
-
-    # ── Phases 4+5: Free space via subtract_disjoint ──────────────────────
-    print("\n[4+5] Free-space via subtract_disjoint  [bounded incremental subtraction]")
+    obstacle_bounding_boxes, _ = _measure(_collect_obstacle_bounding_boxes)
+    print(f"  Obstacle bounding boxes: {len(obstacle_bounding_boxes)}")
 
     def _compute_free_space():
         free_space_accumulator = search_event
@@ -140,26 +164,17 @@ def main():
                 free_space_accumulator = free_space_accumulator.subtract_disjoint(obstacle)
         return free_space_accumulator
 
-    free_space = _time_function(
-        "subtract_disjoint loop (all obstacles)", _compute_free_space, repetitions=3
-    )
-    print(f"      free-space simple sets: {len(list(free_space.simple_sets))}")
-
-    # ── Phase 6: Materialise into BoundingBoxCollection ──────────────────
-    print("\n[6] Materialise free space into BoundingBoxCollection")
+    free_space, free_space_elapsed = _measure(_compute_free_space, repetitions=3)
+    free_space_simple_set_count = len(list(free_space.simple_sets))
+    print(f"  Free-space simple sets: {free_space_simple_set_count}")
 
     def _materialise_free_space():
         return BoundingBoxCollection.from_event(
             reference_frame=world.root, event=free_space
         )
 
-    free_space_collection = _time_function(
-        "BoundingBoxCollection.from_event", _materialise_free_space, repetitions=3
-    )
-    print(f"      free-space bounding boxes: {len(free_space_collection)}")
-
-    # ── Phase 7: Connectivity (R-tree) ────────────────────────────────────
-    print("\n[7] Connectivity (R-tree)")
+    free_space_collection, materialise_elapsed = _measure(_materialise_free_space, repetitions=3)
+    print(f"  Free-space bounding boxes: {len(free_space_collection)}")
 
     def _compute_connectivity():
         graph_of_convex_sets = GraphOfConvexSets(world=world, search_space=search_space)
@@ -168,16 +183,11 @@ def main():
         graph_of_convex_sets.calculate_connectivity(tolerance=0.001)
         return graph_of_convex_sets
 
-    connectivity_graph = _time_function(
-        "calculate_connectivity", _compute_connectivity, repetitions=3
-    )
+    connectivity_graph, connectivity_elapsed = _measure(_compute_connectivity, repetitions=3)
     print(
-        f"      nodes={len(connectivity_graph.graph.nodes())}"
-        f"  edges={len(connectivity_graph.graph.edges())}"
+        f"  Graph: {len(connectivity_graph.graph.nodes())} nodes,"
+        f" {len(connectivity_graph.graph.edges())} edges"
     )
-
-    # ── Phase 8: End-to-end (single call) ────────────────────────────────
-    print("\n[8] Full end-to-end: GraphOfConvexSets.free_space_from_world")
 
     def _run_end_to_end():
         loaded_world = _load_apartment_world()
@@ -197,16 +207,26 @@ def main():
         )
         return GraphOfConvexSets.free_space_from_world(loaded_world, apartment_search_space)
 
-    end_to_end_graph = _time_function(
-        "free_space_from_world (incl. world load)", _run_end_to_end
-    )
-    print(
-        f"      nodes={len(end_to_end_graph.graph.nodes())}"
-        f"  edges={len(end_to_end_graph.graph.edges())}"
+    end_to_end_graph, end_to_end_elapsed = _measure(_run_end_to_end)
+    end_to_end_duration_milliseconds = end_to_end_elapsed[0] * 1000.0
+
+    result = GCSFreespaceExperimentResult(
+        world_loading_duration_milliseconds=round(world_loading_duration_milliseconds, 2),
+        obstacle_count=len(obstacle_bounding_boxes),
+        free_space_computation_duration_milliseconds=_to_mean_and_standard_deviation_milliseconds(free_space_elapsed),
+        free_space_simple_set_count=free_space_simple_set_count,
+        materialise_duration_milliseconds=_to_mean_and_standard_deviation_milliseconds(materialise_elapsed),
+        free_space_bounding_box_count=len(free_space_collection),
+        connectivity_duration_milliseconds=_to_mean_and_standard_deviation_milliseconds(connectivity_elapsed),
+        graph_node_count=len(connectivity_graph.graph.nodes()),
+        graph_edge_count=len(connectivity_graph.graph.edges()),
+        end_to_end_duration_milliseconds=round(end_to_end_duration_milliseconds, 2),
     )
 
+    table = ExperimentsTable(experiments=[result])
+    renderer = TypstRenderer(experiments_table=table)
     print("\n" + "=" * 65)
-    print("Done.")
+    print(renderer.render_table())
 
 
 if __name__ == "__main__":
