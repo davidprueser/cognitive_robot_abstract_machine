@@ -7,7 +7,6 @@ import math
 import queue
 import random
 from abc import abstractmethod, ABC
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from enum import IntEnum
 
@@ -693,10 +692,6 @@ class SumUnit(InnerUnit):
             if not subcircuit_a.result_of_current_query.intersection_with(
                 subcircuit_b.result_of_current_query
             ).is_empty():
-                print(
-                    subcircuit_a.result_of_current_query,
-                    subcircuit_b.result_of_current_query,
-                )
                 return False
 
         # if none intersect, the subcircuit is deterministic
@@ -862,6 +857,31 @@ class ProbabilisticCircuit(ProbabilisticModel, SubclassJSONSerializer):
     The graph to check connectivity from.
     """
 
+    _root_cache: Optional[Unit] = field(
+        init=False, default=None, repr=False, compare=False
+    )
+    """
+    Cached root unit. Invalidated whenever the topology of the graph changes.
+    """
+
+    _layers_cache: Optional[List[List[Unit]]] = field(
+        init=False, default=None, repr=False, compare=False
+    )
+    """
+    Cached layers of the graph. Invalidated whenever the topology of the graph changes.
+    """
+
+    def _invalidate_topology_cache(self):
+        """
+        Invalidate the cached root and layers.
+
+        This must be called whenever nodes or edges are added to or removed from
+        the graph. Pure edge-weight updates (which do not change the topology) do
+        not require invalidation.
+        """
+        self._root_cache = None
+        self._layers_cache = None
+
     def __len__(self):
         """
         Return the number of nodes in the graph.
@@ -894,7 +914,11 @@ class ProbabilisticCircuit(ProbabilisticModel, SubclassJSONSerializer):
 
     @property
     def layers(self) -> List[List[Unit]]:
-        return rx.layers(self.graph, [self.root.index], index_output=False)
+        if self._layers_cache is None:
+            self._layers_cache = rx.layers(
+                self.graph, [self.root.index], index_output=False
+            )
+        return self._layers_cache
 
     @property
     def leaves(self) -> List[LeafUnit]:
@@ -927,6 +951,7 @@ class ProbabilisticCircuit(ProbabilisticModel, SubclassJSONSerializer):
 
         # write self as the nodes' circuit
         node.probabilistic_circuit = self
+        self._invalidate_topology_cache()
 
     def add_nodes_from(self, units: Iterable[Unit]):
         [self.add_node(node) for node in units]
@@ -934,6 +959,10 @@ class ProbabilisticCircuit(ProbabilisticModel, SubclassJSONSerializer):
     def add_edge(self, parent: Unit, child: Unit, log_weight: Optional[float] = None):
         self.add_node(parent)
         self.add_node(child)
+        # only the creation of a new edge changes the topology; updating the
+        # weight of an existing edge leaves root and layers untouched
+        if not self.graph.has_edge(parent.index, child.index):
+            self._invalidate_topology_cache()
         self.graph.add_edge(parent.index, child.index, log_weight)
 
     def add_edges_from(
@@ -954,12 +983,14 @@ class ProbabilisticCircuit(ProbabilisticModel, SubclassJSONSerializer):
         self.graph.remove_node(unit.index)
         unit.index = None
         unit.probabilistic_circuit = None
+        self._invalidate_topology_cache()
 
     def remove_nodes_from(self, units: Iterable[Unit]):
         [self.remove_node(unit) for unit in units]
 
     def remove_edge(self, parent: Unit, child: Unit):
         self.graph.remove_edge(parent.index, child.index)
+        self._invalidate_topology_cache()
 
     def remove_edges_from(self, edges: Iterable[Tuple[Unit, Unit]]):
         [self.remove_edge(*edge) for edge in edges]
@@ -992,6 +1023,7 @@ class ProbabilisticCircuit(ProbabilisticModel, SubclassJSONSerializer):
             )
             for parent, child in subgraph.edge_list()
         ]
+        self._invalidate_topology_cache()
         return new_nodes
 
     def nodes(self) -> List[Unit]:
@@ -1026,12 +1058,23 @@ class ProbabilisticCircuit(ProbabilisticModel, SubclassJSONSerializer):
 
         :return: The root of the circuit.
         """
-        possible_roots = [node for node in self.nodes() if self.in_degree(node) == 0]
+        if self._root_cache is not None:
+            return self._root_cache
+
+        # find all nodes with in-degree 0 at the index level to avoid building
+        # intermediate Unit lists for the whole graph
+        possible_roots = [
+            index
+            for index in self.graph.node_indices()
+            if self.graph.in_degree(index) == 0
+        ]
         if len(possible_roots) == 1:
-            return possible_roots[0]
+            self._root_cache = self.graph[possible_roots[0]]
+            return self._root_cache
         elif len(possible_roots) > 1:
             raise ValueError(
-                f"More than one root found. Possible roots are {possible_roots}"
+                f"More than one root found. Possible roots are "
+                f"{[self.graph[index] for index in possible_roots]}"
             )
         else:
             raise ValueError(f"No root found.")
@@ -1154,7 +1197,8 @@ class ProbabilisticCircuit(ProbabilisticModel, SubclassJSONSerializer):
         """
         # skip trivial case
         if event.is_empty():
-            self.graph.remove_nodes_from(list(self.graph.nodes()))
+            self.graph.remove_nodes_from(list(self.graph.node_indices()))
+            self._invalidate_topology_cache()
             return None, -np.inf
 
         # if the event is easy, don't create a proxy node
@@ -1244,6 +1288,7 @@ class ProbabilisticCircuit(ProbabilisticModel, SubclassJSONSerializer):
             for node in layer
             if node.result_of_current_query == -np.inf
         ]
+        self._invalidate_topology_cache()
 
         if root not in self.graph.nodes():
             return None, -np.inf
@@ -1648,6 +1693,7 @@ class ProbabilisticCircuit(ProbabilisticModel, SubclassJSONSerializer):
                         predecessor.add_subcircuit(sum_leaf, log_weight=weight)
                     self.graph.remove_edge(predecessor, leaf)
                 self.graph.remove_node(leaf)
+        self._invalidate_topology_cache()
 
     def apply_translation(self, translation: Dict[Variable, float]):
         for leaf in self.leaves:
