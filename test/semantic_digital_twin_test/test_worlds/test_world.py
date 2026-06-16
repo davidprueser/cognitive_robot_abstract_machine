@@ -1398,9 +1398,7 @@ def test_move_branch_offline_preserves_connection_type_and_pose():
         world.move_branch(
             fixed_child, new_parent, enable_unsafe_inside_world_block=True
         )
-        world.move_branch(
-            free_child, new_parent, enable_unsafe_inside_world_block=True
-        )
+        world.move_branch(free_child, new_parent, enable_unsafe_inside_world_block=True)
 
     assert fixed_child.parent_kinematic_structure_entity == new_parent
     assert isinstance(fixed_child.parent_connection, FixedConnection)
