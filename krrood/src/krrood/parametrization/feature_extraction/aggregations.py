@@ -6,7 +6,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from functools import cached_property
 
-from typing import Dict, Tuple, Type, List, Any
+from typing import Dict, Tuple, Type, List, Any, Optional
 
 from krrood.entity_query_language.core.base_expressions import SymbolicExpression
 from krrood.entity_query_language.core.mapped_variable import MappedVariable
@@ -44,7 +44,9 @@ class AggregationRegistry:
         cls._registry[(owner, attribute_name)] = aggregation_cls
 
     @classmethod
-    def get(cls, owner: Type, attribute_name: str) -> Type[AggregationStatistic]:
+    def get(
+        cls, owner: Type, attribute_name: str
+    ) -> Optional[Type[AggregationStatistic]]:
         """
         Returns the aggregation class registered for the given owner field.
 
@@ -55,12 +57,7 @@ class AggregationRegistry:
         """
         key = (owner, attribute_name)
         if key not in cls._registry:
-            raise KeyError(
-                f"No aggregation class registered for "
-                f"{owner.__name__}.{attribute_name}. "
-                f"Use @aggregation_for({owner.__name__!r}, {attribute_name!r}) "
-                f"to register one."
-            )
+            return None
         return cls._registry[key]
 
     @classmethod
@@ -200,7 +197,7 @@ class HasExchangeablePartAggregations(ABC):
 
     def get_aggregation_class_by_part_name(
         self, part_name: str
-    ) -> AggregationStatistic:
+    ) -> Optional[AggregationStatistic]:
         """
         Instantiates and returns the aggregation class registered for the named field.
 
@@ -209,4 +206,6 @@ class HasExchangeablePartAggregations(ABC):
         :raises KeyError: If no aggregation class is registered for ``part_name``.
         """
         aggregation_cls = AggregationRegistry.get(type(self), part_name)
+        if aggregation_cls is None:
+            return None
         return aggregation_cls(getattr(self, part_name))

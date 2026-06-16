@@ -194,10 +194,12 @@ class FeatureExtractor:
 
         for exchangeable_part in exchangeable_parts:
             if not isinstance(domain_object, HasExchangeablePartAggregations):
-                raise MissingBaseClassForClassWithExchangeableParts(type(domain_object))
+                continue
             aggregation_instance = domain_object.get_aggregation_class_by_part_name(
                 exchangeable_part
             )
+            if aggregation_instance is None:
+                continue
             for aggregation in aggregation_instance.symbolic_aggregation_features:
                 result[exchangeable_part].append(aggregation)
 

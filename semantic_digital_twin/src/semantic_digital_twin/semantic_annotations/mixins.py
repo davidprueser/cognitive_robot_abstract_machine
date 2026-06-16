@@ -8,6 +8,10 @@ import numpy as np
 import trimesh
 from krrood.entity_query_language.factories import variable_from, entity, variable, an
 from polytope import bounding_box
+
+from krrood.parametrization.feature_extraction.aggregations import (
+    HasExchangeablePartAggregations,
+)
 from probabilistic_model.distributions.gaussian import GaussianDistribution
 from random_events.product_algebra import Event
 from random_events.set import Set
@@ -749,9 +753,13 @@ class HasSupportingSurface(HasStorageSpace, ABC):
                 supporting_body=self.root,
             )
         )
-        objects = an(entity(
-            semantic_annotation := variable(HasRootBody, domain=self._world.semantic_annotations)
-        ).where(semantic_annotation.root == body)).evaluate()
+        objects = an(
+            entity(
+                semantic_annotation := variable(
+                    HasRootBody, domain=self._world.semantic_annotations
+                )
+            ).where(semantic_annotation.root == body)
+        ).evaluate()
         for obj in objects:
             if obj in self.objects:
                 continue

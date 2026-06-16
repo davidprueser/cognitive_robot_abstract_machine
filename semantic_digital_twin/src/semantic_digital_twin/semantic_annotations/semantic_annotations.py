@@ -4,6 +4,9 @@ from abc import ABC
 from dataclasses import dataclass, field
 from typing import Iterable, Optional, Self, Tuple, List
 
+from krrood.parametrization.feature_extraction.aggregations import (
+    HasExchangeablePartAggregations,
+)
 from random_events.interval import closed
 from random_events.product_algebra import SimpleEvent
 from typing_extensions import List, Type
@@ -384,7 +387,7 @@ class Drawer(Furniture, HasCaseAsRootBody, HasHandle, HasSlider, HasStorageSpace
 
 
 @dataclass(eq=False)
-class ShelfLayer(HasSupportingSurface):
+class ShelfLayer(HasSupportingSurface, HasExchangeablePartAggregations):
     """
     A horizontal surface used for storing objects, typically found inside cabinets or on walls.
     """

@@ -324,6 +324,8 @@ class RelationalProbabilisticCircuit:
         ).fit(class_dataframe)
         self.specification = EntityCompositionDescriptor(type(instances[0]))
         for exchangeable_part in self.specification.exchangeable_parts:
+            if exchangeable_part not in self.feature_extractor.exchangeable_features:
+                continue
             self.exchangeable_distribution_templates[exchangeable_part] = (
                 self._fit_exchangeable_part(exchangeable_part, instances)
             )
@@ -365,6 +367,8 @@ class RelationalProbabilisticCircuit:
                     exchangeable_part_name
                 )
             )
+            if aggregation_instance is None:
+                continue
             value = feature_function.apply_mapping_on_external_root(
                 aggregation_instance
             )

@@ -293,39 +293,39 @@ class AvoidCollisionBetweenGroupsDAO_body_group_b_association(
     target: Mapped[BodyDAO] = relationship("BodyDAO", foreign_keys=[target_bodydao_id])
 
 
-class EGObjectOnShelfAggregationsDAO_objects_to_aggregate_on_association(
-    Base, AssociationDataAccessObject
-):
+class EGShelfDAO_layers_association(Base, AssociationDataAccessObject):
 
-    __tablename__ = "_10288906647134475732909158652619177627240759120657347944704659"
-
-    database_id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    source_egobjectonshelfaggregationsdao_id: Mapped[int] = mapped_column(
-        ForeignKey("EGObjectOnShelfAggregationsDAO.database_id")
-    )
-    target_egobjectdao_id: Mapped[int] = mapped_column(
-        ForeignKey("EGObjectDAO.database_id")
-    )
-
-    target: Mapped[EGObjectDAO] = relationship(
-        "EGObjectDAO", foreign_keys=[target_egobjectdao_id]
-    )
-
-
-class EGShelfDAO_objects_association(Base, AssociationDataAccessObject):
-
-    __tablename__ = "_77561375796748590372608561529713410294055883339356546829308788"
+    __tablename__ = "_69165578633834869743397640643144209473259670495627202536745592"
 
     database_id: Mapped[int] = mapped_column(Integer, primary_key=True)
     source_egshelfdao_id: Mapped[int] = mapped_column(
         ForeignKey("EGShelfDAO.database_id")
     )
-    target_egobjectdao_id: Mapped[int] = mapped_column(
-        ForeignKey("EGObjectDAO.database_id")
+    target_shelflayerdao_id: Mapped[int] = mapped_column(
+        ForeignKey("ShelfLayerDAO.database_id")
     )
 
-    target: Mapped[EGObjectDAO] = relationship(
-        "EGObjectDAO", foreign_keys=[target_egobjectdao_id]
+    target: Mapped[ShelfLayerDAO] = relationship(
+        "ShelfLayerDAO", foreign_keys=[target_shelflayerdao_id]
+    )
+
+
+class EGShelfAggregationsDAO_objects_to_aggregate_on_association(
+    Base, AssociationDataAccessObject
+):
+
+    __tablename__ = "_74038813586241765583225316694693049770431702923378769137682181"
+
+    database_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    source_egshelfaggregationsdao_id: Mapped[int] = mapped_column(
+        ForeignKey("EGShelfAggregationsDAO.database_id")
+    )
+    target_shelflayerdao_id: Mapped[int] = mapped_column(
+        ForeignKey("ShelfLayerDAO.database_id")
+    )
+
+    target: Mapped[ShelfLayerDAO] = relationship(
+        "ShelfLayerDAO", foreign_keys=[target_shelflayerdao_id]
     )
 
 
@@ -629,6 +629,25 @@ class ShapeCollectionDAO_shapes_association(Base, AssociationDataAccessObject):
 
     target: Mapped[ShapeDAO] = relationship(
         "ShapeDAO", foreign_keys=[target_shapedao_id]
+    )
+
+
+class ShelfLayerAggregationsDAO_objects_to_aggregate_on_association(
+    Base, AssociationDataAccessObject
+):
+
+    __tablename__ = "_86547111059952404377212861200138116980704225450525254768689640"
+
+    database_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    source_shelflayeraggregationsdao_id: Mapped[int] = mapped_column(
+        ForeignKey("ShelfLayerAggregationsDAO.database_id")
+    )
+    target_egobjectdao_id: Mapped[int] = mapped_column(
+        ForeignKey("EGObjectDAO.database_id")
+    )
+
+    target: Mapped[EGObjectDAO] = relationship(
+        "EGObjectDAO", foreign_keys=[target_egobjectdao_id]
     )
 
 
@@ -1106,21 +1125,6 @@ class DishwasherDAO_doors_association(Base, AssociationDataAccessObject):
     target_doordao_id: Mapped[int] = mapped_column(ForeignKey("DoorDAO.database_id"))
 
     target: Mapped[DoorDAO] = relationship("DoorDAO", foreign_keys=[target_doordao_id])
-
-
-class ShelfDAO_objects_association(Base, AssociationDataAccessObject):
-
-    __tablename__ = "_11320785231300784509825124631139288554035232259597878954213901"
-
-    database_id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    source_shelfdao_id: Mapped[int] = mapped_column(ForeignKey("ShelfDAO.database_id"))
-    target_hasrootbodydao_id: Mapped[int] = mapped_column(
-        ForeignKey("HasRootBodyDAO.database_id")
-    )
-
-    target: Mapped[HasRootBodyDAO] = relationship(
-        "HasRootBodyDAO", foreign_keys=[target_hasrootbodydao_id]
-    )
 
 
 class SofaDAO_objects_association(Base, AssociationDataAccessObject):
@@ -2652,31 +2656,6 @@ class EGDataProcessingDAO(
     )
 
 
-class EGObjectOnShelfAggregationsDAO(
-    Base,
-    DataAccessObject[
-        semantic_digital_twin.adapters.adaptive_environment_generation.schema.EGObjectOnShelfAggregations
-    ],
-):
-
-    __tablename__ = "EGObjectOnShelfAggregationsDAO"
-
-    database_id: Mapped[builtins.int] = mapped_column(
-        Integer, primary_key=True, use_existing_column=True
-    )
-
-    objects_to_aggregate_on: Mapped[
-        builtins.list[
-            EGObjectOnShelfAggregationsDAO_objects_to_aggregate_on_association
-        ]
-    ] = relationship(
-        "EGObjectOnShelfAggregationsDAO_objects_to_aggregate_on_association",
-        collection_class=builtins.list,
-        cascade="all, delete-orphan",
-        foreign_keys="[EGObjectOnShelfAggregationsDAO_objects_to_aggregate_on_association.source_egobjectonshelfaggregationsdao_id]",
-    )
-
-
 class EGPoint2DDAO(
     EGBaseDAO,
     DataAccessObject[
@@ -2763,7 +2742,7 @@ class EGShelfDAO(
     )
 
     position_id: Mapped[int] = mapped_column(
-        ForeignKey("EGPositionDAO.database_id", use_alter=True),
+        ForeignKey("EGPoint2DDAO.database_id", use_alter=True),
         nullable=True,
         use_existing_column=True,
     )
@@ -2778,8 +2757,8 @@ class EGShelfDAO(
         use_existing_column=True,
     )
 
-    position: Mapped[EGPositionDAO] = relationship(
-        "EGPositionDAO", uselist=False, foreign_keys=[position_id], post_update=True
+    position: Mapped[EGPoint2DDAO] = relationship(
+        "EGPoint2DDAO", uselist=False, foreign_keys=[position_id], post_update=True
     )
     scale: Mapped[EGSizeDAO] = relationship(
         "EGSizeDAO", uselist=False, foreign_keys=[scale_id], post_update=True
@@ -2790,11 +2769,34 @@ class EGShelfDAO(
         foreign_keys=[orientation_id],
         post_update=True,
     )
-    objects: Mapped[builtins.list[EGShelfDAO_objects_association]] = relationship(
-        "EGShelfDAO_objects_association",
+    layers: Mapped[builtins.list[EGShelfDAO_layers_association]] = relationship(
+        "EGShelfDAO_layers_association",
         collection_class=builtins.list,
         cascade="all, delete-orphan",
-        foreign_keys="[EGShelfDAO_objects_association.source_egshelfdao_id]",
+        foreign_keys="[EGShelfDAO_layers_association.source_egshelfdao_id]",
+    )
+
+
+class EGShelfAggregationsDAO(
+    Base,
+    DataAccessObject[
+        semantic_digital_twin.adapters.adaptive_environment_generation.schema.EGShelfAggregations
+    ],
+):
+
+    __tablename__ = "EGShelfAggregationsDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        Integer, primary_key=True, use_existing_column=True
+    )
+
+    objects_to_aggregate_on: Mapped[
+        builtins.list[EGShelfAggregationsDAO_objects_to_aggregate_on_association]
+    ] = relationship(
+        "EGShelfAggregationsDAO_objects_to_aggregate_on_association",
+        collection_class=builtins.list,
+        cascade="all, delete-orphan",
+        foreign_keys="[EGShelfAggregationsDAO_objects_to_aggregate_on_association.source_egshelfaggregationsdao_id]",
     )
 
 
@@ -2933,6 +2935,72 @@ class EGObjectDAO(
 
     __mapper_args__ = {
         "polymorphic_identity": "EGObjectDAO",
+        "inherit_condition": database_id == EGWithIDDAO.database_id,
+    }
+
+
+class EGObject2DDAO(
+    EGWithIDDAO,
+    DataAccessObject[
+        semantic_digital_twin.adapters.adaptive_environment_generation.schema.EGObject2D
+    ],
+):
+
+    __tablename__ = "EGObject2DDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        ForeignKey(EGWithIDDAO.database_id), primary_key=True, use_existing_column=True
+    )
+
+    room_id: Mapped[builtins.str] = mapped_column(
+        sqlalchemy.sql.sqltypes.Text, use_existing_column=True
+    )
+    place_id: Mapped[builtins.str] = mapped_column(
+        sqlalchemy.sql.sqltypes.Text, use_existing_column=True
+    )
+    source_id: Mapped[builtins.str] = mapped_column(
+        sqlalchemy.sql.sqltypes.Text, use_existing_column=True
+    )
+
+    object_type: Mapped[
+        semantic_digital_twin.adapters.adaptive_environment_generation.schema.ObjectType
+    ] = mapped_column(
+        krrood.ormatic.custom_types.PolymorphicEnumType,
+        nullable=False,
+        use_existing_column=True,
+    )
+
+    scale_id: Mapped[int] = mapped_column(
+        ForeignKey("EGSizeDAO.database_id", use_alter=True),
+        nullable=True,
+        use_existing_column=True,
+    )
+    position_id: Mapped[int] = mapped_column(
+        ForeignKey("EGPoint2DDAO.database_id", use_alter=True),
+        nullable=True,
+        use_existing_column=True,
+    )
+    orientation_id: Mapped[int] = mapped_column(
+        ForeignKey("EGOrientationDAO.database_id", use_alter=True),
+        nullable=True,
+        use_existing_column=True,
+    )
+
+    scale: Mapped[EGSizeDAO] = relationship(
+        "EGSizeDAO", uselist=False, foreign_keys=[scale_id], post_update=True
+    )
+    position: Mapped[EGPoint2DDAO] = relationship(
+        "EGPoint2DDAO", uselist=False, foreign_keys=[position_id], post_update=True
+    )
+    orientation: Mapped[EGOrientationDAO] = relationship(
+        "EGOrientationDAO",
+        uselist=False,
+        foreign_keys=[orientation_id],
+        post_update=True,
+    )
+
+    __mapper_args__ = {
+        "polymorphic_identity": "EGObject2DDAO",
         "inherit_condition": database_id == EGWithIDDAO.database_id,
     }
 
@@ -5038,6 +5106,29 @@ class BoundingBoxCollectionDAO(
         "polymorphic_identity": "BoundingBoxCollectionDAO",
         "inherit_condition": database_id == ShapeCollectionDAO.database_id,
     }
+
+
+class ShelfLayerAggregationsDAO(
+    Base,
+    DataAccessObject[
+        semantic_digital_twin.adapters.adaptive_environment_generation.schema.ShelfLayerAggregations
+    ],
+):
+
+    __tablename__ = "ShelfLayerAggregationsDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        Integer, primary_key=True, use_existing_column=True
+    )
+
+    objects_to_aggregate_on: Mapped[
+        builtins.list[ShelfLayerAggregationsDAO_objects_to_aggregate_on_association]
+    ] = relationship(
+        "ShelfLayerAggregationsDAO_objects_to_aggregate_on_association",
+        collection_class=builtins.list,
+        cascade="all, delete-orphan",
+        foreign_keys="[ShelfLayerAggregationsDAO_objects_to_aggregate_on_association.source_shelflayeraggregationsdao_id]",
+    )
 
 
 class SimulatorAdditionalPropertyDAO(
@@ -9131,52 +9222,6 @@ class PlateDAO(
     __mapper_args__ = {
         "polymorphic_identity": "PlateDAO",
         "inherit_condition": database_id == HasSupportingSurfaceDAO.database_id,
-    }
-
-
-class ShelfDAO(
-    FurnitureDAO,
-    DataAccessObject[
-        semantic_digital_twin.semantic_annotations.semantic_annotations.Shelf
-    ],
-):
-
-    __tablename__ = "ShelfDAO"
-
-    database_id: Mapped[builtins.int] = mapped_column(
-        ForeignKey(FurnitureDAO.database_id), primary_key=True, use_existing_column=True
-    )
-
-    root_id: Mapped[int] = mapped_column(
-        ForeignKey("BodyDAO.database_id", use_alter=True),
-        nullable=True,
-        use_existing_column=True,
-    )
-    supporting_surface_id: Mapped[int] = mapped_column(
-        ForeignKey("RegionDAO.database_id", use_alter=True),
-        nullable=True,
-        use_existing_column=True,
-    )
-
-    root: Mapped[BodyDAO] = relationship(
-        "BodyDAO", uselist=False, foreign_keys=[root_id], post_update=True
-    )
-    objects: Mapped[builtins.list[ShelfDAO_objects_association]] = relationship(
-        "ShelfDAO_objects_association",
-        collection_class=builtins.list,
-        cascade="all, delete-orphan",
-        foreign_keys="[ShelfDAO_objects_association.source_shelfdao_id]",
-    )
-    supporting_surface: Mapped[RegionDAO] = relationship(
-        "RegionDAO",
-        uselist=False,
-        foreign_keys=[supporting_surface_id],
-        post_update=True,
-    )
-
-    __mapper_args__ = {
-        "polymorphic_identity": "ShelfDAO",
-        "inherit_condition": database_id == FurnitureDAO.database_id,
     }
 
 

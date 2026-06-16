@@ -11,7 +11,7 @@ import numpy as np
 
 from krrood.adapters.json_serializer import SubclassJSONSerializer, to_json
 from krrood.entity_query_language.core.base_expressions import SymbolicExpression
-from krrood.entity_query_language.factories import variable
+from krrood.entity_query_language.factories import variable, count
 from krrood.parametrization.feature_extraction.aggregations import (
     HasExchangeablePartAggregations,
     aggregation_for,
@@ -1098,6 +1098,26 @@ class RoomDoorAggregations(AggregationStatistic):
         return float(np.mean([d.width for d in self.objects_to_aggregate_on]))
 
 
+@dataclass
+@aggregation_for((ShelfLayer, "objects"))
+class ShelfLayerAggregations(AggregationStatistic):
+    """
+    Aggregation statistics over the objects on a shelf layer.
+    """
+
+    objects_to_aggregate_on: List[EGObject]
+
+    def _eql_variable(self) -> SymbolicExpression:
+        return variable(type(self), ["objects"])
+
+    def total_count(self) -> int:
+        """
+        Number of objects placed on the shelf layer.
+        """
+        [cou] = count(self._eql_variable).tolist()
+        return cou
+
+
 def build_source_id_to_path(
     scenes_root: Path = Path.home() / "Documents" / "sage-10k-scenes",
 ) -> Dict[str, Path]:
@@ -1147,34 +1167,22 @@ class EGShelf(HasExchangeablePartAggregations):
     The mesh path for this Shelf.
     """
 
-    layer_1: ShelfLayer
+    layers: List[ShelfLayer]
     """
-    Bottom layer.
-    """
-
-    layer_2: ShelfLayer
-    """
-    Second layer from bottom.
-    """
-
-    layer_3: ShelfLayer
-    """
-    Third layer from bottom.
-    """
-
-    layer_4: ShelfLayer
-    """
-    Top layer.
+    The layers of the Shelf.
     """
 
     object_type_to_source_ids: Optional[Dict[ObjectType, List[Tuple[Path, str]]]] = (
         field(default=None)
     )
-    shelf_scene_dir: Optional[Path] = field(default=None)
+    """
+    Mapping from object type to a list of source ids that belong to that type.
+    """
 
-    @property
-    def layers(self) -> List[ShelfLayer]:
-        return [self.layer_1, self.layer_2, self.layer_3, self.layer_4]
+    shelf_scene_dir: Optional[Path] = field(default=None)
+    """
+    The directory of the scene that contains this shelf.
+    """
 
     @classmethod
     def create_shelf_with_contents(
@@ -1243,7 +1251,7 @@ class EGShelf(HasExchangeablePartAggregations):
             shelf_scene_dir=shelf_scene_dir,
         )
 
-    def create_world(self) -> World:
+    def create_in_world(self) -> World:
         world = World()
         root = Body(name=PrefixedName(name="map"))
 
@@ -1299,6 +1307,22 @@ class EGShelf(HasExchangeablePartAggregations):
                 )
 
         return world
+
+
+@dataclass
+@aggregation_for((EGShelf, "layers"))
+class EGShelfAggregations(AggregationStatistic):
+    """
+    Aggregation statistics over the layers of a shelf.
+    """
+
+    objects_to_aggregate_on: List[ShelfLayer]
+
+    def _eql_variable(self) -> SymbolicExpression:
+        return variable(type(self), self.objects_to_aggregate_on)
+
+    def total_count(self):
+        return len(self.objects_to_aggregate_on)
 
 
 @dataclass
