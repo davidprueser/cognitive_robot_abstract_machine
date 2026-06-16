@@ -5,7 +5,6 @@ import copy
 import itertools
 import math
 import queue
-import random
 from abc import abstractmethod, ABC
 from dataclasses import dataclass, field
 from enum import IntEnum
@@ -300,16 +299,24 @@ class LeafUnit(Unit):
     def sample(self, samples: npt.NDArray, variable_to_index_map: Dict[Variable, int]):
         """
         Sample from the distribution and write the samples into the samples array.
+
+        During sampling each node accumulates, in ``result_of_current_query``, the
+        indices of the rows in ``samples`` that are routed to it (as a list of
+        index arrays, one per parent contribution). This leaf draws all of its
+        samples in a single batched call instead of once per request.
+
         :param samples: The array to write the samples into.
         :param variable_to_index_map: The map from variables to column indices in the samples array.
         """
+        if not self.result_of_current_query:
+            return
+        rows = np.concatenate(self.result_of_current_query)
+        if len(rows) == 0:
+            return
         column_indices = [
             variable_to_index_map[variable] for variable in self.variables
         ]
-        for start_index, amount in self.result_of_current_query:
-            samples[start_index : start_index + amount, column_indices] = (
-                self.distribution.sample(amount)
-            )
+        samples[rows[:, None], column_indices] = self.distribution.sample(len(rows))
 
     def marginal(self, variables: Iterable[Variable]) -> Optional[Self]:
         marginal = self.distribution.marginal(variables)
@@ -483,25 +490,30 @@ class SumUnit(InnerUnit):
         return np.array([weight for weight, _ in self.log_weighted_subcircuits])
 
     def sample(self, *args, **kwargs):
-        weights, subcircuits = self.log_weights, self.subcircuits
+        if not self.result_of_current_query:
+            return
 
-        subcircuit_indices = list(range(len(subcircuits)))
-        # for every sampling request
-        for start_index, amount in self.result_of_current_query:
+        # all rows routed to this unit by its parents
+        rows = np.concatenate(self.result_of_current_query)
+        if len(rows) == 0:
+            return
 
-            # calculate the numbers of samples requested from the sub circuits
-            counts = np.random.multinomial(amount, pvals=np.exp(weights))
-            total = 0
+        # fetch weights and subcircuits together to keep them aligned
+        log_weighted_subcircuits = self.log_weighted_subcircuits
+        weights = np.exp([log_weight for log_weight, _ in log_weighted_subcircuits])
 
-            # shuffle the order to sample from the subcircuits to avoid bias
-            random.shuffle(subcircuit_indices)
+        # assign every row to one subcircuit according to the weights
+        counts = np.random.multinomial(len(rows), pvals=weights)
 
-            # add the sampling requests to the subcircuits
-            for index in subcircuit_indices:
-                subcircuit = subcircuits[index]
-                count = counts[index]
-                subcircuit.result_of_current_query.append((start_index + total, count))
-                total += count
+        # shuffle the rows so the contiguous chunks handed to the subcircuits are
+        # an unbiased partition
+        np.random.shuffle(rows)
+
+        offset = 0
+        for count, (_, subcircuit) in zip(counts, log_weighted_subcircuits):
+            if count:
+                subcircuit.result_of_current_query.append(rows[offset : offset + count])
+            offset += count
 
     def mount_with_interaction_terms(
         self, other: Self, interaction_model: ProbabilisticModel
@@ -808,9 +820,14 @@ class ProductUnit(InnerUnit):
                     subcircuit.add_subcircuit(sub_subcircuit)
 
     def sample(self, *args, **kwargs):
-        for start_index, amount in self.result_of_current_query:
-            for subcircuit in self.subcircuits:
-                subcircuit.result_of_current_query.append([start_index, amount])
+        if not self.result_of_current_query:
+            return
+        # a decomposable product routes every one of its rows to each child
+        rows = np.concatenate(self.result_of_current_query)
+        if len(rows) == 0:
+            return
+        for subcircuit in self.subcircuits:
+            subcircuit.result_of_current_query.append(rows)
 
     def attach_marginal_circuit(
         self,
@@ -1336,8 +1353,8 @@ class ProbabilisticCircuit(ProbabilisticModel, SubclassJSONSerializer):
 
         variable_to_index_map = self.variable_to_index_map
 
-        # initialize the sample arguments
-        self.root.result_of_current_query.append((0, amount))
+        # the root is responsible for every row of the output array
+        self.root.result_of_current_query.append(np.arange(amount))
 
         # initialize the samples
         samples = np.full((amount, len(variable_to_index_map)), np.nan)
