@@ -68,7 +68,7 @@ class RelationalCircuitRegistry(ModelRegistry):
     """
 
     def get_model(self, parameters: UnderspecifiedParameters) -> ProbabilisticModel:
-        grounded = self.relational_probabilistic_circuit.ground(self.query)
+        grounded = self.relational_probabilistic_circuit.ground(parameters.statement)
         class_prefix = self.relational_probabilistic_circuit.class_.__name__
         rename_map = {
             circuit_var: parameters.variables[f"{class_prefix}.{circuit_var.name}"]

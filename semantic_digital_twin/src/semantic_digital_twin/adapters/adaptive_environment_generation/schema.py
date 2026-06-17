@@ -32,6 +32,7 @@ from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Handle,
     Hinge,
     ShelfLayer,
+    Cabinet,
 )
 from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix, Vector3
 from semantic_digital_twin.spatial_types.derivatives import DerivativeMap
@@ -1121,23 +1122,39 @@ class RoomDoorAggregations(AggregationStatistic):
 
 
 @dataclass
-@aggregation_for((ShelfLayer, "objects"))
-class ShelfLayerAggregations(AggregationStatistic):
+class EGShelfLayer(HasExchangeablePartAggregations):
     """
-    Aggregation statistics over the objects on a shelf layer.
+    A shelf layer for environment generation. Carries its own physical dimensions so the RSPN
+    can learn width and length alongside object placement, rather than inheriting a fixed size
+    from the parent shelf.
     """
 
-    objects_to_aggregate_on: List[EGObject]
+    scale: EGSize
+    """
+    Physical dimensions of the layer slab (width × length × height).
+    """
+
+    objects: List[EGObject2D]
+    """
+    Objects placed on this layer, with positions relative to the layer centre.
+    """
+
+
+@dataclass
+@aggregation_for((EGShelfLayer, "objects"))
+class EGShelfLayerAggregations(AggregationStatistic):
+    """
+    Aggregation statistics over the objects on an EGShelfLayer.
+    """
+
+    objects_to_aggregate_on: List[EGObject2D]
 
     def _eql_variable(self) -> SymbolicExpression:
         return variable(type(self), ["objects"])
 
     def total_count(self) -> int:
-        """
-        Number of objects placed on the shelf layer.
-        """
-        [cou] = count(self._eql_variable).tolist()
-        return cou
+        """Number of objects placed on the shelf layer."""
+        return len(self.objects_to_aggregate_on)
 
 
 def build_source_id_to_path(
@@ -1189,7 +1206,7 @@ class EGShelf(HasExchangeablePartAggregations):
     # The mesh path for this Shelf.
     # """
 
-    layers: List[ShelfLayer]
+    layers: List[EGShelfLayer]
     """
     The layers of the Shelf.
     """
@@ -1206,10 +1223,29 @@ class EGShelf(HasExchangeablePartAggregations):
             with _world.modify_world():
                 _world.add_body(root)
 
-        step = self.scale.height / (len(self.layers) + 1)
+        corpus_face = max(layer.scale.width for layer in self.layers)
+        corpus_depth = max(layer.scale.length for layer in self.layers)
+        corpus_height = self.scale.height
+
+        corpus_pose = HomogeneousTransformationMatrix.from_xyz_rpy(
+            x=self.position.x,
+            y=self.position.y,
+            z=corpus_height / 2,
+            reference_frame=_world.root,
+        )
+        with _world.modify_world():
+            Cabinet.create_with_new_body_in_world(
+                name=PrefixedName(name="shelf_corpus"),
+                world=_world,
+                world_root_T_self=corpus_pose,
+                scale=Scale(x=corpus_depth, y=corpus_face, z=corpus_height),
+                wall_thickness=0.03,
+            )
+
+        step = corpus_height / (len(self.layers) + 1)
         layer_z_heights = [step * (i + 1) for i in range(len(self.layers))]
 
-        layer_scale = Scale(x=self.scale.width, y=self.scale.length, z=0.02)
+        layer_scale = Scale(x=corpus_depth, y=corpus_face, z=0.02)
         for i, (layer, z_height) in enumerate(zip(self.layers, layer_z_heights)):
             layer_pose = HomogeneousTransformationMatrix.from_xyz_rpy(
                 x=self.position.x,
@@ -1232,8 +1268,8 @@ class EGShelf(HasExchangeablePartAggregations):
                     continue
                 scene_dir, source_id = random.choice(self.book_source_ids)
                 obj.source_id = source_id
-                absolute_x = self.position.x + obj.position.x
-                absolute_y = self.position.y + obj.position.y
+                absolute_x = self.position.x + obj.position.y
+                absolute_y = self.position.y + obj.position.x
                 absolute_z = z_height + obj.scale.height / 2
                 obj.create_in_world(
                     _world,
@@ -1254,7 +1290,7 @@ class EGShelfAggregations(AggregationStatistic):
     Aggregation statistics over the layers of a shelf.
     """
 
-    objects_to_aggregate_on: List[ShelfLayer]
+    objects_to_aggregate_on: List[EGShelfLayer]
 
     def _eql_variable(self) -> SymbolicExpression:
         return variable(type(self), self.objects_to_aggregate_on)

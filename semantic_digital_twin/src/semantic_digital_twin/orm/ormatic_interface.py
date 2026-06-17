@@ -301,12 +301,12 @@ class EGShelfDAO_layers_association(Base, AssociationDataAccessObject):
     source_egshelfdao_id: Mapped[int] = mapped_column(
         ForeignKey("EGShelfDAO.database_id")
     )
-    target_shelflayerdao_id: Mapped[int] = mapped_column(
-        ForeignKey("ShelfLayerDAO.database_id")
+    target_egshelflayerdao_id: Mapped[int] = mapped_column(
+        ForeignKey("EGShelfLayerDAO.database_id")
     )
 
-    target: Mapped[ShelfLayerDAO] = relationship(
-        "ShelfLayerDAO", foreign_keys=[target_shelflayerdao_id]
+    target: Mapped[EGShelfLayerDAO] = relationship(
+        "EGShelfLayerDAO", foreign_keys=[target_egshelflayerdao_id]
     )
 
 
@@ -320,12 +320,48 @@ class EGShelfAggregationsDAO_objects_to_aggregate_on_association(
     source_egshelfaggregationsdao_id: Mapped[int] = mapped_column(
         ForeignKey("EGShelfAggregationsDAO.database_id")
     )
-    target_shelflayerdao_id: Mapped[int] = mapped_column(
-        ForeignKey("ShelfLayerDAO.database_id")
+    target_egshelflayerdao_id: Mapped[int] = mapped_column(
+        ForeignKey("EGShelfLayerDAO.database_id")
     )
 
-    target: Mapped[ShelfLayerDAO] = relationship(
-        "ShelfLayerDAO", foreign_keys=[target_shelflayerdao_id]
+    target: Mapped[EGShelfLayerDAO] = relationship(
+        "EGShelfLayerDAO", foreign_keys=[target_egshelflayerdao_id]
+    )
+
+
+class EGShelfLayerDAO_objects_association(Base, AssociationDataAccessObject):
+
+    __tablename__ = "_89926825147368461897816362428598777200141799781647619161700224"
+
+    database_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    source_egshelflayerdao_id: Mapped[int] = mapped_column(
+        ForeignKey("EGShelfLayerDAO.database_id")
+    )
+    target_egobject2ddao_id: Mapped[int] = mapped_column(
+        ForeignKey("EGObject2DDAO.database_id")
+    )
+
+    target: Mapped[EGObject2DDAO] = relationship(
+        "EGObject2DDAO", foreign_keys=[target_egobject2ddao_id]
+    )
+
+
+class EGShelfLayerAggregationsDAO_objects_to_aggregate_on_association(
+    Base, AssociationDataAccessObject
+):
+
+    __tablename__ = "_55036278952364349498515616419721766574081059182476614481169595"
+
+    database_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    source_egshelflayeraggregationsdao_id: Mapped[int] = mapped_column(
+        ForeignKey("EGShelfLayerAggregationsDAO.database_id")
+    )
+    target_egobject2ddao_id: Mapped[int] = mapped_column(
+        ForeignKey("EGObject2DDAO.database_id")
+    )
+
+    target: Mapped[EGObject2DDAO] = relationship(
+        "EGObject2DDAO", foreign_keys=[target_egobject2ddao_id]
     )
 
 
@@ -629,25 +665,6 @@ class ShapeCollectionDAO_shapes_association(Base, AssociationDataAccessObject):
 
     target: Mapped[ShapeDAO] = relationship(
         "ShapeDAO", foreign_keys=[target_shapedao_id]
-    )
-
-
-class ShelfLayerAggregationsDAO_objects_to_aggregate_on_association(
-    Base, AssociationDataAccessObject
-):
-
-    __tablename__ = "_86547111059952404377212861200138116980704225450525254768689640"
-
-    database_id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    source_shelflayeraggregationsdao_id: Mapped[int] = mapped_column(
-        ForeignKey("ShelfLayerAggregationsDAO.database_id")
-    )
-    target_egobjectdao_id: Mapped[int] = mapped_column(
-        ForeignKey("EGObjectDAO.database_id")
-    )
-
-    target: Mapped[EGObjectDAO] = relationship(
-        "EGObjectDAO", foreign_keys=[target_egobjectdao_id]
     )
 
 
@@ -2789,6 +2806,59 @@ class EGShelfAggregationsDAO(
         collection_class=builtins.list,
         cascade="all, delete-orphan",
         foreign_keys="[EGShelfAggregationsDAO_objects_to_aggregate_on_association.source_egshelfaggregationsdao_id]",
+    )
+
+
+class EGShelfLayerDAO(
+    Base,
+    DataAccessObject[
+        semantic_digital_twin.adapters.adaptive_environment_generation.schema.EGShelfLayer
+    ],
+):
+
+    __tablename__ = "EGShelfLayerDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        Integer, primary_key=True, use_existing_column=True
+    )
+
+    scale_id: Mapped[int] = mapped_column(
+        ForeignKey("EGSizeDAO.database_id", use_alter=True),
+        nullable=True,
+        use_existing_column=True,
+    )
+
+    scale: Mapped[EGSizeDAO] = relationship(
+        "EGSizeDAO", uselist=False, foreign_keys=[scale_id], post_update=True
+    )
+    objects: Mapped[builtins.list[EGShelfLayerDAO_objects_association]] = relationship(
+        "EGShelfLayerDAO_objects_association",
+        collection_class=builtins.list,
+        cascade="all, delete-orphan",
+        foreign_keys="[EGShelfLayerDAO_objects_association.source_egshelflayerdao_id]",
+    )
+
+
+class EGShelfLayerAggregationsDAO(
+    Base,
+    DataAccessObject[
+        semantic_digital_twin.adapters.adaptive_environment_generation.schema.EGShelfLayerAggregations
+    ],
+):
+
+    __tablename__ = "EGShelfLayerAggregationsDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        Integer, primary_key=True, use_existing_column=True
+    )
+
+    objects_to_aggregate_on: Mapped[
+        builtins.list[EGShelfLayerAggregationsDAO_objects_to_aggregate_on_association]
+    ] = relationship(
+        "EGShelfLayerAggregationsDAO_objects_to_aggregate_on_association",
+        collection_class=builtins.list,
+        cascade="all, delete-orphan",
+        foreign_keys="[EGShelfLayerAggregationsDAO_objects_to_aggregate_on_association.source_egshelflayeraggregationsdao_id]",
     )
 
 
@@ -5098,29 +5168,6 @@ class BoundingBoxCollectionDAO(
         "polymorphic_identity": "BoundingBoxCollectionDAO",
         "inherit_condition": database_id == ShapeCollectionDAO.database_id,
     }
-
-
-class ShelfLayerAggregationsDAO(
-    Base,
-    DataAccessObject[
-        semantic_digital_twin.adapters.adaptive_environment_generation.schema.ShelfLayerAggregations
-    ],
-):
-
-    __tablename__ = "ShelfLayerAggregationsDAO"
-
-    database_id: Mapped[builtins.int] = mapped_column(
-        Integer, primary_key=True, use_existing_column=True
-    )
-
-    objects_to_aggregate_on: Mapped[
-        builtins.list[ShelfLayerAggregationsDAO_objects_to_aggregate_on_association]
-    ] = relationship(
-        "ShelfLayerAggregationsDAO_objects_to_aggregate_on_association",
-        collection_class=builtins.list,
-        cascade="all, delete-orphan",
-        foreign_keys="[ShelfLayerAggregationsDAO_objects_to_aggregate_on_association.source_shelflayeraggregationsdao_id]",
-    )
 
 
 class SimulatorAdditionalPropertyDAO(

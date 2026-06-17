@@ -387,7 +387,7 @@ class Drawer(Furniture, HasCaseAsRootBody, HasHandle, HasSlider, HasStorageSpace
 
 
 @dataclass(eq=False)
-class ShelfLayer(HasSupportingSurface, HasExchangeablePartAggregations):
+class ShelfLayer(HasSupportingSurface):
     """
     A horizontal surface used for storing objects, typically found inside cabinets or on walls.
     """

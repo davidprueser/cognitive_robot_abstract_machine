@@ -42,6 +42,7 @@ from semantic_digital_twin.adapters.adaptive_environment_generation.schema impor
     SceneGenerator,
     EGObject,
     EGObject2D,
+    EGShelfLayer,
     EGRoom,
     EGPosition,
     EGSize,
@@ -313,7 +314,7 @@ def test_simple_underspecified_environment(rclpy_node):
     viz_marker.with_tf_publisher()
 
 
-def _extract_shelf_layers_from_objects(session: Session, world) -> List[ShelfLayer]:
+def _extract_shelf_layers_from_objects(session: Session) -> List[EGShelfLayer]:
     """
     Load all scenes and group objects by the shelf they are placed on.
 
@@ -363,10 +364,32 @@ def _extract_shelf_layers_from_objects(session: Session, world) -> List[ShelfLay
         objects_per_layer = defaultdict(list)
 
         for obj, label in zip(objects_in_shelf, labels):
-            objects_per_layer[label].append(obj)
+            relative_obj = EGObject2D(
+                id=obj.id,
+                room_id=obj.room_id,
+                place_id=obj.place_id,
+                object_type=obj.object_type,
+                scale=EGSize(
+                    width=obj.scale.width,
+                    length=obj.scale.length,
+                    height=obj.scale.height,
+                ),
+                position=EGPoint2D(
+                    x=obj.position.x - shelf.position.x,
+                    y=obj.position.y - shelf.position.y,
+                ),
+                orientation=EGOrientation(
+                    x=obj.orientation.x, y=obj.orientation.y, z=obj.orientation.z
+                ),
+                source_id=obj.source_id,
+            )
+            objects_per_layer[label].append(relative_obj)
 
         for _, objects in objects_per_layer.items():
-            layer = ShelfLayer(objects=objects, root=world.root)
+            layer = EGShelfLayer(
+                scale=EGSize(width=shelf.scale.width, length=shelf.scale.length, height=0.02),
+                objects=objects,
+            )
             shelf_layers.append(layer)
 
     return shelf_layers
@@ -433,24 +456,24 @@ def test_rspn_fitting_on_shelves(rclpy_node):
     if not session.scalars(select(EGObjectDAO)).first():
         session = add_to_database(session)
 
-    shelf_layers = _extract_shelf_layers_from_objects(session, world)
+    shelf_layers = _extract_shelf_layers_from_objects(session)
     assert (
         shelf_layers
     ), "No shelves with objects found — check the sage-10k-layouts path."
 
     layer_daos = [to_dao(layer) for layer in shelf_layers]
 
-    rspn = RelationalProbabilisticCircuit(ShelfLayer)
-    rspn.fit(layer_daos)
+    rspn = RelationalProbabilisticCircuit(EGShelfLayer)
+    rspn = rspn.fit(layer_daos)
 
     assert rspn.class_probabilistic_circuit is not None
     assert rspn.class_probabilistic_circuit.is_valid()
-    # assert any(k.endswith(".objects") for k in rspn.exchangeable_distribution_templates)
 
     num_objects_per_layer = 3
 
     def _layer_query(n: int):
-        return underspecified(ShelfLayer)(
+        return underspecified(EGShelfLayer)(
+            scale=underspecified(EGSize)(width=..., length=..., height=...),
             objects=[
                 underspecified(EGObject2D)(
                     id=None,
@@ -464,7 +487,6 @@ def test_rspn_fitting_on_shelves(rclpy_node):
                 )
                 for _ in range(n)
             ],
-            root=None,
         )
 
     registry = RelationalCircuitRegistry(
@@ -482,12 +504,13 @@ def test_rspn_fitting_on_shelves(rclpy_node):
     book_source_ids = [
         (source_id_to_path[obj.source_id], obj.source_id)
         for obj in training_objects
-        if BookObjectType.contains(obj.object_type) and obj.source_id in source_id_to_path
+        if BookObjectType.contains(obj.object_type)
+        and obj.source_id in source_id_to_path
     ]
 
     shelf_sample = EGShelf(
         position=EGPoint2D(x=0.0, y=0.0),
-        scale=EGSize(height=2.0, length=0.5, width=1.0),
+        scale=EGSize(height=2.0, length=1.5, width=0.5),
         orientation=EGOrientation(x=0.0, y=0.0, z=0.0),
         layers=sampled_layers,
         book_source_ids=book_source_ids,
