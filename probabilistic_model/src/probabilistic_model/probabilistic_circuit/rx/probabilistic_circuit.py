@@ -2,6 +2,7 @@ from __future__ import annotations
 import numpy.typing as npt
 
 import copy
+import functools
 import itertools
 import math
 import queue
@@ -41,7 +42,7 @@ from probabilistic_model.probabilistic_model import (
     CenterType,
     MomentType,
 )
-from probabilistic_model.utils import MissingDict
+from probabilistic_model.utils import MissingDict, logsumexp
 from random_events.interval import SimpleInterval, Interval
 from random_events.product_algebra import VariableMap, SimpleEvent, Event
 from random_events.set import Set
@@ -49,31 +50,28 @@ from krrood.adapters.json_serializer import SubclassJSONSerializer, to_json, fro
 from random_events.variable import Variable, Symbolic, Continuous, Integer
 
 
-def logsumexp(values, axis=None):
+def invalidates_topology_cache(method):
     """
-    Numerically stable logarithm of a sum of exponentials.
+    Decorator for :class:`ProbabilisticCircuit` methods that change the graph topology.
 
-    This is a lightweight drop-in for :func:`scipy.special.logsumexp` covering the
-    cases used in this module (a list or array reduced over ``axis``, or a
-    one-dimensional array reduced over everything). scipy's implementation carries
-    large per-call dispatch overhead that dominates the circuit inference loops,
-    where this function is called once per sum unit per query.
+    After the wrapped method has run, the circuit's cached root and layers are
+    invalidated so that they are recomputed on the next access. Use this only for
+    methods whose effect on the topology is unconditional and complete by the time
+    they return; methods that invalidate conditionally (e.g. only when a new edge is
+    actually created) or that need a valid cache part-way through their own body
+    invalidate the cache explicitly instead.
 
-    :param values: The values to reduce. May be a list of scalars or arrays.
-    :param axis: The axis to reduce over, or ``None`` to reduce over all entries.
-    :return: ``log(sum(exp(values)))`` reduced over ``axis``.
+    :param method: The method to wrap.
+    :return: The wrapped method.
     """
-    values = np.asarray(values, dtype=float)
-    maximum = np.amax(values, axis=axis, keepdims=True)
-    # avoid NaN when a whole reduction is -inf (or +inf): subtract 0.0 instead
-    maximum = np.where(np.isfinite(maximum), maximum, 0.0)
-    with np.errstate(divide="ignore"):
-        result = (
-            np.log(np.sum(np.exp(values - maximum), axis=axis, keepdims=True)) + maximum
-        )
-    if axis is None:
-        return result.reshape(())[()]
-    return np.squeeze(result, axis=axis)
+
+    @functools.wraps(method)
+    def wrapper(self, *args, **kwargs):
+        result = method(self, *args, **kwargs)
+        self._invalidate_topology_cache()
+        return result
+
+    return wrapper
 
 
 class PlotAlignment(IntEnum):
@@ -334,11 +332,11 @@ class LeafUnit(Unit):
         :param samples: The array to write the samples into.
         :param variable_to_index_map: The map from variables to column indices in the samples array.
         """
+        # a subcircuit legitimately receives no rows when an ancestor mixture
+        # assigns it zero samples; there is then nothing for this leaf to draw
         if not self.result_of_current_query:
             return
         rows = np.concatenate(self.result_of_current_query)
-        if len(rows) == 0:
-            return
         column_indices = [
             variable_to_index_map[variable] for variable in self.variables
         ]
@@ -525,13 +523,13 @@ class SumUnit(InnerUnit):
         proportional to the number of samples instead of the number of paths through
         the circuit.
         """
+        # a subcircuit legitimately receives no rows when an ancestor mixture
+        # assigns it zero samples; there is then nothing to route onward
         if not self.result_of_current_query:
             return
 
         # all sample rows routed to this unit by its parents
         rows = np.concatenate(self.result_of_current_query)
-        if len(rows) == 0:
-            return
 
         # fetch weights and subcircuits together to keep them aligned
         log_weighted_subcircuits = self.log_weighted_subcircuits
@@ -546,8 +544,9 @@ class SumUnit(InnerUnit):
 
         offset = 0
         for count, (_, subcircuit) in zip(counts, log_weighted_subcircuits):
-            if count:
-                subcircuit.result_of_current_query.append(rows[offset : offset + count])
+            if not count:
+                continue
+            subcircuit.result_of_current_query.append(rows[offset : offset + count])
             offset += count
 
     def mount_with_interaction_terms(
@@ -862,12 +861,12 @@ class ProductUnit(InnerUnit):
         row is forwarded unchanged to each subcircuit; the subcircuits then fill in
         their respective columns of the same rows.
         """
+        # a subcircuit legitimately receives no rows when an ancestor mixture
+        # assigns it zero samples; there is then nothing to route onward
         if not self.result_of_current_query:
             return
         # a decomposable product routes every one of its rows to each subcircuit
         rows = np.concatenate(self.result_of_current_query)
-        if len(rows) == 0:
-            return
         for subcircuit in self.subcircuits:
             subcircuit.result_of_current_query.append(rows)
 
@@ -995,7 +994,9 @@ class ProbabilisticCircuit(ProbabilisticModel, SubclassJSONSerializer):
         return rx.is_directed_acyclic_graph(self.graph) and self.root
 
     def add_node(self, node: Unit):
-
+        # invalidation is conditional here (a node that already belongs to this
+        # circuit is a no-op), so it is done inline rather than via
+        # ``@invalidates_topology_cache``
         if node.probabilistic_circuit is self and node.index is not None:
             return
         elif (
@@ -1018,8 +1019,10 @@ class ProbabilisticCircuit(ProbabilisticModel, SubclassJSONSerializer):
     def add_edge(self, parent: Unit, child: Unit, log_weight: Optional[float] = None):
         self.add_node(parent)
         self.add_node(child)
-        # only the creation of a new edge changes the topology; updating the
-        # weight of an existing edge leaves root and layers untouched
+        # invalidation is conditional here: only creating a new edge changes the
+        # topology, while updating the weight of an existing edge leaves root and
+        # layers untouched. It is therefore done inline rather than via
+        # ``@invalidates_topology_cache``
         if not self.graph.has_edge(parent.index, child.index):
             self._invalidate_topology_cache()
         self.graph.add_edge(parent.index, child.index, log_weight)
@@ -1038,18 +1041,18 @@ class ProbabilisticCircuit(ProbabilisticModel, SubclassJSONSerializer):
     def predecessors(self, unit: Unit) -> List[InnerUnit]:
         return self.graph.predecessors(unit.index)
 
+    @invalidates_topology_cache
     def remove_node(self, unit: Unit):
         self.graph.remove_node(unit.index)
         unit.index = None
         unit.probabilistic_circuit = None
-        self._invalidate_topology_cache()
 
     def remove_nodes_from(self, units: Iterable[Unit]):
         [self.remove_node(unit) for unit in units]
 
+    @invalidates_topology_cache
     def remove_edge(self, parent: Unit, child: Unit):
         self.graph.remove_edge(parent.index, child.index)
-        self._invalidate_topology_cache()
 
     def remove_edges_from(self, edges: Iterable[Tuple[Unit, Unit]]):
         [self.remove_edge(*edge) for edge in edges]
@@ -1064,6 +1067,7 @@ class ProbabilisticCircuit(ProbabilisticModel, SubclassJSONSerializer):
             for parent_index, _, edge_data in self.graph.in_edges(unit.index)
         ]
 
+    @invalidates_topology_cache
     def add_from_subgraph(self, subgraph: rx.PyDAG[Unit]) -> Dict[int, Unit]:
         """
         Add nodes and edges from a subgraph to this circuit.
@@ -1082,7 +1086,6 @@ class ProbabilisticCircuit(ProbabilisticModel, SubclassJSONSerializer):
             )
             for parent, child in subgraph.edge_list()
         ]
-        self._invalidate_topology_cache()
         return new_nodes
 
     def nodes(self) -> List[Unit]:
