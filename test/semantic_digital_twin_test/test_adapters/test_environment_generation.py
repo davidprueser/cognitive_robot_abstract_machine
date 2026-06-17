@@ -3,7 +3,7 @@ import os
 import random
 from collections import defaultdict
 from pathlib import Path
-from typing import Dict, List
+from typing import List
 
 import numpy as np
 from sklearn.cluster import DBSCAN
@@ -51,6 +51,7 @@ from semantic_digital_twin.adapters.adaptive_environment_generation.schema impor
     EGOrientation,
     EGShelf,
     ObjectType,
+    BookObjectType,
     build_source_id_to_path,
 )
 from semantic_digital_twin.adapters.partnet_mobility_dataset.loader import (
@@ -324,7 +325,7 @@ def _extract_shelf_layers_from_objects(session: Session, world) -> List[ShelfLay
     shelf_layers = []
 
     shelves = [obj for obj in objects if obj.object_type == ObjectType.SHELF]
-    non_shelves = [obj for obj in objects if obj.object_type != ObjectType.SHELF]
+    non_shelves = [obj for obj in objects if BookObjectType.contains(obj.object_type)]
 
     for shelf in shelves:
         region = BoundingBox(
@@ -475,20 +476,24 @@ def test_rspn_fitting_on_shelves(rclpy_node):
         next(iter(prob_backend.evaluate(_layer_query(num_objects_per_layer))))
         for _ in range(4)
     ]
+
+    source_id_to_path = build_source_id_to_path()
+    training_objects = session.scalars(select(EGObjectDAO).distinct().limit(1000)).all()
+    book_source_ids = [
+        (source_id_to_path[obj.source_id], obj.source_id)
+        for obj in training_objects
+        if BookObjectType.contains(obj.object_type) and obj.source_id in source_id_to_path
+    ]
+
     shelf_sample = EGShelf(
         position=EGPoint2D(x=0.0, y=0.0),
         scale=EGSize(height=2.0, length=0.5, width=1.0),
         orientation=EGOrientation(x=0.0, y=0.0, z=0.0),
-        source_id="efb30c99",
-        layers=[
-            sampled_layers[0],
-            sampled_layers[1],
-            sampled_layers[2],
-            sampled_layers[3],
-        ],
+        layers=sampled_layers,
+        book_source_ids=book_source_ids,
     )
 
     assert all(layer.objects for layer in shelf_sample.layers)
-    shelf_sample.create_in_world
+    world = shelf_sample.create_in_world()
     viz_marker = VizMarkerPublisher(node=rclpy_node, _world=world)
     viz_marker.with_tf_publisher()

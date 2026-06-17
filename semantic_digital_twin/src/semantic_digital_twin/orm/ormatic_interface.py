@@ -2733,14 +2733,6 @@ class EGShelfDAO(
         Integer, primary_key=True, use_existing_column=True
     )
 
-    source_id: Mapped[builtins.str] = mapped_column(
-        sqlalchemy.sql.sqltypes.Text, use_existing_column=True
-    )
-
-    shelf_scene_dir: Mapped[typing.Optional[pathlib.Path]] = mapped_column(
-        krrood.ormatic.custom_types.PathType, nullable=True, use_existing_column=True
-    )
-
     position_id: Mapped[int] = mapped_column(
         ForeignKey("EGPoint2DDAO.database_id", use_alter=True),
         nullable=True,

@@ -315,6 +315,28 @@ class ObjectType(enum.Enum):
     OTHER = "other"
 
 
+class BookObjectType(enum.Enum):
+    """Object types that represent actual books (not furniture named with 'book')."""
+
+    BOOK = "book"
+    BOOK1 = "book1"
+    BOOK2 = "book2"
+    BOOK4E33D6C6 = "book4e33d6c6"
+    BOOKMUSTARD = "bookmustard"
+    BOOKMUSTARD4E33D6C6 = "bookmustard4e33d6c6"
+    BOOKOLIVE2 = "bookolive2"
+    SHELFBOOK_3 = "shelfbook_3"
+    NOTEBOOK = "notebook"
+    NOTEBOOK1 = "notebook1"
+    NOTEBOOKEXTRA = "notebookextra"
+    NOTEPAD = "notepad"
+
+    @classmethod
+    def contains(cls, object_type: "ObjectType") -> bool:
+        """Return True if *object_type* represents a book."""
+        return object_type.value in cls._value2member_map_
+
+
 # %%
 @dataclass
 class EGObject(EGWithID):
@@ -1162,151 +1184,67 @@ class EGShelf(HasExchangeablePartAggregations):
     Orientation of the Shelf in the World.
     """
 
-    source_id: str
-    """
-    The mesh path for this Shelf.
-    """
+    # source_id: str
+    # """
+    # The mesh path for this Shelf.
+    # """
 
     layers: List[ShelfLayer]
     """
     The layers of the Shelf.
     """
 
-    object_type_to_source_ids: Optional[Dict[ObjectType, List[Tuple[Path, str]]]] = (
-        field(default=None)
-    )
+    book_source_ids: Optional[List[Tuple[Path, str]]] = field(default=None)
     """
-    Mapping from object type to a list of source ids that belong to that type.
+    List of (scene_dir, source_id) pairs for book meshes used when placing objects on shelf layers.
     """
 
-    shelf_scene_dir: Optional[Path] = field(default=None)
-    """
-    The directory of the scene that contains this shelf.
-    """
+    def create_in_world(self, world: Optional[World] = None) -> World:
+        _world: World = world if world is not None else World()
+        if world is None:
+            root = Body(name=PrefixedName(name="map"))
+            with _world.modify_world():
+                _world.add_body(root)
 
-    @classmethod
-    def create_shelf_with_contents(
-        cls,
-        shelf_object: EGObject,
-        contents: List[EGObject],
-        source_id_to_path: Optional[Dict[str, Path]] = None,
-    ) -> "EGShelf":
-        """
-        Build an EGShelf from a raw shelf EGObject and its contents.
+        step = self.scale.height / (len(self.layers) + 1)
+        layer_z_heights = [step * (i + 1) for i in range(len(self.layers))]
 
-        Objects are assigned to four layers via K-means clustering on their
-        z-positions. Within each layer every object is represented as an
-        :class:`EGObject2D` with shelf-relative (x, y) coordinates; the z
-        component is captured by the layer's ``z_height``.
-
-        :param source_id_to_path: Mapping from source_id to the scene directory
-            containing its mesh. Build one with :func:`build_source_id_to_path`.
-            When omitted the path component of each entry is ``None``.
-        """
-        sx = shelf_object.position.x
-        sy = shelf_object.position.y
-        sz = shelf_object.position.z
-
-        object_type_to_source_ids: Dict[ObjectType, List[Tuple[Path, str]]] = (
-            defaultdict(list)
-        )
-        relative_contents: List[Tuple[EGObject2D, float, float, float]] = []
-        for obj in contents:
-            path = source_id_to_path.get(obj.source_id) if source_id_to_path else None
-            if path is not None:
-                object_type_to_source_ids[obj.object_type].append((path, obj.source_id))
-            obj2d = EGObject2D(
-                id=obj.id,
-                room_id=obj.room_id,
-                place_id=obj.place_id,
-                object_type=obj.object_type,
-                scale=obj.scale,
-                position=EGPoint2D(
-                    x=obj.position.x - sx,
-                    y=obj.position.y - sy,
-                ),
-                orientation=obj.orientation,
-                source_id=obj.source_id,
+        layer_scale = Scale(x=self.scale.width, y=self.scale.length, z=0.02)
+        for i, (layer, z_height) in enumerate(zip(self.layers, layer_z_heights)):
+            layer_pose = HomogeneousTransformationMatrix.from_xyz_rpy(
+                x=self.position.x,
+                y=self.position.y,
+                z=z_height,
+                reference_frame=_world.root,
             )
-            relative_contents.append(
-                (obj2d, obj.position.x - sx, obj.position.y - sy, obj.position.z - sz)
-            )
+            with _world.modify_world():
+                ShelfLayer.create_with_new_body_in_world(
+                    name=PrefixedName(name=f"layer_{i}"),
+                    world=_world,
+                    world_root_T_self=layer_pose,
+                    scale=layer_scale,
+                )
 
-        # ??
-        # layers = _assign_objects_to_layers(relative_contents)
-
-        shelf_scene_dir = (
-            source_id_to_path.get(shelf_object.source_id) if source_id_to_path else None
-        )
-        return cls(
-            position=EGPoint2D(x=sx, y=sy),
-            scale=shelf_object.scale,
-            orientation=shelf_object.orientation,
-            source_id=shelf_object.source_id,
-            layer_1=layers[0],
-            layer_2=layers[1],
-            layer_3=layers[2],
-            layer_4=layers[3],
-            object_type_to_source_ids=object_type_to_source_ids,
-            shelf_scene_dir=shelf_scene_dir,
-        )
-
-    def create_in_world(self) -> World:
-        world = World()
-        root = Body(name=PrefixedName(name="map"))
-
-        with world.modify_world():
-            world.add_body(root)
-
-        if self.object_type_to_source_ids is None:
-            raise ValueError(
-                "object_type_to_source_ids must be set before calling create_world()"
-            )
-
-        if self.shelf_scene_dir is not None:
-            shelf_eg_obj = EGObject(
-                id="shelf",
-                room_id="",
-                place_id="floor",
-                object_type=ObjectType.SHELF,
-                scale=self.scale,
-                position=EGPosition(x=self.position.x, y=self.position.y, z=0.0),
-                orientation=self.orientation,
-                source_id=self.source_id,
-            )
-            shelf_eg_obj.create_in_world(world, self.shelf_scene_dir, parent=world.root)
-
-        all_candidates = [
-            entry
-            for entries in self.object_type_to_source_ids.values()
-            for entry in entries
-        ]
-        for layer in self.layers:
+            if not self.book_source_ids:
+                continue
             for obj in layer.objects:
-                # Skip objects whose positions were not grounded (no training data
-                # for this layer means the position stays as an Ellipsis placeholder).
                 if not isinstance(obj.position.x, (int, float)):
                     continue
-                candidates = self.object_type_to_source_ids.get(obj.object_type, [])
-                if not candidates:
-                    if not all_candidates:
-                        continue
-                    candidates = all_candidates
-                scene_dir, source_id = random.choice(candidates)
+                scene_dir, source_id = random.choice(self.book_source_ids)
+                obj.source_id = source_id
                 absolute_x = self.position.x + obj.position.x
                 absolute_y = self.position.y + obj.position.y
-                absolute_z = layer.z_height + obj.scale.height / 2
-                obj.source_id = source_id
+                absolute_z = z_height + obj.scale.height / 2
                 obj.create_in_world(
-                    world,
+                    _world,
                     scene_dir,
-                    parent=world.root,
+                    parent=_world.root,
                     x=absolute_x,
                     y=absolute_y,
                     z=absolute_z,
                 )
 
-        return world
+        return _world
 
 
 @dataclass
