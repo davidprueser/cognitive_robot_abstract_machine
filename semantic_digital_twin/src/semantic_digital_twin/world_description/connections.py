@@ -194,6 +194,7 @@ class ActiveConnection1DOF(ActiveConnection, ABC):
         dof = DegreeOfFreedom(name=PrefixedName("dof", str(name)), limits=dof_limits)
         world.add_degree_of_freedom(dof)
         connection = cls(
+            name=name,
             parent=parent,
             child=child,
             axis=axis,
@@ -311,6 +312,24 @@ class ActiveConnection1DOF(ActiveConnection, ABC):
             multiplier=self.multiplier,
             offset=self.offset,
             dof_id=self.dof_id,
+        )
+
+    def copy_with_new_parent(
+        self,
+        new_parent: KinematicStructureEntity,
+        parent_T_connection_expression: HomogeneousTransformationMatrix,
+    ) -> Self:
+        # Reuse the same degree of freedom so the joint state is kept.
+        return self.__class__(
+            parent=new_parent,
+            child=self.child,
+            parent_T_connection_expression=parent_T_connection_expression,
+            connection_T_child_expression=self.connection_T_child_expression,
+            axis=self.axis,
+            multiplier=self.multiplier,
+            offset=self.offset,
+            dof_id=self.dof_id,
+            dynamics=self.dynamics,
         )
 
 
@@ -575,7 +594,14 @@ class Connection6DoF(Connection):
 
 
 @dataclass(eq=False)
-class OmniDrive(ActiveConnection, HasUpdateState):
+class WheeledDrive(ActiveConnection, HasUpdateState, ABC):
+    """
+    Superclass for connections that describe a drive, e.g., an omnidirectional drive or a differential drive.
+    """
+
+
+@dataclass(eq=False)
+class OmniDrive(WheeledDrive):
     """
     A connection describing an omnidirectional drive.
     It can rotate about its z-axis and drive on the x-y plane simultaneously.
@@ -751,16 +777,16 @@ class OmniDrive(ActiveConnection, HasUpdateState):
         x_vel = DegreeOfFreedom(
             name=PrefixedName("x_vel", stringified_name),
             limits=DegreeOfFreedomLimits(
-                lower=lower_rotation_limits,
-                upper=upper_rotation_limits,
+                lower=lower_translation_limits,
+                upper=upper_translation_limits,
             ),
         )
         world.add_degree_of_freedom(x_vel)
         y_vel = DegreeOfFreedom(
             name=PrefixedName("y_vel", stringified_name),
             limits=DegreeOfFreedomLimits(
-                lower=lower_rotation_limits,
-                upper=upper_rotation_limits,
+                lower=lower_translation_limits,
+                upper=upper_translation_limits,
             ),
         )
         world.add_degree_of_freedom(y_vel)
@@ -872,7 +898,7 @@ class OmniDrive(ActiveConnection, HasUpdateState):
 
 
 @dataclass(eq=False)
-class DifferentialDrive(ActiveConnection, HasUpdateState):
+class DifferentialDrive(WheeledDrive):
     """
     A connection describing a differential drive.
     It can rotate around its z-axis and drive in x-direction. It allows movement in the x-y plane.
