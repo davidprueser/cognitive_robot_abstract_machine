@@ -138,4 +138,4 @@ class ActionDescription(Designator):
 
 
 ActionType = TypeVar("ActionType", bound=ActionDescription)
-type DescriptionType[T] = Union[Iterable[T], T, ...]
+DescriptionType = Union[Iterable, object]
