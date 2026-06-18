@@ -62,6 +62,14 @@ class MujocoSimulator(BaseSimulator):
         root = ET.parse(file_path).getroot()
         self._name = root.attrib.get("model", self.name)
         self._mj_spec: mujoco.MjSpec = mujoco.MjSpec.from_file(filename=self._file_path)
+        self._apply_config_to_spec()
+        self._mj_model = self._mj_spec.compile()
+        assert self._mj_model is not None
+        self._mj_data = mujoco.MjData(self._mj_model)
+
+        mujoco.mj_resetDataKeyframe(self._mj_model, self._mj_data, 0)
+
+    def _apply_config_to_spec(self):
         self._mj_spec.compiler.inertiafromgeom = self.config.get("inertiafromgeom", mujoco.mjtInertiaFromGeom.mjINERTIAFROMGEOM_TRUE)
         self._mj_spec.option.integrator = self.config.get("integrator", mujoco.mjtIntegrator.mjINT_RK4)
         self._mj_spec.option.noslip_iterations = int(self.config.get("noslip_iterations", 0))
@@ -85,11 +93,27 @@ class MujocoSimulator(BaseSimulator):
         else:
             if self.config.get("nativeccd", False):
                 self._mj_spec.option.enableflags |= mujoco.mjtEnableBit.mjENBL_NATIVECCD
-        self._mj_model = self._mj_spec.compile()
-        assert self._mj_model is not None
-        self._mj_data = mujoco.MjData(self._mj_model)
 
-        mujoco.mj_resetDataKeyframe(self._mj_model, self._mj_data, 0)
+    def reload_model_from_file(self, file_path: str) -> None:
+        """
+        Replaces the current simulation model with one loaded from a new XML file.
+        Pauses the simulation during the swap and resumes it afterwards.
+
+        :param file_path: Path to the new MuJoCo XML file.
+        """
+        was_running = self.state == SimulatorState.RUNNING
+        if was_running:
+            self.pause()
+        self._mj_spec = mujoco.MjSpec.from_file(filename=file_path)
+        self._apply_config_to_spec()
+        self._mj_model = self._mj_spec.compile()
+        self._mj_data = mujoco.MjData(self._mj_model)
+        if self._mj_model.nkey > 0:
+            mujoco.mj_resetDataKeyframe(self._mj_model, self._mj_data, 0)
+        if not self.headless:
+            self._renderer._sim().load(self._mj_model, self._mj_data, "")
+        if was_running:
+            self.unpause()
 
     def start_callback(self):
         if not self.headless:

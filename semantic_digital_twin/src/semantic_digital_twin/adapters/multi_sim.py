@@ -2528,3 +2528,17 @@ class MujocoSim(MultiSim):
     simulator: MujocoSimulator
     synchronizer: Type[MultiSimSynchronizer] = MujocoSynchronizer
     default_file_path: str = "/tmp/scene.xml"
+
+    def reload_world(self, world: World) -> None:
+        """
+        Replaces the visualized world with a new one without restarting the viewer.
+
+        :param world: The new World to build and display.
+        """
+        self.synchronizer.stop()
+        self.builder_class().build_world(world=world, file_path=self.default_file_path)
+        self.simulator.reload_model_from_file(self.default_file_path)
+        self.synchronizer = self.synchronizer_class(
+            _world=world,
+            simulator=self.simulator,
+        )

@@ -1,11 +1,14 @@
 import json
 import os
 import random
+import threading
+import time
 from collections import defaultdict
 from pathlib import Path
 from typing import List
 
 import numpy as np
+import rclpy
 from sklearn.cluster import DBSCAN
 from sqlalchemy import select
 from sqlalchemy.dialects.oracle.dictionary import all_objects
@@ -55,9 +58,12 @@ from semantic_digital_twin.adapters.adaptive_environment_generation.schema impor
     BookObjectType,
     build_source_id_to_path,
 )
+from physics_simulators.base_simulator import SimulatorConstraints
+from semantic_digital_twin.adapters.multi_sim import MujocoSim
 from semantic_digital_twin.adapters.partnet_mobility_dataset.loader import (
     PartNetMobilityDatasetLoader,
 )
+from semantic_digital_twin.adapters.ros.tf_publisher import TFPublisher
 from semantic_digital_twin.adapters.ros.visualization.viz_marker import (
     VizMarkerPublisher,
 )
@@ -322,7 +328,7 @@ def _extract_shelf_layers_from_objects(session: Session) -> List[EGShelfLayer]:
     mirrors what a robot would perceive from geometry rather than metadata.
     """
     dao_state = FromDataAccessObjectState()
-    objects = session.scalars(select(EGObjectDAO).distinct().limit(1000)).all()
+    objects = session.scalars(select(EGObjectDAO).distinct().limit(5000)).all()
     shelf_layers = []
 
     shelves = [obj for obj in objects if obj.object_type == ObjectType.SHELF]
@@ -387,7 +393,9 @@ def _extract_shelf_layers_from_objects(session: Session) -> List[EGShelfLayer]:
 
         for _, objects in objects_per_layer.items():
             layer = EGShelfLayer(
-                scale=EGSize(width=shelf.scale.width, length=shelf.scale.length, height=0.02),
+                scale=EGSize(
+                    width=shelf.scale.width, length=shelf.scale.length, height=0.02
+                ),
                 objects=objects,
             )
             shelf_layers.append(layer)
@@ -494,29 +502,38 @@ def test_rspn_fitting_on_shelves(rclpy_node):
     )
     prob_backend = ProbabilisticBackend(model_registry=registry, number_of_samples=1)
 
-    sampled_layers = [
-        next(iter(prob_backend.evaluate(_layer_query(num_objects_per_layer))))
-        for _ in range(4)
-    ]
+    sim = MujocoSim(world=world, step_size=0.001)
+    sim.start_simulation()
+    while sim.is_running():
+        for i in range(10):
+            sampled_layers = [
+                next(iter(prob_backend.evaluate(_layer_query(num_objects_per_layer))))
+                for _ in range(4)
+            ]
 
-    source_id_to_path = build_source_id_to_path()
-    training_objects = session.scalars(select(EGObjectDAO).distinct().limit(1000)).all()
-    book_source_ids = [
-        (source_id_to_path[obj.source_id], obj.source_id)
-        for obj in training_objects
-        if BookObjectType.contains(obj.object_type)
-        and obj.source_id in source_id_to_path
-    ]
+            source_id_to_path = build_source_id_to_path()
+            training_objects = session.scalars(
+                select(EGObjectDAO).distinct().limit(1000)
+            ).all()
+            book_source_ids = [
+                (source_id_to_path[obj.source_id], obj.source_id)
+                for obj in training_objects
+                if BookObjectType.contains(obj.object_type)
+                and obj.source_id in source_id_to_path
+            ]
 
-    shelf_sample = EGShelf(
-        position=EGPoint2D(x=0.0, y=0.0),
-        scale=EGSize(height=2.0, length=1.5, width=0.5),
-        orientation=EGOrientation(x=0.0, y=0.0, z=0.0),
-        layers=sampled_layers,
-        book_source_ids=book_source_ids,
-    )
+            shelf_sample = EGShelf(
+                position=EGPoint2D(x=0.0, y=0.0),
+                scale=EGSize(height=2.0, length=1.5, width=0.5),
+                orientation=EGOrientation(x=0.0, y=0.0, z=0.0),
+                layers=sampled_layers,
+                book_source_ids=book_source_ids,
+            )
 
-    assert all(layer.objects for layer in shelf_sample.layers)
-    world = shelf_sample.create_in_world()
-    viz_marker = VizMarkerPublisher(node=rclpy_node, _world=world)
+            assert all(layer.objects for layer in shelf_sample.layers)
+            world = shelf_sample.create_in_world()
+            sim.reload_world(world)
+            time.sleep(5)
+        sim.stop_simulation()
+    viz_marker = VizMarkerPublisher(_world=world, node=rclpy_node)
     viz_marker.with_tf_publisher()
