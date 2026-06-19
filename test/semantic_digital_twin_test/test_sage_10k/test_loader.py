@@ -1,29 +1,10 @@
-import os
-from copy import deepcopy
+import time
 
 import numpy as np
+import os
 import pytest
-from nltk.corpus import wordnet
 from requests import HTTPError
 
-from krrood.entity_query_language.factories import *
-from krrood.utils import recursive_subclasses
-from probabilistic_model.bayesian_network.bayesian_network import Node
-from pycram.datastructures.dataclasses import Context
-from pycram.datastructures.enums import Arms, ApproachDirection, VerticalAlignment
-from pycram.datastructures.grasp import GraspDescription
-from pycram.motion_executor import simulated_robot
-from pycram.plans.factories import sequential
-from pycram.robot_plans.actions.composite.transporting import (
-    MoveAndPickUpAction,
-    MoveAndPlaceAction,
-)
-from pycram.robot_plans.actions.core.navigation import NavigateAction
-from pycram.robot_plans.actions.core.pick_up import PickUpAction
-from pycram.robot_plans.actions.core.robot_body import ParkArmsAction, MoveTorsoAction
-from pycram.sage_10k.demos import Sage10kAbstractDemo
-from pycram.view_manager import ViewManager
-from semantic_digital_twin.adapters.mesh import STLParser
 from semantic_digital_twin.adapters.ros.visualization.viz_marker import (
     VizMarkerPublisher,
     ShapeSource,
@@ -32,10 +13,6 @@ from semantic_digital_twin.adapters.sage_10k_dataset.loader import (
     Sage10kDatasetLoader,
 )
 from semantic_digital_twin.adapters.sage_10k_dataset.schema import Sage10kScene
-from semantic_digital_twin.adapters.sage_10k_dataset.utils import (
-    create_hsrb_in_world,
-)
-from semantic_digital_twin.datastructures.definitions import TorsoState
 from semantic_digital_twin.pipeline.mesh_decomposition.box_decomposer import (
     BoxDecomposer,
 )
@@ -43,11 +20,28 @@ from semantic_digital_twin.pipeline.pipeline import Pipeline
 from semantic_digital_twin.semantic_annotations.natural_language import (
     NaturalLanguageWithTypeDescription,
 )
+from semantic_digital_twin.world import World
+
+from semantic_digital_twin.adapters.mesh import STLParser
+
 from semantic_digital_twin.spatial_types.spatial_types import (
     HomogeneousTransformationMatrix,
     Pose,
 )
-from semantic_digital_twin.world import World
+
+from coraplex.motion_executor import simulated_robot
+
+from coraplex.plans.factories import execute_single, sequential
+
+from coraplex.robot_plans.actions.core.navigation import NavigateAction
+
+from coraplex.datastructures.dataclasses import Context
+
+from coraplex.datastructures.enums import Arms, ApproachDirection, VerticalAlignment
+
+from coraplex.robot_plans.actions.core.pick_up import PickUpAction
+
+from semantic_digital_twin.datastructures.definitions import TorsoState
 
 
 def verify_scene(world: World, scene: Sage10kScene):
@@ -85,20 +79,25 @@ def get_sage10k_scene():
     try:
         loader = Sage10kDatasetLoader()
         return loader.create_scene(scene_url=Sage10kDatasetLoader.available_scenes()[0])
-    except HTTPError as e:
+    except HTTPError:
         return None
 
 
-@pytest.fixture
+@pytest.fixture(scope="session")
 def sage10k_scene():
-    return get_sage10k_scene()
+    worker = os.environ.get("PYTEST_XDIST_WORKER")
+    if worker:
+        worker_num = int(worker.removeprefix("gw"))
+        time.sleep(worker_num)
+    scene = get_sage10k_scene()
+    if scene is None:
+        pytest.skip("Sage10k dataset not available")
+
+    return scene
 
 
-@pytest.mark.skipif(get_sage10k_scene() is None, reason="Sage10k dataset not available")
 def test_loader(rclpy_node, sage10k_scene):
     scene = sage10k_scene
-    if scene is None:
-        return
     world = scene.create_world()
     pub = VizMarkerPublisher(
         _world=world,
@@ -112,11 +111,8 @@ def test_loader(rclpy_node, sage10k_scene):
     )
 
 
-@pytest.mark.skipif(get_sage10k_scene() is None, reason="Sage10k dataset not available")
 def test_different_decomposition_methods(rclpy_node, sage10k_scene):
     scene = sage10k_scene
-    if scene is None:
-        return
     for room in scene.rooms:
         new_objects = []
         for obj in room.objects:

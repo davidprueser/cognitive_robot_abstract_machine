@@ -3,6 +3,7 @@
 import os
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field, InitVar
+from threading import RLock
 from typing import Optional, List, Dict, Union, Any
 
 import mujoco
@@ -53,6 +54,19 @@ class MujocoSimulator(BaseSimulator):
     file_path: InitVar[str] = ""
     """
     Path to the XML file of the scene (for initialization)
+    """
+
+    _model_lock: RLock = field(
+        init=False, repr=False, compare=False, default_factory=RLock
+    )
+    """
+    Guards every access to ``_mj_model``/``_mj_data`` that either steps the
+    physics or rebuilds the model. The physics runs in a background thread
+    (:meth:`step_callback`) while model-mutating callbacks such as
+    :meth:`add_entity` run on the caller thread; both reassign/step the same
+    MuJoCo model and data objects, so they must not overlap. ``pause()`` alone
+    only flips a state flag and does not wait for an in-flight ``mj_step`` to
+    finish, so this lock provides the actual mutual exclusion.
     """
 
 
@@ -129,11 +143,12 @@ class MujocoSimulator(BaseSimulator):
             elif self.state == SimulatorState.PAUSED:
                 mujoco.mj_kinematics(self._mj_model, self._mj_data)
 
-        if self.render_thread is not None:
-            with self.renderer.lock():
+        with self._model_lock:
+            if self.render_thread is not None:
+                with self.renderer.lock():
+                    _do_step()
+            else:
                 _do_step()
-        else:
-            _do_step()
 
     def reset_callback(self):
         mujoco.mj_resetDataKeyframe(self._mj_model, self._mj_data, 0)
@@ -148,39 +163,40 @@ class MujocoSimulator(BaseSimulator):
         The workaround is to add a dummy prefix to the body and its children before recompiling,
         then remove the dummy prefix after recompiling.
         """
-        body_spec.name = body_name
-        try:
-            for body_child in (
-                body_spec.bodies + body_spec.joints + body_spec.geoms + body_spec.sites
-            ):
-                body_child.name = body_child.name.replace(dummy_prefix, "")
-        except ValueError:
-            self.log_warning(
-                f"Failed to resolve body_spec for {body_name}, this is a bug from MuJoCo"
-            )
+        with self._model_lock:
+            body_spec.name = body_name
+            try:
+                for body_child in (
+                    body_spec.bodies + body_spec.joints + body_spec.geoms + body_spec.sites
+                ):
+                    body_child.name = body_child.name.replace(dummy_prefix, "")
+            except ValueError:
+                self.log_warning(
+                    f"Failed to resolve body_spec for {body_name}, this is a bug from MuJoCo"
+                )
+                self._mj_model, self._mj_data = self._mj_spec.recompile(
+                    self._mj_model, self._mj_data
+                )
+                for body_child in (
+                    body_spec.bodies + body_spec.joints + body_spec.geoms + body_spec.sites
+                ):
+                    body_child.name = body_child.name.replace(dummy_prefix, "")
             self._mj_model, self._mj_data = self._mj_spec.recompile(
                 self._mj_model, self._mj_data
             )
-            for body_child in (
-                body_spec.bodies + body_spec.joints + body_spec.geoms + body_spec.sites
-            ):
-                body_child.name = body_child.name.replace(dummy_prefix, "")
-        self._mj_model, self._mj_data = self._mj_spec.recompile(
-            self._mj_model, self._mj_data
-        )
-        for key in self._mj_spec.keys:
-            if key.name != "home":
-                if mujoco.mj_version() < 335:
-                    key.delete()
-                else:
-                    self._mj_spec.delete(key)
-        self._mj_model, self._mj_data = self._mj_spec.recompile(
-            self._mj_model, self._mj_data
-        )
-        if not self.headless:
-            self._renderer._sim().load(self._mj_model, self._mj_data, "")
-            if self.simulation_thread is None:
-                mujoco.mj_step1(self._mj_model, self._mj_data)
+            for key in self._mj_spec.keys:
+                if key.name != "home":
+                    if mujoco.mj_version() < 335:
+                        key.delete()
+                    else:
+                        self._mj_spec.delete(key)
+            self._mj_model, self._mj_data = self._mj_spec.recompile(
+                self._mj_model, self._mj_data
+            )
+            if not self.headless:
+                self._renderer._sim().load(self._mj_model, self._mj_data, "")
+                if self.simulation_thread is None:
+                    mujoco.mj_step1(self._mj_model, self._mj_data)
 
     @property
     def file_path(self) -> str:
@@ -1321,13 +1337,14 @@ class MujocoSimulator(BaseSimulator):
                     ctrl=self._mj_data.ctrl,
                     time=self.current_simulation_time,
                 )
-                self._mj_model, self._mj_data = self._mj_spec.recompile(
-                    self._mj_model, self._mj_data
-                )
-                if not self.headless:
-                    self._renderer._sim().load(self._mj_model, self._mj_data, "")
-                    if self.simulation_thread is None:
-                        mujoco.mj_step1(self._mj_model, self._mj_data)
+                with self._model_lock:
+                    self._mj_model, self._mj_data = self._mj_spec.recompile(
+                        self._mj_model, self._mj_data
+                    )
+                    if not self.headless:
+                        self._renderer._sim().load(self._mj_model, self._mj_data, "")
+                        if self.simulation_thread is None:
+                            mujoco.mj_step1(self._mj_model, self._mj_data)
                 key_id = mujoco.mj_name2id(
                     m=self._mj_model, type=mujoco.mjtObj.mjOBJ_KEY, name=key_name
                 )
@@ -1367,13 +1384,14 @@ class MujocoSimulator(BaseSimulator):
                     type=SimulatorCallbackResult.ResultType.FAILURE_WITHOUT_EXECUTION,
                     info=f"File {file_path} not found",
                 )
-            self._mj_model, self._mj_data = self._mj_spec.recompile(
-                self._mj_model, self._mj_data
-            )
-            if not self.headless:
-                self._renderer._sim().load(self._mj_model, self._mj_data, "")
-                if self.simulation_thread is None:
-                    mujoco.mj_step1(self._mj_model, self._mj_data)
+            with self._model_lock:
+                self._mj_model, self._mj_data = self._mj_spec.recompile(
+                    self._mj_model, self._mj_data
+                )
+                if not self.headless:
+                    self._renderer._sim().load(self._mj_model, self._mj_data, "")
+                    if self.simulation_thread is None:
+                        mujoco.mj_step1(self._mj_model, self._mj_data)
             if key_id >= self._mj_model.nkey:
                 return SimulatorCallbackResult(
                     type=SimulatorCallbackResult.ResultType.FAILURE_WITHOUT_EXECUTION,
@@ -1526,13 +1544,14 @@ class MujocoSimulator(BaseSimulator):
                 self._mj_spec.add_pair(
                     name=pair_name, geomname1=geom_1_name, geomname2=geom_2_name
                 )
-        self._mj_model, self._mj_data = self._mj_spec.recompile(
-            self._mj_model, self._mj_data
-        )
-        if not self.headless:
-            self._renderer._sim().load(self._mj_model, self._mj_data, "")
-            if self.simulation_thread is None:
-                mujoco.mj_step1(self._mj_model, self._mj_data)
+        with self._model_lock:
+            self._mj_model, self._mj_data = self._mj_spec.recompile(
+                self._mj_model, self._mj_data
+            )
+            if not self.headless:
+                self._renderer._sim().load(self._mj_model, self._mj_data, "")
+                if self.simulation_thread is None:
+                    mujoco.mj_step1(self._mj_model, self._mj_data)
         return SimulatorCallbackResult(
             type=SimulatorCallbackResult.ResultType.SUCCESS_AFTER_EXECUTION_ON_MODEL,
             info=f"Enabled contact between {body_1_name} and {body_2_name}",
@@ -1617,13 +1636,14 @@ class MujocoSimulator(BaseSimulator):
             )
 
         def do_spawn():
-            self._mj_model, self._mj_data = self._mj_spec.recompile(
-                self._mj_model, self._mj_data
-            )
-            if not self.headless:
-                self._renderer._sim().load(self._mj_model, self._mj_data, "")
-                if self.simulation_thread is None:
-                    mujoco.mj_step1(self._mj_model, self._mj_data)
+            with self._model_lock:
+                self._mj_model, self._mj_data = self._mj_spec.recompile(
+                    self._mj_model, self._mj_data
+                )
+                if not self.headless:
+                    self._renderer._sim().load(self._mj_model, self._mj_data, "")
+                    if self.simulation_thread is None:
+                        mujoco.mj_step1(self._mj_model, self._mj_data)
         if self.state == SimulatorState.RUNNING:
             self.pause()
             do_spawn()
