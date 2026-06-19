@@ -41,6 +41,9 @@ from probabilistic_model.probabilistic_circuit.relational.rspn import (
 from semantic_digital_twin.adapters.adaptive_environment_generation.sage10k_processing import (
     EGDataProcessing,
 )
+from semantic_digital_twin.adapters.adaptive_environment_generation.collision_resolution import (
+    resolve_shelf_collisions,
+)
 from semantic_digital_twin.adapters.adaptive_environment_generation.schema import (
     SceneGenerator,
     EGObject,
@@ -320,15 +323,22 @@ def test_simple_underspecified_environment(rclpy_node):
     viz_marker.with_tf_publisher()
 
 
-def _extract_shelf_layers_from_objects(session: Session) -> List[EGShelfLayer]:
+def _extract_shelf_layers_from_objects(
+    session: Session, edge_margin_fraction: float = 0.10
+) -> List[EGShelfLayer]:
     """
     Load all scenes and group objects by the shelf they are placed on.
 
     Uses bounding-box spatial reasoning (not place_id alone) so the grouping
     mirrors what a robot would perceive from geometry rather than metadata.
+
+    :param edge_margin_fraction: Fraction of each shelf dimension to use as an
+        inset margin on X and Y.  Objects whose centre falls within this margin
+        of the shelf boundary are excluded from training data so the learned RSPN
+        does not place books at positions where they would fall off in simulation.
     """
     dao_state = FromDataAccessObjectState()
-    objects = session.scalars(select(EGObjectDAO).distinct().limit(5000)).all()
+    objects = session.scalars(select(EGObjectDAO).distinct().limit(50000)).all()
     shelf_layers = []
 
     shelves = [obj for obj in objects if obj.object_type == ObjectType.SHELF]
@@ -344,10 +354,15 @@ def _extract_shelf_layers_from_objects(session: Session) -> List[EGShelfLayer]:
             max_z=shelf.position.z + shelf.scale.height / 2,
             origin=HomogeneousTransformationMatrix(reference_frame=None),
         )
+        inner_region = region.bloat(
+            x_amount=-(edge_margin_fraction * shelf.scale.width),
+            y_amount=-(edge_margin_fraction * shelf.scale.length),
+            z_amount=0.0,
+        )
         objects_in_shelf = [
             non_shelf
             for non_shelf in non_shelves
-            if region.contains(
+            if inner_region.contains(
                 Point3(
                     non_shelf.position.x,
                     non_shelf.position.y,
@@ -502,14 +517,19 @@ def test_rspn_fitting_on_shelves(rclpy_node):
     )
     prob_backend = ProbabilisticBackend(model_registry=registry, number_of_samples=1)
 
-    sim = MujocoSim(world=world, step_size=0.001)
+    sim = MujocoSim(world=world, step_size=0.000001, multiccd=True)
     sim.start_simulation()
     while sim.is_running():
         for i in range(10):
-            sampled_layers = [
-                next(iter(prob_backend.evaluate(_layer_query(num_objects_per_layer))))
-                for _ in range(4)
-            ]
+            sampled_layers = resolve_shelf_collisions(
+                [
+                    next(
+                        iter(prob_backend.evaluate(_layer_query(num_objects_per_layer)))
+                    )
+                    for _ in range(4)
+                ],
+                rspn,
+            )
 
             source_id_to_path = build_source_id_to_path()
             training_objects = session.scalars(
@@ -533,7 +553,7 @@ def test_rspn_fitting_on_shelves(rclpy_node):
             assert all(layer.objects for layer in shelf_sample.layers)
             world = shelf_sample.create_in_world()
             sim.reload_world(world)
-            time.sleep(5)
+            time.sleep(2)
         sim.stop_simulation()
     viz_marker = VizMarkerPublisher(_world=world, node=rclpy_node)
     viz_marker.with_tf_publisher()
