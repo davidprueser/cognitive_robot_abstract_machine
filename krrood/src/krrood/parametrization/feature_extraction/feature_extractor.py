@@ -220,13 +220,13 @@ class FeatureExtractor:
         if aggregation_cls is None:
             return result
 
-        aggregation_instance = aggregation_cls(instance=domain_object)
         for relationship in relationships:
             if not getattr(domain_object, relationship.key):
                 continue
-            for feature in aggregation_instance.symbolic_aggregation_features_for(
-                relationship.key
-            ):
+            aggregation_instance = aggregation_cls(
+                instance=domain_object, field_name=relationship.key
+            )
+            for feature in aggregation_instance.symbolic_aggregation_features():
                 result[relationship.key].append(feature)
 
         return result
