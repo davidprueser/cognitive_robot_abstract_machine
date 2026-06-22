@@ -86,7 +86,7 @@ def robot_factory(fucking_huge_link_length: float, vel_limit: float) -> World:
                 child=link2,
                 axis=Vector3.X(),
                 dof_limits=dof_limits,
-                connection_T_child_expression=HomogeneousTransformationMatrix.from_xyz_rpy(
+                parent_T_connection_expression=HomogeneousTransformationMatrix.from_xyz_rpy(
                     z=fucking_huge_link_length,
                 ),
             )
@@ -105,7 +105,7 @@ def robot_factory(fucking_huge_link_length: float, vel_limit: float) -> World:
                 child=link3,
                 axis=Vector3.X(),
                 dof_limits=dof_limits,
-                connection_T_child_expression=HomogeneousTransformationMatrix.from_xyz_rpy(
+                parent_T_connection_expression=HomogeneousTransformationMatrix.from_xyz_rpy(
                     z=fucking_huge_link_length,
                 ),
             )
