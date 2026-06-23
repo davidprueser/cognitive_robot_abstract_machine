@@ -6,6 +6,9 @@ import time
 from collections import defaultdict
 from pathlib import Path
 from typing import List
+from unittest.mock import patch, MagicMock
+
+import pytest
 
 import numpy as np
 import rclpy
@@ -553,7 +556,59 @@ def test_rspn_fitting_on_shelves(rclpy_node):
             assert all(layer.objects for layer in shelf_sample.layers)
             world = shelf_sample.create_in_world()
             sim.reload_world(world)
-            time.sleep(2)
         sim.stop_simulation()
-    viz_marker = VizMarkerPublisher(_world=world, node=rclpy_node)
-    viz_marker.with_tf_publisher()
+        viz_marker = VizMarkerPublisher(_world=world, node=rclpy_node)
+        viz_marker.with_tf_publisher()
+        time.sleep(10)
+
+
+def test_book_z_matches_shelf_layer_z_regardless_of_book_height():
+    """All books on the same layer must receive the same z, independent of book height.
+
+    Book meshes have their origin at the bottom of the mesh, so the placement z is
+    the layer board's top-surface z (z_height + layer_thickness/2).  Adding
+    obj.scale.height/2 would shift taller books higher, making z inconsistent across books
+    on the same layer.
+    """
+    layer_thickness = 0.02
+    corpus_height = 2.0
+    num_layers = 1
+
+    layer_z_height = corpus_height / (num_layers + 1)
+    expected_book_z = layer_z_height + layer_thickness / 2
+
+    def make_book(book_id: str, height: float) -> EGObject2D:
+        return EGObject2D(
+            id=book_id,
+            room_id="room1",
+            place_id="shelf1",
+            object_type=ObjectType.BOOK,
+            scale=EGSize(width=0.1, length=0.05, height=height),
+            position=EGPoint2D(x=0.0, y=0.0),
+            orientation=EGOrientation(x=0.0, y=0.0, z=0.0),
+            source_id="dummy_source",
+        )
+
+    shelf = EGShelf(
+        position=EGPoint2D(x=0.0, y=0.0),
+        scale=EGSize(height=corpus_height, length=0.4, width=0.4),
+        orientation=EGOrientation(x=0.0, y=0.0, z=0.0),
+        layers=[
+            EGShelfLayer(
+                scale=EGSize(width=0.4, length=0.4, height=layer_thickness),
+                objects=[
+                    make_book("short_book", height=0.15),
+                    make_book("tall_book", height=0.40),
+                ],
+            )
+        ],
+        book_source_ids=[(Path("/dummy"), "dummy_source")],
+    )
+
+    with patch.object(EGObject2D, "create_in_world") as mock_create:
+        shelf.create_in_world()
+
+    assert mock_create.call_count == 2
+    z_values = [call.kwargs["z"] for call in mock_create.call_args_list]
+    assert z_values[0] == pytest.approx(expected_book_z), "short book z is wrong"
+    assert z_values[1] == pytest.approx(expected_book_z), "tall book z is wrong"

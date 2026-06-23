@@ -102,7 +102,6 @@ class VizMarkerPublisher(ModelChangeCallback):
         Launches a tf publisher in conjunction with the VizMarkerPublisher.
         """
         self._tf_publisher = TFPublisher(_world=self._world, node=self.node)
-        self.notify()
 
     def _select_shapes(self, body):
         if self.shape_source is ShapeSource.VISUAL_ONLY:

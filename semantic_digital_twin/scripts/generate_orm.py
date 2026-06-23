@@ -12,8 +12,10 @@ from pathlib import Path
 
 import trimesh
 
+import semantic_digital_twin
 from krrood.adapters.json_serializer import SubclassJSONSerializer
 from krrood.ormatic.ormatic import ORMatic
+from semantic_digital_twin.orm.model import TrimeshType
 from semantic_digital_twin.reasoning.predicates import ContainsType
 from semantic_digital_twin.semantic_annotations.position_descriptions import (
     SemanticDirection,
@@ -31,7 +33,6 @@ ignore_classes = {
     ResetStateContextManager,
     WorldModelUpdateContextManager,
     ForwardKinematicsManager,
-    semantic_digital_twin.adapters.procthor.procthor_resolver.ProcthorResolver,
     ContainsType,
     SemanticDirection,
     SubclassJSONSerializer,
@@ -51,7 +52,7 @@ def generate_orm():
         ormatic_interface_dependencies=[],
         ignored_classes=ignore_classes,
         type_mappings={
-            trimesh.Trimesh: semantic_digital_twin.orm.model.TrimeshType,
+            trimesh.Trimesh: TrimeshType,
         },
     )
     ormatic.make_all_tables()

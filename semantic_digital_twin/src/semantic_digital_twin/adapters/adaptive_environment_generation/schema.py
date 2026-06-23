@@ -89,17 +89,17 @@ class EGSize(EGBase):
 
     height: float
     """
-    Scale in z
+    Scale in z (vertical axis).
     """
 
     length: float
     """
-    Scale in y
+    Depth of the object (shelf depth direction, world x-axis when placed as a corpus).
     """
 
     width: float
     """
-    Scale in x
+    Face width of the object (shelf face direction, world y-axis when placed as a corpus).
     """
 
     def to_json(self) -> Dict[str, Any]:
@@ -1270,7 +1270,7 @@ class EGShelf(HasExchangeablePartAggregations):
                 obj.source_id = source_id
                 absolute_x = self.position.x + obj.position.y
                 absolute_y = self.position.y + obj.position.x
-                absolute_z = z_height + obj.scale.height / 2
+                absolute_z = z_height + layer_scale.z / 2
                 obj.create_in_world(
                     _world,
                     scene_dir,
