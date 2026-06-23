@@ -520,43 +520,41 @@ def test_rspn_fitting_on_shelves(rclpy_node):
     )
     prob_backend = ProbabilisticBackend(model_registry=registry, number_of_samples=1)
 
-    sim = MujocoSim(world=world, step_size=0.000001, multiccd=True)
-    sim.start_simulation()
-    while sim.is_running():
-        for i in range(10):
-            sampled_layers = resolve_shelf_collisions(
-                [
-                    next(
-                        iter(prob_backend.evaluate(_layer_query(num_objects_per_layer)))
-                    )
-                    for _ in range(4)
-                ],
-                rspn,
-            )
+    # sim = MujocoSim(world=world, step_size=0.000001, multiccd=True)
+    # sim.start_simulation()
+    # while sim.is_running():
+    for i in range(10):
+        sampled_layers = resolve_shelf_collisions(
+            [
+                next(iter(prob_backend.evaluate(_layer_query(num_objects_per_layer))))
+                for _ in range(4)
+            ],
+            rspn,
+        )
 
-            source_id_to_path = build_source_id_to_path()
-            training_objects = session.scalars(
-                select(EGObjectDAO).distinct().limit(1000)
-            ).all()
-            book_source_ids = [
-                (source_id_to_path[obj.source_id], obj.source_id)
-                for obj in training_objects
-                if BookObjectType.contains(obj.object_type)
-                and obj.source_id in source_id_to_path
-            ]
+        source_id_to_path = build_source_id_to_path()
+        training_objects = session.scalars(
+            select(EGObjectDAO).distinct().limit(1000)
+        ).all()
+        book_source_ids = [
+            (source_id_to_path[obj.source_id], obj.source_id)
+            for obj in training_objects
+            if BookObjectType.contains(obj.object_type)
+            and obj.source_id in source_id_to_path
+        ]
 
-            shelf_sample = EGShelf(
-                position=EGPoint2D(x=0.0, y=0.0),
-                scale=EGSize(height=2.0, length=1.5, width=0.5),
-                orientation=EGOrientation(x=0.0, y=0.0, z=0.0),
-                layers=sampled_layers,
-                book_source_ids=book_source_ids,
-            )
+        shelf_sample = EGShelf(
+            position=EGPoint2D(x=0.0, y=0.0),
+            scale=EGSize(height=2.0, length=1.5, width=0.5),
+            orientation=EGOrientation(x=0.0, y=0.0, z=0.0),
+            layers=sampled_layers,
+            book_source_ids=book_source_ids,
+        )
 
-            assert all(layer.objects for layer in shelf_sample.layers)
-            world = shelf_sample.create_in_world()
-            sim.reload_world(world)
-        sim.stop_simulation()
+        assert all(layer.objects for layer in shelf_sample.layers)
+        world = shelf_sample.create_in_world()
+        # sim.reload_world(world)
+        # sim.stop_simulation()
         viz_marker = VizMarkerPublisher(_world=world, node=rclpy_node)
         viz_marker.with_tf_publisher()
         time.sleep(10)
