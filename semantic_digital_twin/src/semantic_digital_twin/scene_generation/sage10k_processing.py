@@ -1,8 +1,8 @@
+from __future__ import annotations
+
 import logging
-import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict
 from urllib.parse import urlparse
 from zipfile import ZipFile
 
@@ -23,23 +23,25 @@ except ImportError:
 
 @dataclass
 class EGDataProcessing:
+    """
+    Handles downloading and local caching of Sage-10k scene assets.
+
+    Scenes are stored under :attr:`directory`, one sub-folder per scene.
+    """
+
     directory: Path = field(
         default_factory=lambda: Path.home() / "Documents" / "sage-10k-scenes"
     )
+    """
+    Root directory where downloaded scenes are stored.
+    """
 
-    def get_objects_from_scenes(self, scene_paths: Dict[Path, str]):
-        objects = []
-        for path, source_id in scene_paths:
-            objects += self._get_objects_from_scene(
-                path,
-            )
-        return objects
-
-    def download_specific_scene(self, layout_name: str):
+    def download_specific_scene(self, layout_name: str) -> Path:
         """
         Download a specific scene from the Sage10k dataset by its layout name.
 
-        :param layout_name: The name of the layout to download. Should be of form "*_layout_*id*"
+        :param layout_name: The name of the layout to download. Should
+            be of form ``*_layout_*id*``.
         :return: The path to the downloaded scene.
         """
         from huggingface_hub import list_repo_files
@@ -51,15 +53,17 @@ class EGDataProcessing:
             for f in files
             if f.startswith("scenes/") and f.endswith(f"_{layout_name}.zip")
         ]
-        print(matching_file)
+        logger.info("Downloading scene file: %s", matching_file)
 
-        base_url = f"https://huggingface.co/datasets/nvidia/SAGE-10k/resolve/main/"
+        base_url = "https://huggingface.co/datasets/nvidia/SAGE-10k/resolve/main/"
         return self._download_scene_if_not_exists(base_url + matching_file)
 
     def _download_scene_if_not_exists(self, scene_url: str) -> Path:
         """
         Download the scene from the Sage10k dataset and unzip it.
-        Returns early if a directory with the requested scene already exists.
+
+        Returns early if a directory with the requested scene already
+        exists.
 
         :param scene_url: The URL of the scene to be downloaded.
         :return: The path to the unzipped scene.
@@ -70,24 +74,20 @@ class EGDataProcessing:
         zipped_scene = self.directory / filename
         extraction_directory = self.directory / zipped_scene.stem
 
-        # return early if the scene exists already
         if extraction_directory.exists():
             return extraction_directory
 
-        # download the scene
         with requests.get(scene_url, stream=True, timeout=60) as response:
             response.raise_for_status()
-            with zipped_scene.open("wb") as f:
+            with zipped_scene.open("wb") as file_handle:
                 for chunk in response.iter_content(chunk_size=8192):
                     if chunk:
-                        f.write(chunk)
+                        file_handle.write(chunk)
 
-        # unzip the scene
         extraction_directory.mkdir(parents=True, exist_ok=True)
-        print(zipped_scene)
-        with ZipFile(zipped_scene, "r") as zip_ref:
-            zip_ref.extractall(extraction_directory)
+        with ZipFile(zipped_scene, "r") as zip_file:
+            zip_file.extractall(extraction_directory)
 
-        os.remove(str(zipped_scene))
-        logger.info(f"Downloaded and extracted {scene_url} to {extraction_directory}")
+        zipped_scene.unlink()
+        logger.info("Downloaded and extracted %s to %s", scene_url, extraction_directory)
         return extraction_directory

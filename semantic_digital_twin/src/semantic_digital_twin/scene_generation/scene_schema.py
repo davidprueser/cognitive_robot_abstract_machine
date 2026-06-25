@@ -1,29 +1,21 @@
+from __future__ import annotations
+
 import enum
 import math
 import random
-from collections import defaultdict
 from dataclasses import dataclass, field
-from functools import cached_property
 from pathlib import Path
-from typing import List, Self, Type, Dict, Any, Tuple, assert_never, Optional, Annotated
+from typing import Any, Self, assert_never
 
 import numpy as np
 
 from krrood.adapters.json_serializer import SubclassJSONSerializer, to_json
-from krrood.entity_query_language.core.base_expressions import SymbolicExpression
-from krrood.entity_query_language.factories import variable, count
-from krrood.parametrization.feature_extraction.aggregations import (
-    HasExchangeablePartAggregations,
-    aggregation_for,
-    AggregationStatistic,
-)
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.datastructures.variables import SpatialVariables
 from semantic_digital_twin.semantic_annotations.natural_language import (
     NaturalLanguageWithTypeDescription,
 )
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
-    Room,
     RoomWithWallsAndDoors,
     Floor,
     Wall,
@@ -47,7 +39,6 @@ from semantic_digital_twin.world_description.degree_of_freedom import (
 from semantic_digital_twin.world_description.geometry import Mesh, Scale
 from semantic_digital_twin.world_description.shape_collection import ShapeCollection
 from semantic_digital_twin.world_description.world_entity import (
-    SemanticAnnotation,
     KinematicStructureEntity,
     WorldEntity,
     Body,
@@ -66,15 +57,17 @@ class EGWithID(EGBase):
     def create_in_world(
         self,
         world: World,
-        mesh_to_object_mapping: Optional[Dict[Path, "EGObject"]],
+        mesh_to_object_mapping: dict[Path, EGObject] | None,
         parent: KinematicStructureEntity,
         **kwargs,
     ) -> WorldEntity:
         """
-        Create the object in the world by getting its geometry from the provided information.
+        Create the object in the world by getting its geometry from the
+        provided information.
 
         :param world: The world where the object is created.
-        :param mesh_to_object_mapping: A mapping from mesh paths to object information.
+        :param mesh_to_object_mapping: A mapping from mesh paths to
+            object information.
         :param parent: The parent of the object in the world.
         :param kwargs: Additional keyword arguments.
         :return: The relevant created body
@@ -94,7 +87,8 @@ class EGSize(EGBase):
 
     length: float
     """
-    Depth of the object (shelf depth direction, world x-axis when placed as a corpus).
+    Depth of the object (shelf depth direction, world x-axis when placed as a
+    corpus).
     """
 
     width: float
@@ -102,7 +96,7 @@ class EGSize(EGBase):
     Face width of the object (shelf face direction, world y-axis when placed as a corpus).
     """
 
-    def to_json(self) -> Dict[str, Any]:
+    def to_json(self) -> dict[str, Any]:
         return {
             "height": self.height,
             "length": self.length,
@@ -110,7 +104,7 @@ class EGSize(EGBase):
         }
 
     @classmethod
-    def _from_json(cls, data: Dict[str, Any], **kwargs) -> Self:
+    def _from_json(cls, data: dict[str, Any], **kwargs) -> Self:
         return cls(
             height=data["height"],
             length=data["length"],
@@ -123,14 +117,14 @@ class EGPoint2D(EGBase):
     x: float
     y: float
 
-    def to_json(self) -> Dict[str, Any]:
+    def to_json(self) -> dict[str, Any]:
         return {
             "x": self.x,
             "y": self.y,
         }
 
     @classmethod
-    def _from_json(cls, data: Dict[str, Any], **kwargs) -> Self:
+    def _from_json(cls, data: dict[str, Any], **kwargs) -> Self:
         return cls(
             x=data["x"],
             y=data["y"],
@@ -141,13 +135,13 @@ class EGPoint2D(EGBase):
 class EGPosition(EGPoint2D):
     z: float
 
-    def to_json(self) -> Dict[str, Any]:
+    def to_json(self) -> dict[str, Any]:
         json = super().to_json()
         json.update({"z": self.z})
         return json
 
     @classmethod
-    def _from_json(cls, data: Dict[str, Any], **kwargs) -> Self:
+    def _from_json(cls, data: dict[str, Any], **kwargs) -> Self:
 
         return cls(
             x=data["x"],
@@ -168,13 +162,13 @@ class EGOrientation(EGPoint2D):
             self.z * conversion_factor,
         )
 
-    def to_json(self) -> Dict[str, Any]:
+    def to_json(self) -> dict[str, Any]:
         json = super().to_json()
         json.update({"z": self.z})
         return json
 
     @classmethod
-    def _from_json(cls, data: Dict[str, Any], **kwargs) -> Self:
+    def _from_json(cls, data: dict[str, Any], **kwargs) -> Self:
         return cls(
             x=data["x"],
             y=data["y"],
@@ -183,7 +177,9 @@ class EGOrientation(EGPoint2D):
 
 
 class ObjectType(enum.Enum):
-    """Canonical object types present in the sage10k dataset."""
+    """
+    Canonical object types present in the sage10k dataset.
+    """
 
     ADJUSTABLEWRENCH = "adjustablewrench"
     ART = "art"
@@ -317,7 +313,9 @@ class ObjectType(enum.Enum):
 
 
 class BookObjectType(enum.Enum):
-    """Object types that represent actual books (not furniture named with 'book')."""
+    """
+    Object types that represent actual books (not furniture named with 'book').
+    """
 
     BOOK = "book"
     BOOK1 = "book1"
@@ -334,7 +332,9 @@ class BookObjectType(enum.Enum):
 
     @classmethod
     def contains(cls, object_type: "ObjectType") -> bool:
-        """Return True if *object_type* represents a book."""
+        """
+        Return True if *object_type* represents a book.
+        """
         return object_type.value in cls._value2member_map_
 
 
@@ -348,7 +348,8 @@ class EGObject(EGWithID):
 
     place_id: str
     """
-    The id of the object where the object is located/placed on/at, e.g. wall, floor, table.
+    The id of the object where the object is located/placed on/at, e.g. wall,
+    floor, table.
     """
 
     object_type: ObjectType
@@ -373,16 +374,12 @@ class EGObject(EGWithID):
 
     source_id: str
     """
-    id of the object. This is used to identify the object in the dataset.
+    Id of the object.
+
+    This is used to identify the object in the dataset.
     """
 
-    # children: List[Self] = field(default_factory=list)
-    # """
-    # List of the children of the object.
-    # Children are objects that are placed inside, on or beneath the object.
-    # """
-
-    def to_json(self) -> Dict[str, Any]:
+    def to_json(self) -> dict[str, Any]:
         return {
             **super().to_json(),
             "id": self.id,
@@ -396,7 +393,7 @@ class EGObject(EGWithID):
         }
 
     @classmethod
-    def _from_json(cls, data: Dict[str, Any], **kwargs):
+    def _from_json(cls, data: dict[str, Any], **kwargs):
         return cls(
             id=data["id"],
             room_id=data["room_id"],
@@ -413,10 +410,21 @@ class EGObject(EGWithID):
     def create_in_world(
         self,
         world: World,
-        mesh_path: Optional[Path],
+        mesh_path: Path | None,
         parent: KinematicStructureEntity,
         **kwargs,
     ) -> Body:
+        """
+        Instantiate this object in *world* by loading its PLY mesh from
+        *mesh_path*.
+
+        :param world: The world where the object is created.
+        :param mesh_path: Directory containing the ``objects/`` sub-
+            folder with PLY and texture files for this object.
+        :param parent: The parent kinematic structure entity.
+        :raises ValueError: If *mesh_path* does not exist.
+        :return: The created :class:`Body`.
+        """
         if mesh_path is None:
             mesh_path = (
                 Path.home()
@@ -424,21 +432,14 @@ class EGObject(EGWithID):
                 / "sage-10k-scenes"
                 / "20251230_060038_layout_fd6894a7"
             )
-            # raise ValueError(
-            #     f"No mesh path found for object '{self.id}' (source_id='{self.source_id}'). "
-            #     "Ensure the object is present in the mesh_to_object_mapping."
-            # )
         if not mesh_path.exists():
             raise ValueError(f"Directory {mesh_path} does not exist.")
-        if self.source_id is None:
-            self.source_id = "0e00397f"
         ply_file = mesh_path / "objects" / f"{self.source_id}.ply"
         texture_file = mesh_path / "objects" / f"{self.source_id}_texture.png"
 
         body = Body()
         body.name = PrefixedName(name=str(body.id), prefix=self.id)
 
-        # Define the pose for the object in the world
         root_T_body = HomogeneousTransformationMatrix.from_xyz_rpy(
             self.position.x,
             self.position.y,
@@ -448,18 +449,15 @@ class EGObject(EGWithID):
             child_frame=body,
         )
 
-        # Load the mesh and texture
         mesh = Mesh.from_ply_file(
             ply_file_path=str(ply_file),
             texture_file_path=str(texture_file),
             origin=HomogeneousTransformationMatrix.from_xyz_rpy(reference_frame=body),
         )
 
-        # Create a Body with the loaded mesh as both visual and collision geometry
-        visual = ShapeCollection([mesh], reference_frame=body)
-        collision = ShapeCollection([mesh], reference_frame=body)
-        body.visual = visual
-        body.collision = collision
+        geometry = ShapeCollection([mesh], reference_frame=body)
+        body.visual = geometry
+        body.collision = geometry
 
         if self.place_id in ["floor", "wall"]:
             connection_type = FixedConnection
@@ -473,11 +471,9 @@ class EGObject(EGWithID):
                 child=body,
                 parent_T_connection_expression=root_T_body,
             )
-            # Add the body to the world
             world.add_body(body)
             world.add_connection(root_C_body)
 
-        # create semantic annotation
         annotation = NaturalLanguageWithTypeDescription(
             root=body, description=None, type_description=self.object_type
         )
@@ -491,18 +487,47 @@ class EGObject(EGWithID):
 @dataclass
 class EGObject2D(EGWithID):
     """
-    An object on a shelf layer — position is 2-D since z is determined by the layer.
+    An object on a shelf layer — position is 2-D since z is determined by the
+    layer.
     """
 
     room_id: str
-    place_id: str
-    object_type: ObjectType
-    scale: EGSize
-    position: EGPoint2D
-    orientation: EGOrientation
-    source_id: str
+    """
+    The id of the room where the object is located.
+    """
 
-    def to_json(self) -> Dict[str, Any]:
+    place_id: str
+    """
+    The id of the surface the object rests on, e.g. a shelf, floor, or wall.
+    """
+
+    object_type: ObjectType
+    """
+    The category of the object.
+    """
+
+    scale: EGSize
+    """
+    Physical dimensions of the object.
+    """
+
+    position: EGPoint2D
+    """
+    2-D position relative to the centre of the containing shelf layer.
+    """
+
+    orientation: EGOrientation
+    """
+    Orientation of the object in Euler angles (degrees).
+    """
+
+    source_id: str
+    """
+    Identifier used to look up the PLY mesh file for this object in the
+    dataset.
+    """
+
+    def to_json(self) -> dict[str, Any]:
         return {
             **super().to_json(),
             "id": self.id,
@@ -516,7 +541,7 @@ class EGObject2D(EGWithID):
         }
 
     @classmethod
-    def _from_json(cls, data: Dict[str, Any], **kwargs) -> Self:
+    def _from_json(cls, data: dict[str, Any], **kwargs) -> Self:
         return cls(
             id=data["id"],
             room_id=data["room_id"],
@@ -533,19 +558,27 @@ class EGObject2D(EGWithID):
     def create_in_world(
         self,
         world: World,
-        mesh_path: Optional[Path],
+        mesh_path: Path | None,
         parent: KinematicStructureEntity,
-        x: Optional[float] = None,
-        y: Optional[float] = None,
+        x: float | None = None,
+        y: float | None = None,
         z: float = 0.0,
         **kwargs,
     ) -> Body:
         """
-        Create the object in the world at the given absolute pose.
+        Instantiate this object in *world* at the given absolute pose.
 
-        :param x: Absolute x in world coordinates (defaults to ``self.position.x``).
-        :param y: Absolute y in world coordinates (defaults to ``self.position.y``).
+        :param world: The world where the object is created.
+        :param mesh_path: Directory containing the ``objects/`` sub-
+            folder with PLY and texture files for this object.
+        :param parent: The parent kinematic structure entity.
+        :param x: Absolute x in world coordinates (defaults to
+            ``self.position.x``).
+        :param y: Absolute y in world coordinates (defaults to
+            ``self.position.y``).
         :param z: Absolute z in world coordinates.
+        :raises ValueError: If *mesh_path* does not exist.
+        :return: The created :class:`Body`.
         """
         if mesh_path is None:
             mesh_path = (
@@ -556,8 +589,6 @@ class EGObject2D(EGWithID):
             )
         if not mesh_path.exists():
             raise ValueError(f"Directory {mesh_path} does not exist.")
-        if self.source_id is None:
-            self.source_id = "0e00397f"
         ply_file = mesh_path / "objects" / f"{self.source_id}.ply"
         texture_file = mesh_path / "objects" / f"{self.source_id}_texture.png"
 
@@ -579,15 +610,12 @@ class EGObject2D(EGWithID):
             origin=HomogeneousTransformationMatrix.from_xyz_rpy(reference_frame=body),
         )
 
-        visual = ShapeCollection([mesh], reference_frame=body)
-        collision = ShapeCollection([mesh], reference_frame=body)
-        body.visual = visual
-        body.collision = collision
-
-        connection_type = Connection6DoF
+        geometry = ShapeCollection([mesh], reference_frame=body)
+        body.visual = geometry
+        body.collision = geometry
 
         with world.modify_world():
-            root_C_body = connection_type.create_with_dofs(
+            root_C_body = Connection6DoF.create_with_dofs(
                 world=world,
                 parent=parent,
                 child=body,
@@ -628,7 +656,7 @@ class EGWall(EGWithID):
     The thickness of the wall.
     """
 
-    def to_json(self) -> Dict[str, Any]:
+    def to_json(self) -> dict[str, Any]:
         return {
             **super().to_json(),
             "id": self.id,
@@ -639,17 +667,17 @@ class EGWall(EGWithID):
         }
 
     @classmethod
-    def _from_json(cls, data: Dict[str, Any], **kwargs):
+    def _from_json(cls, data: dict[str, Any], **kwargs):
         return cls(
             id=data["id"],
-            start_point=EGPosition._from_json(data["start_point"], **kwargs),
-            end_point=EGPosition._from_json(data["end_point"], **kwargs),
+            start_point=EGPoint2D._from_json(data["start_point"], **kwargs),
+            end_point=EGPoint2D._from_json(data["end_point"], **kwargs),
             height=data["height"],
             thickness=data["thickness"],
         )
 
     @property
-    def wall_length_and_yaw(self) -> Tuple[float, float]:
+    def wall_length_and_yaw(self) -> tuple[float, float]:
         """
         :return: The length of the wall and the yaw that can be used for creating it with
         `Wall.create_with_new_body_in_world`.
@@ -732,7 +760,9 @@ class EGDoor(EGWithID):
 
     position_on_wall: float
     """
-    Position on wall w. r. t. its starting point as percentage of the wall length.
+    Position on wall w.
+
+    r. t. its starting point as percentage of the wall length.
     """
 
     width: float
@@ -750,7 +780,7 @@ class EGDoor(EGWithID):
     Rather it opens to the inside of the room or the outside.
     """
 
-    def to_json(self) -> Dict[str, Any]:
+    def to_json(self) -> dict[str, Any]:
         return {
             **super().to_json(),
             "id": self.id,
@@ -762,7 +792,7 @@ class EGDoor(EGWithID):
         }
 
     @classmethod
-    def _from_json(cls, data: Dict[str, Any], **kwargs) -> Self:
+    def _from_json(cls, data: dict[str, Any], **kwargs) -> Self:
         return cls(
             id=data["id"],
             wall_id=data["wall_id"],
@@ -781,8 +811,10 @@ class EGDoor(EGWithID):
         """
         The parent must always be the wall body.
 
-        :param wall: The sage 10k wall that is referenced by `self.wall_id`.
-        :param wall_annotation: The wall annotation created in `world` before this call.
+        :param wall: The sage 10k wall that is referenced by
+            `self.wall_id`.
+        :param wall_annotation: The wall annotation created in `world`
+            before this call.
         """
         name = PrefixedName(name=self.id, prefix=kwargs["wall"].id)
 
@@ -841,7 +873,6 @@ class EGDoor(EGWithID):
         :param door: The door to create the handle for.
         :return: The handle of the door.
         """
-
         floor = world.get_semantic_annotations_by_type(Floor)[0]
 
         door_T_handle = HomogeneousTransformationMatrix.from_xyz_rpy(
@@ -882,6 +913,7 @@ class EGDoor(EGWithID):
     def _create_hinge_in_world(self, world: World, door: Door) -> Hinge:
         """
         Create the hinge (the joint that makes the door openable) of the door.
+
         :param world: The world where the hinge is created.
         :param door: The door to create the hinge for.
         :return: The hinge
@@ -909,13 +941,13 @@ class EGDoor(EGWithID):
 
 
 @dataclass
-class EGRoom(EGWithID, HasExchangeablePartAggregations):
+class EGRoom(EGWithID):
     room_type: str
     """
     The type of the room.
     """
 
-    # Currently only rectangular rooms, could use footprint: List[Tuple[float, float]] for L-Shaped rooms
+    # Currently only rectangular rooms, could use footprint: list[tuple[float, float]] for L-Shaped rooms
     scale: EGSize
     """
     The scale of the room.
@@ -923,26 +955,25 @@ class EGRoom(EGWithID, HasExchangeablePartAggregations):
 
     position: EGPosition
     """
-    The position of the rooms lower left corner? in the scene.
+    Position of the room's lower-left corner in the scene.
     """
-    # floor_material: str
 
-    objects: List[EGObject] = field(default_factory=list)
+    objects: list[EGObject] = field(default_factory=list)
     """
     List of the objects in the room.
     """
 
-    walls: List[EGWall] = field(default_factory=list)
+    walls: list[EGWall] = field(default_factory=list)
     """
     List of the walls in the room.
     """
 
-    doors: List[EGDoor] = field(default_factory=list)
+    doors: list[EGDoor] = field(default_factory=list)
     """
     List of the doors in the room.
     """
 
-    def to_json(self) -> Dict[str, Any]:
+    def to_json(self) -> dict[str, Any]:
         return {
             **super().to_json(),
             "id": self.id,
@@ -955,7 +986,7 @@ class EGRoom(EGWithID, HasExchangeablePartAggregations):
         }
 
     @classmethod
-    def _from_json(cls, data: Dict[str, Any], **kwargs) -> Self:
+    def _from_json(cls, data: dict[str, Any], **kwargs) -> Self:
         return cls(
             id=data["id"],
             room_type=data["room_type"],
@@ -1007,7 +1038,7 @@ class EGRoom(EGWithID, HasExchangeablePartAggregations):
     def create_in_world(
         self,
         world: World,
-        mesh_to_object_mapping: Optional[Dict[Path, "EGObject"]],
+        mesh_to_object_mapping: dict[Path, EGObject] | None,
         parent: KinematicStructureEntity,
         **kwargs,
     ) -> WorldEntity:
@@ -1019,11 +1050,7 @@ class EGRoom(EGWithID, HasExchangeablePartAggregations):
         for wall in self.walls:
             wall_annotation = wall.create_in_world(world, parent)
             walls_of_room.append(wall_annotation)
-            doors_of_this_wall = [
-                door for door in self.doors if door.wall_id == wall.id
-            ]  # join doors on this wall
-
-            # create doors
+            doors_of_this_wall = [door for door in self.doors if door.wall_id == wall.id]
             doors_of_room += [
                 door.create_in_world(
                     world,
@@ -1044,7 +1071,7 @@ class EGRoom(EGWithID, HasExchangeablePartAggregations):
         with world.modify_world():
             world.add_semantic_annotation(room_annotation)
 
-        object_to_mesh_path: Dict[str, Path] = (
+        object_to_mesh_path: dict[str, Path] = (
             {obj.id: path for path, obj in mesh_to_object_mapping.items()}
             if mesh_to_object_mapping
             else {}
@@ -1057,76 +1084,14 @@ class EGRoom(EGWithID, HasExchangeablePartAggregations):
         return world.root
 
 
-@aggregation_for((EGRoom, "objects"))
 @dataclass
-class RoomObjectAggregations(AggregationStatistic):
-    """Aggregation statistics over the objects in a room."""
-
-    objects_to_aggregate_on: List[EGObject]
-
-    @cached_property
-    def _eql_variable(self) -> SymbolicExpression:
-        return variable(EGObject, self.objects_to_aggregate_on)
-
-    def total_count(self) -> int:
-        """Number of objects placed in the room."""
-        return len(self.objects_to_aggregate_on)
-
-
-@aggregation_for((EGRoom, "walls"))
-@dataclass
-class RoomWallAggregations(AggregationStatistic):
-    """Aggregation statistics over the walls of a room."""
-
-    objects_to_aggregate_on: List[EGWall]
-
-    @cached_property
-    def _eql_variable(self) -> SymbolicExpression:
-        return variable(EGWall, self.objects_to_aggregate_on)
-
-    def total_count(self) -> int:
-        """Number of walls enclosing the room."""
-        return len(self.objects_to_aggregate_on)
-
-    def total_perimeter(self) -> float:
-        """Sum of all wall lengths — equals the room's floor perimeter."""
-        return float(
-            sum(
-                math.sqrt(
-                    (w.end_point.x - w.start_point.x) ** 2
-                    + (w.end_point.y - w.start_point.y) ** 2
-                )
-                for w in self.objects_to_aggregate_on
-            )
-        )
-
-
-@aggregation_for((EGRoom, "doors"))
-@dataclass
-class RoomDoorAggregations(AggregationStatistic):
-    """Aggregation statistics over the doors of a room."""
-
-    objects_to_aggregate_on: List[EGDoor]
-
-    @cached_property
-    def _eql_variable(self) -> SymbolicExpression:
-        return variable(EGDoor, self.objects_to_aggregate_on)
-
-    def total_count(self) -> int:
-        """Number of doors in the room."""
-        return len(self.objects_to_aggregate_on)
-
-    def mean_width(self) -> float:
-        """Mean door width across all doors in the room."""
-        return float(np.mean([d.width for d in self.objects_to_aggregate_on]))
-
-
-@dataclass
-class EGShelfLayer(HasExchangeablePartAggregations):
+class EGShelfLayer:
     """
-    A shelf layer for environment generation. Carries its own physical dimensions so the RSPN
-    can learn width and length alongside object placement, rather than inheriting a fixed size
-    from the parent shelf.
+    A shelf layer for environment generation.
+
+    Carries its own physical dimensions so the RSPN can learn width and
+    length alongside object placement, rather than inheriting a fixed
+    size from the parent shelf.
     """
 
     scale: EGSize
@@ -1134,41 +1099,28 @@ class EGShelfLayer(HasExchangeablePartAggregations):
     Physical dimensions of the layer slab (width × length × height).
     """
 
-    objects: List[EGObject2D]
+    objects: list[EGObject2D]
     """
     Objects placed on this layer, with positions relative to the layer centre.
     """
 
 
-@dataclass
-@aggregation_for((EGShelfLayer, "objects"))
-class EGShelfLayerAggregations(AggregationStatistic):
-    """
-    Aggregation statistics over the objects on an EGShelfLayer.
-    """
-
-    objects_to_aggregate_on: List[EGObject2D]
-
-    def _eql_variable(self) -> SymbolicExpression:
-        return variable(type(self), ["objects"])
-
-    def total_count(self) -> int:
-        """Number of objects placed on the shelf layer."""
-        return len(self.objects_to_aggregate_on)
-
-
 def build_source_id_to_path(
     scenes_root: Path = Path.home() / "Documents" / "sage-10k-scenes",
-) -> Dict[str, Path]:
-    """Scan *scenes_root* and return a mapping from source_id to its scene directory.
-
-    Each scene directory is expected to contain an ``objects/`` sub-folder with
-    files named ``{source_id}.ply``.
-
-    :param scenes_root: Root directory that contains individual scene folders.
-    :return: ``{source_id: scene_dir}`` for every PLY file found under any scene.
+) -> dict[str, Path]:
     """
-    mapping: Dict[str, Path] = {}
+    Scan *scenes_root* and return a mapping from source_id to its scene
+    directory.
+
+    Each scene directory is expected to contain an ``objects/`` sub-
+    folder with files named ``{source_id}.ply``.
+
+    :param scenes_root: Root directory that contains individual scene
+        folders.
+    :return:``{source_id: scene_dir}`` for every PLY file found under
+        any scene.
+    """
+    mapping: dict[str, Path] = {}
     for scene_dir in scenes_root.iterdir():
         objects_dir = scene_dir / "objects"
         if not objects_dir.is_dir():
@@ -1181,7 +1133,7 @@ def build_source_id_to_path(
 
 
 @dataclass
-class EGShelf(HasExchangeablePartAggregations):
+class EGShelf:
     """
     A shelf with four explicit horizontal layers.
     """
@@ -1201,22 +1153,18 @@ class EGShelf(HasExchangeablePartAggregations):
     Orientation of the Shelf in the World.
     """
 
-    # source_id: str
-    # """
-    # The mesh path for this Shelf.
-    # """
-
-    layers: List[EGShelfLayer]
+    layers: list[EGShelfLayer]
     """
     The layers of the Shelf.
     """
 
-    book_source_ids: Optional[List[Tuple[Path, str]]] = field(default=None)
+    book_source_ids: list[tuple[Path, str]] | None = field(default=None)
     """
-    List of (scene_dir, source_id) pairs for book meshes used when placing objects on shelf layers.
+    List of (scene_dir, source_id) pairs for book meshes used when placing
+    objects on shelf layers.
     """
 
-    def create_in_world(self, world: Optional[World] = None) -> World:
+    def create_in_world(self, world: World | None = None) -> World:
         _world: World = world if world is not None else World()
         if world is None:
             root = Body(name=PrefixedName(name="map"))
@@ -1284,36 +1232,23 @@ class EGShelf(HasExchangeablePartAggregations):
 
 
 @dataclass
-@aggregation_for((EGShelf, "layers"))
-class EGShelfAggregations(AggregationStatistic):
-    """
-    Aggregation statistics over the layers of a shelf.
-    """
-
-    objects_to_aggregate_on: List[EGShelfLayer]
-
-    def _eql_variable(self) -> SymbolicExpression:
-        return variable(type(self), self.objects_to_aggregate_on)
-
-    def total_count(self):
-        return len(self.objects_to_aggregate_on)
-
-
-@dataclass
 class SceneGenerator(EGWithID):
     room: EGRoom
     """
     The room of the scene.
+
     Currently only one room is supported for simplicity.
     """
 
-    mesh_to_object_mapping: Dict[Path, "EGObject"] = field(default_factory=dict)
+    mesh_to_object_mapping: dict[Path, EGObject] = field(default_factory=dict)
     """
-    A mapping from the mesh directory path to the corresponding object in the scene.
+    A mapping from the mesh directory path to the corresponding object in the
+    scene.
+
     Used to resolve per-object mesh paths when creating the world.
     """
 
-    def to_json(self) -> Dict[str, Any]:
+    def to_json(self) -> dict[str, Any]:
         return {
             **super().to_json(),
             "id": self.id,
@@ -1321,7 +1256,7 @@ class SceneGenerator(EGWithID):
         }
 
     @classmethod
-    def _from_json(cls, data: Dict[str, Any], **kwargs):
+    def _from_json(cls, data: dict[str, Any], **kwargs):
         return cls(
             id=data["id"],
             room=EGRoom._from_json(data["rooms"][0], **kwargs),

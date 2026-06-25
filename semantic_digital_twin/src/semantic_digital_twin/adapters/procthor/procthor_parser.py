@@ -47,8 +47,9 @@ from semantic_digital_twin.world_description.world_entity import Body
 @dataclass
 class ProcthorDoor:
     """
-    Processes a door dictionary from Procthor, extracting the door's hole polygon and computing its scale and
-    transformation matrix relative to the parent wall's horizontal center.
+    Processes a door dictionary from Procthor, extracting the door's hole
+    polygon and computing its scale and transformation matrix relative to the
+    parent wall's horizontal center.
     """
 
     door_dict: dict
@@ -58,7 +59,8 @@ class ProcthorDoor:
 
     parent_wall_width: float
     """
-    Width of the parent wall, since we define the door relative to the wall's horizontal center.
+    Width of the parent wall, since we define the door relative to the wall's
+    horizontal center.
     """
 
     world_T_parent_wall: HomogeneousTransformationMatrix
@@ -68,7 +70,8 @@ class ProcthorDoor:
 
     thickness: float = 0.02
     """
-    Thickness of the door, since the door dictionary only provides a 2d polygon.
+    Thickness of the door, since the door dictionary only provides a 2d
+    polygon.
     """
 
     name: PrefixedName = field(init=False)
@@ -98,7 +101,8 @@ class ProcthorDoor:
 
     def __post_init__(self):
         """
-        Extracts the hole polygon, and preprocesses the name and min/max coordinates of the door's hole polygon.
+        Extracts the hole polygon, and preprocesses the name and min/max
+        coordinates of the door's hole polygon.
         """
         asset_id = self.door_dict["assetId"]
         room_numbers = self.door_dict["id"].split("|")[1:]
@@ -118,8 +122,11 @@ class ProcthorDoor:
     @cached_property
     def scale(self) -> Scale:
         """
-        Computes the door scale from the door's hole polygon. Converts the scale from Unity's left-handed Y-up, Z-forward
-        convention to the semantic digital twin's right-handed Z-up, X-forward convention.
+        Computes the door scale from the door's hole polygon.
+
+        Converts the scale from Unity's left-handed Y-up, Z-forward
+        convention to the semantic digital twin's right-handed Z-up,
+        X-forward convention.
 
         :return: Scale representing the door's geometry.
         """
@@ -130,10 +137,14 @@ class ProcthorDoor:
     @cached_property
     def wall_T_door(self) -> HomogeneousTransformationMatrix:
         """
-        Computes the door position from the wall's horizontal center. Converts the Unity's left-handed Y-up, Z-forward
-        convention to the semantic digital twin's right-handed Z-up, X-forward convention.
+        Computes the door position from the wall's horizontal center.
 
-        :return: TransformationMatrix representing the door's transform from the wall's perspective.
+        Converts the Unity's left-handed Y-up, Z-forward convention to
+        the semantic digital twin's right-handed Z-up, X-forward
+        convention.
+
+        :return: TransformationMatrix representing the door's transform
+            from the wall's perspective.
         """
         # Door center origin expressed from the wall's horizontal center. Unity's wall origin is in one of the corners
         width_origin_wall_corner = 0.5 * (self.x_min + self.x_max)
@@ -148,7 +159,8 @@ class ProcthorDoor:
 
     def _add_double_door_to_world(self, world: World) -> DoubleDoor:
         """
-        Parses the parameters according to the double door assumptions, and returns a double door factory.
+        Parses the parameters according to the double door assumptions, and
+        returns a double door factory.
         """
         one_door_scale = Scale(self.thickness, self.scale.y * 0.5, self.scale.z)
         x_direction: float = one_door_scale.x / 2
@@ -213,7 +225,8 @@ class ProcthorDoor:
         world_T_door: Optional[HomogeneousTransformationMatrix] = None,
     ) -> Door:
         """
-        Parses the parameters according to the single door assumptions, and returns a single door factory.
+        Parses the parameters according to the single door assumptions, and
+        returns a single door factory.
         """
         name = self.name if name is None else name
         scale = self.scale if scale is None else scale
@@ -258,10 +271,12 @@ class ProcthorDoor:
 
     def add_to_world(self, world: World) -> Union[Door, DoubleDoor]:
         """
-        Returns a Factory for the door, either a DoorFactory or a DoubleDoorFactory,
-        depending on its name. If the door's name contains "double", it is treated as a double door.
-        """
+        Returns a Factory for the door, either a DoorFactory or a
+        DoubleDoorFactory, depending on its name.
 
+        If the door's name contains "double", it is treated as a double
+        door.
+        """
         if "double" in self.name.name.lower():
             return self._add_double_door_to_world(world)
         else:
@@ -280,46 +295,56 @@ class ProcthorDoor:
 @dataclass
 class ProcthorWall:
     """
-    Processes a wall dictionary from Procthor, extracting the wall's polygon and computing its scale and
-    transformation matrix. Its center will be at the horizontal center of its polygon, at height 0.
-     It also processes any doors associated with the wall, creating ProcthorDoor instances for each door.
-    The wall is defined by two polygons, one for each side of the physical wall, and the door is defined as a hole in
-    the wall polygon.
+    Processes a wall dictionary from Procthor, extracting the wall's polygon
+    and computing its scale and transformation matrix.
+
+    Its center will be at the horizontal center of its polygon, at
+    height 0.  It also processes any doors associated with the wall,
+    creating ProcthorDoor instances for each door. The wall is defined
+    by two polygons, one for each side of the physical wall, and the
+    door is defined as a hole in the wall polygon.
     """
 
     wall_dicts: List[dict] = field(default_factory=list)
     """
-    List of dictionaries, where each dictionary represents one wall polygon in procthor
+    List of dictionaries, where each dictionary represents one wall polygon in
+    procthor.
     """
 
     door_dicts: List[dict] = field(default_factory=list)
     """
-    List of dictionaries, where each dictionary represents one door hole in the wall polygon
+    List of dictionaries, where each dictionary represents one door hole in the
+    wall polygon.
     """
 
     wall_thickness: float = 0.02
     """
-    Thickness of the wall, since the wall dictionary only provides a 2d polygon.
+    Thickness of the wall, since the wall dictionary only provides a 2d
+    polygon.
     """
 
     name: PrefixedName = field(init=False)
     """
-    Name of the wall, constructed from the corners of the wall polygon and the room numbers associated with the wall.
+    Name of the wall, constructed from the corners of the wall polygon and the
+    room numbers associated with the wall.
     """
 
     x_coords: List[float] = field(init=False)
     """
-    List of unique X-coordinates of the wall polygon, extracted in order from the wall dictionary. 
+    List of unique X-coordinates of the wall polygon, extracted in order from
+    the wall dictionary.
     """
 
     y_coords: List[float] = field(init=False)
     """
-    List of unique Y-coordinates of the wall polygon, extracted in order from the wall dictionary.
+    List of unique Y-coordinates of the wall polygon, extracted in order from
+    the wall dictionary.
     """
 
     z_coords: List[float] = field(init=False)
     """
-    List of unique Z-coordinates of the wall polygon, extracted in order from the wall dictionary.
+    List of unique Z-coordinates of the wall polygon, extracted in order from
+    the wall dictionary.
     """
 
     delta_x: float = field(init=False)
@@ -334,11 +359,15 @@ class ProcthorWall:
 
     def __post_init__(self):
         """
-        Processes the wall polygons and doors, extracting the min/max coordinates and computing the name of the wall.
-        If no doors are present, it uses the first wall polygon as the reference for min/max coordinates.
-        If doors are present, it uses the wall polygon that corresponds to the first door's 'wall0' reference.
-         This is because the door hole is defined relative to that wall polygon and using the other wall would result
-         in the hole being on the wrong side of the wall.
+        Processes the wall polygons and doors, extracting the min/max
+        coordinates and computing the name of the wall.
+
+        If no doors are present, it uses the first wall polygon as the
+        reference for min/max coordinates. If doors are present, it uses
+        the wall polygon that corresponds to the first door's 'wall0'
+        reference.  This is because the door hole is defined relative to
+        that wall polygon and using the other wall would result  in the
+        hole being on the wrong side of the wall.
         """
         if self.door_dicts:
             used_wall = (
@@ -375,8 +404,11 @@ class ProcthorWall:
     @cached_property
     def scale(self) -> Scale:
         """
-        Computes the wall scale from the first wall polygon. Converts the scale from Unity's left-handed Y-up, Z-forward
-        convention to the semantic digital twin's right-handed Z-up, X-forward convention.
+        Computes the wall scale from the first wall polygon.
+
+        Converts the scale from Unity's left-handed Y-up, Z-forward
+        convention to the semantic digital twin's right-handed Z-up,
+        X-forward convention.
 
         :return: Scale representing the wall's geometry.
         """
@@ -390,14 +422,15 @@ class ProcthorWall:
     @cached_property
     def world_T_wall(self) -> HomogeneousTransformationMatrix:
         """
-        Computes the wall's world position matrix from the wall's x and z coordinates.
+        Computes the wall's world position matrix from the wall's x and z
+        coordinates.
+
         Calculates the yaw angle using the atan2 function based on the wall's width and depth.
         The wall is artificially set to height=0, because
         1. as of now, procthor house floors have the same floor value at 0
         2. Since doors origins are in 3d center, positioning the door correctly at the floor given potentially varying
            wall heights is unnecessarily complex given the assumption stated in 1.
         """
-
         yaw = math.atan2(self.delta_z, -self.delta_x)
         x_center = (self.x_coords[0] + self.x_coords[-1]) * 0.5
         z_center = (self.z_coords[0] + self.z_coords[-1]) * 0.5
@@ -442,7 +475,8 @@ class ProcthorWall:
 @dataclass
 class ProcthorRoom:
     """
-    Processes a room dictionary from Procthor, extracting the room's floor polygon and computing its center.
+    Processes a room dictionary from Procthor, extracting the room's floor
+    polygon and computing its center.
     """
 
     room_dict: dict
@@ -457,12 +491,14 @@ class ProcthorRoom:
 
     centered_polytope: List[Point3] = field(init=False)
     """
-    Polytope representing the room's floor polygon, centered around its local 0, 0, 0 coordinate
+    Polytope representing the room's floor polygon, centered around its local
+    0, 0, 0 coordinate.
     """
 
     def __post_init__(self):
         """
-        Extracts the room's floor polygon, computes its center, and constructs the centered polytope.
+        Extracts the room's floor polygon, computes its center, and constructs
+        the centered polytope.
         """
         room_polytope = self.room_dict["floorPolygon"]
 
@@ -488,9 +524,8 @@ class ProcthorRoom:
     @cached_property
     def world_T_room(self) -> HomogeneousTransformationMatrix:
         """
-        Computes the room's world transform
+        Computes the room's world transform.
         """
-
         world_P_room = Point3(self.z_center, -self.x_center, self.y_center)
 
         return HomogeneousTransformationMatrix.from_point_rotation_matrix(world_P_room)
@@ -525,8 +560,10 @@ class ProcthorRoom:
 @dataclass
 class ProcthorObject:
     """
-    Processes an object dictionary from Procthor, extracting the object's position and rotation,
-    and computing its world transformation matrix. It also handles the import of child objects recursively.
+    Processes an object dictionary from Procthor, extracting the object's
+    position and rotation, and computing its world transformation matrix.
+
+    It also handles the import of child objects recursively.
     """
 
     object_dict: dict
@@ -542,8 +579,11 @@ class ProcthorObject:
     @cached_property
     def world_T_obj(self) -> HomogeneousTransformationMatrix:
         """
-        Computes the object's world transformation matrix from its position and rotation. Converts Unity's
-        left-handed Y-up, Z-forward convention to the right-handed Z-up, X-forward convention.
+        Computes the object's world transformation matrix from its position and
+        rotation.
+
+        Converts Unity's left-handed Y-up, Z-forward convention to the
+        right-handed Z-up, X-forward convention.
         """
         obj_position = self.object_dict["position"]
         obj_rotation = self.object_dict["rotation"]
@@ -562,9 +602,12 @@ class ProcthorObject:
 
     def get_world(self) -> Optional[World]:
         """
-        Returns a World instance with this object at its root, importing it from the database using its assetId.
-        If the object has children, they are imported recursively and connected to the parent object.
-        If the object cannot be found in the database, it's children are skipped as well.
+        Returns a World instance with this object at its root, importing it
+        from the database using its assetId.
+
+        If the object has children, they are imported recursively and
+        connected to the parent object. If the object cannot be found in
+        the database, it's children are skipped as well.
         """
         asset_id = self.object_dict["assetId"]
         body_world: World = get_world_by_asset_id(self.session, asset_id=asset_id)
@@ -598,13 +641,13 @@ def unity_to_semantic_digital_twin_transform(
     unity_transform_matrix: HomogeneousTransformationMatrix,
 ) -> HomogeneousTransformationMatrix:
     """
-    Convert a left-handed Y-up, Z-forward Unity transform to the right-handed Z-up, X-forward convention used in the
-    semantic digital twin.
+    Convert a left-handed Y-up, Z-forward Unity transform to the right-handed
+    Z-up, X-forward convention used in the semantic digital twin.
 
-    :param unity_transform_matrix:  The transformation matrix in Unity coordinates.
+    :param unity_transform_matrix: The transformation matrix in Unity
+        coordinates.
     :return: TransformationMatrix in semantic digital twin coordinates.
     """
-
     unity_transform_matrix = unity_transform_matrix.to_np()
 
     permutation_matrix = np.array(
@@ -637,7 +680,8 @@ class ProcTHORParser:
 
     name: str
     """
-    The name of the world that is extracted from the house."""
+    The name of the world that is extracted from the house.
+    """
 
     house: Dict[str, Any]
     """
@@ -658,11 +702,11 @@ class ProcTHORParser:
     def parse(self) -> World:
         """
         Parses a JSON file from procthor into a world.
+
         Room floor areas are constructed from the supplied polygons
         Walls and doors are constructed from the supplied polygons
         Objects are imported from the database
         """
-
         house_name = self.name
         world = World(name=house_name)
         with world.modify_world():
@@ -685,8 +729,10 @@ class ProcTHORParser:
         """
         Imports rooms from the Procthor JSON file into ProcthorRoom instances.
 
-        :param world: The World instance to which the rooms will be added.
-        :param rooms: List of room dictionaries from the Procthor JSON file.
+        :param world: The World instance to which the rooms will be
+            added.
+        :param rooms: List of room dictionaries from the Procthor JSON
+            file.
         """
         for room in rooms:
             procthor_room = ProcthorRoom(room_dict=room)
@@ -694,10 +740,13 @@ class ProcTHORParser:
 
     def import_objects(self, world: World, objects: List[Dict]):
         """
-        Imports objects from the Procthor JSON file into ProcthorObject instances.
+        Imports objects from the Procthor JSON file into ProcthorObject
+        instances.
 
-        :param world: The World instance to which the objects will be added.
-        :param objects: List of object dictionaries from the Procthor JSON file.
+        :param world: The World instance to which the objects will be
+            added.
+        :param objects: List of object dictionaries from the Procthor
+            JSON file.
         """
         for index, obj in enumerate(objects):
             procthor_object = ProcthorObject(object_dict=obj, session=self.session)
@@ -719,9 +768,12 @@ class ProcTHORParser:
         """
         Imports walls from the Procthor JSON file into ProcthorWall instances.
 
-        :param world: The World instance to which the walls will be added.
-        :param walls: List of wall dictionaries from the Procthor JSON file.
-        :param doors: List of door dictionaries from the Procthor JSON file.
+        :param world: The World instance to which the walls will be
+            added.
+        :param walls: List of wall dictionaries from the Procthor JSON
+            file.
+        :param doors: List of door dictionaries from the Procthor JSON
+            file.
         """
         procthor_walls = self._build_procthor_walls(walls, doors)
 
@@ -733,14 +785,15 @@ class ProcTHORParser:
         walls: List[Dict],
     ) -> List[ProcthorWall]:
         """
-        Groups walls by their polygon and creates ProcthorWall instances for each group.
+        Groups walls by their polygon and creates ProcthorWall instances for
+        each group.
 
         :param walls: List of walls without doors
-
-        :return: List of ProcthorWall instances, each representing a pair of walls with the same polygon.
-        :raises AssertionError: If the number of walls is not even, as we assume that walls are always paired.
+        :return: List of ProcthorWall instances, each representing a
+            pair of walls with the same polygon.
+        :raises AssertionError: If the number of walls is not even, as
+            we assume that walls are always paired.
         """
-
         assert len(walls) % 2 == 0, (
             f"Expected an even number of walls, but found {len(walls)}. "
             f"We assumed that this is never the case, this case may need to be handled now."
@@ -765,13 +818,15 @@ class ProcTHORParser:
         walls: List[Dict], doors: List[Dict]
     ) -> Tuple[List[ProcthorWall], Set[str]]:
         """
-        Builds ProcthorWall instances from the provided walls and doors, associating each door with its corresponding walls.
+        Builds ProcthorWall instances from the provided walls and doors,
+        associating each door with its corresponding walls.
 
         :param walls: List of wall dictionaries
         :param doors: List of door dictionaries
-
-        :returns: Tuple containing a list of ProcthorWall instances and a set of used wall IDs.
-        :raises AssertionError: If a door does not have exactly two walls associated with it.
+        :returns: Tuple containing a list of ProcthorWall instances and
+            a set of used wall IDs.
+        :raises AssertionError: If a door does not have exactly two
+            walls associated with it.
         """
         walls_by_id = {wall["id"]: wall for wall in walls}
         used_wall_ids = set()
@@ -803,10 +858,8 @@ class ProcTHORParser:
 
         :param doors: List of door dictionaries
         :param walls: List of wall dictionaries
-
         :returns: List of ProcthorWall
         """
-
         procthor_walls, used_wall_ids = self._build_procthor_wall_from_door(
             walls, doors
         )
@@ -820,7 +873,8 @@ class ProcTHORParser:
 
 def get_world_by_asset_id(session: Session, asset_id: str) -> Optional[World]:
     """
-    Queries the database for a WorldMapping with the given asset_id provided by the procthor file.
+    Queries the database for a WorldMapping with the given asset_id provided by
+    the procthor file.
     """
     from semantic_digital_twin.orm.ormatic_interface import WorldMappingDAO
 

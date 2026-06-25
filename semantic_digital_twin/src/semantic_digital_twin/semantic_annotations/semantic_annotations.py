@@ -4,9 +4,6 @@ from abc import ABC
 from dataclasses import dataclass, field
 from typing import Iterable, Optional, Self, Tuple, TYPE_CHECKING
 
-from krrood.parametrization.feature_extraction.aggregations import (
-    HasExchangeablePartAggregations,
-)
 from random_events.interval import closed
 from random_events.product_algebra import SimpleEvent
 from typing_extensions import List, Type

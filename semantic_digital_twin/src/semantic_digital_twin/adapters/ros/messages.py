@@ -24,10 +24,17 @@ class MetaData(SubclassJSONSerializer):
     """The name of the node that published this message."""
 
     process_id: int
-    """The id of the process that published this message."""
+    """
+    The id of the process that published this message.
+    """
 
     world_id: UUID = field(default_factory=uuid.uuid4)
-    """The id of the origin world. This is used to identify messages that were published by the same publisher."""
+    """
+    The id of the origin world.
+
+    This is used to identify messages that were published by the same
+    publisher.
+    """
 
     @memoize
     def to_json(self) -> Dict[str, Any]:
@@ -57,30 +64,40 @@ class Message(ABC):
     """
 
     meta_data: MetaData
-    """Message origin meta data."""
-
-    publication_event_id: UUID = field(default_factory=uuid.uuid4, kw_only=True)
-    """UUID uniquely identifying the event (world update / state update / ...) that originated this message.
-
-    Recipients can use this UUID in responses to refer to this event.
-    Allows the publication/subscription mechanism to track what messages have been received and acknowledged.
+    """
+    Message origin meta data.
     """
 
+    publication_event_id: UUID = field(default_factory=uuid.uuid4, kw_only=True)
+    """
+    UUID uniquely identifying the event (world update / state update / ...)
+    that originated this message.
+
+    Recipients can use this UUID in responses to refer to this event.
+    Allows the publication/subscription mechanism to track what messages
+    have been received and acknowledged.
+    """
 
 @dataclass
 class Acknowledgment:
     """
     Message acknowledging receipt of a published event.
 
-    :param publication_event_id: The UUID of the publication event being acknowledged.
-    :param node_meta_data: The metadata identifying the acknowledging node.
+    :param publication_event_id: The UUID of the publication event being
+        acknowledged.
+    :param node_meta_data: The metadata identifying the acknowledging
+        node.
     """
 
     publication_event_id: UUID
-    """The UUID of the publication event being acknowledged."""
+    """
+    The UUID of the publication event being acknowledged.
+    """
 
     node_meta_data: MetaData
-    """The metadata identifying the acknowledging node."""
+    """
+    The metadata identifying the acknowledging node.
+    """
 
 
 @dataclass
@@ -90,10 +107,14 @@ class WorldStateUpdate(Message):
     """
 
     ids: List[UUID]
-    """The ids of the changed free variables."""
+    """
+    The ids of the changed free variables.
+    """
 
     states: List[float]
-    """The states of the changed free variables."""
+    """
+    The states of the changed free variables.
+    """
 
 
 @dataclass
@@ -103,7 +124,9 @@ class ModificationBlock(Message):
     """
 
     modifications: WorldModelModificationBlock
-    """The modifications done to a world."""
+    """
+    The modifications done to a world.
+    """
 
 
 @dataclass
@@ -120,36 +143,49 @@ class WorldUpdate(Message):
     """
 
     modification_block: Optional[ModificationBlock] = None
-    """The model modification to apply, if any."""
+    """
+    The model modification to apply, if any.
+    """
 
     state_update: Optional[WorldStateUpdate] = None
-    """The state values to apply, if any."""
-
+    """
+    The state values to apply, if any.
+    """
 
 @dataclass
 class LoadModel(Message):
     """
-    Message for requesting the loading of a model identified by its primary key.
+    Message for requesting the loading of a model identified by its primary
+    key.
     """
 
     primary_key: int
-    """The primary key identifying the model to be loaded."""
+    """
+    The primary key identifying the model to be loaded.
+    """
 
 
 @dataclass
 class WorldModelSnapshot(SubclassJSONSerializer):
     """
-    Snapshot containing the complete modification history and the latest world state.
+    Snapshot containing the complete modification history and the latest world
+    state.
     """
 
     modifications: List[WorldModelModificationBlock]
-    """The ordered list of world model modification blocks."""
+    """
+    The ordered list of world model modification blocks.
+    """
 
     ids: List[UUID]
-    """The names of the free variables contained in the state snapshot."""
+    """
+    The names of the free variables contained in the state snapshot.
+    """
 
     states: List[float]
-    """The values of the free variables contained in the state snapshot."""
+    """
+    The values of the free variables contained in the state snapshot.
+    """
 
     def to_json(self) -> Dict[str, Any]:
         return {
@@ -178,7 +214,8 @@ class WorldModelSnapshot(SubclassJSONSerializer):
         world: World, json_data: Dict[str, Any], **kwargs
     ):
         """
-        Deserialize modifications and state from JSON and apply them to the world.
+        Deserialize modifications and state from JSON and apply them to the
+        world.
 
         1. Deserialize modifications from JSON and apply them to the world, block by block.
         2. Deserialize state from JSON and apply it to the world.

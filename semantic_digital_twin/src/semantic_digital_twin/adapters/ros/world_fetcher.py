@@ -17,7 +17,9 @@ from semantic_digital_twin.adapters.ros.messages import WorldModelSnapshot
 @dataclass
 class FetchWorldServer:
     """
-    A ros service that allows other processes to fetch the entire world modification list from this world.
+    A ros service that allows other processes to fetch the entire world
+    modification list from this world.
+
     The modification list is sent via a JSON string message.
     """
 
@@ -54,7 +56,8 @@ class FetchWorldServer:
         Handle service requests to fetch the world modification list.
 
         :param request: The service request (empty for Trigger service).
-        :param response: The service response containing success status and message.
+        :param response: The service response containing success status
+            and message.
         :return: The populated response.
         """
         # Return a payload that contains both the modification blocks and the current state snapshot
@@ -77,7 +80,8 @@ class FetchWorldServer:
 
     def get_payload_as_json(self) -> str:
         """
-        Serialize both the world modification blocks and a snapshot of the current state.
+        Serialize both the world modification blocks and a snapshot of the
+        current state.
 
         The returned JSON has the structure:
         {
@@ -123,12 +127,16 @@ def fetch_world_from_service(
 ) -> World:
     """
     Fetch a world from any WorldFetcher Service.
-    This method discovers all available WorldFetcher Services in the ROS2 network and picks the first one to get all
-    world modification blocks from it.
+
+    This method discovers all available WorldFetcher Services in the
+    ROS2 network and picks the first one to get all world modification
+    blocks from it.
 
     :param node: The ROS2 node to use for communication.
-    :param service_suffix: The suffix (last part behind '/') of the WorldFetcher services to look for.
-    :param timeout_seconds: Maximum time to wait for service availability and response.
+    :param service_suffix: The suffix (last part behind '/') of the
+        WorldFetcher services to look for.
+    :param timeout_seconds: Maximum time to wait for service
+        availability and response.
     :return: The fetched modification blocks.
     """
     deadline = time() + timeout_seconds

@@ -32,18 +32,24 @@ class PosePublisher(ModelChangeCallback):
     """
     The pose to publish.
     """
+
     node: rclpy.node.Node = field(kw_only=True)
     """
     ROS node handle, used to create the publisher.
     """
+
     lifetime: int = 0
     """
-    Lifetime of the PosePublisher and viz marker in seconds. If the lifetime is 0 the marker will stay indefinitely.
+    Lifetime of the PosePublisher and viz marker in seconds.
+
+    If the lifetime is 0 the marker will stay indefinitely.
     """
+
     text: str = None
     """
-    Text to display at the pose position 
+    Text to display at the pose position.
     """
+
     topic_name: str = "/semworld/viz_marker"
     """
     Topic name to publish the pose marker on.
@@ -51,18 +57,23 @@ class PosePublisher(ModelChangeCallback):
 
     publisher: Any = field(init=False)
     """
-    Ros publisher for viz marker
+    Ros publisher for viz marker.
     """
+
     end_time: float = field(init=False)
     """
-    End time for this PosePublisher, used for lifetime only if given lifetime is greater than 0
+    End time for this PosePublisher, used for lifetime only if given lifetime
+    is greater than 0.
     """
+
     qos_profile: QoSProfile = field(
         default_factory=lambda: QoSProfile(
             depth=10, durability=DurabilityPolicy.TRANSIENT_LOCAL
         )
     )
-    """QoS profile for the publisher."""
+    """
+    QoS profile for the publisher.
+    """
 
     def on_model_change(self, **kwargs):
         if self.lifetime > 0 and time.time() >= self.end_time:
@@ -91,7 +102,9 @@ class PosePublisher(ModelChangeCallback):
 
     def _create_marker_array(self) -> MarkerArray:
         """
-        Creates a MarkerArray to visualize a Pose in RViz. The pose is visualized as an arrow for each axis to represent
+        Creates a MarkerArray to visualize a Pose in RViz.
+
+        The pose is visualized as an arrow for each axis to represent
         the position and orientation of the pose.
         """
         marker_array = MarkerArray()
@@ -159,6 +172,7 @@ class PosePublisher(ModelChangeCallback):
     ) -> Marker:
         """
         Creates a visualization marker for one axis of the pose.
+
         :param color: The color of the axis.
         :param _id: The id of the axis to identify the arrow.
         :param pose: The pose to publish

@@ -96,10 +96,12 @@ class PartNetMobilityDatasetLoader:
 
     def _apply_semantics_to_world(self, world: World, model_id: int):
         """
-        Apply the semantics of a model to the world by creating semantic annotations.
+        Apply the semantics of a model to the world by creating semantic
+        annotations.
 
         :param world: The world to apply the semantics to.
-        :param model_id: The id of the model to apply the semantics from.
+        :param model_id: The id of the model to apply the semantics
+            from.
         """
         semantics_file = self.directory / str(model_id) / "semantics.txt"
 
@@ -137,11 +139,13 @@ class PartNetMobilityDatasetLoader:
 
     def _create_python_file_with_semantic_annotations_from_dataset(self):
         """
-        Write all semantic annotations classes from the dataset to a Python file.
-        This requires the entire dataset to be located in the specified directory.
-        Only call this when you want to generate/update the `generated_semantic_annotations.py` file.
-        """
+        Write all semantic annotations classes from the dataset to a Python
+        file.
 
+        This requires the entire dataset to be located in the specified
+        directory. Only call this when you want to generate/update the
+        `generated_semantic_annotations.py` file.
+        """
         labels = defaultdict(set)  # a dict of class names to sets of labels
 
         # collect all labels from all semantics.txt files

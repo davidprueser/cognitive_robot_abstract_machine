@@ -37,14 +37,15 @@ class ShapeSource(Enum):
 
     VISUAL_WITH_COLLISION_BACKUP = "visual_with_collision_backup"
     """
-    The shapes to use for visualization are visual shapes, but if there are no visual shapes, use collision shapes as a backup.
+    The shapes to use for visualization are visual shapes, but if there are no
+    visual shapes, use collision shapes as a backup.
     """
-
 
 @dataclass(eq=False)
 class VizMarkerPublisher(ModelChangeCallback):
     """
     Publishes the world model as a visualization marker.
+
     .. warning:: Relies on the tf tree to correctly position the markers.
         Use TFPublisher to publish the tf tree.
     .. warning:: To see something in Rviz you must:
@@ -61,29 +62,37 @@ class VizMarkerPublisher(ModelChangeCallback):
 
     topic_name: str = "/semworld/viz_marker"
     """
-    The name of the topic to which the Visualization Marker should be published.
+    The name of the topic to which the Visualization Marker should be
+    published.
     """
 
     shape_source: ShapeSource = field(
         kw_only=True, default=ShapeSource.VISUAL_WITH_COLLISION_BACKUP
     )
     """
-    Which shapes to use for each body
+    Which shapes to use for each body.
     """
 
     alpha: float = field(kw_only=True, default=1.0)
     """
-    Marker transparency in [0.0, 1.0]. 0.0 is fully transparent.
+    Marker transparency in [0.0, 1.0].
+
+    0.0 is fully transparent.
     """
 
     markers: MarkerArray = field(init=False, default_factory=MarkerArray)
-    """Maker message to be published."""
+    """
+    Maker message to be published.
+    """
+
     qos_profile: QoSProfile = field(
         default_factory=lambda: QoSProfile(
             depth=10, durability=DurabilityPolicy.TRANSIENT_LOCAL
         )
     )
-    """QoS profile for the publisher."""
+    """
+    QoS profile for the publisher.
+    """
 
     _tf_publisher: Optional[TFPublisher] = field(init=False, default=None)
 
