@@ -1,37 +1,76 @@
+"""
+Relational probabilistic circuits ("RSPNs").
+
+.. note::
+    This module deliberately bridges ``probabilistic_model`` and ``krrood``: it
+    imports krrood feature extraction here, while ``krrood.parametrization.model_registries``
+    imports :class:`RelationalProbabilisticCircuit` back. This bidirectional coupling
+    predates the relational refactor and is kept intentionally; it is the seam where
+    krrood's symbolic feature extraction meets probabilistic_model's circuits.
+"""
+
 from __future__ import annotations
 
 import itertools
 from dataclasses import dataclass, field
-from typing import List, Type, Optional, Match, Dict, Any, Tuple
 
-import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
-import rustworkx
 from sortedcontainers import SortedSet
+from typing_extensions import TYPE_CHECKING, Any, Optional, Type
 
-from krrood.ormatic.data_access_objects.dao import DataAccessObject
-from krrood.ormatic.data_access_objects.from_dao import FromDataAccessObjectState
-from krrood.ormatic.data_access_objects.helper import to_dao
-from krrood.parametrization.feature_extraction.feature_extractor import (
-    FeatureExtractor,
-    EntityCompositionDescriptor,
+from krrood.entity_query_language.query.match import AbstractMatchExpression
+from krrood.ormatic.data_access_objects.dao import (
+    DataAccessObject,
+    DataAccessObjectSchema,
+    get_dao_schema,
 )
+from krrood.parametrization.feature_extraction.aggregations import (
+    compute_aggregation_statistics,
+)
+from krrood.parametrization.feature_extraction.feature_extractor import FeatureExtractor
+
+if TYPE_CHECKING:
+    from krrood.entity_query_language.query.match import Match
 from probabilistic_model.learning.jpt.jpt import JointProbabilityTree
 from probabilistic_model.learning.jpt.variables import infer_variables_from_dataframe
+from probabilistic_model.probabilistic_circuit.relational.exceptions import (
+    CircuitNotFittedError,
+    InvalidMonteCarloSampleCountError,
+    UndeterminedLatentsNotModeledError,
+)
 from probabilistic_model.probabilistic_circuit.relational.helper import (
     find_lowest_product_nodes_that_model_variables,
 )
+from krrood.utils import get_class_and_attribute_name
 from probabilistic_model.probabilistic_circuit.rx.probabilistic_circuit import (
     ProbabilisticCircuit,
     ProductUnit,
+    SumUnit,
+    Unit,
 )
+from random_events.interval import Interval
 from random_events.variable import Variable
+
+
+def _is_concrete_statistic(variable: Variable, value: Any) -> bool:
+    """
+    Decide whether an aggregation value pins its variable to a single point.
+
+    :param variable: The latent variable the value belongs to.
+    :param value: The observed aggregation value, either a concrete point or a range.
+    :return: ``True`` if the value designates exactly one element of the variable's domain.
+    """
+    composite = variable.make_value(value)
+    if isinstance(composite, Interval):
+        return composite.is_singleton()
+    return len(composite.simple_sets) == 1
 
 
 def _rename_variables_with_part_prefix(
     circuit: ProbabilisticCircuit,
     prefix: str,
-    excluded_variables: List[Variable],
+    excluded_variables: list[Variable],
 ) -> None:
     """
     Rename each variable in the circuit to include ``prefix`` as a namespace.
@@ -44,7 +83,9 @@ def _rename_variables_with_part_prefix(
     :param excluded_variables: Variables that should keep their current names.
     """
     variable_renames = {
-        variable: type(variable)(f"{prefix}.{variable.name}", domain=variable.domain)
+        variable: type(variable)(
+            get_class_and_attribute_name(prefix, variable.name), domain=variable.domain
+        )
         for variable in circuit.variables
         if variable not in excluded_variables
     }
@@ -66,14 +107,14 @@ class ExchangeableDistributionTemplate:
     The fitted ``RelationalProbabilisticCircuit`` representing the child distribution.
     """
 
-    latent_variables: List[Variable] = field(default_factory=list)
+    latent_variables: list[Variable] = field(default_factory=list)
     """
     Variables shared between the parent and child circuits that are used for
     conditioning but are not part of the final grounded distribution.
     """
 
     def _ground_part_circuit(
-        self, part, aggregation_statistics: Dict[Variable, Any], index: int = 0
+        self, part, aggregation_statistics: dict[Variable, Any], index: int = 0
     ) -> ProbabilisticCircuit:
         """
         Ground and prepare the circuit for a single exchangeable part.
@@ -100,14 +141,18 @@ class ExchangeableDistributionTemplate:
             if variable not in self.latent_variables
         ]
         part_circuit.marginal_in_place(non_latent_variables)
-        prefix = str(part.variable) if hasattr(part, "variable") else str(index)
+        prefix = (
+            str(part.variable)
+            if isinstance(part, AbstractMatchExpression)
+            else str(index)
+        )
         _rename_variables_with_part_prefix(part_circuit, prefix, self.latent_variables)
         if len(part_circuit.nodes()) == 0:
             raise ValueError("The grounding of the part failed.")
         return part_circuit
 
     def ground(
-        self, parts_to_ground: List, aggregation_statistics: Dict[Variable, Any]
+        self, parts_to_ground: list, aggregation_statistics: dict[Variable, Any]
     ) -> ProbabilisticCircuit:
         """
         Build a product circuit by grounding each exchangeable part independently.
@@ -145,7 +190,7 @@ class RelationalProbabilisticCircuit:
     statistics, populated by ``fit``.
     """
 
-    exchangeable_distribution_templates: Dict[str, ExchangeableDistributionTemplate] = (
+    exchangeable_distribution_templates: dict[str, ExchangeableDistributionTemplate] = (
         field(default_factory=dict)
     )
     """
@@ -153,11 +198,19 @@ class RelationalProbabilisticCircuit:
     ``ExchangeableDistributionTemplate``.
     """
 
-    specification: Optional[EntityCompositionDescriptor] = field(
+    monte_carlo_sample_count: int = 10
+    """
+    Number of Monte-Carlo samples drawn per exchangeable part to integrate out
+    aggregation statistics that cannot be determined from the grounding query.
+    Must be a positive integer.
+    """
+
+    schema_information: Optional[DataAccessObjectSchema] = field(
         init=False, default=None
     )
     """
-    The ``EntityCompositionDescriptor`` describing the class's structure
+    The :class:`~krrood.ormatic.data_access_objects.dao.DataAccessObjectSchema` describing
+    the DAO class's columns and relationships.
     """
 
     feature_extractor: Optional[FeatureExtractor] = field(init=False, default=None)
@@ -168,7 +221,7 @@ class RelationalProbabilisticCircuit:
     @staticmethod
     def _build_class_dataframe(
         feature_extractor: FeatureExtractor,
-        instances: List[DataAccessObject],
+        instances: list[DataAccessObject],
         dataframe_from_parent: Optional[pd.DataFrame],
     ) -> pd.DataFrame:
         """
@@ -188,27 +241,25 @@ class RelationalProbabilisticCircuit:
     def _build_child_joint_dataframe(
         self,
         exchangeable_part: str,
-        instances: List[DataAccessObject],
-        aggregation_indices: List[int],
-        aggregation_names: List[str],
+        instances: list[DataAccessObject],
+        aggregation_indices: list[int],
+        aggregation_names: list[str],
         child_feature_extractor: FeatureExtractor,
-        child_class_prefix: str,
     ) -> pd.DataFrame:
         """
         Build a dataframe combining aggregation statistics with per-child-object attributes.
 
         Each row corresponds to one child object and contains the parent instance's
         aggregation values followed by all child features (including nested unique-part
-        attributes). Column names strip the child class prefix so that, after variable
-        renaming, they align with the krrood access-path convention.
+        attributes). Column names are the access-path names produced by
+        :meth:`~krrood.entity_query_language.core.mapped_variable.MappedVariable.get_clean_name_from_mapped_variable`
+        so that, after part-prefix renaming, they align with the krrood access-path convention.
 
         :param exchangeable_part: Field name of the one-to-many relation on each instance.
         :param instances: Training instances from which rows are generated.
         :param aggregation_indices: Positions of aggregation features in the feature vector.
         :param aggregation_names: Column names for the aggregation portion of each row.
         :param child_feature_extractor: Feature extractor built from the child instances.
-        :param child_class_prefix: Class name prefix to strip from child feature names
-            (e.g. ``"EGObject."``).
         :return: A dataframe with one row per child object across all instances.
         """
         rows = []
@@ -220,21 +271,16 @@ class RelationalProbabilisticCircuit:
                     association.target
                 )
                 rows.append(aggregation_row + child_features)
-        full_names = [f._name_ for f in child_feature_extractor.features]
-        short_names = [
-            (
-                name[len(child_class_prefix) :]
-                if name.startswith(child_class_prefix)
-                else name
-            )
-            for name in full_names
+        child_column_names = [
+            f.get_clean_name_from_mapped_variable()
+            for f in child_feature_extractor.features
         ]
-        return pd.DataFrame(columns=aggregation_names + short_names, data=rows)
+        return pd.DataFrame(columns=aggregation_names + child_column_names, data=rows)
 
     def _fit_exchangeable_part(
         self,
         exchangeable_part: str,
-        instances: List[DataAccessObject],
+        instances: list[DataAccessObject],
     ) -> ExchangeableDistributionTemplate:
         """
         Fit an ``ExchangeableDistributionTemplate`` for one exchangeable part.
@@ -269,17 +315,12 @@ class RelationalProbabilisticCircuit:
         ]
         child_type = type(getattr(instances[0], exchangeable_part)[0].target)
         child_feature_extractor = FeatureExtractor.from_instances(child_instances)
-        child_class_name = type(
-            child_instances[0].from_dao(FromDataAccessObjectState())
-        ).__name__
-        child_class_prefix = f"{child_class_name}."
         child_dataframe = self._build_child_joint_dataframe(
             exchangeable_part,
             instances,
             aggregation_indices,
             aggregation_names,
             child_feature_extractor,
-            child_class_prefix,
         )
         latent_variables = [
             inferred.variable
@@ -297,7 +338,7 @@ class RelationalProbabilisticCircuit:
 
     def fit(
         self,
-        instances: List[DataAccessObject],
+        instances: list[DataAccessObject],
         dataframe_from_parent: Optional[pd.DataFrame] = None,
     ):
         """
@@ -322,8 +363,9 @@ class RelationalProbabilisticCircuit:
         self.class_probabilistic_circuit = JointProbabilityTree(
             annotated_variables=variables
         ).fit(class_dataframe)
-        self.specification = EntityCompositionDescriptor(type(instances[0]))
-        for exchangeable_part in self.specification.exchangeable_parts:
+        self.schema_information = get_dao_schema(type(instances[0]))
+        for collection_relationship in self.schema_information.collection_relationships:
+            exchangeable_part = collection_relationship.key
             if exchangeable_part not in self.feature_extractor.exchangeable_features:
                 continue
             self.exchangeable_distribution_templates[exchangeable_part] = (
@@ -331,61 +373,12 @@ class RelationalProbabilisticCircuit:
             )
         return self
 
-    def _compute_aggregation_statistics(
-        self,
-        queryable_object,
-        exchangeable_part_name: str,
-        template: ExchangeableDistributionTemplate,
-    ) -> Dict[Variable, Any]:
-        """
-        Compute aggregation statistics from the query for conditioning.
-
-        Evaluates each aggregation feature function against the query's constructed
-        instance and maps the result to its corresponding latent variable.  Values
-        outside the training domain are silently skipped; conditioning on them would
-        produce an impossible event and collapse the circuit.
-
-        :param queryable_object: The DAO representation of the query's constructed instance.
-        :param exchangeable_part_name: Field name identifying which relation's statistics
-            are being computed.
-        :param template: The ``ExchangeableDistributionTemplate`` whose latent variables
-            define which statistics are relevant.
-        :return: A mapping from latent variables to their observed values in the query.
-        """
-        latent_variable_by_name = {
-            variable.name: variable for variable in template.latent_variables
-        }
-        aggregation_statistics = {}
-        for feature_function in self.feature_extractor.exchangeable_features[
-            exchangeable_part_name
-        ]:
-            feature_name = feature_function._name_
-            if feature_name not in latent_variable_by_name:
-                continue
-            aggregation_instance = (
-                queryable_object.from_dao().get_aggregation_class_by_part_name(
-                    exchangeable_part_name
-                )
-            )
-            if aggregation_instance is None:
-                continue
-            value = feature_function.apply_mapping_on_external_root(
-                aggregation_instance
-            )
-            latent_variable = latent_variable_by_name[feature_name]
-            try:
-                latent_variable.make_value(value)
-                aggregation_statistics[latent_variable] = value
-            except (ValueError, TypeError):
-                pass
-        return aggregation_statistics
-
     def _condition_class_circuit(
         self,
         circuit: ProbabilisticCircuit,
-        aggregation_statistics: Dict[Variable, Any],
-        latent_variables: List[Variable],
-    ) -> Tuple[ProbabilisticCircuit, List[ProductUnit]]:
+        aggregation_statistics: dict[Variable, Any],
+        latent_variables: list[Variable],
+    ) -> tuple[ProbabilisticCircuit, list[ProductUnit]]:
         """
         Condition the class circuit on aggregation statistics.
 
@@ -426,29 +419,281 @@ class RelationalProbabilisticCircuit:
             exchangeable relation contains.
         :return: A concrete ``ProbabilisticCircuit`` over all variables implied
             by the query.
+        :raises CircuitNotFittedError: If ``ground`` is called before ``fit``.
         """
+        if self.class_probabilistic_circuit is None:
+            raise CircuitNotFittedError(self.class_)
         circuit = self.class_probabilistic_circuit.__deepcopy__()
-        instance = (
-            query.construct_instance()
-            if hasattr(query, "construct_instance")
-            else query
-        )
-        queryable_object = to_dao(instance)
+        instance = query.construct_instance()
         for (
             exchangeable_part_name,
             template,
         ) in self.exchangeable_distribution_templates.items():
-            aggregation_statistics = self._compute_aggregation_statistics(
-                queryable_object, exchangeable_part_name, template
+            circuit = self._ground_exchangeable_part(
+                circuit, exchangeable_part_name, template, query, instance
             )
-            circuit, product_nodes_to_extend = self._condition_class_circuit(
-                circuit, aggregation_statistics, template.latent_variables
-            )
-            grounded_exchangeable_circuit = template.ground(
-                query.kwargs[exchangeable_part_name], aggregation_statistics
-            )
-            exchangeable_root = grounded_exchangeable_circuit.root
-            node_index_map = circuit.mount(exchangeable_root)
-            for product_node in product_nodes_to_extend:
-                product_node.add_subcircuit(node_index_map[exchangeable_root.index])
         return circuit
+
+    def _ground_exchangeable_part(
+        self,
+        circuit: ProbabilisticCircuit,
+        exchangeable_part_name: str,
+        template: ExchangeableDistributionTemplate,
+        query: Match,
+        instance: Any,
+    ) -> ProbabilisticCircuit:
+        """
+        Ground one exchangeable part and attach it to the class circuit.
+
+        Aggregation statistics determinable from the query condition the class
+        circuit directly. Monte-Carlo integrates out undetermined statistics:
+        they are sampled from the conditioned class circuit and each
+        sampled value yields its own exchangeable distribution instance.
+
+        :param circuit: The current working copy of the class circuit.
+        :param exchangeable_part_name: Field name of the exchangeable relation.
+        :param template: The fitted template for this relation.
+        :param query: The grounding query.
+        :param instance: The concrete instance constructed from the query.
+        :return: The class circuit extended with the grounded exchangeable part.
+        """
+        aggregation_statistics = compute_aggregation_statistics(
+            instance,
+            self.feature_extractor.exchangeable_features[exchangeable_part_name],
+            template.latent_variables,
+        )
+        determined_statistics = {
+            variable: value
+            for variable, value in aggregation_statistics.items()
+            if _is_concrete_statistic(variable, value)
+        }
+        undetermined_latents = SortedSet(
+            variable
+            for variable in template.latent_variables
+            if variable not in determined_statistics
+        )
+        circuit, product_nodes_to_extend = self._condition_class_circuit(
+            circuit, determined_statistics, template.latent_variables
+        )
+        query_parts = query.kwargs[exchangeable_part_name]
+
+        sampled_assignments = self._sample_undetermined_latents(
+            circuit, undetermined_latents
+        )
+        if not sampled_assignments:
+            self._attach_single_exchangeable_instance(
+                circuit,
+                product_nodes_to_extend,
+                template,
+                query_parts,
+                determined_statistics,
+            )
+            return circuit
+
+        self._attach_monte_carlo_mixture(
+            circuit,
+            product_nodes_to_extend,
+            template,
+            query_parts,
+            determined_statistics,
+            undetermined_latents,
+            sampled_assignments,
+        )
+        return circuit
+
+    def _sample_undetermined_latents(
+        self,
+        conditioned_circuit: ProbabilisticCircuit,
+        undetermined_latents: SortedSet[Variable],
+    ) -> list[dict[Variable, Any]]:
+        """
+        Draw the distinct values of the undetermined latents to integrate over.
+
+        Samples ``monte_carlo_sample_count`` joint assignments of the
+        undetermined latents from the conditioned class circuit and deduplicates
+        them, so that each distinct value is grounded only once.
+
+        :param conditioned_circuit: The class circuit conditioned on the
+            determined statistics.
+        :param undetermined_latents: The latent variables that could not be
+            determined from the query.
+        :return: One value assignment per distinct sampled point, empty when there
+            are no undetermined latents to integrate out.
+        :raises InvalidMonteCarloSampleCountError: If there are undetermined latents
+            but the sample count is not positive.
+        :raises UndeterminedLatentsNotModeledError: If the conditioned class circuit
+            does not model the undetermined latents and thus cannot be sampled from.
+        """
+        if not undetermined_latents:
+            return []
+        if self.monte_carlo_sample_count < 1:
+            raise InvalidMonteCarloSampleCountError(self.monte_carlo_sample_count)
+        proposal = conditioned_circuit.marginal(undetermined_latents)
+        if proposal is None:
+            raise UndeterminedLatentsNotModeledError(list(undetermined_latents))
+        samples = proposal.sample(self.monte_carlo_sample_count)
+        index_of_variable = proposal.variable_to_index_map
+        unique_rows = {tuple(row) for row in samples.tolist()}
+        return [
+            {
+                variable: row[index_of_variable[variable]]
+                for variable in undetermined_latents
+            }
+            for row in (np.array(unique_row) for unique_row in unique_rows)
+        ]
+
+    @staticmethod
+    def _node_local_latent_log_likelihoods(
+        product_node: ProductUnit,
+        undetermined_latents: SortedSet[Variable],
+        latent_assignments: list[dict[Variable, Any]],
+    ) -> list[float]:
+        """
+        Log-likelihoods of latent assignments local to a mounting product node.
+
+        Marginalizes the subcircuit rooted at ``product_node`` to the undetermined
+        latents once, then evaluates every assignment in a single batched pass.
+
+        :param product_node: The mounting product node.
+        :param undetermined_latents: The latent variables sampled by Monte-Carlo.
+        :param latent_assignments: The sampled assignments of those latents.
+        :return: One log-likelihood per assignment, in input order.
+        """
+        subcircuit = ProbabilisticCircuit()
+        subcircuit.mount(product_node)
+        subcircuit.marginal_in_place(undetermined_latents)
+        index_of_variable = subcircuit.variable_to_index_map
+        events = np.full((len(latent_assignments), len(index_of_variable)), np.nan)
+        for row, assignment in enumerate(latent_assignments):
+            for variable, value in assignment.items():
+                events[row, index_of_variable[variable]] = value
+        return [
+            float(log_likelihood)
+            for log_likelihood in subcircuit.log_likelihood(events)
+        ]
+
+    @staticmethod
+    def _mount_instance(
+        circuit: ProbabilisticCircuit,
+        template: ExchangeableDistributionTemplate,
+        query_parts: list,
+        aggregation_statistics: dict[Variable, Any],
+    ) -> Unit:
+        """
+        Ground one exchangeable instance and mount it into the class circuit.
+
+        :param circuit: The working class circuit to mount into.
+        :param template: The fitted template for this relation.
+        :param query_parts: The query parts, one per child object.
+        :param aggregation_statistics: Statistics to condition the instance on.
+        :return: The root of the mounted instance, owned by ``circuit``.
+        """
+        grounded = template.ground(query_parts, aggregation_statistics)
+        node_index_map = circuit.mount(grounded.root)
+        return node_index_map[grounded.root.index]
+
+    @staticmethod
+    def _attach_single_exchangeable_instance(
+        circuit: ProbabilisticCircuit,
+        product_nodes_to_extend: list[ProductUnit],
+        template: ExchangeableDistributionTemplate,
+        query_parts: list,
+        aggregation_statistics: dict[Variable, Any],
+    ) -> None:
+        """
+        Attach one grounded exchangeable instance to every mounting product node.
+
+        The instance is mounted once and shared as a child of every node.
+
+        :param circuit: The working class circuit.
+        :param product_nodes_to_extend: The mounting product nodes.
+        :param template: The fitted template for this relation.
+        :param query_parts: The query parts, one per child object.
+        :param aggregation_statistics: Statistics to condition the instance on.
+        """
+        instance_root = RelationalProbabilisticCircuit._mount_instance(
+            circuit, template, query_parts, aggregation_statistics
+        )
+        for product_node in product_nodes_to_extend:
+            product_node.add_subcircuit(instance_root)
+
+    def _attach_monte_carlo_mixture(
+        self,
+        circuit: ProbabilisticCircuit,
+        product_nodes_to_extend: list[ProductUnit],
+        template: ExchangeableDistributionTemplate,
+        query_parts: list,
+        determined_statistics: dict[Variable, Any],
+        undetermined_latents: SortedSet[Variable],
+        sampled_assignments: list[dict[Variable, Any]],
+    ) -> None:
+        """
+        Attach a Monte-Carlo mixture over undetermined aggregation statistics.
+
+        For every sampled assignment one exchangeable instance is grounded on the
+        determined plus sampled statistics. The undetermined latents are then
+        marginalized out of the class circuit so their distribution is carried
+        solely by the mixture weights, which are the node-local likelihoods of the
+        sampled values. Each mounting product node receives its own normalized
+        sum unit over the instances.
+
+        :param circuit: The working class circuit.
+        :param product_nodes_to_extend: The mounting product nodes.
+        :param template: The fitted template for this relation.
+        :param query_parts: The query parts, one per child object.
+        :param determined_statistics: Statistics determinable from the query.
+        :param undetermined_latents: The latents integrated out by Monte-Carlo.
+        :param sampled_assignments: Distinct sampled values of the undetermined latents.
+        """
+        log_weights_per_node = [
+            self._node_local_latent_log_likelihoods(
+                product_node, undetermined_latents, sampled_assignments
+            )
+            for product_node in product_nodes_to_extend
+        ]
+        retained_variables = SortedSet(circuit.variables) - undetermined_latents
+        circuit.marginal_in_place(retained_variables)
+        mounted_roots = [
+            self._mount_instance(
+                circuit, template, query_parts, {**determined_statistics, **assignment}
+            )
+            for assignment in sampled_assignments
+        ]
+        for product_node, log_weights in zip(
+            product_nodes_to_extend, log_weights_per_node
+        ):
+            self._attach_mixture_to_node(
+                circuit, product_node, mounted_roots, log_weights
+            )
+
+    @staticmethod
+    def _attach_mixture_to_node(
+        circuit: ProbabilisticCircuit,
+        product_node: ProductUnit,
+        instance_roots: list[Unit],
+        log_weights: list[float],
+    ) -> None:
+        """
+        Attach a normalized sum unit over exchangeable instances to one node.
+
+        Instances whose node-local likelihood is zero are skipped. The instances
+        are already mounted in ``circuit`` and shared across all mounting nodes;
+        only the weighted sum-unit edges differ per node.
+
+        :param circuit: The working class circuit.
+        :param product_node: The mounting product node to extend.
+        :param instance_roots: The roots of the mounted exchangeable instances.
+        :param log_weights: The node-local log-likelihood weight of each instance.
+        """
+        weighted_instances = [
+            (instance_root, log_weight)
+            for instance_root, log_weight in zip(instance_roots, log_weights)
+            if log_weight > -np.inf
+        ]
+        if not weighted_instances:
+            weighted_instances = [(instance_roots[0], 0.0)]
+        sum_unit = SumUnit(probabilistic_circuit=circuit)
+        product_node.add_subcircuit(sum_unit)
+        for instance_root, log_weight in weighted_instances:
+            sum_unit.add_subcircuit(instance_root, log_weight)
+        sum_unit.normalize()

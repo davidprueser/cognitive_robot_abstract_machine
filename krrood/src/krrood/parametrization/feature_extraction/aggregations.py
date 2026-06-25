@@ -1,211 +1,256 @@
 from __future__ import annotations
 
 import inspect
-import warnings
-from abc import ABC, abstractmethod
+import logging
+from collections import defaultdict
+from copy import deepcopy
 from dataclasses import dataclass
-from functools import cached_property
+from functools import lru_cache
+from typing_extensions import Callable, Optional, Type, Any, ClassVar
 
-from typing import Dict, Tuple, Type, List, Any, Optional
-
-from krrood.entity_query_language.core.base_expressions import SymbolicExpression
 from krrood.entity_query_language.core.mapped_variable import MappedVariable
+from krrood.parametrization.feature_extraction.exceptions import (
+    MissingFieldNameError,
+    OutOfDomainValueError,
+)
+from krrood.patterns.subclass_safe_generic import SubClassSafeGeneric
+from random_events.variable import Variable, Symbolic
 from krrood.entity_query_language.factories import variable
+from krrood.utils import T, recursive_subclasses
 
-
-class AggregationRegistry:
-    """
-    Class-level registry mapping ``(owner_class, attribute_name)`` pairs to
-    their ``AggregationStatistic`` subclass.
-
-    The registry is write-protected from outside this module: all entries are
-    created exclusively through the ``@aggregation_for`` decorator.
-    """
-
-    _registry: Dict[Tuple[Type, str], Type[AggregationStatistic]] = {}
-    """
-    The registry mapping ``(owner_class, attribute_name)`` pairs to their
-    ``AggregationStatistic`` subclass.
-    """
-
-    @classmethod
-    def _register(
-        cls,
-        owner: Type,
-        attribute_name: str,
-        aggregation_cls: Type[AggregationStatistic],
-    ) -> None:
-        """
-        Registers an aggregation class for the given owner field.
-        :param owner: The domain class that owns the exchangeable-part field.
-        :param attribute_name: The field name on ``owner``.
-        :param aggregation_cls: The ``AggregationStatistic`` subclass to register for the pair.
-        """
-        cls._registry[(owner, attribute_name)] = aggregation_cls
-
-    @classmethod
-    def get(
-        cls, owner: Type, attribute_name: str
-    ) -> Optional[Type[AggregationStatistic]]:
-        """
-        Returns the aggregation class registered for the given owner field.
-
-        :param owner: The domain class that owns the exchangeable-part field.
-        :param attribute_name: The field name on ``owner``.
-        :return: The registered ``AggregationStatistic`` subclass.
-        :raises KeyError: If no aggregation class has been registered for the pair.
-        """
-        key = (owner, attribute_name)
-        if key not in cls._registry:
-            return None
-        return cls._registry[key]
-
-    @classmethod
-    def get_fields_for(cls, owner: Type) -> List[str]:
-        """
-        Returns the names of all fields on ``owner`` that have a registered aggregation class.
-
-        :param owner: The domain class to query.
-        :return: Field names registered for ``owner``, in insertion order.
-        """
-        return [attr for (owner_cls, attr) in cls._registry if owner_cls is owner]
-
-
-def aggregation_for(*owner_attribute_pairs: Tuple[Type, str]):
-    """
-    Class decorator that registers an ``AggregationStatistic`` subclass in the
-    ``AggregationRegistry`` for one or more ``(owner, attribute_name)`` pairs.
-
-    :param owner_attribute_pairs: One or more ``(owner_class, attribute_name)`` tuples.
-    """
-
-    def wrapper(
-        aggregation_cls: Type[AggregationStatistic],
-    ) -> Type[AggregationStatistic]:
-        for owner, attribute_name in owner_attribute_pairs:
-            AggregationRegistry._register(owner, attribute_name, aggregation_cls)
-        return aggregation_cls
-
-    return wrapper
+logger = logging.getLogger(__name__)
 
 
 @dataclass
-class AggregationStatistic(ABC):
+class _AggregationStatisticDescriptor:
     """
-    Base class for aggregation statistics over a list of exchangeable domain objects.
+    Descriptor returned by :func:`aggregation_statistic`.
 
-    Subclasses declare one field holding the list of items to aggregate and
-    expose one public method per statistic. Each method receives ``self`` and
-    returns a scalar value.
-    """
-
-    objects_to_aggregate_on: List[Any]
-    """
-    The items over which statistics are to be computed.
+    When Python constructs the enclosing class, it calls
+    :meth:`__set_name__` with the owner class and the attribute name. At
+    that point the function is registered and the descriptor replaces
+    itself with the bare function so normal method-call semantics are
+    preserved.
     """
 
-    def __post_init__(self):
-        if not self.objects_to_aggregate_on:
-            raise ValueError("Aggregation object must not be empty")
+    field_name: str
+    """
+    The exchangeable-part field this statistic aggregates over.
+    """
 
-    @abstractmethod
-    @cached_property
-    def _eql_variable(self) -> SymbolicExpression:
-        """
-        The symbolic variable that is used to compute aggregations on.
-        """
+    func: Callable
+    """
+    The wrapped statistic method.
+    """
 
-    @property
-    def symbolic_aggregation_features(self) -> List[MappedVariable]:
-        """
-        Symbolic variables corresponding to each aggregation statistic method.
+    def __set_name__(self, owner: Type[AggregationStatistic], name: str) -> None:
+        if "aggregation_registry" not in owner.__dict__:
+            owner.aggregation_registry = defaultdict(list)
+        owner.aggregation_registry[self.field_name].append(self.func)
+        setattr(owner, name, self.func)
 
-        Dict-returning methods are expanded into one variable per key.
-        :return: One ``MappedVariable`` per scalar statistic, typed as ``float``.
-        """
-        symbolic_aggregations = []
-        aggregation_variable = variable(type(self), [])
-        for function in self.aggregation_features:
-            function_variable = getattr(aggregation_variable, function.__name__)()
-            symbolic_aggregations.append(function_variable)
-        return symbolic_aggregations
 
-    @property
-    def aggregation_features(self) -> List[Any]:
-        """
-        All public, non-base statistic methods defined on the concrete subclass.
+def aggregation_statistic(
+    field_name: str,
+) -> Callable[[Callable], _AggregationStatisticDescriptor]:
+    """
+    Marks a method as an aggregation statistic for the named exchangeable-part
+    field.
 
-        Dict-returning methods are flattened into per-key entries and recorded
-        in ``_internal_aggregation_mapping`` so symbolic lookup can recover
-        the original method name.
-        :return: A list of bound or flattened statistic callables.
+    The containing class is discovered automatically via
+    ``__set_name__`` — there is no need to pass it explicitly.
+
+    :param field_name: The field this statistic aggregates for.
+    """
+
+    def decorator(func: Callable) -> _AggregationStatisticDescriptor:
+        return _AggregationStatisticDescriptor(field_name=field_name, func=func)
+
+    return decorator
+
+
+@lru_cache(maxsize=None)
+def get_aggregation_class(owner: Type) -> Optional[Type[AggregationStatistic]]:
+    """
+    Returns the most specific :class:`AggregationStatistic` subclass for
+    ``owner``.
+
+    Walks the MRO of ``owner`` from most specific to least specific,
+    returning the first subclass of :class:`AggregationStatistic` whose
+    generic ``T`` matches that ancestor.  This means that if ``B``
+    extends ``A`` and only ``AggregationStatistic[A]`` exists, a lookup
+    for ``B`` will return it.
+
+    :param owner: The domain class to look up.
+    :return: The most specific matching subclass, or ``None`` if none
+        has been defined.
+    """
+    subclasses = list(recursive_subclasses(AggregationStatistic))
+    for ancestor in owner.__mro__:
+        for subclass in subclasses:
+            if subclass.get_generic_type() == ancestor:
+                return subclass
+    return None
+
+
+@dataclass
+class AggregationStatistic(SubClassSafeGeneric[T]):
+    """
+    Base class for aggregation statistics over a domain object's exchangeable-
+    part fields.
+
+    Subclasses bind ``T`` to a concrete owner type and declare one or more methods, each
+    annotated with :func:`aggregation_statistic`.  Discovery happens automatically via
+    :func:`get_aggregation_class` — no explicit registration is required.
+
+    Set :attr:`field_name` to scope :attr:`aggregation_features` and related methods to
+    a single exchangeable-part field.
+
+    .. note::
+        Each owner class may have at most one ``AggregationStatistic`` subclass, which must
+        handle all of its exchangeable-part fields.  Shared logic across owner types should
+        be extracted to an intermediate abstract subclass whose concrete children each bind
+        their own ``T``.  When all such owner types share a common supertype ``Base``,
+        declare a bounded TypeVar ``S = TypeVar("S", bound=Base)`` and inherit from
+        ``AggregationStatistic[S]``; this lets the intermediate class access ``self.instance``
+        with the full interface of ``Base`` without losing type safety in the concrete
+        subclasses.
+    """
+
+    instance: T
+    """
+    The domain object whose statistics are computed.
+    """
+
+    field_name: Optional[str] = None
+    """
+    The exchangeable-part field this instance is scoped to.
+
+    Must be set before accessing :attr:`aggregation_features`.
+    """
+
+    aggregation_registry: ClassVar[dict[str, list[Callable]]] = defaultdict(list)
+    """
+    Methods marked with :func:`aggregation_statistic` that are defined directly
+    on this class.
+
+    Keys are field names; values are the registered callables.  Each subclass
+    receives its own registry via :meth:`__init_subclass__` so registrations
+    never bleed across unrelated branches of the hierarchy.
+    """
+
+    def __init_subclass__(cls, **kwargs: Any) -> None:
+        super().__init_subclass__(**kwargs)
+        if "aggregation_registry" not in cls.__dict__:
+            cls.aggregation_registry = defaultdict(list)
+
+    @classmethod
+    def _registered_names_for_field(cls, field_name: str) -> set[str]:
         """
-        cls_functions = inspect.getmembers(self.__class__, predicate=inspect.isfunction)
-        aggregations = []
-        for name, function in cls_functions:
-            if (
-                name.startswith("__")
-                or name.startswith("_")
-                or function is AggregationStatistic.apply_mapping
-            ):
+        Collect the names of all statistics registered for ``field_name``
+        across the MRO so inherited registrations are included.
+
+        :param field_name: The exchangeable-part field to look up.
+        :return: Names of all callables registered under ``field_name``.
+        """
+        names: set[str] = set()
+        for ancestor in cls.__mro__:
+            if not issubclass(ancestor, AggregationStatistic):
                 continue
-            else:
-                aggregations.append(function)
+            for func in ancestor.aggregation_registry[field_name]:
+                names.add(func.__name__)
+        return names
 
-        if not aggregations:
-            warnings.warn(
-                f"No aggregation features found for exchangeable part {self.objects_to_aggregate_on} of type {type(self.objects_to_aggregate_on)}"
-            )
-        return aggregations
-
-    def apply_mapping(self) -> List:
+    @property
+    def aggregation_features(self) -> list[Callable]:
         """
-        Evaluates every symbolic aggregation feature against this instance.
+        All methods on this class marked with :func:`aggregation_statistic` for
+        :attr:`field_name`.
 
-        :return: One concrete value per entry in ``symbolic_aggregation_features``.
+        :return: The marked callable methods for the scoped field,
+            sorted alphabetically by name.
+        :raises MissingFieldNameError: If :attr:`field_name` was not
+            provided.
         """
+        if self.field_name is None:
+            raise MissingFieldNameError()
+        registered = type(self)._registered_names_for_field(self.field_name)
         return [
-            feature.apply_mapping_on_external_root(self)
-            for feature in self.symbolic_aggregation_features
+            func
+            for _, func in inspect.getmembers(
+                self.__class__, predicate=inspect.isfunction
+            )
+            if func.__name__ in registered
         ]
 
+    def symbolic_aggregation_features(self) -> list[MappedVariable]:
+        """
+        Symbolic variables for statistic methods that aggregate
+        :attr:`field_name`.
 
-@dataclass
-class HasExchangeablePartAggregations(ABC):
+        :return: One :class:`~krrood.entity_query_language.core.mapped_variable.MappedVariable`
+            per matching statistic method, in alphabetical order.
+        """
+        aggregation_variable = variable(type(self), [])
+        return [
+            getattr(aggregation_variable, func.__name__)()
+            for func in self.aggregation_features
+        ]
+
+    def apply_mapping(self) -> dict[str, Any]:
+        """
+        Evaluates every statistic for :attr:`field_name` against this instance.
+
+        :return: A mapping from each statistic method name to its computed value.
+        """
+        return {
+            func.__name__: feature.apply_mapping_on_external_root(self)
+            for func, feature in zip(
+                self.aggregation_features, self.symbolic_aggregation_features()
+            )
+        }
+
+
+def compute_aggregation_statistics(
+    domain_object,
+    feature_functions: list[MappedVariable],
+    latent_variables: list[Variable],
+) -> dict[Variable, Any]:
     """
-    Mixin for domain classes whose exchangeable-part fields have aggregation
-    classes registered via ``@aggregation_for``.
+    Evaluate aggregation feature functions against a domain object and map
+    results to latent variables.
 
-    Subclasses must be dataclasses. Any field whose ``(owner, name)`` pair
-    appears in the ``AggregationRegistry`` is validated to be a list at
-    instance creation time.
+    Each feature function is evaluated only if its name matches a latent
+    variable.
+
+    :param domain_object: The domain object whose aggregation statistics
+        are computed.
+    :param feature_functions: Symbolic feature functions for one
+        exchangeable-part field.
+    :param latent_variables: Latent variables that define which
+        statistics are relevant.
+    :return: A mapping from matched latent variables to their observed
+        values.
     """
-
-    def __post_init__(self) -> None:
-        """
-        Validates that every registered exchangeable-part field holds a list.
-
-        :raises TypeError: If a registered field is not a list at instance creation.
-        """
-        for field_name in AggregationRegistry.get_fields_for(type(self)):
-            value = getattr(self, field_name)
-            if not isinstance(value, list):
-                raise TypeError(
-                    f"{self.__class__.__name__}.{field_name} must be a list, "
-                    f"got {type(value).__name__}."
-                )
-
-    def get_aggregation_class_by_part_name(
-        self, part_name: str
-    ) -> Optional[AggregationStatistic]:
-        """
-        Instantiates and returns the aggregation class registered for the named field.
-
-        :param part_name: The name of the exchangeable-part field.
-        :return: An ``AggregationStatistic`` initialised with the field's current value.
-        :raises KeyError: If no aggregation class is registered for ``part_name``.
-        """
-        aggregation_cls = AggregationRegistry.get(type(self), part_name)
-        if aggregation_cls is None:
-            return None
-        return aggregation_cls(getattr(self, part_name))
+    latent_variable_by_name = {
+        latent_variable.name: latent_variable for latent_variable in latent_variables
+    }
+    aggregation_class = get_aggregation_class(type(domain_object))
+    if aggregation_class is None:
+        return {}
+    aggregation_instance = aggregation_class(instance=domain_object)
+    statistics = {}
+    for feature_function in feature_functions:
+        feature_name = feature_function._name_
+        if feature_name not in latent_variable_by_name:
+            continue
+        value = feature_function.apply_mapping_on_external_root(aggregation_instance)
+        latent_variable = latent_variable_by_name[feature_name]
+        try:
+            latent_variable.make_value(value)
+        except (ValueError, TypeError):
+            logger.info(
+                "Could not determine value for the aggregation statistic. Falling back to Monte-Carlo integration",
+            )
+        statistics[latent_variable] = value
+    return statistics

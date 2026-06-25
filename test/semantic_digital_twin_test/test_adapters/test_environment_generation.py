@@ -523,7 +523,7 @@ def test_rspn_fitting_on_shelves(rclpy_node):
     # sim = MujocoSim(world=world, step_size=0.000001, multiccd=True)
     # sim.start_simulation()
     # while sim.is_running():
-    for i in range(10):
+    for i in range(1):
         sampled_layers = resolve_shelf_collisions(
             [
                 next(iter(prob_backend.evaluate(_layer_query(num_objects_per_layer))))

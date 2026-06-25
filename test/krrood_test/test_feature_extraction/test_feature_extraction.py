@@ -1,4 +1,3 @@
-import matplotlib.pyplot as plt
 import numpy as np
 import pytest
 
@@ -7,9 +6,6 @@ from krrood.entity_query_language.factories import (
     underspecified,
 )
 from krrood.ormatic.data_access_objects.helper import to_dao
-from krrood.parametrization.feature_extraction.exceptions import (
-    MissingBaseClassForClassWithExchangeableParts,
-)
 from krrood.parametrization.feature_extraction.feature_extractor import FeatureExtractor
 from krrood.parametrization.model_registries import DictRegistry
 from krrood.parametrization.parameterizer import UnderspecifiedParameters
@@ -17,6 +13,7 @@ from probabilistic_model.probabilistic_circuit.relational.rspn import (
     RelationalProbabilisticCircuit,
 )
 from probabilistic_model.probabilistic_circuit.rx.helper import fully_factorized
+from random_events.variable import Symbolic
 from ..dataset import ormatic_interface  # type: ignore
 from ..dataset.example_classes import (
     NestedAction,
@@ -95,9 +92,6 @@ def test_feature_extraction_with_aggregations(scenario):
     room, room2, room_dao, room2_dao, feature_extractor = scenario
     rpc = RelationalProbabilisticCircuit(SceneRoom)
     rpc.fit([room_dao, room2_dao])
-    rpc.class_probabilistic_circuit.plot_structure()
-    plt.savefig("test_feature_extraction_with_aggregations.png")
-    plt.clf()
 
     room_query = underspecified(SceneRoom)(
         position=underspecified(KRROODPosition)(x=..., y=..., z=...),
@@ -107,9 +101,6 @@ def test_feature_extraction_with_aggregations(scenario):
     room_query.resolve()
     model = rpc.ground(room_query)
     model = model.simplify()
-    model.plot_structure()
-    plt.savefig("test_feature_extraction_with_aggregations_model.png")
-    plt.show()
 
     assert model.is_valid()
 
@@ -144,14 +135,28 @@ def test_dataframe_preprocessing(scenario):
 
 def test_missing_inheritance_from_mixin():
     instance = MissingBaseClass([ExampleInt(1), ExampleInt(1), ExampleInt(1)])
-    with pytest.raises(MissingBaseClassForClassWithExchangeableParts):
-        FeatureExtractor.from_instances([to_dao(instance)])
+    result = FeatureExtractor.from_instances([to_dao(instance)])
+    assert result.features == []
 
 
 def test_feature_extractor_on_non_compatible_attribute_types():
     instance = ExampleString("test")
     extractor = FeatureExtractor.from_instances([to_dao(instance)])
     assert extractor.features == []
+
+
+def test_iterable_literal_with_enum_feature_uses_symbolic_variable():
+    query = underspecified(SceneRoom)(
+        position=underspecified(KRROODPosition)(x=..., y=..., z=...),
+        orientation=underspecified(KRROODOrientation)(x=..., y=..., z=..., w=...),
+        objects=[SceneObject(type=SceneObjectType.TABLE)],
+    )
+    parameters = UnderspecifiedParameters(query)
+    type_variables = [
+        var for name, var in parameters.variables.items() if name.endswith(".type")
+    ]
+    assert type_variables
+    assert all(isinstance(var, Symbolic) for var in type_variables)
 
 
 def test_feature_extractor_on_unique_parts_with_none():

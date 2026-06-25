@@ -2,8 +2,8 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing_extensions import Type, Dict
 
-from krrood.entity_query_language.query.match import Match, MatchVariable
 from krrood.parametrization.parameterizer import UnderspecifiedParameters
+from krrood.utils import get_class_and_attribute_name
 from probabilistic_model.probabilistic_circuit.relational.rspn import (
     RelationalProbabilisticCircuit,
 )
@@ -53,8 +53,8 @@ class DictRegistry(ModelRegistry):
 @dataclass
 class RelationalCircuitRegistry(ModelRegistry):
     """
-    A registry that grounds a RelationalProbabilisticCircuit for a given query and aligns
-    its variable names to the UnderspecifiedParameters convention before returning.
+    A registry that grounds a RelationalProbabilisticCircuit for the queried statement and
+    aligns its variable names to the UnderspecifiedParameters convention before returning.
     """
 
     relational_probabilistic_circuit: RelationalProbabilisticCircuit
@@ -62,18 +62,15 @@ class RelationalCircuitRegistry(ModelRegistry):
     The trained relational probabilistic circuit to ground.
     """
 
-    query: Match
-    """
-    The query that is used to do the grounding of the model.
-    """
-
     def get_model(self, parameters: UnderspecifiedParameters) -> ProbabilisticModel:
         grounded = self.relational_probabilistic_circuit.ground(parameters.statement)
         class_prefix = self.relational_probabilistic_circuit.class_.__name__
-        rename_map = {
-            circuit_var: parameters.variables[f"{class_prefix}.{circuit_var.name}"]
-            for circuit_var in list(grounded.variables)
-            if f"{class_prefix}.{circuit_var.name}" in parameters.variables
-        }
+        rename_map = {}
+        for circuit_var in grounded.variables:
+            qualified_name = get_class_and_attribute_name(
+                class_prefix, circuit_var.name
+            )
+            if qualified_name in parameters.variables:
+                rename_map[circuit_var] = parameters.variables[qualified_name]
         grounded.update_variables(rename_map)
         return grounded

@@ -22,7 +22,8 @@ from krrood.entity_query_language.factories import (
     flat_variable,
 )
 from random_events.interval import SimpleInterval, Bound
-from krrood.utils import inheritance_path_length
+from krrood.inheritance_path_length import inheritance_path_length
+from random_events.interval import SimpleInterval, Bound
 from ..dataset.example_classes import KRROODVectorsWithProperty
 from krrood.entity_query_language.predicate import length, symbolic_function
 from krrood.entity_query_language.query.operations import GroupedBy

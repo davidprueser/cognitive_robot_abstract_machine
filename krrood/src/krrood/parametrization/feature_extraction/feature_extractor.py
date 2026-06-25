@@ -3,34 +3,47 @@ from __future__ import annotations
 import enum
 import itertools
 from collections import defaultdict, deque
-from dataclasses import field
-from typing import Type
+from dataclasses import dataclass
 
 import pandas as pd
 import sqlalchemy
-from sqlalchemy.orm import MANYTOONE, ONETOMANY
-from typing_extensions import TYPE_CHECKING
-from dataclasses import dataclass
-from typing import (
-    Any,
-    Dict,
-    List,
-)
+from typing_extensions import TYPE_CHECKING, Any
 from krrood.entity_query_language.core.mapped_variable import MappedVariable
 from krrood.entity_query_language.core.variable import Variable
 from krrood.entity_query_language.factories import variable
-from krrood.ormatic.data_access_objects.from_dao import FromDataAccessObjectState
-from krrood.ormatic.utils import get_python_type_from_sqlalchemy_column, is_data_column
-from krrood.parametrization.feature_extraction.aggregations import (
-    HasExchangeablePartAggregations,
+from krrood.ormatic.data_access_objects.dao import (
+    CollectionRelationship,
+    SingleRelationship,
+    get_dao_schema,
 )
+from krrood.ormatic.data_access_objects.from_dao import FromDataAccessObjectState
+from krrood.ormatic.utils import get_python_type_from_sqlalchemy_column
+from krrood.parametrization.feature_extraction.aggregations import get_aggregation_class
 from krrood.parametrization.feature_extraction.exceptions import (
-    MissingBaseClassForClassWithExchangeableParts,
+    NoInstancesProvidedError,
+    UnsupportedFeatureTypeError,
 )
 from random_events.variable import compatible_types
 
 if TYPE_CHECKING:
     from krrood.ormatic.data_access_objects.dao import DataAccessObject
+
+
+@dataclass
+class ExtractedFeatures:
+    """
+    The result of traversing a DAO object graph for features.
+    """
+
+    features: list[MappedVariable]
+    """
+    Symbolic variables for every extractable feature, in traversal order.
+    """
+
+    exchangeable_features: dict[str, list[MappedVariable]]
+    """
+    Mapping from each exchangeable-part field name to its aggregation variables.
+    """
 
 
 @dataclass
@@ -40,53 +53,61 @@ class FeatureExtractor:
     unique-part sub-trees, and aggregation statistics over exchangeable parts.
 
     Prefer ``FeatureExtractor.from_instances`` for construction; the direct
-    constructor is for cases where the feature list is already known.
+    constructor receives an already-built :class:`ExtractedFeatures`.
     """
 
-    features: List[MappedVariable]
+    extracted_features: ExtractedFeatures
     """
-    Symbolic variables representing every extractable feature, in traversal order.
-    """
-
-    exchangeable_features: Dict[str, List[MappedVariable]] = field(
-        default_factory=lambda: defaultdict(list), init=False
-    )
-    """
-    Mapping from each exchangeable-part field name to its discovered aggregation variables.
+    The discovered features produced by traversing the DAO object graph.
     """
 
-    def __post_init__(self):
-        if not self.features:
-            raise ValueError(
-                "No features provided. If list of instances available, use `FeatureExtractor.from_instances` for instantiation."
-            )
+    @property
+    def features(self) -> list[MappedVariable]:
+        """
+        Symbolic variables representing every extractable feature, in traversal order.
+        """
+        return self.extracted_features.features
+
+    @property
+    def exchangeable_features(self) -> dict[str, list[MappedVariable]]:
+        """
+        Mapping from each exchangeable-part field name to its aggregation variables.
+        """
+        return self.extracted_features.exchangeable_features
 
     @classmethod
-    def from_instances(cls, instances: List[DataAccessObject]) -> FeatureExtractor:
+    def from_instances(cls, instances: list[DataAccessObject]) -> FeatureExtractor:
         """
         Create a new feature extractor from the given instances.
+
+        Exchangeable parts whose domain class has no :class:`~krrood.parametrization.feature_extraction.aggregations.AggregationStatistic`
+        are silently skipped; the remaining scalar and unique-part features are still extracted.
+
         :param instances: The instances to create the feature extractor from.
         :return: A new feature extractor.
+        :raises NoInstancesProvidedError: If ``instances`` is empty.
         """
         if not instances:
-            raise ValueError("No instances provided")
+            raise NoInstancesProvidedError()
 
         dao_state = FromDataAccessObjectState()
-        root = variable(type(instances[0].from_dao(dao_state)), [])
-        extractor = cls.__new__(cls)
-        extractor.exchangeable_features = defaultdict(list)
-        extractor.features = extractor._extract_features(instances[0], root)
-        return extractor
+        first_instance = instances[0]
+        domain_object = first_instance.from_dao(dao_state)
 
+        root = variable(type(domain_object), [])
+        extracted = cls._extract_features(first_instance, root)
+        return cls(extracted_features=extracted)
+
+    @staticmethod
     def _extract_features(
-        self, example_instance: DataAccessObject, symbolic_root: Variable
-    ) -> List[MappedVariable]:
+        example_instance: DataAccessObject, symbolic_root: Variable
+    ) -> ExtractedFeatures:
         """
         Traverses the DAO object graph breadth-first and collects all features.
 
         :param example_instance: A representative DAO instance that defines the schema.
         :param symbolic_root: The root symbolic variable for the traversal.
-        :return: All discovered feature variables in traversal order.
+        :return: The discovered scalar features and per-relation aggregation features.
         """
         result = []
         seen = set()
@@ -101,129 +122,137 @@ class FeatureExtractor:
                 continue
             seen.add(id(current_instance))
 
-            instance_composition = EntityCompositionDescriptor(type(current_instance))
+            schema = get_dao_schema(type(current_instance))
 
             result.extend(
-                self._process_attributes(
-                    current_instance, current_symbolic, instance_composition.attributes
+                FeatureExtractor._process_attributes(
+                    current_instance, current_symbolic, schema.data_column_names
                 )
             )
 
             exchangeable_features.update(
-                self._process_exchangeable_parts(
-                    current_instance, instance_composition.exchangeable_parts
+                FeatureExtractor._process_many_to_many(
+                    current_instance, schema.collection_relationships
                 )
             )
             queue.extend(
-                self._process_unique_parts(
+                FeatureExtractor._process_many_to_one(
                     current_instance,
                     current_symbolic,
-                    instance_composition.unique_parts,
+                    schema.single_relationships,
                 )
             )
 
         result.extend(itertools.chain.from_iterable(exchangeable_features.values()))
-        self.exchangeable_features = exchangeable_features
-        return result
+        return ExtractedFeatures(result, exchangeable_features)
 
     @staticmethod
     def _process_attributes(
         instance: DataAccessObject,
         symbolic_root: Variable,
-        attributes: List[sqlalchemy.Column],
-    ) -> List[MappedVariable]:
+        column_names: tuple[str, ...],
+    ) -> list[MappedVariable]:
         """
         Collects symbolic variables for all scalar data columns of ``instance``.
 
         Columns whose value is not a compatible primitive type are skipped.
         :param instance: The DAO instance to inspect.
         :param symbolic_root: The symbolic variable rooted at ``instance``.
-        :param attributes: The RSPN specification describing the instance's schema.
+        :param column_names: Names of the scalar data columns of the instance's schema.
         :return: One typed ``MappedVariable`` per compatible scalar attribute.
         """
+        mapper = sqlalchemy.inspection.inspect(type(instance))
+        column_by_name = {column.name: column for column in mapper.columns}
         result = []
-        for attribute in attributes:
-            value = getattr(instance, attribute.key)
+        for name in column_names:
+            column = column_by_name[name]
+            value = getattr(instance, column.key)
 
             if not isinstance(value, compatible_types):
                 continue
 
-            symbolic_attribute = getattr(symbolic_root, attribute.name)
-            symbolic_attribute._type_ = get_python_type_from_sqlalchemy_column(
-                attribute
-            )
+            symbolic_attribute = getattr(symbolic_root, column.name)
+            symbolic_attribute._type_ = get_python_type_from_sqlalchemy_column(column)
             result.append(symbolic_attribute)
         return result
 
     @staticmethod
-    def _process_unique_parts(
+    def _process_many_to_one(
         instance: DataAccessObject,
         symbolic_root: Variable,
-        unique_parts: List[str],
+        relationships: tuple[SingleRelationship, ...],
     ) -> deque[Any]:
         """
-        Enqueues non-null unique-part (many-to-one) relations for further traversal.
+        Enqueues non-null single-valued relations for further BFS traversal.
 
         :param instance: The DAO instance to inspect.
         :param symbolic_root: The symbolic variable rooted at ``instance``.
-        :param unique_parts: The RSPN specification describing the instance's schema.
+        :param relationships: Single-valued relationships of the instance's schema.
         :return: ``(child_instance, child_symbolic)`` pairs ready for BFS expansion.
         """
         queue = deque()
-        for part in unique_parts:
-            value = getattr(instance, part)
+        for relationship in relationships:
+            value = getattr(instance, relationship.key)
 
             if value is None:
                 continue
 
-            queue.append((value, getattr(symbolic_root, part)))
+            queue.append((value, getattr(symbolic_root, relationship.key)))
         return queue
 
     @staticmethod
-    def _process_exchangeable_parts(current_instance, exchangeable_parts):
+    def _process_many_to_many(
+        current_instance: DataAccessObject,
+        relationships: tuple[CollectionRelationship, ...],
+    ) -> dict[str, list[MappedVariable]]:
         """
-        Collects aggregation statistic variables for all one-to-many relations of ``current_instance``.
+        Collects aggregation statistic variables for all collection-valued relations of ``current_instance``.
 
         :param current_instance: The DAO instance to inspect.
-        :param exchangeable_parts: The RSPN specification describing the instance's schema.
-        :return: A mapping from each discovered aggregation variable to the exchangeable-part field name it
+        :param relationships: Collection-valued relationships of the instance's schema.
+        :return: A mapping from each collection field name to its aggregation variables.
         """
         result = defaultdict(list)
         dao_state = FromDataAccessObjectState()
         domain_object = current_instance.from_dao(dao_state)
 
-        for exchangeable_part in exchangeable_parts:
-            if not isinstance(domain_object, HasExchangeablePartAggregations):
+        aggregation_cls = get_aggregation_class(type(domain_object))
+        if aggregation_cls is None:
+            return result
+
+        for relationship in relationships:
+            if not getattr(domain_object, relationship.key):
                 continue
-            aggregation_instance = domain_object.get_aggregation_class_by_part_name(
-                exchangeable_part
+            aggregation_instance = aggregation_cls(
+                instance=domain_object, field_name=relationship.key
             )
-            if aggregation_instance is None:
-                continue
-            for aggregation in aggregation_instance.symbolic_aggregation_features:
-                result[exchangeable_part].append(aggregation)
+            for feature in aggregation_instance.symbolic_aggregation_features():
+                result[relationship.key].append(feature)
 
         return result
 
-    def apply_mapping(self, instance: DataAccessObject) -> List:
+    def apply_mapping(self, instance: DataAccessObject) -> list[Any]:
         """
         Extracts the mapped values for each feature from the given instance.
         :param instance: The instance to extract features from.
         :return: A list of mapped values.
         """
-        aggregation_to_part = {
-            aggregation: part
-            for part, aggregations in self.exchangeable_features.items()
+        aggregation_features = {
+            aggregation
+            for aggregations in self.exchangeable_features.values()
             for aggregation in aggregations
         }
         result = []
         dao_state = FromDataAccessObjectState()
         domain_object = instance.from_dao(dao_state)
+        aggregation_cls = get_aggregation_class(type(domain_object))
+        aggregation_instance = (
+            aggregation_cls(instance=domain_object)
+            if aggregation_cls is not None
+            else None
+        )
         for feature in self.features:
-            if feature in aggregation_to_part:
-                aggregation_instance = domain_object.get_aggregation_class_by_part_name(
-                    aggregation_to_part[feature]
-                )
+            if feature in aggregation_features:
                 result.append(
                     feature.apply_mapping_on_external_root(aggregation_instance)
                 )
@@ -231,7 +260,7 @@ class FeatureExtractor:
                 result.append(feature.apply_mapping_on_external_root(instance))
         return result
 
-    def create_dataframe(self, instances: List[DataAccessObject]) -> pd.DataFrame:
+    def create_dataframe(self, instances: list[DataAccessObject]) -> pd.DataFrame:
         """
         Create a dataframe from the given instances.
         :param instances: The instances to create the dataframe from.
@@ -255,37 +284,7 @@ class FeatureExtractor:
             elif isinstance(feature._type_, enum.EnumType):
                 df[column] = df[column].apply(lambda x: hash(x))
             elif feature._type_ not in compatible_types and feature._type_ is not None:
-                raise TypeError(
-                    f"Unsupported type {feature._type_} for column {column}"
+                raise UnsupportedFeatureTypeError(
+                    feature_type=feature._type_, column_name=column
                 )
         return df
-
-
-@dataclass
-class EntityCompositionDescriptor:
-    """
-    Describes the composition of a domain class in terms of its scalar attributes, unique-part relations, and exchangeable-part relations.
-    It is constructed from a DAO class' SQLAlchemy mapper.
-    """
-
-    dao_class: Type[DataAccessObject] = field(init=True)
-    """
-    The DAO class whose SQLAlchemy mapper is inspected.
-    """
-
-    def __post_init__(self):
-        self.attributes = []
-        self.unique_parts = []
-        self.exchangeable_parts = []
-
-        mapper = sqlalchemy.inspection.inspect(self.dao_class)
-
-        for relationship in mapper.relationships:
-            if relationship.direction == MANYTOONE:
-                self.unique_parts.append(relationship.key)
-            # not many to many since we have the association table
-            elif relationship.direction == ONETOMANY:
-                self.exchangeable_parts.append(relationship.key)
-        for column in mapper.columns:
-            if is_data_column(column) and column not in mapper.relationships:
-                self.attributes.append(column)

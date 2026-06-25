@@ -32,12 +32,11 @@ from krrood.ormatic.data_access_objects.alternative_mappings import (
     T,
 )
 from krrood.parametrization.feature_extraction.aggregations import (
-    aggregation_for,
     AggregationStatistic,
-    HasExchangeablePartAggregations,
+    aggregation_statistic,
 )
 from krrood.symbol_graph.symbol_graph import Symbol
-from ..dataset.semantic_world_like_classes import Body
+from ..dataset.semantic_world_like_classes import Body, Cabinet
 
 
 # check that custom enums works
@@ -174,7 +173,8 @@ class OriginalSimulatedObject(Symbol):
 @dataclass
 class ObjectAnnotation(Symbol):
     """
-    Class for checking how classes that are explicitly mapped interact with original types.
+    Class for checking how classes that are explicitly mapped interact with
+    original types.
     """
 
     object_reference: OriginalSimulatedObject
@@ -188,14 +188,14 @@ class KRROODKinematicChain(Symbol):
 @dataclass
 class KRROODTorso(KRROODKinematicChain):
     """
-    A KRROODTorso is a kinematic chain connecting the base of the robot with a collection of other kinematic chains.
+    A KRROODTorso is a kinematic chain connecting the base of the robot with a
+    collection of other kinematic chains.
     """
 
     kinematic_chains: List[KRROODKinematicChain] = field(default_factory=list)
     """
     A collection of kinematic chains that are connected to the torso.
     """
-
 
 @dataclass
 class Parent(Symbol):
@@ -230,7 +230,8 @@ class DerivedEntity(Entity):
 @dataclass
 class EntityAssociation(Symbol):
     """
-    Class for checking how classes that are explicitly mapped interact with original types.
+    Class for checking how classes that are explicitly mapped interact with
+    original types.
     """
 
     entity: Entity
@@ -255,8 +256,9 @@ class EntityMapping(AlternativeMapping[Entity]):
 
 class ConceptType(TypeDecorator):
     """
-    Type that casts fields that are of type `type` to their class name on serialization and converts the name
-    to the class itself through the globals on load.
+    Type that casts fields that are of type `type` to their class name on
+    serialization and converts the name to the class itself through the globals
+    on load.
     """
 
     impl = types.String(256)
@@ -462,8 +464,8 @@ class RelationshipParent(Symbol):
 @dataclass
 class RelationshipChild(RelationshipParent):
     """
-    This class should produce a problem when reconstructed from the database as relationships must not be declared
-    twice.
+    This class should produce a problem when reconstructed from the database as
+    relationships must not be declared twice.
     """
 
 
@@ -473,7 +475,8 @@ class RelationshipChild(RelationshipParent):
 @dataclass
 class InheritanceBaseWithoutSymbolButAlternativelyMapped:
     """
-    Test that alternative mappings that have a hierarchy of its own are correctly created.
+    Test that alternative mappings that have a hierarchy of its own are
+    correctly created.
     """
 
     base_attribute: float = 0
@@ -650,14 +653,18 @@ class ListOfEnum(Symbol):
 
 @dataclass
 class ForwardRefTypeA(Symbol):
-    """A simple class used as a forward reference target."""
+    """
+    A simple class used as a forward reference target.
+    """
 
     value: str = ""
 
 
 @dataclass
 class ForwardRefTypeB(Symbol):
-    """Another class used as a forward reference target."""
+    """
+    Another class used as a forward reference target.
+    """
 
     count: int = 0
 
@@ -666,8 +673,9 @@ class ForwardRefTypeB(Symbol):
 class MultipleForwardRefContainer(Symbol):
     """
     A class that has multiple fields with forward reference types.
-    This tests that the forward reference resolution can handle
-    multiple unresolved types that need to be resolved iteratively.
+
+    This tests that the forward reference resolution can handle multiple
+    unresolved types that need to be resolved iteratively.
     """
 
     ref_a: Optional[ForwardRefTypeA] = None
@@ -753,7 +761,7 @@ class SceneObject:
 
 
 @dataclass
-class SceneRoom(HasExchangeablePartAggregations):
+class SceneRoom:
     position: KRROODPosition
     orientation: KRROODOrientation
     objects: List[SceneObject]
@@ -761,31 +769,26 @@ class SceneRoom(HasExchangeablePartAggregations):
 
 
 @dataclass
-class TestExParts(HasExchangeablePartAggregations):
+class TestExParts:
     objects: List[SceneObject]
     rooms: List[SceneRoom]
 
 
-@aggregation_for((SceneRoom, "objects"), (TestExParts, "objects"))
 @dataclass
-class SceneObjectAggregations(AggregationStatistic):
-    objects_to_aggregate_on: List[SceneObject]
+class SceneObjectAggregationBase(AggregationStatistic[T]):
+    """
+    Abstract base providing shared aggregation statistics over a
+    ``objects: List[SceneObject]`` field.
 
-    @cached_property
-    def _eql_variable(self):
-        return variable(SceneObject, self.objects_to_aggregate_on)
+    Concrete subclasses bind ``T`` to the owner type and are auto-registered.
+    """
 
-    def table_count(self) -> int:
-        type_var = self._eql_variable.type
-        [cou] = (
-            entity(count_range(type_var))
-            .where(type_var == SceneObjectType.TABLE)
-            .tolist()
-        )
-        return cou
-
+    @aggregation_statistic("objects")
     def chair_count(self) -> int:
-        type_var = self._eql_variable.type
+        """
+        Count of CHAIR-type objects.
+        """
+        type_var = variable(SceneObject, self.instance.objects).type
         [cou] = (
             entity(count_range(type_var))
             .where(type_var == SceneObjectType.CHAIR)
@@ -793,22 +796,48 @@ class SceneObjectAggregations(AggregationStatistic):
         )
         return cou
 
+    @aggregation_statistic("objects")
+    def table_count(self) -> int:
+        """
+        Count of TABLE-type objects.
+        """
+        type_var = variable(SceneObject, self.instance.objects).type
+        [cou] = (
+            entity(count_range(type_var))
+            .where(type_var == SceneObjectType.TABLE)
+            .tolist()
+        )
+        return cou
+
+    @aggregation_statistic("objects")
     def total_count(self) -> int:
-        [cou] = count(self._eql_variable).tolist()
+        """
+        Total number of objects.
+        """
+        [cou] = count(variable(SceneObject, self.instance.objects)).tolist()
         return cou
 
 
-@aggregation_for((TestExParts, "rooms"))
 @dataclass
-class RoomAggregations(AggregationStatistic):
-    objects_to_aggregate_on: List[SceneRoom]
+class SceneRoomAggregations(SceneObjectAggregationBase[SceneRoom]):
+    """
+    Aggregation statistics for :class:`SceneRoom` over its ``objects`` field.
+    """
 
-    @cached_property
-    def _eql_variable(self):
-        return variable(SceneRoom, self.objects_to_aggregate_on)
 
+@dataclass
+class TestExPartsAggregations(SceneObjectAggregationBase[TestExParts]):
+    """
+    Aggregation statistics for :class:`TestExParts` over its ``objects`` and
+    ``rooms`` fields.
+    """
+
+    @aggregation_statistic("rooms")
     def room_count(self) -> int:
-        [cou] = count(self._eql_variable).tolist()
+        """
+        Total number of rooms.
+        """
+        [cou] = count(variable(SceneRoom, self.instance.rooms)).tolist()
         return cou
 
 
@@ -825,3 +854,13 @@ class ExampleString:
 @dataclass
 class MissingBaseClass:
     objects: List[ExampleInt] = field(default_factory=list)
+
+
+@dataclass
+class ActionWithMissingAggregationsMixin:
+    """
+    Action with a field whose domain type has exchangeable parts but no
+    aggregation mixin.
+    """
+
+    domain_object: Cabinet
