@@ -114,6 +114,31 @@ sudo apt install pre-commit
 pre-commit install
 ```
 
+### Docstring Formatting
+
+Install `docformatter` to automatically format docstrings on save:
+
+```bash
+pip install docformatter
+```
+
+**PyCharm File Watcher Setup:**
+
+Configure a file watcher in PyCharm (**Settings → Tools → File Watchers**) to auto-format docstrings on save:
+
+| Setting | Value |
+|---|---|
+| File type | Python |
+| Scope | Project Files |
+| Program | `<path_to_docformatter>` (find with `which docformatter`) |
+| Arguments | `-i $FilePath$` |
+| Output paths to refresh | `$FilePath$` |
+| Working directory | `$ProjectFileDir$` |
+
+Under **Advanced Options**:
+- Disable *Auto-save edited files to trigger the watcher*
+- Set *Show console* to **Never**
+
 ### Code of Conduct
 
 > Any code added to the repository must have at least an 85% test coverage.
