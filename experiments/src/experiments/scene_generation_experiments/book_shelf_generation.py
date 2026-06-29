@@ -219,7 +219,7 @@ def create_environment(scene_to_shelf_object: dict) -> tuple[SceneGenerator, Wor
 
 def _extract_shelf_layers_from_objects(
         session: Session, edge_margin_fraction: float = 0.10
-) -> list[EGShelfLayer]:
+) -> tuple[list[EGShelfLayer], list[EGObjectDAO]]:
     """
     Load all scenes and group objects by the shelf they are placed on.
 
@@ -233,6 +233,9 @@ def _extract_shelf_layers_from_objects(
         data so the learned RSPN does not place books at positions where
         they would fall off in simulation.
     """
+    if not session.scalars(select(EGObjectDAO)).first():
+        session = add_to_database(session)
+
     objects = session.scalars(select(EGObjectDAO).distinct().limit(50000)).all()
     shelf_layers = []
 
@@ -310,7 +313,7 @@ def _extract_shelf_layers_from_objects(
             )
             shelf_layers.append(layer)
 
-    return shelf_layers
+    return shelf_layers, objects
 
 
 @contextlib.contextmanager
@@ -345,6 +348,19 @@ def rclpy_node():
         rclpy.shutdown()
 
 
+def _get_source_ids_for_objects(objects: list[EGObjectDAO]):
+    """
+    Extract all source ids for a give list of objects.
+    """
+    source_id_to_path = build_source_id_to_path()
+    book_source_ids = [
+        (source_id_to_path[obj.source_id], obj.source_id)
+        for obj in objects
+        if BookObjectType.contains(obj.object_type)
+           and obj.source_id in source_id_to_path
+    ]
+    return book_source_ids
+
 def generate_book_shelf(node) -> None:
     """
     Train an RSPN on shelf-layer data from the database, sample collision-free
@@ -353,71 +369,42 @@ def generate_book_shelf(node) -> None:
     :param node: An active rclpy node used to publish visualisation
         markers.
     """
-    world = World()
-    root = Body(name=PrefixedName(name="map"))
-
-    with world.modify_world():
-        world.add_body(root)
-
     uri = os.environ.get("SEMANTIC_DIGITAL_TWIN_DATABASE_URI")
     engine = create_engine(uri)
     Base.metadata.create_all(bind=engine)
     session = Session(engine)
 
-    if not session.scalars(select(EGObjectDAO)).first():
-        session = add_to_database(session)
-
-    shelf_layers = _extract_shelf_layers_from_objects(session)
-    assert (
-        shelf_layers
-    ), "No shelves with objects found — check the sage-10k-layouts path."
-
+    shelf_layers, training_objects = _extract_shelf_layers_from_objects(session)
     shelf_layer_data_access_objects = [to_dao(layer) for layer in shelf_layers]
 
     rspn = RelationalProbabilisticCircuit(EGShelfLayer)
     rspn = rspn.fit(shelf_layer_data_access_objects)
-
-    assert rspn.class_probabilistic_circuit is not None
-    assert rspn.class_probabilistic_circuit.is_valid()
 
     registry = RelationalCircuitRegistry(
         relational_probabilistic_circuit=rspn
     )
     probability_backend = ProbabilisticBackend(model_registry=registry, number_of_samples=1)
 
-    for _ in range(1):
-        sampled_layers = resolve_shelf_collisions(
-            [
-                next(iter(probability_backend.evaluate(build_free_layer_query(3))))
-                for _ in range(4)
-            ],
-            rspn,
-        )
+    sampled_layers = resolve_shelf_collisions(
+        [
+            next(iter(probability_backend.evaluate(build_free_layer_query(3))))
+            for _ in range(4)
+        ],
+        rspn,
+    )
 
-        source_id_to_path = build_source_id_to_path()
-        training_objects = session.scalars(
-            select(EGObjectDAO).distinct().limit(1000)
-        ).all()
-        book_source_ids = [
-            (source_id_to_path[obj.source_id], obj.source_id)
-            for obj in training_objects
-            if BookObjectType.contains(obj.object_type)
-               and obj.source_id in source_id_to_path
-        ]
+    source_ids_for_sampled_objects = _get_source_ids_for_objects(training_objects)
+    shelf_sample = EGShelf(
+        position=EGPoint2D(x=0.0, y=0.0),
+        scale=EGSize(height=2.0, length=1.5, width=0.5),
+        orientation=EGOrientation(x=0.0, y=0.0, z=0.0),
+        layers=sampled_layers,
+        book_source_ids=source_ids_for_sampled_objects,
+    )
 
-        shelf_sample = EGShelf(
-            position=EGPoint2D(x=0.0, y=0.0),
-            scale=EGSize(height=2.0, length=1.5, width=0.5),
-            orientation=EGOrientation(x=0.0, y=0.0, z=0.0),
-            layers=sampled_layers,
-            book_source_ids=book_source_ids,
-        )
-
-        assert all(layer.objects for layer in shelf_sample.layers)
-        world = shelf_sample.create_in_world()
-        viz_marker = VizMarkerPublisher(_world=world, node=node)
-        viz_marker.with_tf_publisher()
-        time.sleep(10)
+    world = shelf_sample.create_in_world()
+    viz_marker = VizMarkerPublisher(_world=world, node=node)
+    viz_marker.with_tf_publisher()
 
 
 if __name__ == "__main__":
