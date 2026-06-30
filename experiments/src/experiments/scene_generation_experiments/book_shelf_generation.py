@@ -31,9 +31,12 @@ from probabilistic_model.probabilistic_circuit.relational.rspn import (
 from experiments.orm.ormatic_interface import *  # type: ignore
 from experiments.scene_generation_experiments.collision_resolution import (
     build_free_layer_query,
+    build_layer_query_with_fixed_scale,
     resolve_shelf_collisions,
 )
-from semantic_digital_twin.adapters.ros.visualization.viz_marker import VizMarkerPublisher
+from semantic_digital_twin.adapters.ros.visualization.viz_marker import (
+    VizMarkerPublisher,
+)
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.scene_generation.sage10k_processing import EGDataProcessing
 from semantic_digital_twin.scene_generation.scene_schema import (
@@ -58,168 +61,8 @@ from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.geometry import BoundingBox
 from semantic_digital_twin.world_description.world_entity import Body
 
-def load_scenes_from_layout_directory(path: Path) -> list[SceneGenerator]:
-    """
-    Parse all layout JSON files under *path* and return the corresponding
-    scenes.
-
-    Each layout sub-directory is expected to contain exactly one
-    ``layout_*.json`` file.
-
-    :param path: Root directory that contains layout sub-directories.
-    :return: List of parsed :class:`SceneGenerator` instances.
-    """
-    json_directories = list(path.glob("*layout*"))
-    json_files = []
-    for json_directory in json_directories:
-        [json_file] = list(json_directory.glob("layout_*.json"))
-        json_files.append(json_file)
-    scenes = []
-    for file in json_files:
-        json_dict = json.loads(file.read_text())
-        scene = SceneGenerator._from_json(json_dict)
-        scene.directory = path
-        scenes.append(scene)
-    return scenes
-
-
-def add_to_database(session: Session) -> Session:
-    """
-    Load the first 100 sage-10k scenes from the local layouts directory into
-    the database.
-
-    :param session: An active SQLAlchemy session bound to an initialised
-        schema.
-    :return: The session after committing all scene records.
-    :raises ValueError: If the layouts directory does not exist.
-    """
-    path = Path.home() / "Downloads" / "sage-10k-layouts"
-    if not path.exists():
-        raise ValueError(f"Path {path} does not exist")
-    data_access_object_state = ToDataAccessObjectState()
-    scene_data_access_objects = []
-    for scene in load_scenes_from_layout_directory(path)[0:100]:
-        scene_dao = to_dao(scene, data_access_object_state)
-        scene_data_access_objects.append(scene_dao)
-        session.add(scene_dao)
-    session.commit()
-    return session
-
-
-def query_for_shelves(session: Session) -> dict:
-    """
-    Query the database for scenes paired with one shelf object each.
-
-    :param session: An active SQLAlchemy session.
-    :return: Mapping of scene id to the associated shelf EGObjectDAO.
-    """
-    scenes = session.scalars(select(SceneGeneratorDAO)).all()
-    objects = session.scalars(select(EGObjectDAO)).all()
-
-    scene_variable = variable(SceneGeneratorDAO, scenes)
-    object_variable = variable(EGObjectDAO, objects)
-
-    query = (
-        a(set_of(scene_variable.id, object_variable))
-        .where(object_variable.object_type == "shelf")
-        .where(scene_variable.room.id == object_variable.room_id)
-        .distinct()
-        .limit(5)
-        .tolist()
-    )
-    return {row[scene_variable.id]: row[object_variable] for row in query}
-
-
-def query_environments(session: Session) -> tuple:
-    """
-    Return all scene and object records from the database.
-
-    :param session: An active SQLAlchemy session.
-    :return: Tuple of (scenes, objects) as SQLAlchemy scalars.
-    """
-    scenes = session.scalars(select(SceneGeneratorDAO)).all()
-    objects = session.scalars(select(EGObjectDAO)).all()
-    return scenes, objects
-
-
-def create_environment(scene_to_shelf_object: dict) -> tuple[SceneGenerator, World]:
-    """
-    Instantiate a SceneGenerator and its world from a mapping of scene ids to
-    shelf objects.
-
-    Downloads each scene's mesh assets if not already cached locally.
-
-    :param scene_to_shelf_object: Mapping of scene id to shelf
-        EGObjectDAO as returned by :func:`query_for_shelves`.
-    :return: Tuple of (SceneGenerator, World).
-    """
-    data_processing = EGDataProcessing()
-    scene_directory_to_object = {
-        data_processing.download_specific_scene(scene_id): shelf_object
-        for scene_id, shelf_object in scene_to_shelf_object.items()
-    }
-    mesh_to_object = {
-        directory: shelf_object.from_dao()
-        for directory, shelf_object in scene_directory_to_object.items()
-    }
-    scene_generator = SceneGenerator(
-        id="scene_1",
-        mesh_to_object_mapping=mesh_to_object,
-        room=EGRoom(
-            id="room_1",
-            room_type="living_room",
-            scale=EGSize(0, 1, 2),
-            position=EGPosition(0, 0, 0),
-            objects=list(mesh_to_object.values()),
-            walls=[
-                EGWall(
-                    id="wall_1",
-                    start_point=EGPoint2D(0.0, 5.0),
-                    end_point=EGPoint2D(5.5, 5.0),
-                    height=2.7,
-                    thickness=0.1,
-                ),
-                EGWall(
-                    id="wall_2",
-                    start_point=EGPoint2D(0, 0),
-                    end_point=EGPoint2D(5.5, 0),
-                    height=2.7,
-                    thickness=0.1,
-                ),
-                EGWall(
-                    id="wall_3",
-                    start_point=EGPoint2D(5.5, 0),
-                    end_point=EGPoint2D(5.5, 5.0),
-                    height=2.7,
-                    thickness=0.1,
-                ),
-                EGWall(
-                    id="wall_4",
-                    start_point=EGPoint2D(0, 0),
-                    end_point=EGPoint2D(0, 5.0),
-                    height=2.7,
-                    thickness=0.1,
-                ),
-            ],
-            doors=[
-                EGDoor(
-                    id="door_1",
-                    wall_id="wall_1",
-                    position_on_wall=0.42,
-                    width=0.95,
-                    height=2.05,
-                    opens_inward=False,
-                )
-            ],
-        ),
-    )
-
-    world = scene_generator.create_world()
-    return scene_generator, world
-
-
 def _extract_shelf_layers_from_objects(
-        session: Session, edge_margin_fraction: float = 0.10
+    session: Session, edge_margin_fraction: float = 0.10
 ) -> tuple[list[EGShelfLayer], list[EGObjectDAO]]:
     """
     Load all scenes and group objects by the shelf they are placed on.
@@ -234,9 +77,6 @@ def _extract_shelf_layers_from_objects(
         data so the learned RSPN does not place books at positions where
         they would fall off in simulation.
     """
-    if not session.scalars(select(EGObjectDAO)).first():
-        session = add_to_database(session)
-
     objects = session.scalars(select(EGObjectDAO).distinct().limit(50000)).all()
     shelf_layers = []
 
@@ -343,37 +183,25 @@ def _extract_shelf_layers_from_place_id(
         behaviour.
     :return: Extracted shelf layers and all loaded object DAOs.
     """
-    if not session.scalars(select(EGObjectDAO)).first():
-        session = add_to_database(session)
-
     objects = session.scalars(select(EGObjectDAO).distinct().limit(50000)).all()
+    shelves: list[EGObjectDAO] = [obj for obj in objects if obj.object_type == ObjectType.SHELF]
 
-    shelf_by_id: dict[str, EGObjectDAO] = {
-        obj.id: obj for obj in objects if obj.object_type == ObjectType.SHELF
-    }
-
-    shelf_objects = [
-        obj
-        for obj in objects
-        if type_predicate(obj.object_type) and "shelf" in obj.place_id
-    ]
-
-    objects_per_shelf: defaultdict[str, list[EGObjectDAO]] = defaultdict(list)
-    for obj in shelf_objects:
-        objects_per_shelf[obj.place_id].append(obj)
+    objects_per_shelf: defaultdict[EGObjectDAO, list[EGObjectDAO]] = defaultdict(list)
+    for shelf in shelves:
+        for object in objects:
+            if object.place_id == shelf.id:
+                objects_per_shelf[shelf].append(object)
 
     shelf_layers = []
-    for shelf_id, members in objects_per_shelf.items():
-        shelf = shelf_by_id.get(shelf_id)
-        if shelf is None:
-            continue
-
+    for shelf, members in objects_per_shelf.items():
         max_relative_x = shelf.scale.width / 2 * (1 - edge_margin_fraction)
         max_relative_y = shelf.scale.length / 2 * (1 - edge_margin_fraction)
 
         within_bounds = [
-            obj for obj in members
-            if abs(obj.position.x - shelf.position.x) <= max_relative_x
+            obj
+            for obj in members
+            if type_predicate(obj.object_type)
+            and abs(obj.position.x - shelf.position.x) <= max_relative_x
             and abs(obj.position.y - shelf.position.y) <= max_relative_y
         ]
         if not within_bounds:
@@ -473,6 +301,7 @@ def _get_source_ids_for_objects(
         if type_predicate(obj.object_type) and obj.source_id in source_id_to_path
     ]
 
+
 def generate_book_shelf(node) -> None:
     """
     Train an RSPN on shelf-layer data from the database, sample collision-free
@@ -493,23 +322,23 @@ def generate_book_shelf(node) -> None:
     rspn = RelationalProbabilisticCircuit(EGShelfLayer)
     rspn = rspn.fit(shelf_layer_data_access_objects)
 
-    registry = RelationalCircuitRegistry(
-        relational_probabilistic_circuit=rspn
+    registry = RelationalCircuitRegistry(relational_probabilistic_circuit=rspn)
+    probability_backend = ProbabilisticBackend(
+        model_registry=registry, number_of_samples=1
     )
-    probability_backend = ProbabilisticBackend(model_registry=registry, number_of_samples=1)
 
-    sampled_layers = resolve_shelf_collisions(
-        [
-            next(iter(probability_backend.evaluate(build_free_layer_query(3))))
-            for _ in range(4)
-        ],
-        rspn,
-    )
+    reference_layer = next(iter(probability_backend.evaluate(build_free_layer_query(3))))
+    target_scale = reference_layer.scale
+    remaining_layers = [
+        next(iter(probability_backend.evaluate(build_layer_query_with_fixed_scale(3, target_scale))))
+        for _ in range(3)
+    ]
+    sampled_layers = resolve_shelf_collisions([reference_layer] + remaining_layers, rspn)
 
     source_ids_for_sampled_objects = _get_source_ids_for_objects(training_objects)
     shelf_sample = EGShelf(
         position=EGPoint2D(x=0.0, y=0.0),
-        scale=EGSize(height=2.0, length=1.5, width=0.5),
+        scale=EGSize(height=2.0, length=target_scale.length, width=target_scale.width),
         orientation=EGOrientation(x=0.0, y=0.0, z=0.0),
         layers=sampled_layers,
         book_source_ids=source_ids_for_sampled_objects,

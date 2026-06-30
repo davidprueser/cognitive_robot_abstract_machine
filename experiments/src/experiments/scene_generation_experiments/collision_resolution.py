@@ -141,7 +141,11 @@ def _build_free_object2d_query():
     )
 
 
-def _build_conditioned_layer_query(fixed_objects: list[EGObject2D], free_count: int):
+def _build_conditioned_layer_query(
+    fixed_objects: list[EGObject2D],
+    free_count: int,
+    target_scale: EGSize | None = None,
+):
     """
     Build an EGShelfLayer query conditioning on fixed_objects' spatial fields
     and leaving free_count slots fully underspecified.
@@ -153,6 +157,9 @@ def _build_conditioned_layer_query(fixed_objects: list[EGObject2D], free_count: 
 
     :param fixed_objects: Concrete EGObject2D instances whose spatial fields are fixed.
     :param free_count: Number of fully-underspecified object slots to resample.
+    :param target_scale: When provided, the RSPN is conditioned on this scale so that
+        sampled object positions are appropriate for the given layer dimensions.
+        When ``None``, scale is sampled freely from the RSPN marginal.
     :return: An underspecified EGShelfLayer query ready for ProbabilisticBackend evaluation.
     """
 
@@ -168,8 +175,13 @@ def _build_conditioned_layer_query(fixed_objects: list[EGObject2D], free_count: 
             source_id=None,
         )
 
+    scale_argument = (
+        target_scale
+        if target_scale is not None
+        else underspecified(EGSize)(width=..., length=..., height=...)
+    )
     return underspecified(EGShelfLayer)(
-        scale=underspecified(EGSize)(width=..., length=..., height=...),
+        scale=scale_argument,
         objects=[_fixed_slot(object_2d) for object_2d in fixed_objects]
         + [_build_free_object2d_query() for _ in range(free_count)],
     )
@@ -180,12 +192,37 @@ def build_free_layer_query(object_count: int):
     Build a fully unconditioned EGShelfLayer query with object_count free
     object slots.
 
+    The layer scale is left free so the RSPN samples it from the
+    marginal distribution. Use this to draw one reference layer whose
+    scale can then be passed to
+    :func:`build_layer_query_with_fixed_scale` for subsequent layers.
+
     :param object_count: Number of free object slots to include in the
         query.
     :return: An underspecified EGShelfLayer query with no fixed
         evidence.
     """
     return _build_conditioned_layer_query([], object_count)
+
+
+def build_layer_query_with_fixed_scale(object_count: int, scale: EGSize):
+    """
+    Build an EGShelfLayer query with the layer scale fixed as conditioning
+    evidence.
+
+    The RSPN is conditioned on *scale* so that sampled object positions
+    are drawn from the part of the learned distribution that is
+    consistent with those dimensions. All layers of a shelf should be
+    sampled with the same *scale* so the corpus can wrap them
+    coherently.
+
+    :param object_count: Number of free object slots to include in the
+        query.
+    :param scale: The target layer dimensions to condition on.
+    :return: An underspecified EGShelfLayer query conditioned on
+        *scale*.
+    """
+    return _build_conditioned_layer_query([], object_count, target_scale=scale)
 
 
 def _fix_layer(
@@ -207,7 +244,7 @@ def _fix_layer(
         return layer
     fixed_objects = [object_2d for index, object_2d in enumerate(layer.objects) if index not in colliding_indices]
     free_count = len(colliding_indices)
-    query = _build_conditioned_layer_query(fixed_objects, free_count)
+    query = _build_conditioned_layer_query(fixed_objects, free_count, target_scale=layer.scale)
     registry = RelationalCircuitRegistry(
         relational_probabilistic_circuit=rspn
     )
@@ -240,10 +277,10 @@ def resolve_shelf_collisions(
     """
     layers = list(layers)
     while True:
-        dirty_indices = [
+        colliding_indices = [
             index for index, layer in enumerate(layers) if _find_colliding_indices(layer)
         ]
-        if not dirty_indices:
+        if not colliding_indices:
             return layers
-        for index in dirty_indices:
+        for index in colliding_indices:
             layers[index] = _fix_layer(layers[index], rspn)
