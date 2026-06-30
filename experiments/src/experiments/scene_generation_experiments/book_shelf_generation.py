@@ -6,6 +6,7 @@ import os
 import threading
 import time
 from collections import defaultdict
+from collections.abc import Callable
 from pathlib import Path
 
 import numpy as np
@@ -316,6 +317,107 @@ def _extract_shelf_layers_from_objects(
     return shelf_layers, objects
 
 
+def _extract_shelf_layers_from_place_id(
+    session: Session,
+    edge_margin_fraction: float = 0.10,
+    type_predicate: Callable[[ObjectType], bool] = BookObjectType.contains,
+) -> tuple[list[EGShelfLayer], list[EGObjectDAO]]:
+    """
+    Load all scenes and group objects by the shelf declared in their
+    ``place_id``.
+
+    An object is considered a shelf occupant when ``"shelf"`` appears in its
+    ``place_id`` (e.g. ``room_b12d7278_shelf_51fd4e1e``).  Shelf membership
+    is determined purely from the dataset metadata rather than spatial
+    bounding-box containment.
+
+    After grouping, objects whose centre falls outside the shelf's XY footprint
+    (inset by *edge_margin_fraction*) are discarded so that the learned RSPN
+    does not place objects at positions where they would protrude from the shelf.
+
+    :param edge_margin_fraction: Fraction of each shelf dimension to use as
+        an inset margin on X and Y when filtering out-of-bounds objects.
+    :param type_predicate: Called with each object's :class:`ObjectType`; only
+        objects for which this returns ``True`` are included. Defaults to
+        :meth:`BookObjectType.contains` to reproduce the original book-only
+        behaviour.
+    :return: Extracted shelf layers and all loaded object DAOs.
+    """
+    if not session.scalars(select(EGObjectDAO)).first():
+        session = add_to_database(session)
+
+    objects = session.scalars(select(EGObjectDAO).distinct().limit(50000)).all()
+
+    shelf_by_id: dict[str, EGObjectDAO] = {
+        obj.id: obj for obj in objects if obj.object_type == ObjectType.SHELF
+    }
+
+    shelf_objects = [
+        obj
+        for obj in objects
+        if type_predicate(obj.object_type) and "shelf" in obj.place_id
+    ]
+
+    objects_per_shelf: defaultdict[str, list[EGObjectDAO]] = defaultdict(list)
+    for obj in shelf_objects:
+        objects_per_shelf[obj.place_id].append(obj)
+
+    shelf_layers = []
+    for shelf_id, members in objects_per_shelf.items():
+        shelf = shelf_by_id.get(shelf_id)
+        if shelf is None:
+            continue
+
+        max_relative_x = shelf.scale.width / 2 * (1 - edge_margin_fraction)
+        max_relative_y = shelf.scale.length / 2 * (1 - edge_margin_fraction)
+
+        within_bounds = [
+            obj for obj in members
+            if abs(obj.position.x - shelf.position.x) <= max_relative_x
+            and abs(obj.position.y - shelf.position.y) <= max_relative_y
+        ]
+        if not within_bounds:
+            continue
+
+        z_positions = np.array([obj.position.z for obj in within_bounds]).reshape(-1, 1)
+        labels = DBSCAN(eps=0.05, min_samples=1).fit_predict(z_positions)
+
+        objects_per_layer: defaultdict[int, list[EGObject2D]] = defaultdict(list)
+        for obj, label in zip(within_bounds, labels):
+            relative_object = EGObject2D(
+                id=obj.id,
+                room_id=obj.room_id,
+                place_id=obj.place_id,
+                object_type=obj.object_type,
+                scale=EGSize(
+                    width=obj.scale.width,
+                    length=obj.scale.length,
+                    height=obj.scale.height,
+                ),
+                position=EGPoint2D(
+                    x=obj.position.x - shelf.position.x,
+                    y=obj.position.y - shelf.position.y,
+                ),
+                orientation=EGOrientation(
+                    x=obj.orientation.x, y=obj.orientation.y, z=obj.orientation.z
+                ),
+                source_id=obj.source_id,
+            )
+            objects_per_layer[label].append(relative_object)
+
+        for _, layer_objects in objects_per_layer.items():
+            shelf_layers.append(
+                EGShelfLayer(
+                    scale=EGSize(
+                        width=shelf.scale.width, length=shelf.scale.length, height=0.02
+                    ),
+                    objects=layer_objects,
+                )
+            )
+
+    return shelf_layers, objects
+
+
 @contextlib.contextmanager
 def rclpy_node():
     """
@@ -348,18 +450,28 @@ def rclpy_node():
         rclpy.shutdown()
 
 
-def _get_source_ids_for_objects(objects: list[EGObjectDAO]):
+def _get_source_ids_for_objects(
+    objects: list[EGObjectDAO],
+    type_predicate: Callable[[ObjectType], bool] = BookObjectType.contains,
+) -> list[tuple[Path, str]]:
     """
-    Extract all source ids for a give list of objects.
+    Extract all (scene_dir, source_id) pairs for objects accepted by
+    *type_predicate* that have a local PLY mesh available.
+
+    :param objects: All loaded object DAOs from the database.
+    :param type_predicate: Called with each object's
+        :class:`ObjectType`; only objects for which this returns
+        ``True`` are included. Defaults to
+        :meth:`BookObjectType.contains` to reproduce the original book-
+        only behaviour.
+    :return: List of (scene_directory, source_id) pairs.
     """
     source_id_to_path = build_source_id_to_path()
-    book_source_ids = [
+    return [
         (source_id_to_path[obj.source_id], obj.source_id)
         for obj in objects
-        if BookObjectType.contains(obj.object_type)
-           and obj.source_id in source_id_to_path
+        if type_predicate(obj.object_type) and obj.source_id in source_id_to_path
     ]
-    return book_source_ids
 
 def generate_book_shelf(node) -> None:
     """
@@ -374,7 +486,8 @@ def generate_book_shelf(node) -> None:
     Base.metadata.create_all(bind=engine)
     session = Session(engine)
 
-    shelf_layers, training_objects = _extract_shelf_layers_from_objects(session)
+    # shelf_layers, training_objects = _extract_shelf_layers_from_objects(session)
+    shelf_layers, training_objects = _extract_shelf_layers_from_place_id(session)
     shelf_layer_data_access_objects = [to_dao(layer) for layer in shelf_layers]
 
     rspn = RelationalProbabilisticCircuit(EGShelfLayer)
