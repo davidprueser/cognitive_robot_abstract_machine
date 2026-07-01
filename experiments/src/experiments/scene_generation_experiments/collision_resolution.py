@@ -227,21 +227,21 @@ def build_layer_query_with_fixed_scale(object_count: int, scale: EGSize):
 
 def _fix_layer(
     layer: EGShelfLayer,
+    colliding_indices: set[int],
     rspn: RelationalProbabilisticCircuit,
 ) -> EGShelfLayer:
     """
-    Perform one repair pass on a layer: detect collisions, condition on valid
-    books, and resample the minimal set of colliding books.
+    Perform one repair pass on a layer: condition on valid books and resample
+    the given colliding indices.
 
     :param layer: The shelf layer to repair.
+    :param colliding_indices: Indices into ``layer.objects`` that must
+        be resampled, as already computed by the caller.
     :param rspn: The fitted RSPN used to draw replacement book
         positions.
     :return: A new EGShelfLayer with colliding books replaced by fresh
         samples.
     """
-    colliding_indices = _find_colliding_indices(layer)
-    if not colliding_indices:
-        return layer
     fixed_objects = [object_2d for index, object_2d in enumerate(layer.objects) if index not in colliding_indices]
     free_count = len(colliding_indices)
     query = _build_conditioned_layer_query(fixed_objects, free_count, target_scale=layer.scale)
@@ -266,7 +266,9 @@ def resolve_shelf_collisions(
 
     The outer loop repeats until no layer contains any colliding book
     pair.  On each pass only layers that still have collisions are
-    repaired, so already-clean layers are never touched again.
+    repaired, so already-clean layers are never touched again. The
+    colliding indices found while deciding whether a layer needs repair
+    are reused for the repair itself, instead of being recomputed.
 
     :param layers: All layers of a shelf, each containing sampled
         EGObject2D books.
@@ -277,10 +279,12 @@ def resolve_shelf_collisions(
     """
     layers = list(layers)
     while True:
-        colliding_indices = [
-            index for index, layer in enumerate(layers) if _find_colliding_indices(layer)
-        ]
-        if not colliding_indices:
+        colliding_indices_by_layer = {
+            index: colliding_indices
+            for index, layer in enumerate(layers)
+            if (colliding_indices := _find_colliding_indices(layer))
+        }
+        if not colliding_indices_by_layer:
             return layers
-        for index in colliding_indices:
-            layers[index] = _fix_layer(layers[index], rspn)
+        for index, colliding_indices in colliding_indices_by_layer.items():
+            layers[index] = _fix_layer(layers[index], colliding_indices, rspn)

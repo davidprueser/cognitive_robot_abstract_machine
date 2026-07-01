@@ -15,9 +15,8 @@ from probabilistic_model.probabilistic_circuit.relational.rspn import (
 from experiments.orm.ormatic_interface import *  # type: ignore
 from experiments.scene_generation_experiments.book_shelf_generation import (
     _extract_shelf_layers_from_place_id,
-    _get_source_ids_for_objects,
-    rclpy_node,
 )
+from experiments.scene_generation_experiments.utils import rclpy_node, _get_source_ids_for_objects
 from experiments.scene_generation_experiments.collision_resolution import (
     build_free_layer_query,
     build_layer_query_with_fixed_scale,
