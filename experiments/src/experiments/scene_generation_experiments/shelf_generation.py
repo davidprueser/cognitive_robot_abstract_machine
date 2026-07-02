@@ -94,7 +94,7 @@ def generate_shelf_with_arbitrary_objects(node) -> None:
         scale=EGSize(height=2.0, length=target_scale.length, width=target_scale.width),
         orientation=EGOrientation(x=0.0, y=0.0, z=0.0),
         layers=sampled_layers,
-        book_source_ids=source_ids,  # field name is legacy; pool now covers all types
+        source_ids=source_ids,
     )
 
     world = shelf_sample.create_in_world()

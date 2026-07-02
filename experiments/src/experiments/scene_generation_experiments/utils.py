@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Callable
 
 from experiments.orm.ormatic_interface import EGObjectDAO
-from semantic_digital_twin.scene_generation.scene_schema import ObjectType, BookObjectType, build_source_id_to_path
+from semantic_digital_twin.scene_generation.scene_schema import ObjectType, BookObjectType
 
 from semantic_digital_twin.utils import rclpy_installed
 
@@ -66,3 +66,30 @@ def _get_source_ids_for_objects(
         for obj in objects
         if type_predicate(obj.object_type) and obj.source_id in source_id_to_path
     ]
+
+
+def build_source_id_to_path(
+    scenes_root: Path = Path.home() / "Documents" / "sage-10k-scenes",
+) -> dict[str, Path]:
+    """
+    Scan *scenes_root* and return a mapping from source_id to its scene
+    directory.
+
+    Each scene directory is expected to contain an ``objects/`` sub-
+    folder with files named ``{source_id}.ply``.
+
+    :param scenes_root: Root directory that contains individual scene
+        folders.
+    :return:``{source_id: scene_dir}`` for every PLY file found under
+        any scene.
+    """
+    mapping: dict[str, Path] = {}
+    for scene_dir in scenes_root.iterdir():
+        objects_dir = scene_dir / "objects"
+        if not objects_dir.is_dir():
+            continue
+        for ply_file in objects_dir.glob("*.ply"):
+            texture_file = objects_dir / f"{ply_file.stem}_texture.png"
+            if texture_file.exists():
+                mapping[ply_file.stem] = scene_dir
+    return mapping

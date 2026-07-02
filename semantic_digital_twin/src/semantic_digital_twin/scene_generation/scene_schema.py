@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import enum
 import math
-import random
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Self, assert_never
 
 import numpy as np
+import trimesh
 
 from krrood.adapters.json_serializer import SubclassJSONSerializer, to_json
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
@@ -93,7 +93,8 @@ class EGSize(EGBase):
 
     width: float
     """
-    Face width of the object (shelf face direction, world y-axis when placed as a corpus).
+    Face width of the object (shelf face direction, world y-axis when placed as
+    a corpus).
     """
 
     def to_json(self) -> dict[str, Any]:
@@ -555,6 +556,28 @@ class EGObject2D(EGWithID):
             source_id=data["source_id"],
         )
 
+    def _scale_to_match_extents(self, native_extents: np.ndarray) -> Scale:
+        """
+        Compute the per-axis factor that rescales a mesh with *native_extents*
+        so its bounding box matches this object's declared :attr:`scale`.
+
+        Mirrors the width/length/height to x/y/z axis convention used by
+        the collision-resolution box proxy, so the rendered mesh agrees
+        with the geometry that was already checked for collisions. Axes
+        with zero native extent are left unscaled.
+
+        :param native_extents: The mesh's raw (x, y, z) bounding-box
+            size, read before any scale is applied.
+        :return: A :class:`Scale` with one factor per axis.
+        """
+        target_extents = (self.scale.width, self.scale.length, self.scale.height)
+        return Scale(
+            *(
+                target / native if native > 0 else 1.0
+                for target, native in zip(target_extents, native_extents)
+            )
+        )
+
     def create_in_world(
         self,
         world: World,
@@ -567,6 +590,11 @@ class EGObject2D(EGWithID):
     ) -> Body:
         """
         Instantiate this object in *world* at the given absolute pose.
+
+        The mesh is rescaled so its bounding box matches this object's
+        declared :attr:`scale`, since PLY assets are otherwise rendered
+        at their native size regardless of the sampled/declared
+        dimensions.
 
         :param world: The world where the object is created.
         :param mesh_path: Directory containing the ``objects/`` sub-
@@ -604,10 +632,12 @@ class EGObject2D(EGWithID):
             child_frame=body,
         )
 
+        native_extents = trimesh.load(str(ply_file), process=False).extents
         mesh = Mesh.from_ply_file(
             ply_file_path=str(ply_file),
             texture_file_path=str(texture_file),
             origin=HomogeneousTransformationMatrix.from_xyz_rpy(reference_frame=body),
+            scale=self._scale_to_match_extents(native_extents),
         )
 
         geometry = ShapeCollection([mesh], reference_frame=body)
@@ -1105,31 +1135,59 @@ class EGShelfLayer:
     """
 
 
-def build_source_id_to_path(
-    scenes_root: Path = Path.home() / "Documents" / "sage-10k-scenes",
-) -> dict[str, Path]:
+@dataclass
+class _MeshSizeMatcher:
     """
-    Scan *scenes_root* and return a mapping from source_id to its scene
-    directory.
+    Selects, from a pool of candidate meshes, the one whose native bounding box
+    is closest to a target :class:`EGSize`.
 
-    Each scene directory is expected to contain an ``objects/`` sub-
-    folder with files named ``{source_id}.ply``.
-
-    :param scenes_root: Root directory that contains individual scene
-        folders.
-    :return:``{source_id: scene_dir}`` for every PLY file found under
-        any scene.
+    Object-type labels in the source dataset are effectively per-
+    instance identifiers rather than real categories, so matching by
+    declared size instead of by label is what keeps a randomly-drawn
+    mesh visually plausible for the scale an object was sampled at.
     """
-    mapping: dict[str, Path] = {}
-    for scene_dir in scenes_root.iterdir():
-        objects_dir = scene_dir / "objects"
-        if not objects_dir.is_dir():
-            continue
-        for ply_file in objects_dir.glob("*.ply"):
-            texture_file = objects_dir / f"{ply_file.stem}_texture.png"
-            if texture_file.exists():
-                mapping[ply_file.stem] = scene_dir
-    return mapping
+
+    candidates: list[tuple[Path, str]]
+    """
+    (scene_dir, source_id) pairs to choose from.
+    """
+
+    _native_extents_by_source_id: dict[str, np.ndarray] = field(
+        default_factory=dict, init=False, repr=False
+    )
+    """
+    Cache of source_id -> native (x, y, z) mesh extents, populated lazily since
+    reading every candidate's PLY file is only needed once per pool.
+    """
+
+    def _native_extents(self, scene_dir: Path, source_id: str) -> np.ndarray:
+        if source_id not in self._native_extents_by_source_id:
+            ply_file = scene_dir / "objects" / f"{source_id}.ply"
+            self._native_extents_by_source_id[source_id] = trimesh.load(
+                str(ply_file), process=False
+            ).extents
+        return self._native_extents_by_source_id[source_id]
+
+    def closest_match(self, target_scale: EGSize) -> tuple[Path, str]:
+        """
+        Return the candidate whose native bounding box is closest to
+        *target_scale*, using the same width/length/height to x/y/z axis
+        convention as the collision-resolution box proxy.
+
+        :param target_scale: The declared size to match against.
+        :return: The best-matching (scene_dir, source_id) pair.
+        """
+        if len(self.candidates) == 1:
+            return self.candidates[0]
+        target_extents = np.array(
+            [target_scale.width, target_scale.length, target_scale.height]
+        )
+        return min(
+            self.candidates,
+            key=lambda candidate: np.linalg.norm(
+                self._native_extents(*candidate) - target_extents
+            ),
+        )
 
 
 @dataclass
@@ -1158,13 +1216,23 @@ class EGShelf:
     The layers of the Shelf.
     """
 
-    book_source_ids: list[tuple[Path, str]] | None = field(default=None)
+    source_ids: list[tuple[Path, str]] | None = field(default=None)
     """
-    List of (scene_dir, source_id) pairs for book meshes used when placing
-    objects on shelf layers.
+    List of (scene_dir, source_id) pairs for meshes used when placing objects
+    on shelf layers.
     """
 
-    def create_in_world(self, world: World | None = None) -> World:
+    def create_in_world(
+        self,
+        world: World | None = None,
+    ) -> World:
+        """
+        Instantiate the shelf and its objects inside a :class:`World`.
+
+        :param world: Existing world to extend. A fresh world with a
+            ``map`` root body is created when omitted.
+        :return: The world containing the shelf.
+        """
         _world: World = world if world is not None else World()
         if world is None:
             root = Body(name=PrefixedName(name="map"))
@@ -1193,8 +1261,10 @@ class EGShelf:
         step = corpus_height / (len(self.layers) + 1)
         layer_z_heights = [step * (i + 1) for i in range(len(self.layers))]
 
-        layer_scale = Scale(x=corpus_depth, y=corpus_face, z=0.02)
+        mesh_matcher = _MeshSizeMatcher(candidates=self.source_ids or [])
+
         for i, (layer, z_height) in enumerate(zip(self.layers, layer_z_heights)):
+            layer_scale = Scale(x=layer.scale.length, y=layer.scale.width, z=0.02)
             layer_pose = HomogeneousTransformationMatrix.from_xyz_rpy(
                 x=self.position.x,
                 y=self.position.y,
@@ -1209,16 +1279,17 @@ class EGShelf:
                     scale=layer_scale,
                 )
 
-            if not self.book_source_ids:
-                continue
             for obj in layer.objects:
                 if not isinstance(obj.position.x, (int, float)):
                     continue
-                scene_dir, source_id = random.choice(self.book_source_ids)
-                obj.source_id = source_id
                 absolute_x = self.position.x + obj.position.y
                 absolute_y = self.position.y + obj.position.x
                 absolute_z = z_height + layer_scale.z / 2
+
+                if not self.source_ids:
+                    continue
+                scene_dir, source_id = mesh_matcher.closest_match(obj.scale)
+                obj.source_id = source_id
                 obj.create_in_world(
                     _world,
                     scene_dir,

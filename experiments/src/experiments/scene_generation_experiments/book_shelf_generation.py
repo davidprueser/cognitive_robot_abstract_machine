@@ -166,7 +166,7 @@ def generate_book_shelf(node) -> None:
         scale=EGSize(height=2.0, length=target_scale.length, width=target_scale.width),
         orientation=EGOrientation(x=0.0, y=0.0, z=0.0),
         layers=sampled_layers,
-        book_source_ids=source_ids_for_sampled_objects,
+        source_ids=source_ids_for_sampled_objects,
     )
 
     world = shelf_sample.create_in_world()

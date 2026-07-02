@@ -90,6 +90,7 @@ import semantic_digital_twin.robots.unitree_g1
 import semantic_digital_twin.scene_generation.sage10k_processing
 import semantic_digital_twin.scene_generation.scene_schema
 import semantic_digital_twin.scene_generation.scene_schema_aggregations
+import semantic_digital_twin.semantic_annotations.description_matching
 import semantic_digital_twin.semantic_annotations.mixins
 import semantic_digital_twin.semantic_annotations.natural_language
 import semantic_digital_twin.semantic_annotations.position_descriptions
@@ -6232,6 +6233,20 @@ class MismatchingIDsInWorldModificationDAO(
     )
 
 
+class ModelLoadErrorDAO(
+    Base, DataAccessObject[semantic_digital_twin.exceptions.ModelLoadError]
+):
+    __tablename__ = "ModelLoadErrorDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        Integer, primary_key=True, use_existing_column=True
+    )
+
+    model_name: Mapped[builtins.str] = mapped_column(
+        sqlalchemy.sql.sqltypes.Text, use_existing_column=True
+    )
+
+
 class MultiSimErrorDAO(
     Base, DataAccessObject[semantic_digital_twin.exceptions.MultiSimError]
 ):
@@ -9357,6 +9372,23 @@ class SceneGeneratorDAO(
     }
 
 
+class _MeshSizeMatcherDAO(
+    Base,
+    DataAccessObject[
+        semantic_digital_twin.scene_generation.scene_schema._MeshSizeMatcher
+    ],
+):
+    __tablename__ = "_MeshSizeMatcherDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        Integer, primary_key=True, use_existing_column=True
+    )
+
+    candidates: Mapped[typing.List[builtins.tuple]] = mapped_column(
+        JSON, nullable=False, use_existing_column=True
+    )
+
+
 class EGShelfAggregationsDAO(
     Base,
     DataAccessObject[
@@ -9436,6 +9468,44 @@ class RoomAggregationsDAO(
     instance: Mapped[EGRoomDAO] = relationship(
         "EGRoomDAO", uselist=False, foreign_keys=[instance_id], post_update=True
     )
+
+
+class DescriptionCategoryScorerDAO(
+    Base,
+    DataAccessObject[
+        semantic_digital_twin.semantic_annotations.description_matching.DescriptionCategoryScorer
+    ],
+):
+    __tablename__ = "DescriptionCategoryScorerDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        Integer, primary_key=True, use_existing_column=True
+    )
+
+    model_name: Mapped[builtins.str] = mapped_column(
+        sqlalchemy.sql.sqltypes.Text, use_existing_column=True
+    )
+
+
+class DescriptionMatchResultDAO(
+    Base,
+    DataAccessObject[
+        semantic_digital_twin.semantic_annotations.description_matching.DescriptionMatchResult
+    ],
+):
+    __tablename__ = "DescriptionMatchResultDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        Integer, primary_key=True, use_existing_column=True
+    )
+
+    category: Mapped[builtins.str] = mapped_column(
+        sqlalchemy.sql.sqltypes.Text, use_existing_column=True
+    )
+    description: Mapped[builtins.str] = mapped_column(
+        sqlalchemy.sql.sqltypes.Text, use_existing_column=True
+    )
+    score: Mapped[builtins.float] = mapped_column(use_existing_column=True)
 
 
 class IsPerceivableDAO(
