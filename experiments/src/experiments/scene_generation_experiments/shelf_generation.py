@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import dataclasses
 import os
+import time
+from collections import Counter
 
 from sqlalchemy.orm import Session
 
@@ -41,6 +44,41 @@ def _is_shelf_furniture(object_type: ObjectType) -> bool:
     return object_type == ObjectType.SHELF
 
 
+def _coarsen_rare_object_types(
+    shelf_layers: list[EGShelfLayer],
+    keep_count: int = 20,
+) -> list[EGShelfLayer]:
+    """
+    Return new shelf layers where every object's type outside the *keep_count*
+    most frequent types (across all objects in *shelf_layers*) is replaced with
+    ``ObjectType.OTHER``.
+
+    :param shelf_layers: Layers whose objects' types should be
+        coarsened.
+    :param keep_count: Number of distinct, most frequent object types to
+        leave unchanged.
+    :return: New EGShelfLayer instances with coarsened object types; all
+        other fields (position, scale, orientation, source_id, ...) are
+        unchanged.
+    """
+    type_counts = Counter(
+        object_2d.object_type for layer in shelf_layers for object_2d in layer.objects
+    )
+    frequent_types = {object_type for object_type, _ in type_counts.most_common(keep_count)}
+    return [
+        dataclasses.replace(
+            layer,
+            objects=[
+                object_2d
+                if object_2d.object_type in frequent_types
+                else dataclasses.replace(object_2d, object_type=ObjectType.OTHER)
+                for object_2d in layer.objects
+            ],
+        )
+        for layer in shelf_layers
+    ]
+
+
 def generate_shelf_with_arbitrary_objects(node) -> None:
     """
     Train an RSPN on all non-shelf object types found on shelves in the dataset
@@ -62,6 +100,7 @@ def generate_shelf_with_arbitrary_objects(node) -> None:
 
     :param node: An active rclpy node used to publish visualisation markers.
     """
+    start = time.time()
     uri = os.environ.get("SEMANTIC_DIGITAL_TWIN_DATABASE_URI")
     engine = create_engine(uri)
     Base.metadata.create_all(bind=engine)
@@ -72,6 +111,7 @@ def generate_shelf_with_arbitrary_objects(node) -> None:
     shelf_layers, training_objects = _extract_shelf_layers_from_place_id(
         session, type_predicate=predicate
     )
+    shelf_layers = _coarsen_rare_object_types(shelf_layers)
     shelf_layer_data_access_objects = [to_dao(layer) for layer in shelf_layers]
 
     rspn = RelationalProbabilisticCircuit(EGShelfLayer)
@@ -100,6 +140,7 @@ def generate_shelf_with_arbitrary_objects(node) -> None:
     world = shelf_sample.create_in_world()
     viz_marker = VizMarkerPublisher(_world=world, node=node)
     viz_marker.with_tf_publisher()
+    print(f"Finished generating shelf sample in {time.time() - start:.2f}s")
 
 
 if __name__ == "__main__":

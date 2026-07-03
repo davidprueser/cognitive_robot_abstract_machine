@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import Counter
 from itertools import combinations
 
 from experiments.scene_generation_experiments.exceptions import ShelfLayoutResolutionError
@@ -85,13 +86,20 @@ def _create_book_world(layer: EGShelfLayer) -> tuple[World, dict[Body, int]]:
 
 def _find_colliding_indices(layer: EGShelfLayer) -> set[int]:
     """
-    Return the minimal set of object indices that must be resampled to resolve
+    Return a minimal set of object indices that must be resampled to resolve
     all collisions.
 
-    For each colliding pair, only one index is added to the bad set
-    (greedy: keep the first, discard the second).  If one member of a
-    pair is already in the bad set, the pair is already handled and the
-    other member is kept.
+    Builds the pairwise collision graph and greedily discards the index
+    involved in the most remaining colliding pairs (a greedy minimum
+    vertex cover), repeating until no pair is left; ties are broken by
+    the higher index for reproducibility. The choice depends only on
+    which indices collide with which, not on the arbitrary body_a/body_b
+    order the underlying collision detector reports on a given call -- a
+    detector that orders contacts differently between otherwise-
+    identical calls would previously make this function pick a different
+    (and sometimes non- minimal) set each time, which stalled the repair
+    loop in :func:`resolve_shelf_collisions` on layouts that had a valid
+    fix.
 
     :param layer: The shelf layer to inspect.
     :return: Set of indices (into layer.objects) that must be replaced.
@@ -111,15 +119,24 @@ def _find_colliding_indices(layer: EGShelfLayer) -> set[int]:
     if not result.any():
         return set()
 
-    colliding_pairs: list[tuple[int, int]] = [
-        (body_to_index[contact.body_a], body_to_index[contact.body_b])
+    remaining_pairs = {
+        tuple(sorted((body_to_index[contact.body_a], body_to_index[contact.body_b])))
         for contact in result.contacts
-    ]
+    }
 
     indices_to_resample: set[int] = set()
-    for first_index, second_index in colliding_pairs:
-        if first_index not in indices_to_resample and second_index not in indices_to_resample:
-            indices_to_resample.add(second_index)
+    while remaining_pairs:
+        involvement_counts = Counter(
+            index for pair in remaining_pairs for index in pair
+        )
+        most_colliding_index = min(
+            involvement_counts,
+            key=lambda index: (-involvement_counts[index], -index),
+        )
+        indices_to_resample.add(most_colliding_index)
+        remaining_pairs = {
+            pair for pair in remaining_pairs if most_colliding_index not in pair
+        }
     return indices_to_resample
 
 
@@ -312,7 +329,7 @@ def _fix_layer(
 def resolve_shelf_collisions(
     layers: list[EGShelfLayer],
     rspn: RelationalProbabilisticCircuit,
-    max_passes: int = 5,
+    max_passes: int = 50,
 ) -> list[EGShelfLayer]:
     """
     Return collision-free, in-bounds versions of all shelf layers by iterating

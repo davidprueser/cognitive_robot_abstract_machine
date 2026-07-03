@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import os
+import time
 from collections import defaultdict
 from collections.abc import Callable
 
 import numpy as np
 from sklearn.cluster import DBSCAN
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from experiments.scene_generation_experiments.utils import rclpy_node, _get_source_ids_for_objects
 from krrood.entity_query_language.backends import ProbabilisticBackend
@@ -65,7 +66,16 @@ def _extract_shelf_layers_from_place_id(
         behaviour.
     :return: Extracted shelf layers and all loaded object DAOs.
     """
-    objects = session.scalars(select(EGObjectDAO).distinct().limit(50000)).all()
+    objects = session.scalars(
+        select(EGObjectDAO)
+        .options(
+            joinedload(EGObjectDAO.scale),
+            joinedload(EGObjectDAO.position),
+            joinedload(EGObjectDAO.orientation),
+        )
+        .distinct()
+        .limit(50000)
+    ).all()
     shelves: list[EGObjectDAO] = [obj for obj in objects if obj.object_type == ObjectType.SHELF]
 
     objects_by_place_id: defaultdict[str, list[EGObjectDAO]] = defaultdict(list)
@@ -135,6 +145,7 @@ def generate_book_shelf(node) -> None:
     :param node: An active rclpy node used to publish visualisation
         markers.
     """
+    start = time.time()
     uri = os.environ.get("SEMANTIC_DIGITAL_TWIN_DATABASE_URI")
     engine = create_engine(uri)
     Base.metadata.create_all(bind=engine)
@@ -172,6 +183,7 @@ def generate_book_shelf(node) -> None:
     world = shelf_sample.create_in_world()
     viz_marker = VizMarkerPublisher(_world=world, node=node)
     viz_marker.with_tf_publisher()
+    print(f"Finished generating shelf sample in {time.time() - start:.2f}s")
 
 
 if __name__ == "__main__":
