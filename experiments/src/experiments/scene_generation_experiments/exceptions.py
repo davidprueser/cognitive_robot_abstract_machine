@@ -35,3 +35,36 @@ class ShelfLayoutResolutionError(DataclassException):
             "Re-sample the shelf from scratch, or check whether the sampled "
             "layer/object scales make a valid arrangement unreachable."
         )
+
+
+@dataclass
+class TableChairLayoutResolutionError(DataclassException):
+    """
+    Raised when resolve_table_chair_collisions cannot reach a collision-free
+    arrangement of chairs around a table within the allowed number of repair
+    passes.
+    """
+
+    remaining_chair_indices: frozenset[int]
+    """
+    Indices into the chairs list that still collided with another chair when
+    resolution gave up.
+    """
+
+    passes_attempted: int
+    """
+    The number of repair passes attempted before giving up.
+    """
+
+    def error_message(self) -> str:
+        return (
+            f"Failed to resolve table-chair layout after {self.passes_attempted} "
+            f"passes; chairs {sorted(self.remaining_chair_indices)} still collide."
+        )
+
+    def suggest_correction(self) -> str:
+        return (
+            "Re-sample the table-with-chairs group from scratch, or check "
+            "whether the sampled chair scales make a collision-free "
+            "arrangement unreachable."
+        )

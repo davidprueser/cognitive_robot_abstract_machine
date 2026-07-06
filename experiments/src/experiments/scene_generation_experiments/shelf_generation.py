@@ -27,8 +27,8 @@ from experiments.scene_generation_experiments.collision_resolution import (
 )
 from semantic_digital_twin.adapters.ros.visualization.viz_marker import VizMarkerPublisher
 from semantic_digital_twin.scene_generation.scene_schema import (
-    EGOrientation,
     EGPoint2D,
+    EGRotation,
     EGShelf,
     EGShelfLayer,
     EGSize,
@@ -132,7 +132,7 @@ def generate_shelf_with_arbitrary_objects(node) -> None:
     shelf_sample = EGShelf(
         position=EGPoint2D(x=0.0, y=0.0),
         scale=EGSize(height=2.0, length=target_scale.length, width=target_scale.width),
-        orientation=EGOrientation(x=0.0, y=0.0, z=0.0),
+        orientation=EGRotation(x=0.0, y=0.0, z=0.0),
         layers=sampled_layers,
         source_ids=source_ids,
     )

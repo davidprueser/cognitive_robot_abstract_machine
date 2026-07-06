@@ -48,6 +48,7 @@
   - When dealing with nested if statements and branching methods, use guard clauses to reduce nesting by inverting conditions and returning early
 - Dont use try except blocks, programs in illegal states should raise appropriate exceptions.
 - Instead of passing around strings, use enums instead
+- Never use global variables
 
 ## Type Hints
 - Classes and methods should always have accurate type hints (including `Any`) where applicable

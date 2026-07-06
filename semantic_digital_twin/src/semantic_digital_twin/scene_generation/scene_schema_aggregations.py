@@ -7,7 +7,12 @@ import numpy as np
 
 from krrood.entity_query_language.factories import count, variable
 from krrood.parametrization.feature_extraction.aggregations import AggregationStatistic, aggregation_statistic
-from semantic_digital_twin.scene_generation.scene_schema import EGShelf, EGRoom, EGShelfLayer
+from semantic_digital_twin.scene_generation.scene_schema import (
+    EGShelf,
+    EGRoom,
+    EGShelfLayer,
+    EGTableWithChairs,
+)
 
 
 @dataclass
@@ -91,3 +96,20 @@ class EGShelfLayerAggregations(AggregationStatistic[EGShelfLayer]):
         """
         [object_count] = count(variable(EGShelfLayer, self.instance.objects)).tolist()
         return object_count
+
+
+@dataclass
+class EGTableWithChairsAggregations(AggregationStatistic[EGTableWithChairs]):
+    """
+    Aggregation statistics over the chairs surrounding a table.
+    """
+
+    @aggregation_statistic("chairs")
+    def total_count(self) -> int:
+        """
+        Number of chairs surrounding the table.
+        """
+        [chair_count] = count(
+            variable(EGTableWithChairs, self.instance.chairs)
+        ).tolist()
+        return chair_count

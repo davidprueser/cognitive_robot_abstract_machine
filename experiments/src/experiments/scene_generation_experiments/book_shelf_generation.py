@@ -31,8 +31,8 @@ from semantic_digital_twin.adapters.ros.visualization.viz_marker import (
 from semantic_digital_twin.scene_generation.scene_schema import (
     BookObjectType,
     EGObject2D,
-    EGOrientation,
     EGPoint2D,
+    EGRotation,
     EGShelf,
     EGShelfLayer,
     EGSize,
@@ -117,7 +117,7 @@ def _extract_shelf_layers_from_place_id(
                     x=obj.position.x - shelf.position.x,
                     y=obj.position.y - shelf.position.y,
                 ),
-                orientation=EGOrientation(
+                orientation=EGRotation(
                     x=obj.orientation.x, y=obj.orientation.y, z=obj.orientation.z
                 ),
                 source_id=obj.source_id,
@@ -175,7 +175,7 @@ def generate_book_shelf(node) -> None:
     shelf_sample = EGShelf(
         position=EGPoint2D(x=0.0, y=0.0),
         scale=EGSize(height=2.0, length=target_scale.length, width=target_scale.width),
-        orientation=EGOrientation(x=0.0, y=0.0, z=0.0),
+        orientation=EGRotation(x=0.0, y=0.0, z=0.0),
         layers=sampled_layers,
         source_ids=source_ids_for_sampled_objects,
     )

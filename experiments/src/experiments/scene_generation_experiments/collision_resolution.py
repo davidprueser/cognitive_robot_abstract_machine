@@ -12,8 +12,8 @@ from probabilistic_model.probabilistic_circuit.relational.rspn import (
 )
 from semantic_digital_twin.scene_generation.scene_schema import (
     EGObject2D,
-    EGOrientation,
     EGPoint2D,
+    EGRotation,
     EGShelfLayer,
     EGSize,
 )
@@ -206,7 +206,7 @@ def _build_free_object2d_query():
         object_type=...,
         scale=underspecified(EGSize)(width=..., length=..., height=...),
         position=underspecified(EGPoint2D)(x=..., y=...),
-        orientation=underspecified(EGOrientation)(x=..., y=..., z=...),
+        orientation=underspecified(EGRotation)(x=..., y=..., z=...),
         source_id=None,
     )
 

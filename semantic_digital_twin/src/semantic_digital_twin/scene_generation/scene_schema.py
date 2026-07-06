@@ -25,6 +25,7 @@ from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Hinge,
     ShelfLayer,
     Cabinet,
+    Table,
 )
 from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix, Vector3
 from semantic_digital_twin.spatial_types.derivatives import DerivativeMap
@@ -152,10 +153,26 @@ class EGPosition(EGPoint2D):
 
 
 @dataclass
-class EGOrientation(EGPoint2D):
-    z: float
+class EGRotation(EGPoint2D):
+    """
+    Rotation of an object, expressed as roll, pitch, and yaw in degrees.
 
-    def as_roll_pitch_yaw_in_radians(self):
+    Inherits ``x`` (roll) and ``y`` (pitch) from :class:`EGPoint2D`;
+    only ``z`` (yaw) varies for objects that sit upright without
+    tilting.
+    """
+
+    z: float
+    """
+    Yaw, in degrees, about the local z-axis (vertical axis).
+    """
+
+    def as_roll_pitch_yaw_in_radians(self) -> tuple[float, float, float]:
+        """
+        Convert this rotation into a roll, pitch, yaw tuple in radians.
+
+        :return:``(roll, pitch, yaw)`` in radians.
+        """
         conversion_factor = np.pi / 180
         return (
             self.x * conversion_factor,
@@ -368,7 +385,7 @@ class EGObject(EGWithID):
     The position of the object.
     """
 
-    orientation: EGOrientation
+    orientation: EGRotation
     """
     The orientation of the object.
     """
@@ -403,7 +420,7 @@ class EGObject(EGWithID):
             ),
             place_id=data["place_id"],
             position=EGPosition._from_json(data["position"], **kwargs),
-            orientation=EGOrientation._from_json(data["rotation"], **kwargs),
+            orientation=EGRotation._from_json(data["rotation"], **kwargs),
             scale=EGSize._from_json(data["dimensions"], **kwargs),
             source_id=data["source_id"],
         )
@@ -517,7 +534,7 @@ class EGObject2D(EGWithID):
     2-D position relative to the centre of the containing shelf layer.
     """
 
-    orientation: EGOrientation
+    orientation: EGRotation
     """
     Orientation of the object in Euler angles (degrees).
     """
@@ -551,7 +568,7 @@ class EGObject2D(EGWithID):
             ),
             place_id=data["place_id"],
             position=EGPoint2D._from_json(data["position"], **kwargs),
-            orientation=EGOrientation._from_json(data["rotation"], **kwargs),
+            orientation=EGRotation._from_json(data["rotation"], **kwargs),
             scale=EGSize._from_json(data["dimensions"], **kwargs),
             source_id=data["source_id"],
         )
@@ -1206,7 +1223,7 @@ class EGShelf:
     Scale of the Shelf.
     """
 
-    orientation: EGOrientation
+    orientation: EGRotation
     """
     Orientation of the Shelf in the World.
     """
@@ -1298,6 +1315,381 @@ class EGShelf:
                     y=absolute_y,
                     z=absolute_z,
                 )
+
+        return _world
+
+
+def wrap_angle_degrees(angle: float) -> float:
+    """
+    Wrap *angle* into the half-open interval (-180, 180] degrees.
+
+    :param angle: Angle in degrees.
+    :return: The equivalent angle in (-180, 180].
+    """
+    return ((angle + 180) % 360) - 180
+
+
+@dataclass
+class EGRelativePolarPose(EGBase):
+    """
+    Pose of a chair relative to its table, expressed in the table's own local
+    frame (after subtracting the table's yaw), so that "evenly spaced, facing
+    the table" is learnable independent of a table's absolute position or
+    orientation in the room.
+    """
+
+    distance_from_table_center: float
+    """
+    Radial distance, in metres, from the table centre to the chair centre.
+    """
+
+    angle_from_table_center: float
+    """
+    Angle, in degrees, of the chair's position around the table centre,
+    measured counter-clockwise from the table's own local x-axis.
+    """
+
+    facing_angle_relative_to_table: float
+    """
+    Yaw of the chair, in degrees, relative to the bearing that points from the
+    chair straight at the table centre.
+
+    Zero means the chair faces the table dead-on.
+    """
+
+    def to_json(self) -> dict[str, Any]:
+        return {
+            "distance_from_table_center": self.distance_from_table_center,
+            "angle_from_table_center": self.angle_from_table_center,
+            "facing_angle_relative_to_table": self.facing_angle_relative_to_table,
+        }
+
+    @classmethod
+    def _from_json(cls, data: dict[str, Any], **kwargs) -> Self:
+        return cls(
+            distance_from_table_center=data["distance_from_table_center"],
+            angle_from_table_center=data["angle_from_table_center"],
+            facing_angle_relative_to_table=data["facing_angle_relative_to_table"],
+        )
+
+    @classmethod
+    def from_absolute_poses(
+        cls,
+        chair_x: float,
+        chair_y: float,
+        chair_yaw_degrees: float,
+        table_x: float,
+        table_y: float,
+        table_yaw_degrees: float,
+    ) -> Self:
+        """
+        Compute a chair's pose relative to its table from both poses expressed
+        in a shared absolute frame.
+
+        :param chair_x: Absolute x position of the chair.
+        :param chair_y: Absolute y position of the chair.
+        :param chair_yaw_degrees: Absolute yaw of the chair, in degrees.
+        :param table_x: Absolute x position of the table centre.
+        :param table_y: Absolute y position of the table centre.
+        :param table_yaw_degrees: Absolute yaw of the table, in degrees.
+        :return: The chair's pose relative to the table.
+        """
+        delta_x = chair_x - table_x
+        delta_y = chair_y - table_y
+        table_yaw_radians = math.radians(table_yaw_degrees)
+
+        local_x = delta_x * math.cos(table_yaw_radians) + delta_y * math.sin(
+            table_yaw_radians
+        )
+        local_y = -delta_x * math.sin(table_yaw_radians) + delta_y * math.cos(
+            table_yaw_radians
+        )
+
+        distance_from_table_center = math.hypot(local_x, local_y)
+        angle_from_table_center = math.degrees(math.atan2(local_y, local_x))
+
+        bearing_to_table = wrap_angle_degrees(angle_from_table_center + 180)
+        chair_yaw_relative_to_table = wrap_angle_degrees(
+            chair_yaw_degrees - table_yaw_degrees
+        )
+        facing_angle_relative_to_table = wrap_angle_degrees(
+            chair_yaw_relative_to_table - bearing_to_table
+        )
+
+        return cls(
+            distance_from_table_center=distance_from_table_center,
+            angle_from_table_center=angle_from_table_center,
+            facing_angle_relative_to_table=facing_angle_relative_to_table,
+        )
+
+    def to_absolute_pose(
+        self, table_x: float, table_y: float, table_yaw_degrees: float
+    ) -> tuple[float, float, float]:
+        """
+        Convert this polar pose back into an absolute pose, given the table's
+        own absolute pose.
+
+        :param table_x: Absolute x position of the table centre.
+        :param table_y: Absolute y position of the table centre.
+        :param table_yaw_degrees: Absolute yaw of the table, in degrees.
+        :return:``(x, y, yaw_degrees)`` of the chair in the table's
+            absolute frame.
+        """
+        table_yaw_radians = math.radians(table_yaw_degrees)
+        angle_radians = math.radians(self.angle_from_table_center)
+
+        local_x = self.distance_from_table_center * math.cos(angle_radians)
+        local_y = self.distance_from_table_center * math.sin(angle_radians)
+
+        world_dx = local_x * math.cos(table_yaw_radians) - local_y * math.sin(
+            table_yaw_radians
+        )
+        world_dy = local_x * math.sin(table_yaw_radians) + local_y * math.cos(
+            table_yaw_radians
+        )
+
+        bearing_to_table = wrap_angle_degrees(self.angle_from_table_center + 180)
+        chair_yaw_relative_to_table = wrap_angle_degrees(
+            self.facing_angle_relative_to_table + bearing_to_table
+        )
+        chair_yaw_world = table_yaw_degrees + chair_yaw_relative_to_table
+
+        return table_x + world_dx, table_y + world_dy, chair_yaw_world
+
+
+@dataclass
+class EGChair(EGWithID):
+    """
+    A chair belonging to a table-with-chairs group, positioned relative to the
+    table via a polar pose rather than absolute Cartesian coordinates.
+    """
+
+    room_id: str
+    """
+    The id of the room where the chair is located.
+    """
+
+    object_type: ObjectType
+    """
+    The category of the object (normally :attr:`ObjectType.CHAIR`).
+    """
+
+    scale: EGSize
+    """
+    Physical dimensions of the chair.
+    """
+
+    relative_pose: EGRelativePolarPose
+    """
+    Pose of the chair relative to the table centre, in the table's local frame.
+    """
+
+    source_id: str
+    """
+    Identifier used to look up the PLY mesh file for this chair in the dataset.
+    """
+
+    def to_json(self) -> dict[str, Any]:
+        return {
+            **super().to_json(),
+            "id": self.id,
+            "room_id": self.room_id,
+            "type": self.object_type,
+            "scale": to_json(self.scale),
+            "relative_pose": to_json(self.relative_pose),
+            "source_id": self.source_id,
+        }
+
+    @classmethod
+    def _from_json(cls, data: dict[str, Any], **kwargs) -> Self:
+        return cls(
+            id=data["id"],
+            room_id=data["room_id"],
+            object_type=ObjectType._value2member_map_.get(
+                data["type"], ObjectType.OTHER
+            ),
+            scale=EGSize._from_json(data["scale"], **kwargs),
+            relative_pose=EGRelativePolarPose._from_json(
+                data["relative_pose"], **kwargs
+            ),
+            source_id=data["source_id"],
+        )
+
+    def create_in_world(
+        self,
+        world: World,
+        mesh_path: Path | None,
+        parent: KinematicStructureEntity,
+        table_position: EGPoint2D,
+        table_orientation: EGRotation,
+        **kwargs,
+    ) -> Body:
+        """
+        Instantiate this chair in *world*, converting its table-relative polar
+        pose into an absolute pose using the table's own position and
+        orientation.
+
+        :param world: The world where the chair is created.
+        :param mesh_path: Directory containing the ``objects/`` sub-
+            folder with PLY and texture files for this chair.
+        :param parent: The parent kinematic structure entity.
+        :param table_position: Absolute position of the table centre.
+        :param table_orientation: Absolute orientation of the table.
+        :raises ValueError: If *mesh_path* does not exist.
+        :return: The created :class:`Body`.
+        """
+        if mesh_path is None:
+            mesh_path = (
+                Path.home()
+                / "Documents"
+                / "sage-10k-scenes"
+                / "20251230_060038_layout_fd6894a7"
+            )
+        if not mesh_path.exists():
+            raise ValueError(f"Directory {mesh_path} does not exist.")
+        ply_file = mesh_path / "objects" / f"{self.source_id}.ply"
+        texture_file = mesh_path / "objects" / f"{self.source_id}_texture.png"
+
+        absolute_x, absolute_y, chair_yaw_world = self.relative_pose.to_absolute_pose(
+            table_position.x, table_position.y, table_orientation.z
+        )
+
+        body = Body()
+        body.name = PrefixedName(name=str(body.id), prefix=self.id)
+
+        root_T_body = HomogeneousTransformationMatrix.from_xyz_rpy(
+            absolute_x,
+            absolute_y,
+            0.0,
+            0.0,
+            0.0,
+            math.radians(chair_yaw_world),
+            reference_frame=parent,
+            child_frame=body,
+        )
+
+        native_extents = trimesh.load(str(ply_file), process=False).extents
+        target_extents = (self.scale.width, self.scale.length, self.scale.height)
+        mesh_scale = Scale(
+            *(
+                target / native if native > 0 else 1.0
+                for target, native in zip(target_extents, native_extents)
+            )
+        )
+        mesh = Mesh.from_ply_file(
+            ply_file_path=str(ply_file),
+            texture_file_path=str(texture_file),
+            origin=HomogeneousTransformationMatrix.from_xyz_rpy(reference_frame=body),
+            scale=mesh_scale,
+        )
+
+        geometry = ShapeCollection([mesh], reference_frame=body)
+        body.visual = geometry
+        body.collision = geometry
+
+        with world.modify_world():
+            root_C_body = Connection6DoF.create_with_dofs(
+                world=world,
+                parent=parent,
+                child=body,
+                parent_T_connection_expression=root_T_body,
+            )
+            world.add_body(body)
+            world.add_connection(root_C_body)
+
+        annotation = NaturalLanguageWithTypeDescription(
+            root=body, description=None, type_description=self.object_type
+        )
+
+        with world.modify_world():
+            world.add_semantic_annotation(annotation)
+
+        return body
+
+
+@dataclass
+class EGTableWithChairs:
+    """
+    A table together with the chairs clustered around it via spatial proximity,
+    since chairs do not carry a ``place_id`` link to their table in the source
+    data (unlike shelf contents, which do).
+    """
+
+    position: EGPoint2D
+    """
+    Position of the table's centre in the room.
+    """
+
+    scale: EGSize
+    """
+    Scale of the table.
+    """
+
+    orientation: EGRotation
+    """
+    Orientation of the table in the room; every chair's
+    :attr:`EGChair.relative_pose` is expressed relative to this table's own
+    yaw.
+    """
+
+    chairs: list[EGChair]
+    """
+    Chairs clustered around this table, with poses relative to the table centre
+    and yaw.
+    """
+
+    source_ids: list[tuple[Path, str]] | None = field(default=None)
+    """
+    List of (scene_dir, source_id) pairs for meshes used when placing chairs
+    around the table.
+    """
+
+    def create_in_world(
+        self,
+        world: World | None = None,
+    ) -> World:
+        """
+        Instantiate the table and its chairs inside a :class:`World`.
+
+        :param world: Existing world to extend. A fresh world with a
+            ``map`` root body is created when omitted.
+        :return: The world containing the table and its chairs.
+        """
+        _world: World = world if world is not None else World()
+        if world is None:
+            root = Body(name=PrefixedName(name="map"))
+            with _world.modify_world():
+                _world.add_body(root)
+
+        table_pose = HomogeneousTransformationMatrix.from_xyz_rpy(
+            x=self.position.x,
+            y=self.position.y,
+            z=self.scale.height / 2,
+            yaw=math.radians(self.orientation.z),
+            reference_frame=_world.root,
+        )
+        with _world.modify_world():
+            Table.create_with_new_body_in_world(
+                name=PrefixedName(name="table"),
+                world=_world,
+                world_root_T_self=table_pose,
+                scale=Scale(x=self.scale.length, y=self.scale.width, z=self.scale.height),
+            )
+
+        mesh_matcher = _MeshSizeMatcher(candidates=self.source_ids or [])
+
+        for i, chair in enumerate(self.chairs):
+            if not self.source_ids:
+                continue
+            scene_dir, source_id = mesh_matcher.closest_match(chair.scale)
+            chair.source_id = source_id
+            chair.create_in_world(
+                _world,
+                scene_dir,
+                parent=_world.root,
+                table_position=self.position,
+                table_orientation=self.orientation,
+            )
 
         return _world
 
