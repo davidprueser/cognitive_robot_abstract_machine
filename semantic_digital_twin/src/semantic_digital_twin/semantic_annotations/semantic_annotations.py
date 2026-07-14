@@ -73,7 +73,8 @@ class Furniture(SemanticAnnotation, ABC):
 @dataclass(eq=False)
 class Handle(HasRootBody):
     """
-    A handle is a physical entity that can be grasped by a hand or a robotic gripper to open or close an object.
+    A handle is a physical entity that can be grasped by a hand or a robotic
+    gripper to open or close an object.
     """
 
     @classmethod
@@ -118,7 +119,6 @@ class Handle(HasRootBody):
         :param scale: The scale of the handle.
         :param thickness: The thickness of the handle walls.
         """
-
         x_interval = closed(-scale.x + thickness, 0)
         y_interval = closed(-scale.y / 2, scale.y / 2)
         z_interval = closed(
@@ -138,7 +138,11 @@ class Handle(HasRootBody):
 @dataclass(eq=False)
 class Dishwasher(HasCaseAsRootBody, HasDoors, HasDrawers):
     """
-    A dishwasher is a kitchen appliance used for cleaning dishes, utensils, and cookware. It typically has a front door that opens to reveal racks for loading dirty items and a control panel for selecting wash cycles.
+    A dishwasher is a kitchen appliance used for cleaning dishes, utensils, and
+    cookware.
+
+    It typically has a front door that opens to reveal racks for loading
+    dirty items and a control panel for selecting wash cycles.
     """
 
     @classproperty
@@ -150,7 +154,9 @@ class Dishwasher(HasCaseAsRootBody, HasDoors, HasDrawers):
 class Aperture(HasRootRegion):
     """
     An opening in a physical entity.
-    An example is like a hole in a wall that can be used to enter a room.
+
+    An example is like a hole in a wall that can be used to enter a
+    room.
     """
 
     @classmethod
@@ -206,11 +212,12 @@ class Aperture(HasRootRegion):
 
     def _remove_aperture_geometry_from_parent(self, parent: HasRootBody):
         """
-        Remove the geometry of the aperture from the parent body's collision and visual geometry.
+        Remove the geometry of the aperture from the parent body's collision
+        and visual geometry.
 
-        :param parent: The parent from which the aperture geometry is removed.
+        :param parent: The parent from which the aperture geometry is
+            removed.
         """
-
         world = parent._world
         world.update_forward_kinematics()
         hole_event = self.root.area.as_bounding_box_collection_in_frame(
@@ -231,18 +238,19 @@ class Aperture(HasRootRegion):
 @dataclass(eq=False)
 class MechanicalJoint(HasRootBody):
     """
-    A mechanical joint is a physical entity that connects two bodies and allows one to move along or around a fixed axis
+    A mechanical joint is a physical entity that connects two bodies and allows
+    one to move along or around a fixed axis.
     """
 
     def _mount_strategy(self, main_has_root_body_annotation: HasRootBody) -> None:
         """
-        Inserts the joint between the whole (``main_has_root_body_annotation``) and the whole's
-        current parent, preserving the whole's ancestry.
-        So
-        whole_parent -(fixed)-> whole
-        becomes
-        whole_parent -(active)-> joint -(fixed)-> whole. The joint keeps its active connection
-        (now anchored at the whole's parent); the whole hangs rigidly off the joint.
+        Inserts the joint between the whole (``main_has_root_body_annotation``)
+        and the whole's current parent, preserving the whole's ancestry.
+
+        So whole_parent -(fixed)-> whole becomes whole_parent
+        -(active)-> joint -(fixed)-> whole. The joint keeps its active
+        connection (now anchored at the whole's parent); the whole hangs
+        rigidly off the joint.
         """
         if (
             main_has_root_body_annotation.root.parent_kinematic_structure_entity
@@ -266,7 +274,8 @@ class MechanicalJoint(HasRootBody):
 @dataclass(eq=False)
 class Hinge(MechanicalJoint):
     """
-    A hinge is a physical entity that connects two bodies and allows one to rotate around a fixed axis.
+    A hinge is a physical entity that connects two bodies and allows one to
+    rotate around a fixed axis.
     """
 
     @classproperty
@@ -277,7 +286,8 @@ class Hinge(MechanicalJoint):
 @dataclass(eq=False)
 class Slider(MechanicalJoint):
     """
-    A Slider is a physical entity that connects two bodies and allows one to linearly translate along a fixed axis.
+    A Slider is a physical entity that connects two bodies and allows one to
+    linearly translate along a fixed axis.
     """
 
     @classproperty
@@ -292,7 +302,8 @@ class EntryWay(Aperture): ...
 @dataclass(eq=False)
 class Door(HasHandle, HasMechanicalJoint):
     """
-    A door is a physical entity that has covers an opening, has a movable body and a handle.
+    A door is a physical entity that has covers an opening, has a movable body
+    and a handle.
     """
 
     entry_way: Optional[EntryWay] = field(default=None)
@@ -351,9 +362,12 @@ class Door(HasHandle, HasMechanicalJoint):
         self, opening_axis: Vector3
     ) -> HomogeneousTransformationMatrix:
         """
-        Calculate the door pivot point based on the handle position and the door scale. The pivot point is on the opposite
-        side of the handle.
-        :return: The transformation matrix defining the door's pivot point.
+        Calculate the door pivot point based on the handle position and the
+        door scale.
+
+        The pivot point is on the opposite side of the handle.
+        :return: The transformation matrix defining the door's pivot
+            point.
         """
         if self.handle is None:
             raise MissingSemanticAnnotationError(self.__class__, Handle)
@@ -401,7 +415,8 @@ class Door(HasHandle, HasMechanicalJoint):
 @dataclass(eq=False)
 class DoubleDoor(SemanticAnnotation):
     """
-    A semantic annotation that represents a double door with left and right doors.
+    A semantic annotation that represents a double door with left and right
+    doors.
     """
 
     door_0: Door = field(kw_only=True)
@@ -411,11 +426,13 @@ class DoubleDoor(SemanticAnnotation):
         self, world_T_view_point: HomogeneousTransformationMatrix
     ) -> Tuple[Door, Door]:
         """
-        Calculate which door is the left and which is the right door based on a given view point.
+        Calculate which door is the left and which is the right door based on a
+        given view point.
 
-        :param world_T_view_point: The transformation matrix of the view point.
-
-        :return: A tuple containing the left and right door. the first door is the left door, the second door is the right door.
+        :param world_T_view_point: The transformation matrix of the view
+            point.
+        :return: A tuple containing the left and right door. the first
+            door is the left door, the second door is the right door.
         """
         world_T_door_0 = self.door_0.root.global_transform
         view_point_T_door_0 = world_T_view_point.inverse() @ world_T_door_0
@@ -441,7 +458,8 @@ class Drawer(Furniture, HasCaseAsRootBody, HasHandle, HasMechanicalJoint):
 @dataclass(eq=False)
 class ShelfLayer(HasSupportingSurface):
     """
-    A horizontal surface used for storing objects, typically found inside cabinets or on walls.
+    A horizontal surface used for storing objects, typically found inside
+    cabinets or on walls.
     """
 
 
@@ -503,7 +521,8 @@ class Floor(HasSupportingSurface):
         scale: Scale = Scale(),
     ) -> Self:
         """
-        Create a Floor semantic annotation with a new body defined by the given scale.
+        Create a Floor semantic annotation with a new body defined by the given
+        scale.
 
         :param name: The name of the floor body.
         :param scale: The scale defining the floor polytope.
@@ -525,10 +544,12 @@ class Floor(HasSupportingSurface):
         world_root_T_self: Optional[HomogeneousTransformationMatrix] = None,
     ) -> Self:
         """
-        Create a Floor semantic annotation with a new body defined by the given list of Point3.
+        Create a Floor semantic annotation with a new body defined by the given
+        list of Point3.
 
         :param name: The name of the floor body.
-        :param floor_polytope: A list of 3D points defining the floor poly
+        :param floor_polytope: A list of 3D points defining the floor
+            poly
         """
         room_body = Body.from_3d_points(name=name, points_3d=floor_polytope)
         return cls._create_with_connection_in_world(
@@ -539,14 +560,13 @@ class Floor(HasSupportingSurface):
 @dataclass(eq=False)
 class Room(SemanticAnnotation):
     """
-    A closed area with a specific purpose
+    A closed area with a specific purpose.
     """
 
     floor: Floor = field(kw_only=True)
     """
     The room's floor.
     """
-
 
 @dataclass(eq=False)
 class Kitchen(Room): ...
@@ -567,7 +587,10 @@ class LivingRoom(Room): ...
 @dataclass(eq=False)
 class Wall(HasApertures):
     """
-    A wall is a physical entity that separates two spaces and can contain apertures. Doors are a computed property.
+    A wall is a physical entity that separates two spaces and can contain
+    apertures.
+
+    Doors are a computed property.
     """
 
     @classmethod
@@ -611,10 +634,12 @@ class Wall(HasApertures):
     @classmethod
     def _create_wall_event(cls, scale: Scale) -> SimpleEvent:
         """
-        Return the collision shapes for the wall. A wall event is created based on the scale of the wall, and
-        doors are removed from the wall event. The resulting bounding box collection is converted to shapes.
-        """
+        Return the collision shapes for the wall.
 
+        A wall event is created based on the scale of the wall, and
+        doors are removed from the wall event. The resulting bounding
+        box collection is converted to shapes.
+        """
         x_interval = closed(-scale.x / 2, scale.x / 2)
         y_interval = closed(-scale.y / 2, scale.y / 2)
         z_interval = closed(0, scale.z)
@@ -684,8 +709,6 @@ class CookingContainer(HasRootBody): ...
 
 @dataclass(eq=False)
 class Lid(HasRootBody): ...
-
-
 @dataclass(eq=False)
 class Pan(CookingContainer):
     """
@@ -768,7 +791,7 @@ class CheezeIt(Food):
 @dataclass(eq=False)
 class Pringles(Food):
     """
-    Pringles chips
+    Pringles chips.
     """
 
 
@@ -793,8 +816,6 @@ class Candy(Food, IsPerceivable):
     """
 
     ...
-
-
 @dataclass(eq=False)
 class Noodles(Food, IsPerceivable):
     """
@@ -802,8 +823,6 @@ class Noodles(Food, IsPerceivable):
     """
 
     ...
-
-
 @dataclass(eq=False)
 class Cereal(Food, IsPerceivable):
     """
@@ -811,7 +830,6 @@ class Cereal(Food, IsPerceivable):
     """
 
     ...
-
 
 @dataclass(eq=False)
 class Milk(Food, IsPerceivable):
@@ -825,38 +843,28 @@ class SaltContainer(HasRootBody, IsPerceivable):
     """
     A container of salt.
     """
-
-
 @dataclass(eq=False)
 class Produce(Food):
     """
-    In American English, produce generally refers to fresh fruits and vegetables intended to be eaten by humans.
+    In American English, produce generally refers to fresh fruits and
+    vegetables intended to be eaten by humans.
     """
-
     pass
-
-
 @dataclass(eq=False)
 class Fruit(Produce):
     """
     Fruit.
     """
-
-
 @dataclass(eq=False)
 class Vegetable(Produce):
     """
     Vegetable.
     """
-
-
 @dataclass(eq=False)
 class Tomato(Fruit):
     """
     A tomato.
     """
-
-
 @dataclass(eq=False)
 class Lettuce(Vegetable):
     """
@@ -985,8 +993,6 @@ class Sink(HasRootBody):
 
 @dataclass(eq=False)
 class Kettle(CookingContainer): ...
-
-
 @dataclass(eq=False)
 class Decor(HasRootBody): ...
 
@@ -996,12 +1002,8 @@ class WallDecor(Decor):
     """
     Wall decorations.
     """
-
-
 @dataclass(eq=False)
 class Cloth(HasRootBody): ...
-
-
 @dataclass(eq=False)
 class Poster(WallDecor):
     """
@@ -1014,8 +1016,6 @@ class WallPanel(HasRootBody):
     """
     A wall panel.
     """
-
-
 @dataclass(eq=False)
 class Potato(Produce): ...
 
@@ -1029,26 +1029,18 @@ class GarbageBin(HasRootBody):
 
 @dataclass(eq=False)
 class Drone(HasRootBody): ...
-
-
 @dataclass(eq=False)
 class ProcthorBox(HasRootBody): ...
-
-
 @dataclass(eq=False)
 class Houseplant(HasRootBody):
     """
     A houseplant.
     """
-
-
 @dataclass(eq=False)
 class SprayBottle(HasRootBody):
     """
     A spray bottle.
     """
-
-
 @dataclass(eq=False)
 class Vase(HasRootBody):
     """
@@ -1079,7 +1071,6 @@ class SaltPepperShaker(HasRootBody):
 @dataclass(eq=False)
 class Cuttlery(HasRootBody): ...
 
-
 @dataclass(eq=False)
 class Fork(Cuttlery):
     """
@@ -1096,8 +1087,6 @@ class Knife(Cuttlery):
 
 @dataclass(eq=False)
 class Spoon(Cuttlery, IsPerceivable): ...
-
-
 @dataclass(eq=False)
 class Pencil(HasRootBody):
     """
@@ -1131,10 +1120,9 @@ class Agent(HasRootBody):
     """
     Represents an entity in the world that can act, move, or be controlled.
 
-    Agents are dynamic bodies with semantic meaning — they may have intent,
-    behavior, or be controlled by external or internal logic. Examples include
-    robots, humans, or other autonomous actors.
-
+    Agents are dynamic bodies with semantic meaning — they may have
+    intent, behavior, or be controlled by external or internal logic.
+    Examples include robots, humans, or other autonomous actors.
     """
 
 
@@ -1143,11 +1131,12 @@ class Human(Agent):
     """
     Represents a human agent in the environment.
 
-    A Person is an Agent that is not robotically actuated and does not provide
-    kinematic chains, end_effectors, or robot-specific components.
+    A Person is an Agent that is not robotically actuated and does not
+    provide kinematic chains, end_effectors, or robot-specific
+    components.
 
-    This class exists primarily for semantic distinction, so that algorithms
-    can treat human agents differently from robots if needed.
+    This class exists primarily for semantic distinction, so that
+    algorithms can treat human agents differently from robots if needed.
     """
 
 
@@ -1179,11 +1168,10 @@ class RoomWithWallsAndDoors(Room):
     The doors of the room.
     """
 
-
 @dataclass(eq=False)
 class DoorWithType(Door):
     """
-    A Door that has a type description, e.g. "main entrance"
+    A Door that has a type description, e.g. "main entrance".
     """
 
     type_description: Optional[str] = field(kw_only=True, default=None)
