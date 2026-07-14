@@ -134,9 +134,10 @@ class AggregationStatistic(SubClassSafeGeneric[T]):
     Methods marked with :func:`aggregation_statistic` that are defined directly
     on this class.
 
-    Keys are field names; values are the registered callables.  Each subclass
-    receives its own registry via :meth:`__init_subclass__` so registrations
-    never bleed across unrelated branches of the hierarchy.
+    Keys are field names; values are the registered callables.  Each
+    subclass receives its own registry via :meth:`__init_subclass__` so
+    registrations never bleed across unrelated branches of the
+    hierarchy.
     """
 
     def __init_subclass__(cls, **kwargs: Any) -> None:
@@ -201,7 +202,8 @@ class AggregationStatistic(SubClassSafeGeneric[T]):
         """
         Evaluates every statistic for :attr:`field_name` against this instance.
 
-        :return: A mapping from each statistic method name to its computed value.
+        :return: A mapping from each statistic method name to its
+            computed value.
         """
         return {
             func.__name__: feature.apply_mapping_on_external_root(self)
@@ -244,13 +246,21 @@ def compute_aggregation_statistics(
         feature_name = feature_function._name_
         if feature_name not in latent_variable_by_name:
             continue
-        value = feature_function.apply_mapping_on_external_root(aggregation_instance)
         latent_variable = latent_variable_by_name[feature_name]
         try:
+            value = feature_function.apply_mapping_on_external_root(aggregation_instance)
             latent_variable.make_value(value)
         except (ValueError, TypeError):
+            # Either the statistic itself couldn't be computed (e.g. it reads
+            # attribute values that are still Ellipsis placeholders because
+            # the exchangeable relation it's defined over is free/unresolved
+            # in the query) or the computed value doesn't fit the latent
+            # variable's domain. Either way, it's not determinable from the
+            # query -- leave it out so the caller integrates it out via
+            # Monte-Carlo sampling instead.
             logger.info(
                 "Could not determine value for the aggregation statistic. Falling back to Monte-Carlo integration",
             )
+            continue
         statistics[latent_variable] = value
     return statistics
