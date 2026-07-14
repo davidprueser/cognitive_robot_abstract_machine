@@ -87,6 +87,7 @@ import semantic_digital_twin.robots.stretch
 import semantic_digital_twin.robots.tiago
 import semantic_digital_twin.robots.tracy
 import semantic_digital_twin.robots.unitree_g1
+import semantic_digital_twin.scene_generation.object_type_classifier
 import semantic_digital_twin.scene_generation.sage10k_processing
 import semantic_digital_twin.scene_generation.scene_schema
 import semantic_digital_twin.scene_generation.scene_schema_aggregations
@@ -8935,6 +8936,19 @@ class HasRobotPartsDAO(
     }
 
 
+class ObjectTypeClassifierDAO(
+    Base,
+    DataAccessObject[
+        semantic_digital_twin.scene_generation.object_type_classifier.ObjectTypeClassifier
+    ],
+):
+    __tablename__ = "ObjectTypeClassifierDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        Integer, primary_key=True, use_existing_column=True
+    )
+
+
 class EGDataProcessingDAO(
     Base,
     DataAccessObject[
@@ -9058,6 +9072,27 @@ class EGRotationDAO(
     }
 
 
+class EGScaleDAO(
+    EGBaseDAO,
+    DataAccessObject[semantic_digital_twin.scene_generation.scene_schema.EGScale],
+):
+    __tablename__ = "EGScaleDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        ForeignKey(EGBaseDAO.database_id), primary_key=True, use_existing_column=True
+    )
+
+    height: Mapped[builtins.float] = mapped_column(use_existing_column=True)
+    length: Mapped[builtins.float] = mapped_column(use_existing_column=True)
+    width: Mapped[builtins.float] = mapped_column(use_existing_column=True)
+
+    __mapper_args__ = {
+        "polymorphic_identity": "EGScaleDAO",
+        "inherit_condition": database_id == EGBaseDAO.database_id,
+        "polymorphic_load": "selectin",
+    }
+
+
 class EGShelfDAO(
     EGBaseDAO,
     DataAccessObject[semantic_digital_twin.scene_generation.scene_schema.EGShelf],
@@ -9074,7 +9109,7 @@ class EGShelfDAO(
         use_existing_column=True,
     )
     scale_id: Mapped[int] = mapped_column(
-        ForeignKey("EGSizeDAO.database_id", use_alter=True),
+        ForeignKey("EGScaleDAO.database_id", use_alter=True),
         nullable=True,
         use_existing_column=True,
     )
@@ -9087,8 +9122,8 @@ class EGShelfDAO(
     position: Mapped[EGPoint2DDAO] = relationship(
         "EGPoint2DDAO", uselist=False, foreign_keys=[position_id], post_update=True
     )
-    scale: Mapped[EGSizeDAO] = relationship(
-        "EGSizeDAO", uselist=False, foreign_keys=[scale_id], post_update=True
+    scale: Mapped[EGScaleDAO] = relationship(
+        "EGScaleDAO", uselist=False, foreign_keys=[scale_id], post_update=True
     )
     orientation: Mapped[EGRotationDAO] = relationship(
         "EGRotationDAO", uselist=False, foreign_keys=[orientation_id], post_update=True
@@ -9119,13 +9154,13 @@ class EGShelfLayerDAO(
     )
 
     scale_id: Mapped[int] = mapped_column(
-        ForeignKey("EGSizeDAO.database_id", use_alter=True),
+        ForeignKey("EGScaleDAO.database_id", use_alter=True),
         nullable=True,
         use_existing_column=True,
     )
 
-    scale: Mapped[EGSizeDAO] = relationship(
-        "EGSizeDAO", uselist=False, foreign_keys=[scale_id], post_update=True
+    scale: Mapped[EGScaleDAO] = relationship(
+        "EGScaleDAO", uselist=False, foreign_keys=[scale_id], post_update=True
     )
     objects: Mapped[builtins.list[EGShelfLayerDAO_objects_association]] = relationship(
         "EGShelfLayerDAO_objects_association",
@@ -9137,27 +9172,6 @@ class EGShelfLayerDAO(
 
     __mapper_args__ = {
         "polymorphic_identity": "EGShelfLayerDAO",
-        "inherit_condition": database_id == EGBaseDAO.database_id,
-        "polymorphic_load": "selectin",
-    }
-
-
-class EGSizeDAO(
-    EGBaseDAO,
-    DataAccessObject[semantic_digital_twin.scene_generation.scene_schema.EGSize],
-):
-    __tablename__ = "EGSizeDAO"
-
-    database_id: Mapped[builtins.int] = mapped_column(
-        ForeignKey(EGBaseDAO.database_id), primary_key=True, use_existing_column=True
-    )
-
-    height: Mapped[builtins.float] = mapped_column(use_existing_column=True)
-    length: Mapped[builtins.float] = mapped_column(use_existing_column=True)
-    width: Mapped[builtins.float] = mapped_column(use_existing_column=True)
-
-    __mapper_args__ = {
-        "polymorphic_identity": "EGSizeDAO",
         "inherit_condition": database_id == EGBaseDAO.database_id,
         "polymorphic_load": "selectin",
     }
@@ -9181,7 +9195,7 @@ class EGTableWithChairsDAO(
         use_existing_column=True,
     )
     scale_id: Mapped[int] = mapped_column(
-        ForeignKey("EGSizeDAO.database_id", use_alter=True),
+        ForeignKey("EGScaleDAO.database_id", use_alter=True),
         nullable=True,
         use_existing_column=True,
     )
@@ -9194,8 +9208,8 @@ class EGTableWithChairsDAO(
     position: Mapped[EGPoint2DDAO] = relationship(
         "EGPoint2DDAO", uselist=False, foreign_keys=[position_id], post_update=True
     )
-    scale: Mapped[EGSizeDAO] = relationship(
-        "EGSizeDAO", uselist=False, foreign_keys=[scale_id], post_update=True
+    scale: Mapped[EGScaleDAO] = relationship(
+        "EGScaleDAO", uselist=False, foreign_keys=[scale_id], post_update=True
     )
     orientation: Mapped[EGRotationDAO] = relationship(
         "EGRotationDAO", uselist=False, foreign_keys=[orientation_id], post_update=True
@@ -9264,7 +9278,7 @@ class EGChairDAO(
     )
 
     scale_id: Mapped[int] = mapped_column(
-        ForeignKey("EGSizeDAO.database_id", use_alter=True),
+        ForeignKey("EGScaleDAO.database_id", use_alter=True),
         nullable=True,
         use_existing_column=True,
     )
@@ -9274,8 +9288,8 @@ class EGChairDAO(
         use_existing_column=True,
     )
 
-    scale: Mapped[EGSizeDAO] = relationship(
-        "EGSizeDAO", uselist=False, foreign_keys=[scale_id], post_update=True
+    scale: Mapped[EGScaleDAO] = relationship(
+        "EGScaleDAO", uselist=False, foreign_keys=[scale_id], post_update=True
     )
     relative_pose: Mapped[EGRelativePolarPoseDAO] = relationship(
         "EGRelativePolarPoseDAO",
@@ -9345,7 +9359,7 @@ class EGObjectDAO(
     )
 
     scale_id: Mapped[int] = mapped_column(
-        ForeignKey("EGSizeDAO.database_id", use_alter=True),
+        ForeignKey("EGScaleDAO.database_id", use_alter=True),
         nullable=True,
         use_existing_column=True,
     )
@@ -9360,8 +9374,8 @@ class EGObjectDAO(
         use_existing_column=True,
     )
 
-    scale: Mapped[EGSizeDAO] = relationship(
-        "EGSizeDAO", uselist=False, foreign_keys=[scale_id], post_update=True
+    scale: Mapped[EGScaleDAO] = relationship(
+        "EGScaleDAO", uselist=False, foreign_keys=[scale_id], post_update=True
     )
     position: Mapped[EGPositionDAO] = relationship(
         "EGPositionDAO", uselist=False, foreign_keys=[position_id], post_update=True
@@ -9406,7 +9420,7 @@ class EGObject2DDAO(
     )
 
     scale_id: Mapped[int] = mapped_column(
-        ForeignKey("EGSizeDAO.database_id", use_alter=True),
+        ForeignKey("EGScaleDAO.database_id", use_alter=True),
         nullable=True,
         use_existing_column=True,
     )
@@ -9421,8 +9435,8 @@ class EGObject2DDAO(
         use_existing_column=True,
     )
 
-    scale: Mapped[EGSizeDAO] = relationship(
-        "EGSizeDAO", uselist=False, foreign_keys=[scale_id], post_update=True
+    scale: Mapped[EGScaleDAO] = relationship(
+        "EGScaleDAO", uselist=False, foreign_keys=[scale_id], post_update=True
     )
     position: Mapped[EGPoint2DDAO] = relationship(
         "EGPoint2DDAO", uselist=False, foreign_keys=[position_id], post_update=True
@@ -9453,7 +9467,7 @@ class EGRoomDAO(
     )
 
     scale_id: Mapped[int] = mapped_column(
-        ForeignKey("EGSizeDAO.database_id", use_alter=True),
+        ForeignKey("EGScaleDAO.database_id", use_alter=True),
         nullable=True,
         use_existing_column=True,
     )
@@ -9463,8 +9477,8 @@ class EGRoomDAO(
         use_existing_column=True,
     )
 
-    scale: Mapped[EGSizeDAO] = relationship(
-        "EGSizeDAO", uselist=False, foreign_keys=[scale_id], post_update=True
+    scale: Mapped[EGScaleDAO] = relationship(
+        "EGScaleDAO", uselist=False, foreign_keys=[scale_id], post_update=True
     )
     position: Mapped[EGPositionDAO] = relationship(
         "EGPositionDAO", uselist=False, foreign_keys=[position_id], post_update=True
