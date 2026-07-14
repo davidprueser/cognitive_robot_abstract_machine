@@ -380,5 +380,30 @@ class MixedLeafTruncationTestCase(unittest.TestCase):
         self.assertAlmostEqual(truncated.probability(event), 1.0, places=9)
 
 
+class UnitEqualityTestCase(unittest.TestCase):
+    """
+    ``Unit`` deliberately compares by identity (see its ``__hash__``, which.
+
+    hashes by ``(index, id(probabilistic_circuit))`` rather than by value)
+    -- every direct subclass (``LeafUnit``, ``InnerUnit``, ``SumUnit``,
+    ``ProductUnit``) is declared ``@dataclass(eq=False)`` precisely so none
+    of them generate their own field-based ``__eq__``, all inheriting
+    ``Unit``'s instead. If ``Unit`` itself were not also ``eq=False``, that
+    inherited ``__eq__`` would compare the ``probabilistic_circuit`` field,
+    which raises ``NotImplementedError`` by design
+    (``ProbabilisticCircuit.__eq__``) -- crashing any ``==``/``in`` check
+    between two same-type units that aren't the exact same object, e.g. a
+    graph-membership check on a unit that was just removed from its circuit.
+    """
+
+    def test_units_from_different_circuits_compare_unequal_without_raising(self):
+        first_unit = ProductUnit(probabilistic_circuit=ProbabilisticCircuit())
+        second_unit = ProductUnit(probabilistic_circuit=ProbabilisticCircuit())
+
+        self.assertFalse(first_unit == second_unit)
+        self.assertTrue(first_unit != second_unit)
+        self.assertNotIn(first_unit, [second_unit])
+
+
 if __name__ == "__main__":
     unittest.main()

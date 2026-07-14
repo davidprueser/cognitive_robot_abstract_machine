@@ -25,11 +25,11 @@ from semantic_digital_twin.scene_generation.scene_schema import (
     EGShelfLayer,
     EGRoom,
     EGPosition,
-    EGSize,
+    EGScale,
     EGPoint2D,
     EGDoor,
     EGWall,
-    EGOrientation,
+    EGRotation,
     EGShelf,
     ObjectType,
 )
@@ -75,7 +75,7 @@ def test_simple_underspecified_environment(rclpy_node):
         room=underspecified(EGRoom)(
             id=None,
             room_type=None,
-            scale=underspecified(EGSize)(width=..., length=..., height=...),
+            scale=underspecified(EGScale)(width=..., length=..., height=...),
             position=underspecified(EGPosition)(x=..., y=..., z=...),
             objects=[
                 underspecified(EGObject)(
@@ -83,9 +83,9 @@ def test_simple_underspecified_environment(rclpy_node):
                     room_id=None,
                     place_id=None,
                     object_type=None,
-                    scale=underspecified(EGSize)(width=..., length=..., height=...),
+                    scale=underspecified(EGScale)(width=..., length=..., height=...),
                     position=underspecified(EGPosition)(x=..., y=..., z=...),
-                    orientation=underspecified(EGOrientation)(x=..., y=..., z=...),
+                    orientation=underspecified(EGRotation)(x=..., y=..., z=...),
                     source_id=None,
                 ),
                 underspecified(EGObject)(
@@ -93,9 +93,9 @@ def test_simple_underspecified_environment(rclpy_node):
                     room_id=None,
                     place_id=None,
                     object_type=None,
-                    scale=underspecified(EGSize)(width=..., length=..., height=...),
+                    scale=underspecified(EGScale)(width=..., length=..., height=...),
                     position=underspecified(EGPosition)(x=..., y=..., z=...),
-                    orientation=underspecified(EGOrientation)(x=..., y=..., z=...),
+                    orientation=underspecified(EGRotation)(x=..., y=..., z=...),
                     source_id=None,
                 ),
             ],
@@ -230,19 +230,19 @@ def test_book_z_matches_shelf_layer_z_regardless_of_book_height():
             room_id="room1",
             place_id="shelf1",
             object_type=ObjectType.BOOK,
-            scale=EGSize(width=0.1, length=0.05, height=height),
+            scale=EGScale(width=0.1, length=0.05, height=height),
             position=EGPoint2D(x=0.0, y=0.0),
-            orientation=EGOrientation(x=0.0, y=0.0, z=0.0),
+            orientation=EGRotation(x=0.0, y=0.0, z=0.0),
             source_id="dummy_source",
         )
 
     shelf = EGShelf(
         position=EGPoint2D(x=0.0, y=0.0),
-        scale=EGSize(height=corpus_height, length=0.4, width=0.4),
-        orientation=EGOrientation(x=0.0, y=0.0, z=0.0),
+        scale=EGScale(height=corpus_height, length=0.4, width=0.4),
+        orientation=EGRotation(x=0.0, y=0.0, z=0.0),
         layers=[
             EGShelfLayer(
-                scale=EGSize(width=0.4, length=0.4, height=layer_thickness),
+                scale=EGScale(width=0.4, length=0.4, height=layer_thickness),
                 objects=[
                     make_book("short_book", height=0.15),
                     make_book("tall_book", height=0.40),
