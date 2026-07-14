@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import enum
 import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Self, assert_never
 
@@ -906,7 +906,7 @@ class EGDoor(EGWithID):
         body.visual = geometry_with_texture
 
         with world.modify_world():
-            kwargs["wall_annotation"].add_aperture(annotation.entry_way)
+            kwargs["wall_annotation"].add(annotation.entry_way, field_name="apertures")
 
         self._create_handle_in_world(world, annotation)
         self._create_hinge_in_world(world, annotation)
@@ -954,7 +954,7 @@ class EGDoor(EGWithID):
                 world_root_T_self=world_root_T_handle,
                 scale=Scale(0.05, 0.02, 0.2),
             )
-            door.add_handle(handle)
+            door.add(handle, field_name="handle")
         return handle
 
     def _create_hinge_in_world(self, world: World, door: Door) -> Hinge:
@@ -982,7 +982,7 @@ class EGDoor(EGWithID):
                 world_root_T_self=world_root_T_hinge,
                 connection_limits=DegreeOfFreedomLimits(lower=lower, upper=upper),
             )
-            door.add_hinge(hinge)
+            door.add(hinge, field_name="mechanical_joint")
 
         return hinge
 
@@ -1020,6 +1020,17 @@ class EGRoom(EGWithID):
     List of the doors in the room.
     """
 
+    shelves: list[EGShelf] = field(default_factory=list)
+    """
+    List of the shelves in the room, each placed at its own room-frame pose.
+    """
+
+    tables: list[EGTableWithChairs] = field(default_factory=list)
+    """
+    List of the table-with-chairs groups in the room, each placed at its own
+    room-frame pose.
+    """
+
     def to_json(self) -> dict[str, Any]:
         return {
             **super().to_json(),
@@ -1030,6 +1041,8 @@ class EGRoom(EGWithID):
             "objects": to_json(self.objects),
             "walls": to_json(self.walls),
             "doors": to_json(self.doors),
+            "shelves": to_json(self.shelves),
+            "tables": to_json(self.tables),
         }
 
     @classmethod
@@ -1037,11 +1050,16 @@ class EGRoom(EGWithID):
         return cls(
             id=data["id"],
             room_type=data["room_type"],
-            scale=EGSize._from_json(data["dimensions"], **kwargs),
+            scale=EGSize._from_json(data["scale"], **kwargs),
             position=EGPosition._from_json(data["position"], **kwargs),
             objects=[EGObject._from_json(o, **kwargs) for o in data["objects"]],
             walls=[EGWall._from_json(w, **kwargs) for w in data["walls"]],
             doors=[EGDoor._from_json(d, **kwargs) for d in data["doors"]],
+            shelves=[EGShelf._from_json(s, **kwargs) for s in data.get("shelves", [])],
+            tables=[
+                EGTableWithChairs._from_json(t, **kwargs)
+                for t in data.get("tables", [])
+            ],
         )
 
     def _create_floor(self, world: World, parent: KinematicStructureEntity) -> Floor:
@@ -1128,11 +1146,17 @@ class EGRoom(EGWithID):
             mesh_path = object_to_mesh_path.get(obj.id)
             obj.create_in_world(world, mesh_path, parent=parent)
 
+        for shelf in self.shelves:
+            shelf.create_in_world(world, parent=parent)
+
+        for table in self.tables:
+            table.create_in_world(world, parent=parent)
+
         return world.root
 
 
 @dataclass
-class EGShelfLayer:
+class EGShelfLayer(EGBase):
     """
     A shelf layer for environment generation.
 
@@ -1150,6 +1174,20 @@ class EGShelfLayer:
     """
     Objects placed on this layer, with positions relative to the layer centre.
     """
+
+    def to_json(self) -> dict[str, Any]:
+        return {
+            **super().to_json(),
+            "scale": to_json(self.scale),
+            "objects": to_json(self.objects),
+        }
+
+    @classmethod
+    def _from_json(cls, data: dict[str, Any], **kwargs) -> Self:
+        return cls(
+            scale=EGSize._from_json(data["scale"], **kwargs),
+            objects=[EGObject2D._from_json(o, **kwargs) for o in data["objects"]],
+        )
 
 
 @dataclass
@@ -1208,14 +1246,14 @@ class _MeshSizeMatcher:
 
 
 @dataclass
-class EGShelf:
+class EGShelf(EGBase):
     """
     A shelf with four explicit horizontal layers.
     """
 
     position: EGPoint2D
     """
-    Position of the Shelf in the World.
+    Position of the Shelf, relative to its parent frame.
     """
 
     scale: EGSize
@@ -1225,7 +1263,7 @@ class EGShelf:
 
     orientation: EGRotation
     """
-    Orientation of the Shelf in the World.
+    Orientation of the Shelf, relative to its parent frame.
     """
 
     layers: list[EGShelfLayer]
@@ -1239,15 +1277,38 @@ class EGShelf:
     on shelf layers.
     """
 
+    def to_json(self) -> dict[str, Any]:
+        return {
+            **super().to_json(),
+            "position": to_json(self.position),
+            "scale": to_json(self.scale),
+            "orientation": to_json(self.orientation),
+            "layers": to_json(self.layers),
+        }
+
+    @classmethod
+    def _from_json(cls, data: dict[str, Any], **kwargs) -> Self:
+        return cls(
+            position=EGPoint2D._from_json(data["position"], **kwargs),
+            scale=EGSize._from_json(data["scale"], **kwargs),
+            orientation=EGRotation._from_json(data["orientation"], **kwargs),
+            layers=[EGShelfLayer._from_json(l, **kwargs) for l in data["layers"]],
+        )
+
     def create_in_world(
         self,
         world: World | None = None,
+        parent: KinematicStructureEntity | None = None,
     ) -> World:
         """
         Instantiate the shelf and its objects inside a :class:`World`.
 
         :param world: Existing world to extend. A fresh world with a
             ``map`` root body is created when omitted.
+        :param parent: The parent entity the shelf's own
+            :attr:`position`/ :attr:`orientation` are expressed relative
+            to. Defaults to the world's root when omitted, so standalone
+            callers are unaffected.
         :return: The world containing the shelf.
         """
         _world: World = world if world is not None else World()
@@ -1256,15 +1317,19 @@ class EGShelf:
             with _world.modify_world():
                 _world.add_body(root)
 
+        _parent = parent if parent is not None else _world.root
+
         corpus_face = max(layer.scale.width for layer in self.layers)
         corpus_depth = max(layer.scale.length for layer in self.layers)
         corpus_height = self.scale.height
+        yaw_radians = math.radians(self.orientation.z)
 
         corpus_pose = HomogeneousTransformationMatrix.from_xyz_rpy(
             x=self.position.x,
             y=self.position.y,
             z=corpus_height / 2,
-            reference_frame=_world.root,
+            yaw=yaw_radians,
+            reference_frame=_parent,
         )
         with _world.modify_world():
             Cabinet.create_with_new_body_in_world(
@@ -1279,6 +1344,8 @@ class EGShelf:
         layer_z_heights = [step * (i + 1) for i in range(len(self.layers))]
 
         mesh_matcher = _MeshSizeMatcher(candidates=self.source_ids or [])
+        cos_yaw = math.cos(yaw_radians)
+        sin_yaw = math.sin(yaw_radians)
 
         for i, (layer, z_height) in enumerate(zip(self.layers, layer_z_heights)):
             layer_scale = Scale(x=layer.scale.length, y=layer.scale.width, z=0.02)
@@ -1286,7 +1353,8 @@ class EGShelf:
                 x=self.position.x,
                 y=self.position.y,
                 z=z_height,
-                reference_frame=_world.root,
+                yaw=yaw_radians,
+                reference_frame=_parent,
             )
             with _world.modify_world():
                 ShelfLayer.create_with_new_body_in_world(
@@ -1299,18 +1367,36 @@ class EGShelf:
             for obj in layer.objects:
                 if not isinstance(obj.position.x, (int, float)):
                     continue
-                absolute_x = self.position.x + obj.position.y
-                absolute_y = self.position.y + obj.position.x
+                # obj.position.y/x map to the shelf's local x/y axes (the
+                # shelf's own width=y-face/length=x-depth convention); rotate
+                # that local offset by the shelf's own yaw before translating
+                # by self.position, so objects turn with the shelf.
+                local_dx = obj.position.y
+                local_dy = obj.position.x
+                rotated_dx = local_dx * cos_yaw - local_dy * sin_yaw
+                rotated_dy = local_dx * sin_yaw + local_dy * cos_yaw
+                absolute_x = self.position.x + rotated_dx
+                absolute_y = self.position.y + rotated_dy
                 absolute_z = z_height + layer_scale.z / 2
 
                 if not self.source_ids:
                     continue
                 scene_dir, source_id = mesh_matcher.closest_match(obj.scale)
                 obj.source_id = source_id
-                obj.create_in_world(
+                # Compound the shelf's own yaw into the object's orientation
+                # so it turns together with the shelf, not just its position.
+                rotated_object = replace(
+                    obj,
+                    orientation=EGRotation(
+                        x=obj.orientation.x,
+                        y=obj.orientation.y,
+                        z=obj.orientation.z + self.orientation.z,
+                    ),
+                )
+                rotated_object.create_in_world(
                     _world,
                     scene_dir,
-                    parent=_world.root,
+                    parent=_parent,
                     x=absolute_x,
                     y=absolute_y,
                     z=absolute_z,
@@ -1608,7 +1694,7 @@ class EGChair(EGWithID):
 
 
 @dataclass
-class EGTableWithChairs:
+class EGTableWithChairs(EGBase):
     """
     A table together with the chairs clustered around it via spatial proximity,
     since chairs do not carry a ``place_id`` link to their table in the source
@@ -1617,7 +1703,7 @@ class EGTableWithChairs:
 
     position: EGPoint2D
     """
-    Position of the table's centre in the room.
+    Position of the table's centre, relative to its parent frame.
     """
 
     scale: EGSize
@@ -1627,7 +1713,7 @@ class EGTableWithChairs:
 
     orientation: EGRotation
     """
-    Orientation of the table in the room; every chair's
+    Orientation of the table relative to its parent frame; every chair's
     :attr:`EGChair.relative_pose` is expressed relative to this table's own
     yaw.
     """
@@ -1644,15 +1730,38 @@ class EGTableWithChairs:
     around the table.
     """
 
+    def to_json(self) -> dict[str, Any]:
+        return {
+            **super().to_json(),
+            "position": to_json(self.position),
+            "scale": to_json(self.scale),
+            "orientation": to_json(self.orientation),
+            "chairs": to_json(self.chairs),
+        }
+
+    @classmethod
+    def _from_json(cls, data: dict[str, Any], **kwargs) -> Self:
+        return cls(
+            position=EGPoint2D._from_json(data["position"], **kwargs),
+            scale=EGSize._from_json(data["scale"], **kwargs),
+            orientation=EGRotation._from_json(data["orientation"], **kwargs),
+            chairs=[EGChair._from_json(c, **kwargs) for c in data["chairs"]],
+        )
+
     def create_in_world(
         self,
         world: World | None = None,
+        parent: KinematicStructureEntity | None = None,
     ) -> World:
         """
         Instantiate the table and its chairs inside a :class:`World`.
 
         :param world: Existing world to extend. A fresh world with a
             ``map`` root body is created when omitted.
+        :param parent: The parent entity the table's own
+            :attr:`position`/ :attr:`orientation` are expressed relative
+            to. Defaults to the world's root when omitted, so standalone
+            callers are unaffected.
         :return: The world containing the table and its chairs.
         """
         _world: World = world if world is not None else World()
@@ -1661,12 +1770,14 @@ class EGTableWithChairs:
             with _world.modify_world():
                 _world.add_body(root)
 
+        _parent = parent if parent is not None else _world.root
+
         table_pose = HomogeneousTransformationMatrix.from_xyz_rpy(
             x=self.position.x,
             y=self.position.y,
             z=self.scale.height / 2,
             yaw=math.radians(self.orientation.z),
-            reference_frame=_world.root,
+            reference_frame=_parent,
         )
         with _world.modify_world():
             Table.create_with_new_body_in_world(
@@ -1686,7 +1797,7 @@ class EGTableWithChairs:
             chair.create_in_world(
                 _world,
                 scene_dir,
-                parent=_world.root,
+                parent=_parent,
                 table_position=self.position,
                 table_orientation=self.orientation,
             )

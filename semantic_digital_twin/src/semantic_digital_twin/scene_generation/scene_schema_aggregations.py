@@ -82,6 +82,22 @@ class RoomAggregations(AggregationStatistic[EGRoom]):
         """
         return float(np.mean([d.width for d in self.instance.doors]))
 
+    @aggregation_statistic("shelves")
+    def shelf_count(self) -> int:
+        """
+        Number of shelves in the room.
+        """
+        [shelf_count] = count(variable(EGRoom, self.instance.shelves)).tolist()
+        return shelf_count
+
+    @aggregation_statistic("tables")
+    def table_count(self) -> int:
+        """
+        Number of table-with-chairs groups in the room.
+        """
+        [table_count] = count(variable(EGRoom, self.instance.tables)).tolist()
+        return table_count
+
 
 @dataclass
 class EGShelfLayerAggregations(AggregationStatistic[EGShelfLayer]):

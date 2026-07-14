@@ -1263,6 +1263,42 @@ class EGRoomDAO_doors_association(Base, AssociationDataAccessObject):
     )
 
 
+class EGRoomDAO_shelves_association(Base, AssociationDataAccessObject):
+    __tablename__ = "_10797724506054641477640093073434607979139513706395012692208601"
+
+    database_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+
+    source_egroomdao_id: Mapped[int] = mapped_column(
+        ForeignKey("EGRoomDAO.database_id")
+    )
+    target_egshelfdao_id: Mapped[int] = mapped_column(
+        ForeignKey("EGShelfDAO.database_id")
+    )
+
+    target: Mapped[EGShelfDAO] = relationship(
+        "EGShelfDAO", foreign_keys=[target_egshelfdao_id], lazy="selectin"
+    )
+
+
+class EGRoomDAO_tables_association(Base, AssociationDataAccessObject):
+    __tablename__ = "_11038543973419261089188993622312761229794676660361552037206829"
+
+    database_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+
+    source_egroomdao_id: Mapped[int] = mapped_column(
+        ForeignKey("EGRoomDAO.database_id")
+    )
+    target_egtablewithchairsdao_id: Mapped[int] = mapped_column(
+        ForeignKey("EGTableWithChairsDAO.database_id")
+    )
+
+    target: Mapped[EGTableWithChairsDAO] = relationship(
+        "EGTableWithChairsDAO",
+        foreign_keys=[target_egtablewithchairsdao_id],
+        lazy="selectin",
+    )
+
+
 class WorldMappingDAO_kinematic_structure_entities_association(
     Base, AssociationDataAccessObject
 ):
@@ -18670,12 +18706,13 @@ class EGRotationDAO(
 
 
 class EGShelfDAO(
-    Base, DataAccessObject[semantic_digital_twin.scene_generation.scene_schema.EGShelf]
+    EGBaseDAO,
+    DataAccessObject[semantic_digital_twin.scene_generation.scene_schema.EGShelf],
 ):
     __tablename__ = "EGShelfDAO"
 
     database_id: Mapped[builtins.int] = mapped_column(
-        Integer, primary_key=True, use_existing_column=True
+        ForeignKey(EGBaseDAO.database_id), primary_key=True, use_existing_column=True
     )
 
     position_id: Mapped[int] = mapped_column(
@@ -18711,15 +18748,21 @@ class EGShelfDAO(
         lazy="selectin",
     )
 
+    __mapper_args__ = {
+        "polymorphic_identity": "EGShelfDAO",
+        "inherit_condition": database_id == EGBaseDAO.database_id,
+        "polymorphic_load": "selectin",
+    }
+
 
 class EGShelfLayerDAO(
-    Base,
+    EGBaseDAO,
     DataAccessObject[semantic_digital_twin.scene_generation.scene_schema.EGShelfLayer],
 ):
     __tablename__ = "EGShelfLayerDAO"
 
     database_id: Mapped[builtins.int] = mapped_column(
-        Integer, primary_key=True, use_existing_column=True
+        ForeignKey(EGBaseDAO.database_id), primary_key=True, use_existing_column=True
     )
 
     scale_id: Mapped[int] = mapped_column(
@@ -18738,6 +18781,12 @@ class EGShelfLayerDAO(
         foreign_keys="[EGShelfLayerDAO_objects_association.source_egshelflayerdao_id]",
         lazy="selectin",
     )
+
+    __mapper_args__ = {
+        "polymorphic_identity": "EGShelfLayerDAO",
+        "inherit_condition": database_id == EGBaseDAO.database_id,
+        "polymorphic_load": "selectin",
+    }
 
 
 class EGSizeDAO(
@@ -18762,7 +18811,7 @@ class EGSizeDAO(
 
 
 class EGTableWithChairsDAO(
-    Base,
+    EGBaseDAO,
     DataAccessObject[
         semantic_digital_twin.scene_generation.scene_schema.EGTableWithChairs
     ],
@@ -18770,7 +18819,7 @@ class EGTableWithChairsDAO(
     __tablename__ = "EGTableWithChairsDAO"
 
     database_id: Mapped[builtins.int] = mapped_column(
-        Integer, primary_key=True, use_existing_column=True
+        ForeignKey(EGBaseDAO.database_id), primary_key=True, use_existing_column=True
     )
 
     position_id: Mapped[int] = mapped_column(
@@ -18807,6 +18856,12 @@ class EGTableWithChairsDAO(
             lazy="selectin",
         )
     )
+
+    __mapper_args__ = {
+        "polymorphic_identity": "EGTableWithChairsDAO",
+        "inherit_condition": database_id == EGBaseDAO.database_id,
+        "polymorphic_load": "selectin",
+    }
 
 
 class EGWithIDDAO(
@@ -19080,6 +19135,20 @@ class EGRoomDAO(
         collection_class=builtins.list,
         cascade="all, delete-orphan",
         foreign_keys="[EGRoomDAO_doors_association.source_egroomdao_id]",
+        lazy="selectin",
+    )
+    shelves: Mapped[builtins.list[EGRoomDAO_shelves_association]] = relationship(
+        "EGRoomDAO_shelves_association",
+        collection_class=builtins.list,
+        cascade="all, delete-orphan",
+        foreign_keys="[EGRoomDAO_shelves_association.source_egroomdao_id]",
+        lazy="selectin",
+    )
+    tables: Mapped[builtins.list[EGRoomDAO_tables_association]] = relationship(
+        "EGRoomDAO_tables_association",
+        collection_class=builtins.list,
+        cascade="all, delete-orphan",
+        foreign_keys="[EGRoomDAO_tables_association.source_egroomdao_id]",
         lazy="selectin",
     )
 

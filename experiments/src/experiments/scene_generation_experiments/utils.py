@@ -6,6 +6,9 @@ import time
 from pathlib import Path
 from typing import Callable
 
+from sqlalchemy import select
+from sqlalchemy.orm import Session, joinedload
+
 from experiments.orm.ormatic_interface import EGObjectDAO
 from semantic_digital_twin.scene_generation.scene_schema import ObjectType, BookObjectType
 
@@ -42,6 +45,26 @@ def rclpy_node():
         thread.join(timeout=2.0)
         node.destroy_node()
         rclpy.shutdown()
+
+
+def load_all_objects(session: Session) -> list[EGObjectDAO]:
+    """
+    Load all object DAOs from the database, eagerly joining their
+    scale/position/orientation.
+
+    :param session: Database session to query objects from.
+    :return: All loaded object DAOs.
+    """
+    return session.scalars(
+        select(EGObjectDAO)
+        .options(
+            joinedload(EGObjectDAO.scale),
+            joinedload(EGObjectDAO.position),
+            joinedload(EGObjectDAO.orientation),
+        )
+        .distinct()
+        .limit(50000)
+    ).all()
 
 
 def _get_source_ids_for_objects(
