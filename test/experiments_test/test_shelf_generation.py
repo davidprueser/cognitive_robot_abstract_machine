@@ -8,7 +8,6 @@ from typing import TYPE_CHECKING
 from unittest.mock import patch
 
 import pytest
-import trimesh
 from sqlalchemy import event
 from sqlalchemy.orm import Session
 
@@ -28,6 +27,7 @@ from experiments.scene_generation_experiments.collision_resolution import (
     build_layer_query_with_fixed_scale,
 )
 from experiments.scene_generation_experiments.shelf_generation import (
+    _coarsen_mesh_candidate_types,
     _coarsen_rare_object_types,
 )
 from krrood.parametrization.parameterizer import UnderspecifiedParameters
@@ -40,8 +40,9 @@ from semantic_digital_twin.scene_generation.scene_schema import (
     EGShelf,
     EGShelfLayer,
     EGScale,
+    MeshCandidate,
     ObjectType,
-    _MeshSizeMatcher,
+    _MeshTypeMatcher,
 )
 from semantic_digital_twin.semantic_annotations.semantic_annotations import ShelfLayer
 from semantic_digital_twin.world import World
@@ -91,11 +92,11 @@ def test_default_object_type_includes_only_books(
     cups and shelf-furniture objects.
     """
     with patch(
-        "experiments.scene_generation_experiments.book_shelf_generation.build_source_id_to_path",
+        "experiments.scene_generation_experiments.utils.build_source_id_to_path",
         return_value=source_path_map,
     ):
         result = _get_source_ids_for_objects(mixed_mock_objects)
-    source_ids = {source_id for _, source_id in result}
+    source_ids = {candidate.source_id for candidate in result}
     assert "book_src" in source_ids
     assert "cup_src" not in source_ids
     assert "shelf_src" not in source_ids
@@ -109,11 +110,11 @@ def test_no_object_type_filter_includes_every_type(
     subject only to source_id availability.
     """
     with patch(
-        "experiments.scene_generation_experiments.book_shelf_generation.build_source_id_to_path",
+        "experiments.scene_generation_experiments.utils.build_source_id_to_path",
         return_value=source_path_map,
     ):
         result = _get_source_ids_for_objects(mixed_mock_objects, object_type=None)
-    source_ids = {source_id for _, source_id in result}
+    source_ids = {candidate.source_id for candidate in result}
     assert "book_src" in source_ids
     assert "cup_src" in source_ids
     assert "shelf_src" not in source_ids
@@ -128,7 +129,7 @@ def test_missing_source_id_is_excluded(source_path_map: dict[str, Path]) -> None
         _MockShelfObject(object_type=ObjectType.BOOK, source_id="nonexistent_src"),
     ]
     with patch(
-        "experiments.scene_generation_experiments.book_shelf_generation.build_source_id_to_path",
+        "experiments.scene_generation_experiments.utils.build_source_id_to_path",
         return_value=source_path_map,
     ):
         result = _get_source_ids_for_objects(objects_without_path, object_type=None)
@@ -344,6 +345,45 @@ def test_coarsen_rare_object_types_leaves_layer_within_keep_count_unchanged() ->
     assert [obj.object_type for obj in result[0].objects] == [ObjectType.CUP, ObjectType.PLANT]
 
 
+def test_coarsen_mesh_candidate_types_relabels_candidates_outside_frequent_types() -> None:
+    """
+    _coarsen_mesh_candidate_types must relabel every candidate whose type
+    falls outside frequent_types as ObjectType.OTHER, mirroring
+    _coarsen_rare_object_types.
+
+    Without this, a sampled ObjectType.OTHER object could never find a
+    same-type mesh candidate in _MeshTypeMatcher.random_match, since every
+    candidate would still carry its original, uncoarsened type -- silently
+    falling back to a random mesh from the whole pool for every object
+    outside the most frequent types.
+    """
+    cup_candidate = MeshCandidate(_FAKE_PATH, "cup_src", ObjectType.CUP)
+    plant_candidate = MeshCandidate(_FAKE_PATH, "plant_src", ObjectType.PLANT)
+
+    result = _coarsen_mesh_candidate_types(
+        [cup_candidate, plant_candidate], frequent_types={ObjectType.CUP}
+    )
+
+    assert result[0] == cup_candidate
+    assert result[1] == MeshCandidate(_FAKE_PATH, "plant_src", ObjectType.OTHER)
+
+
+def test_coarsen_mesh_candidate_types_leaves_frequent_types_unchanged() -> None:
+    """
+    Candidates whose type is already within frequent_types must not be
+    touched.
+    """
+    cup_candidate = MeshCandidate(_FAKE_PATH, "cup_src", ObjectType.CUP)
+    plant_candidate = MeshCandidate(_FAKE_PATH, "plant_src", ObjectType.PLANT)
+
+    result = _coarsen_mesh_candidate_types(
+        [cup_candidate, plant_candidate],
+        frequent_types={ObjectType.CUP, ObjectType.PLANT},
+    )
+
+    assert result == [cup_candidate, plant_candidate]
+
+
 # ---------------------------------------------------------------------------
 # Layer scale fix – EGShelf.create_in_world must use per-layer scale
 # ---------------------------------------------------------------------------
@@ -371,7 +411,7 @@ def test_each_layer_slab_uses_its_own_scale() -> None:
         scale=EGScale(height=2.0, length=0.6, width=0.8),
         orientation=EGRotation(x=0.0, y=0.0, z=0.0),
         layers=[narrow, wide],
-        book_source_ids=None,
+        source_ids=None,
     )
     world = shelf.create_in_world()
     slab_annotations = world.get_semantic_annotations_by_type(ShelfLayer)
@@ -470,49 +510,50 @@ def test_object_mesh_is_rescaled_to_match_declared_egsize(tmp_path: Path) -> Non
 
 
 # ---------------------------------------------------------------------------
-# Mesh selection – pick the candidate closest in size to the sampled scale
+# Mesh selection – pick a random mesh whose object shares the sampled type
 # ---------------------------------------------------------------------------
 
 
-def _write_box_ply(directory: Path, name: str, extents: tuple[float, float, float]) -> None:
-    objects_dir = directory / "objects"
-    objects_dir.mkdir(exist_ok=True)
-    trimesh.creation.box(extents=extents).export(objects_dir / f"{name}.ply")
-
-
-def test_mesh_size_matcher_selects_closest_native_bounding_box(tmp_path: Path) -> None:
+def test_mesh_type_matcher_only_returns_candidates_of_the_requested_type() -> None:
     """
-    _MeshSizeMatcher.closest_match must pick the candidate whose native mesh
-    bounding box is nearest to the target EGSize.
+    _MeshTypeMatcher.random_match must only return candidates whose
+    object_type equals the requested type when at least one such candidate
+    exists in the pool.
 
     ObjectType labels in the source dataset are effectively per-instance
-    identifiers (tens of thousands of distinct values), so matching by
-    declared size -- rather than by label or picking uniformly at random
-    -- is what keeps an assigned mesh visually plausible for the scale
-    an object was sampled at.
+    identifiers (tens of thousands of distinct values), so picking a mesh at
+    random from the same generalized ObjectType -- rather than matching by
+    declared size -- is what keeps an assigned mesh semantically plausible
+    for the category an object was sampled as.
     """
-    _write_box_ply(tmp_path, "small", (0.1, 0.1, 0.1))
-    _write_box_ply(tmp_path, "large", (1.0, 1.0, 1.0))
-    matcher = _MeshSizeMatcher(candidates=[(tmp_path, "small"), (tmp_path, "large")])
+    book_candidate = MeshCandidate(_FAKE_PATH, "book_src", ObjectType.BOOK)
+    cup_candidate = MeshCandidate(_FAKE_PATH, "cup_src", ObjectType.CUP)
+    matcher = _MeshTypeMatcher(candidates=[book_candidate, cup_candidate])
 
-    _, source_id = matcher.closest_match(EGScale(width=0.12, length=0.11, height=0.09))
-    assert source_id == "small"
-
-    _, source_id = matcher.closest_match(EGScale(width=0.9, length=1.1, height=1.05))
-    assert source_id == "large"
+    results = {matcher.random_match(ObjectType.BOOK) for _ in range(30)}
+    assert results == {book_candidate}
 
 
-def test_mesh_size_matcher_skips_mesh_loading_with_a_single_candidate(
-    tmp_path: Path,
-) -> None:
+def test_mesh_type_matcher_falls_back_to_full_pool_when_type_absent() -> None:
     """
-    With only one candidate there is nothing to compare it against, so
-    closest_match must return it directly without reading its mesh file.
-
-    This also keeps callers that pass a placeholder/non-existent path as
-    their sole candidate (e.g. tests exercising unrelated behaviour)
-    working without needing a real mesh on disk.
+    When the pool holds no candidate of the requested type, random_match must
+    still return a candidate from the full pool instead of raising, so
+    sampling can never fail outright.
     """
-    matcher = _MeshSizeMatcher(candidates=[(Path("/nonexistent"), "missing")])
-    scene_dir, source_id = matcher.closest_match(EGScale(width=0.2, length=0.2, height=0.2))
-    assert (scene_dir, source_id) == (Path("/nonexistent"), "missing")
+    cup_candidate = MeshCandidate(_FAKE_PATH, "cup_src", ObjectType.CUP)
+    plant_candidate = MeshCandidate(_FAKE_PATH, "plant_src", ObjectType.PLANT)
+    matcher = _MeshTypeMatcher(candidates=[cup_candidate, plant_candidate])
+
+    result = matcher.random_match(ObjectType.BOOK)
+    assert result in {cup_candidate, plant_candidate}
+
+
+def test_mesh_type_matcher_returns_the_only_candidate_regardless_of_type() -> None:
+    """
+    With only one candidate in the pool, random_match must return it
+    regardless of whether its type matches the request.
+    """
+    only_candidate = MeshCandidate(_FAKE_PATH, "book_src", ObjectType.BOOK)
+    matcher = _MeshTypeMatcher(candidates=[only_candidate])
+
+    assert matcher.random_match(ObjectType.CUP) == only_candidate

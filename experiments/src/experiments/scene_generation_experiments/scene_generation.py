@@ -2,7 +2,7 @@ from semantic_digital_twin.scene_generation.sage10k_processing import EGDataProc
 from semantic_digital_twin.scene_generation.scene_schema import (
     SceneGenerator,
     EGRoom,
-    EGSize,
+    EGScale,
     EGPosition,
     EGWall,
     EGPoint2D,
@@ -37,7 +37,7 @@ def create_environment(scene_to_shelf_object: dict) -> tuple[SceneGenerator, Wor
         room=EGRoom(
             id="room_1",
             room_type="living_room",
-            scale=EGSize(0, 1, 2),
+            scale=EGScale(0, 1, 2),
             position=EGPosition(0, 0, 0),
             objects=list(mesh_to_object.values()),
             walls=[

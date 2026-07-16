@@ -4,7 +4,6 @@ import math
 import os
 import time
 from collections import defaultdict
-from collections.abc import Callable
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
@@ -27,7 +26,7 @@ from semantic_digital_twin.scene_generation.scene_schema import (
     EGPoint2D,
     EGRelativePolarPose,
     EGRotation,
-    EGSize,
+    EGScale,
     EGTableWithChairs,
     ObjectType,
 )
@@ -51,7 +50,7 @@ def _build_chair(chair: EGObjectDAO, table: EGObjectDAO) -> EGChair:
         id=chair.id,
         room_id=chair.room_id,
         object_type=chair.object_type,
-        scale=EGSize(
+        scale=EGScale(
             width=chair.scale.width,
             length=chair.scale.length,
             height=chair.scale.height,
@@ -71,8 +70,7 @@ def _build_chair(chair: EGObjectDAO, table: EGObjectDAO) -> EGChair:
 def _extract_table_chair_groups_from_spatial_proximity(
     session: Session,
     max_distance_from_table: float = 1.5,
-    type_predicate: Callable[[ObjectType], bool] = lambda object_type: object_type
-    == ObjectType.CHAIR,
+    object_type: ObjectType = ObjectType.CHAIR,
 ) -> tuple[list[EGTableWithChairs], list[EGObjectDAO]]:
     """
     Load all scenes and group chairs with the nearest table in the same room,
@@ -88,9 +86,8 @@ def _extract_table_chair_groups_from_spatial_proximity(
     :param session: Database session to query objects from.
     :param max_distance_from_table: Maximum Euclidean distance, in metres,
         between a chair and a table for the chair to be assigned to it.
-    :param type_predicate: Called with each object's :class:`ObjectType`;
-        only objects for which this returns ``True`` are considered
-        chairs. Defaults to matching :attr:`ObjectType.CHAIR`.
+    :param object_type: Only objects whose type equals this value are
+        considered chairs. Defaults to :attr:`ObjectType.CHAIR`.
     :return: Extracted table-with-chairs groups and all loaded object DAOs.
     """
     objects = session.scalars(
@@ -111,7 +108,7 @@ def _extract_table_chair_groups_from_spatial_proximity(
 
     chairs_by_table_id: defaultdict[str, list[EGObjectDAO]] = defaultdict(list)
     for obj in objects:
-        if not type_predicate(obj.object_type):
+        if obj.object_type != object_type:
             continue
         candidate_tables = tables_by_room.get(obj.room_id, [])
         if not candidate_tables:
@@ -132,7 +129,7 @@ def _extract_table_chair_groups_from_spatial_proximity(
             table_chair_groups.append(
                 EGTableWithChairs(
                     position=EGPoint2D(x=table.position.x, y=table.position.y),
-                    scale=EGSize(
+                    scale=EGScale(
                         width=table.scale.width,
                         length=table.scale.length,
                         height=table.scale.height,
@@ -187,7 +184,7 @@ def generate_table_with_chairs(node) -> None:
     sample = resolve_table_chair_collisions(sample, rspn)
 
     source_ids_for_sampled_objects = _get_source_ids_for_objects(
-        training_objects, type_predicate=lambda object_type: object_type == ObjectType.CHAIR
+        training_objects, object_type=ObjectType.CHAIR
     )
     sample.position = EGPoint2D(x=0.0, y=0.0)
     sample.orientation = EGRotation(x=0.0, y=0.0, z=0.0)

@@ -3,14 +3,16 @@ from __future__ import annotations
 import os
 import time
 from collections import defaultdict
-from collections.abc import Callable
 
 import numpy as np
 from sklearn.cluster import DBSCAN
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 
-from experiments.scene_generation_experiments.utils import rclpy_node, _get_source_ids_for_objects
+from experiments.scene_generation_experiments.utils import (
+    _get_source_ids_for_objects,
+    rclpy_node,
+)
 from krrood.entity_query_language.backends import ProbabilisticBackend
 from krrood.ormatic.data_access_objects.helper import to_dao
 from krrood.ormatic.utils import create_engine
@@ -29,13 +31,12 @@ from semantic_digital_twin.adapters.ros.visualization.viz_marker import (
     VizMarkerPublisher,
 )
 from semantic_digital_twin.scene_generation.scene_schema import (
-    BookObjectType,
     EGObject2D,
     EGPoint2D,
     EGRotation,
     EGShelf,
     EGShelfLayer,
-    EGSize,
+    EGScale,
     ObjectType,
 )
 
@@ -43,7 +44,7 @@ from semantic_digital_twin.scene_generation.scene_schema import (
 def _extract_shelf_layers_from_place_id(
     session: Session,
     edge_margin_fraction: float = 0.10,
-    type_predicate: Callable[[ObjectType], bool] = BookObjectType.contains,
+    object_type: ObjectType | None = ObjectType.BOOK,
 ) -> tuple[list[EGShelfLayer], list[EGObjectDAO]]:
     """
     Load all scenes and group objects by the shelf declared in their
@@ -60,10 +61,9 @@ def _extract_shelf_layers_from_place_id(
 
     :param edge_margin_fraction: Fraction of each shelf dimension to use as
         an inset margin on X and Y when filtering out-of-bounds objects.
-    :param type_predicate: Called with each object's :class:`ObjectType`; only
-        objects for which this returns ``True`` are included. Defaults to
-        :meth:`BookObjectType.contains` to reproduce the original book-only
-        behaviour.
+    :param object_type: Only objects whose type equals this value are
+        included. Defaults to :attr:`ObjectType.BOOK` to reproduce the
+        original book-only behaviour; pass ``None`` to include every type.
     :return: Extracted shelf layers and all loaded object DAOs.
     """
     objects = session.scalars(
@@ -76,7 +76,10 @@ def _extract_shelf_layers_from_place_id(
         .distinct()
         .limit(50000)
     ).all()
-    shelves: list[EGObjectDAO] = [obj for obj in objects if obj.object_type == ObjectType.SHELF]
+
+    shelves: list[EGObjectDAO] = [
+        obj for obj in objects if obj.object_type == ObjectType.SHELF
+    ]
 
     objects_by_place_id: defaultdict[str, list[EGObjectDAO]] = defaultdict(list)
     for obj in objects:
@@ -91,7 +94,7 @@ def _extract_shelf_layers_from_place_id(
         within_bounds = [
             obj
             for obj in members
-            if type_predicate(obj.object_type)
+            if (object_type is None or obj.object_type == object_type)
             and abs(obj.position.x - shelf.position.x) <= max_relative_x
             and abs(obj.position.y - shelf.position.y) <= max_relative_y
         ]
@@ -108,7 +111,7 @@ def _extract_shelf_layers_from_place_id(
                 room_id=obj.room_id,
                 place_id=obj.place_id,
                 object_type=obj.object_type,
-                scale=EGSize(
+                scale=EGScale(
                     width=obj.scale.width,
                     length=obj.scale.length,
                     height=obj.scale.height,
@@ -127,7 +130,7 @@ def _extract_shelf_layers_from_place_id(
         for _, layer_objects in objects_per_layer.items():
             shelf_layers.append(
                 EGShelfLayer(
-                    scale=EGSize(
+                    scale=EGScale(
                         width=shelf.scale.width, length=shelf.scale.length, height=0.02
                     ),
                     objects=layer_objects,
@@ -163,18 +166,28 @@ def generate_book_shelf(node) -> None:
         model_registry=registry, number_of_samples=1
     )
 
-    reference_layer = next(iter(probability_backend.evaluate(build_free_layer_query(3))))
+    reference_layer = next(
+        iter(probability_backend.evaluate(build_free_layer_query(3)))
+    )
     target_scale = reference_layer.scale
     remaining_layers = [
-        next(iter(probability_backend.evaluate(build_layer_query_with_fixed_scale(3, target_scale))))
+        next(
+            iter(
+                probability_backend.evaluate(
+                    build_layer_query_with_fixed_scale(3, target_scale)
+                )
+            )
+        )
         for _ in range(3)
     ]
-    sampled_layers = resolve_shelf_collisions([reference_layer] + remaining_layers, rspn)
+    sampled_layers = resolve_shelf_collisions(
+        [reference_layer] + remaining_layers, rspn
+    )
 
     source_ids_for_sampled_objects = _get_source_ids_for_objects(training_objects)
     shelf_sample = EGShelf(
         position=EGPoint2D(x=0.0, y=0.0),
-        scale=EGSize(height=2.0, length=target_scale.length, width=target_scale.width),
+        scale=EGScale(height=2.0, length=target_scale.length, width=target_scale.width),
         orientation=EGRotation(x=0.0, y=0.0, z=0.0),
         layers=sampled_layers,
         source_ids=source_ids_for_sampled_objects,

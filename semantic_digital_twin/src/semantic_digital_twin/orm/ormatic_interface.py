@@ -745,6 +745,23 @@ class EGRoomDAO_tables_association(Base, AssociationDataAccessObject):
     )
 
 
+class _MeshTypeMatcherDAO_candidates_association(Base, AssociationDataAccessObject):
+    __tablename__ = "_97865599609845309174672272250291038399671313879173922378753955"
+
+    database_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+
+    source__meshtypematcherdao_id: Mapped[int] = mapped_column(
+        ForeignKey("_MeshTypeMatcherDAO.database_id")
+    )
+    target_meshcandidatedao_id: Mapped[int] = mapped_column(
+        ForeignKey("MeshCandidateDAO.database_id")
+    )
+
+    target: Mapped[MeshCandidateDAO] = relationship(
+        "MeshCandidateDAO", foreign_keys=[target_meshcandidatedao_id], lazy="selectin"
+    )
+
+
 class WorldMappingDAO_kinematic_structure_entities_association(
     Base, AssociationDataAccessObject
 ):
@@ -9564,6 +9581,32 @@ class EGWallDAO(
     }
 
 
+class MeshCandidateDAO(
+    Base,
+    DataAccessObject[semantic_digital_twin.scene_generation.scene_schema.MeshCandidate],
+):
+    __tablename__ = "MeshCandidateDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        Integer, primary_key=True, use_existing_column=True
+    )
+
+    source_id: Mapped[builtins.str] = mapped_column(
+        sqlalchemy.sql.sqltypes.Text, use_existing_column=True
+    )
+
+    scene_dir: Mapped[pathlib.Path] = mapped_column(
+        krrood.ormatic.custom_types.PathType, nullable=False, use_existing_column=True
+    )
+    object_type: Mapped[
+        semantic_digital_twin.scene_generation.scene_schema.ObjectType
+    ] = mapped_column(
+        krrood.ormatic.custom_types.PolymorphicEnumType,
+        nullable=False,
+        use_existing_column=True,
+    )
+
+
 class SceneGeneratorDAO(
     EGWithIDDAO,
     DataAccessObject[
@@ -9593,20 +9636,26 @@ class SceneGeneratorDAO(
     }
 
 
-class _MeshSizeMatcherDAO(
+class _MeshTypeMatcherDAO(
     Base,
     DataAccessObject[
-        semantic_digital_twin.scene_generation.scene_schema._MeshSizeMatcher
+        semantic_digital_twin.scene_generation.scene_schema._MeshTypeMatcher
     ],
 ):
-    __tablename__ = "_MeshSizeMatcherDAO"
+    __tablename__ = "_MeshTypeMatcherDAO"
 
     database_id: Mapped[builtins.int] = mapped_column(
         Integer, primary_key=True, use_existing_column=True
     )
 
-    candidates: Mapped[typing.List[builtins.tuple]] = mapped_column(
-        JSON, nullable=False, use_existing_column=True
+    candidates: Mapped[builtins.list[_MeshTypeMatcherDAO_candidates_association]] = (
+        relationship(
+            "_MeshTypeMatcherDAO_candidates_association",
+            collection_class=builtins.list,
+            cascade="all, delete-orphan",
+            foreign_keys="[_MeshTypeMatcherDAO_candidates_association.source__meshtypematcherdao_id]",
+            lazy="selectin",
+        )
     )
 
 

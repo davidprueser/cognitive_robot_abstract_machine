@@ -4,13 +4,12 @@ import contextlib
 import threading
 import time
 from pathlib import Path
-from typing import Callable
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 
 from experiments.orm.ormatic_interface import EGObjectDAO
-from semantic_digital_twin.scene_generation.scene_schema import ObjectType, BookObjectType
+from semantic_digital_twin.scene_generation.scene_schema import MeshCandidate, ObjectType
 
 from semantic_digital_twin.utils import rclpy_installed
 
@@ -69,25 +68,30 @@ def load_all_objects(session: Session) -> list[EGObjectDAO]:
 
 def _get_source_ids_for_objects(
     objects: list[EGObjectDAO],
-    type_predicate: Callable[[ObjectType], bool] = BookObjectType.contains,
-) -> list[tuple[Path, str]]:
+    object_type: ObjectType | None = ObjectType.BOOK,
+) -> list[MeshCandidate]:
     """
-    Extract all (scene_dir, source_id) pairs for objects accepted by
-    *type_predicate* that have a local PLY mesh available.
+    Build the pool of mesh candidates for objects of *object_type* that have a
+    local PLY mesh available.
 
     :param objects: All loaded object DAOs from the database.
-    :param type_predicate: Called with each object's
-        :class:`ObjectType`; only objects for which this returns
-        ``True`` are included. Defaults to
-        :meth:`BookObjectType.contains` to reproduce the original book-
-        only behaviour.
-    :return: List of (scene_directory, source_id) pairs.
+    :param object_type: Only objects whose type equals this value are
+        included. Defaults to :attr:`ObjectType.BOOK` to reproduce the
+        original book-only behaviour; pass ``None`` to include every
+        type.
+    :return: Pool of mesh candidates, one per matching object with a
+        resolvable PLY mesh.
     """
     source_id_to_path = build_source_id_to_path()
     return [
-        (source_id_to_path[obj.source_id], obj.source_id)
+        MeshCandidate(
+            scene_dir=source_id_to_path[obj.source_id],
+            source_id=obj.source_id,
+            object_type=obj.object_type,
+        )
         for obj in objects
-        if type_predicate(obj.object_type) and obj.source_id in source_id_to_path
+        if (object_type is None or obj.object_type == object_type)
+        and obj.source_id in source_id_to_path
     ]
 
 

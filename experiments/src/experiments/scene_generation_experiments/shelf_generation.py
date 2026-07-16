@@ -31,17 +31,29 @@ from semantic_digital_twin.scene_generation.scene_schema import (
     EGRotation,
     EGShelf,
     EGShelfLayer,
-    EGSize,
+    EGScale,
+    MeshCandidate,
     ObjectType,
 )
 
 
-def _is_shelf_furniture(object_type: ObjectType) -> bool:
+def _frequent_object_types(
+    shelf_layers: list[EGShelfLayer],
+    keep_count: int,
+) -> set[ObjectType]:
     """
-    Return ``True`` when *object_type* represents a shelf unit (furniture),
-    ``False`` for any object that can be placed on a shelf.
+    Return the *keep_count* most frequent object types across all objects in
+    *shelf_layers*.
+
+    :param shelf_layers: Layers whose objects' types are counted.
+    :param keep_count: Number of distinct, most frequent object types to
+        return.
+    :return: The most frequent object types.
     """
-    return object_type == ObjectType.SHELF
+    type_counts = Counter(
+        object_2d.object_type for layer in shelf_layers for object_2d in layer.objects
+    )
+    return {object_type for object_type, _ in type_counts.most_common(keep_count)}
 
 
 def _coarsen_rare_object_types(
@@ -61,10 +73,7 @@ def _coarsen_rare_object_types(
         other fields (position, scale, orientation, source_id, ...) are
         unchanged.
     """
-    type_counts = Counter(
-        object_2d.object_type for layer in shelf_layers for object_2d in layer.objects
-    )
-    frequent_types = {object_type for object_type, _ in type_counts.most_common(keep_count)}
+    frequent_types = _frequent_object_types(shelf_layers, keep_count)
     return [
         dataclasses.replace(
             layer,
@@ -79,18 +88,45 @@ def _coarsen_rare_object_types(
     ]
 
 
+def _coarsen_mesh_candidate_types(
+    candidates: list[MeshCandidate],
+    frequent_types: set[ObjectType],
+) -> list[MeshCandidate]:
+    """
+    Return new mesh candidates where every candidate whose type falls outside
+    *frequent_types* is relabeled as ``ObjectType.OTHER``.
+
+    Mirrors :func:`_coarsen_rare_object_types` so the mesh pool's type labels
+    line up with the coarsened types the RSPN actually samples -- without
+    this, a sampled ``ObjectType.OTHER`` object would never find a same-type
+    mesh candidate, since every candidate still carries its original,
+    uncoarsened type.
+
+    :param candidates: Mesh candidates whose types should be coarsened.
+    :param frequent_types: Object types to leave unchanged; every other
+        type is replaced with ``ObjectType.OTHER``.
+    :return: New candidates with coarsened types.
+    """
+    return [
+        candidate
+        if candidate.object_type in frequent_types
+        else dataclasses.replace(candidate, object_type=ObjectType.OTHER)
+        for candidate in candidates
+    ]
+
+
 def generate_shelf_with_arbitrary_objects(node) -> None:
     """
-    Train an RSPN on all non-shelf object types found on shelves in the dataset
-    and visualise a sampled, collision-free arrangement via RViz.
+    Train an RSPN on all object types found on shelves in the dataset and
+    visualise a sampled, collision-free arrangement via RViz.
 
     Unlike :func:`book_shelf_generation.generate_book_shelf`, this demo
     includes every object type found on shelves in the training data — books,
     cups, plants, containers, and more — so the RSPN learns the joint
-    spatial distribution across all of them. Mesh assets are drawn randomly
-    from the full pool of available shelf-object PLY files, which means the
-    rendered mesh type may not match the object type sampled by the RSPN;
-    this is intentional for this demo.
+    spatial distribution across all of them. Mesh assets are drawn at random
+    from the pool of available shelf-object PLY files that share the same
+    (generalized) object type as the object sampled by the RSPN; if no mesh
+    of that type is available, a mesh is drawn from the full pool instead.
 
     .. note::
         The RSPN learns object *scale* from training data, but PLY meshes are
@@ -106,11 +142,10 @@ def generate_shelf_with_arbitrary_objects(node) -> None:
     Base.metadata.create_all(bind=engine)
     session = Session(engine)
 
-    predicate = lambda object_type: not _is_shelf_furniture(object_type)
-
     shelf_layers, training_objects = _extract_shelf_layers_from_place_id(
-        session, type_predicate=predicate
+        session, object_type=None
     )
+    frequent_types = _frequent_object_types(shelf_layers, keep_count=20)
     shelf_layers = _coarsen_rare_object_types(shelf_layers)
     shelf_layer_data_access_objects = [to_dao(layer) for layer in shelf_layers]
 
@@ -128,10 +163,11 @@ def generate_shelf_with_arbitrary_objects(node) -> None:
     ]
     sampled_layers = resolve_shelf_collisions([reference_layer] + remaining_layers, rspn)
 
-    source_ids = _get_source_ids_for_objects(training_objects, type_predicate=predicate)
+    source_ids = _get_source_ids_for_objects(training_objects, object_type=None)
+    source_ids = _coarsen_mesh_candidate_types(source_ids, frequent_types)
     shelf_sample = EGShelf(
         position=EGPoint2D(x=0.0, y=0.0),
-        scale=EGSize(height=2.0, length=target_scale.length, width=target_scale.width),
+        scale=EGScale(height=2.0, length=target_scale.length, width=target_scale.width),
         orientation=EGRotation(x=0.0, y=0.0, z=0.0),
         layers=sampled_layers,
         source_ids=source_ids,

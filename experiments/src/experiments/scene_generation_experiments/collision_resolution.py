@@ -15,7 +15,7 @@ from semantic_digital_twin.scene_generation.scene_schema import (
     EGPoint2D,
     EGRotation,
     EGShelfLayer,
-    EGSize,
+    EGScale,
 )
 from semantic_digital_twin.collision_checking.collision_matrix import (
     CollisionCheck,
@@ -204,7 +204,7 @@ def _build_free_object2d_query():
         room_id=None,
         place_id=None,
         object_type=...,
-        scale=underspecified(EGSize)(width=..., length=..., height=...),
+        scale=underspecified(EGScale)(width=..., length=..., height=...),
         position=underspecified(EGPoint2D)(x=..., y=...),
         orientation=underspecified(EGRotation)(x=..., y=..., z=...),
         source_id=None,
@@ -214,7 +214,7 @@ def _build_free_object2d_query():
 def _build_conditioned_layer_query(
     fixed_objects: list[EGObject2D],
     free_count: int,
-    target_scale: EGSize | None = None,
+    target_scale: EGScale | None = None,
 ):
     """
     Build an EGShelfLayer query conditioning on fixed_objects' spatial fields
@@ -248,7 +248,7 @@ def _build_conditioned_layer_query(
     scale_argument = (
         target_scale
         if target_scale is not None
-        else underspecified(EGSize)(width=..., length=..., height=...)
+        else underspecified(EGScale)(width=..., length=..., height=...)
     )
     return underspecified(EGShelfLayer)(
         scale=scale_argument,
@@ -275,7 +275,7 @@ def build_free_layer_query(object_count: int):
     return _build_conditioned_layer_query([], object_count)
 
 
-def build_layer_query_with_fixed_scale(object_count: int, scale: EGSize):
+def build_layer_query_with_fixed_scale(object_count: int, scale: EGScale):
     """
     Build an EGShelfLayer query with the layer scale fixed as conditioning
     evidence.

@@ -28,6 +28,7 @@ from semantic_digital_twin.scene_generation.scene_schema import (
     EGRotation,
     EGScale,
     EGTableWithChairs,
+    MeshCandidate,
     ObjectType,
 )
 from semantic_digital_twin.world import World
@@ -366,7 +367,7 @@ def test_table_with_chairs_create_in_world_places_every_chair_facing_the_table(
         scale=EGScale(height=0.75, length=1.2, width=0.8),
         orientation=table_orientation,
         chairs=[chair],
-        source_ids=[(tmp_path, "chair_src")],
+        source_ids=[MeshCandidate(tmp_path, "chair_src", ObjectType.CHAIR)],
     )
 
     world = table_with_chairs.create_in_world()

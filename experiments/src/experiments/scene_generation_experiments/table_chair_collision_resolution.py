@@ -21,7 +21,7 @@ from semantic_digital_twin.scene_generation.scene_schema import (
     EGRelativePolarPose,
     EGRotation,
     EGShelfLayer,
-    EGSize,
+    EGScale,
     EGTableWithChairs,
 )
 
@@ -111,7 +111,7 @@ def _build_free_chair_query():
         id=None,
         room_id=None,
         object_type=...,
-        scale=underspecified(EGSize)(width=..., length=..., height=...),
+        scale=underspecified(EGScale)(width=..., length=..., height=...),
         relative_pose=underspecified(EGRelativePolarPose)(
             distance_from_table_center=...,
             angle_from_table_center=...,
@@ -125,7 +125,7 @@ def _build_conditioned_table_query(
     fixed_chairs: list[EGChair],
     free_count: int,
     table_position: EGPoint2D | None = None,
-    table_scale: EGSize | None = None,
+    table_scale: EGScale | None = None,
     table_orientation: EGRotation | None = None,
 ):
     """
@@ -165,7 +165,7 @@ def _build_conditioned_table_query(
     scale_argument = (
         table_scale
         if table_scale is not None
-        else underspecified(EGSize)(width=..., length=..., height=...)
+        else underspecified(EGScale)(width=..., length=..., height=...)
     )
     orientation_argument = (
         table_orientation

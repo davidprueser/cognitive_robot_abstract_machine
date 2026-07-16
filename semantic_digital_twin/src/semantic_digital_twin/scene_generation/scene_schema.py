@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import enum
 import math
+import random
 from dataclasses import dataclass, field, replace
+from enum import StrEnum
 from pathlib import Path
 from typing import Any, Self, assert_never
 
@@ -76,7 +78,7 @@ class EGWithID(EGBase):
 
 
 @dataclass
-class EGSize(EGBase):
+class EGScale(EGBase):
     """
     The scale of an object.
     """
@@ -194,166 +196,123 @@ class EGRotation(EGPoint2D):
         )
 
 
-class ObjectType(enum.Enum):
+class ObjectType(StrEnum):
     """
-    Canonical object types present in the sage10k dataset.
+    Generalized object categories that unify the tens of thousands of distinct,
+    near-instance-specific ``object_type`` strings found in the raw sage10k
+    dataset (for example ``"book1"``, ``"book_table2"`` and
+    ``"bookchair8eba7fdc"`` all belong to the same real-world category of
+    object).
+
+    .. note::
+        Mapping the raw sage10k strings onto these generalized members is
+        handled separately; this enum only defines the target categories.
     """
 
-    ADJUSTABLEWRENCH = "adjustablewrench"
+    APPAREL = "apparel"
     ART = "art"
-    BAKINGPOWDER1 = "bakingpowder1"
-    BAKINGPOWDER2 = "bakingpowder2"
+    BAG = "bag"
+    BASKET = "basket"
+    BATHTUB = "bathtub"
+    BED = "bed"
+    BENCH = "bench"
+    BIN = "bin"
     BOOK = "book"
-    BOOK1 = "book1"
-    BOOK2 = "book2"
-    BOOK4E33D6C6 = "book4e33d6c6"
-    BOOK_SHELF_D8061277 = "book_shelf_d8061277"
-    BOOK_SHELF_F9F248CD = "book_shelf_f9f248cd"
-    BOOK_TABLE1 = "book_table1"
-    BOOK_TABLE2 = "book_table2"
-    BOOKCHAIR6 = "bookchair6"
-    BOOKCHAIR8 = "bookchair8"
-    BOOKCHAIR8EBA7FDC = "bookchair8eba7fdc"
-    BOOKCHAIR9 = "bookchair9"
-    BOOKMUSTARD = "bookmustard"
-    BOOKMUSTARD4E33D6C6 = "bookmustard4e33d6c6"
-    BOOKOLIVE2 = "bookolive2"
+    BOTTLE = "bottle"
+    BOWL = "bowl"
+    BOX = "box"
+    BUCKET = "bucket"
     CABINET = "cabinet"
-    CANDLE2 = "candle2"
+    CAMERA = "camera"
+    CANDLE = "candle"
     CART = "cart"
     CHAIR = "chair"
-    CHANGEJAR = "changejar"
+    CHANDELIER = "chandelier"
     CLOCK = "clock"
+    COMPUTER = "computer"
     CONTAINER = "container"
-    CONTAINER2 = "container2"
-    CONTAINER_1 = "container_1"
-    CONTAINER_2 = "container_2"
-    CONTAINER_3 = "container_3"
-    CONTAINER_CABINET_250E2E93 = "container_cabinet_250e2e93"
-    CONTAINER_CABINET_88534706 = "container_cabinet_88534706"
-    CONTAINER_CABINET_B7A01281 = "container_cabinet_b7a01281"
-    CONTAINER_SHELF = "container_shelf"
-    CONTAINERCABINET250 = "containercabinet250"
-    CONTAINERCABINET88534706 = "containercabinet88534706"
     COUNTER = "counter"
-    CROISSANT = "croissant"
-    CROISSANT1 = "croissant1"
+    CRATE = "crate"
     CUP = "cup"
-    CUP1 = "cup1"
-    CUP2 = "cup2"
-    CUP_TABLE1 = "cup_table1"
-    CUP_TABLE2 = "cup_table2"
+    CUTLERY = "cutlery"
+    CUTTING_BOARD = "cutting_board"
+    DESK = "desk"
+    DISHWASHER = "dishwasher"
+    DISPENSER = "dispenser"
     DISPLAYCASE = "displaycase"
-    DRILL = "drill"
+    DOOR = "door"
+    DRESSER = "dresser"
     DRYER = "dryer"
-    FLOURBAG = "flourbag"
+    FIREPLACE = "fireplace"
+    FOOD = "food"
     FOUNTAIN = "fountain"
-    HAMMER = "hammer"
+    FRAME = "frame"
+    GLASS = "glass"
+    HARDWARE = "hardware"
+    JAR = "jar"
+    KEYBOARD = "keyboard"
+    KNIFE = "knife"
     LADDER = "ladder"
-    LAUNDRYBASKET = "laundrybasket"
+    LAMP = "lamp"
     LIGHT_FIXTURE = "light_fixture"
-    LIGHTFIXTURE = "lightfixture"
-    LIGHTING = "lighting"
-    MEASURINGCUP1 = "measuringcup1"
-    MEASURINGCUP2 = "measuringcup2"
-    MEASURINGCUP3 = "measuringcup3"
-    MEASURINGCUP4 = "measuringcup4"
-    MEASURINGCUPS = "measuringcups"
+    LOCKER = "locker"
+    MAGAZINE = "magazine"
+    MICROWAVE = "microwave"
     MIRROR = "mirror"
-    MIXINGBOWL = "mixingbowl"
-    MIXINGBOWL2 = "mixingbowl2"
-    NEON = "neon"
-    NOTEBOOK = "notebook"
-    NOTEBOOK1 = "notebook1"
-    NOTEBOOKEXTRA = "notebookextra"
-    NOTEPAD = "notepad"
+    MONITOR = "monitor"
+    MOUSE = "mouse"
+    NEON_SIGN = "neon_sign"
+    NIGHTSTAND = "nightstand"
+    OFFICE_SUPPLY = "office_supply"
+    OTHER = "other"
     OVEN = "oven"
-    PAINTING = "painting"
-    PAPERTOWELDISPENSER = "papertoweldispenser"
+    PANEL = "panel"
+    PANTRY = "pantry"
+    PEDESTAL = "pedestal"
     PEGBOARD = "pegboard"
     PEN = "pen"
-    PEN2 = "pen2"
-    PEN_TABLE2 = "pen_table2"
-    PENCOUNTER = "pencounter"
-    PENEXTRA = "penextra"
-    PENSHELF = "penshelf"
-    PIPINGBAG = "pipingbag"
-    PIPINGBAG1 = "pipingbag1"
+    PERSONAL_CARE_PRODUCT = "personal_care_product"
+    PHONE = "phone"
+    PILLOW = "pillow"
     PLANT = "plant"
-    PLANT1 = "plant1"
-    PLANTFLOOR = "plantfloor"
-    PLASTICBIN_2 = "plasticbin_2"
-    PLIERS = "pliers"
-    POSTER = "poster"
-    POSTERWALL = "posterwall"
-    PRINT = "print"
-    RADIO = "radio"
-    ROLLINGPIN = "rollingpin"
-    ROLLINGPIN1 = "rollingpin1"
-    ROLLINGPIN2 = "rollingpin2"
-    SANDER = "sander"
-    SCONCE = "sconce"
-    SCONCEWALL = "sconcewall"
-    SCREWDRIVER = "screwdriver"
+    PLATE = "plate"
+    POT = "pot"
+    PRINTER = "printer"
+    PROJECTOR = "projector"
+    REFRIGERATOR = "refrigerator"
+    REMOTE_CONTROL = "remote_control"
+    RETAIL_FIXTURE = "retail_fixture"
+    SAFETY_EQUIPMENT = "safety_equipment"
+    SCULPTURE = "sculpture"
     SHELF = "shelf"
-    SHELFBOOK_3 = "shelfbook_3"
-    SHELFPEN = "shelfpen"
-    SHOWCASE = "showcase"
+    SIDEBOARD = "sideboard"
     SIGN = "sign"
-    SIGNWALL = "signwall"
-    SOAPDISPENSER = "soapdispenser"
-    SPATULA = "spatula"
-    STAINEDGLASS = "stainedglass"
-    STOOL = "stool"
-    STORAGEBIN = "storagebin"
-    STORAGEBIN_FLOOR = "storagebin_floor"
-    SUCCULENT = "succulent"
-    SUGARJAR = "sugarjar"
-    SUGARJAR1 = "sugarjar1"
-    SUGARJAR2 = "sugarjar2"
-    SUGARJAR3 = "sugarjar3"
+    SINK = "sink"
+    SMALL_APPLIANCE = "small_appliance"
+    SOFA = "sofa"
+    SPEAKER = "speaker"
+    SPORTS_EQUIPMENT = "sports_equipment"
+    STAND = "stand"
     TABLE = "table"
-    TIRE = "tire"
+    TAPESTRY = "tapestry"
+    TELEVISION = "television"
+    TEXTILE = "textile"
+    TOILET = "toilet"
+    TOOL = "tool"
     TOOLBOX = "toolbox"
-    TOOLBOX_FLOOR = "toolbox_floor"
+    TOWEL = "towel"
+    TOY = "toy"
     TRASH = "trash"
-    WALLART = "wallart"
-    WALLART_1 = "wallart_1"
-    WALLPAINTING = "wallpainting"
-    WALLSCONCE = "wallsconce"
-    WALLSIGN = "wallsign"
-    WASHER = "washer"
+    TRAY = "tray"
+    UTENSIL = "utensil"
+    VANITY = "vanity"
+    VASE = "vase"
+    VEHICLE = "vehicle"
+    VENT = "vent"
+    WARDROBE = "wardrobe"
+    WASHING_MACHINE = "washing_machine"
+    WINDOW = "window"
     WORKBENCH = "workbench"
-    WORKBENCHCUP = "workbenchcup"
-    WORKBENCHNOTEBOOK = "workbenchnotebook"
-    WRENCH = "wrench"
-    OTHER = "other"
-
-
-class BookObjectType(enum.Enum):
-    """
-    Object types that represent actual books (not furniture named with 'book').
-    """
-
-    BOOK = "book"
-    BOOK1 = "book1"
-    BOOK2 = "book2"
-    BOOK4E33D6C6 = "book4e33d6c6"
-    BOOKMUSTARD = "bookmustard"
-    BOOKMUSTARD4E33D6C6 = "bookmustard4e33d6c6"
-    BOOKOLIVE2 = "bookolive2"
-    SHELFBOOK_3 = "shelfbook_3"
-    NOTEBOOK = "notebook"
-    NOTEBOOK1 = "notebook1"
-    NOTEBOOKEXTRA = "notebookextra"
-    NOTEPAD = "notepad"
-
-    @classmethod
-    def contains(cls, object_type: "ObjectType") -> bool:
-        """
-        Return True if *object_type* represents a book.
-        """
-        return object_type.value in cls._value2member_map_
 
 
 # %%
@@ -375,7 +334,7 @@ class EGObject(EGWithID):
     The type of the object.
     """
 
-    scale: EGSize
+    scale: EGScale
     """
     The scale of the object.
     """
@@ -421,7 +380,7 @@ class EGObject(EGWithID):
             place_id=data["place_id"],
             position=EGPosition._from_json(data["position"], **kwargs),
             orientation=EGRotation._from_json(data["rotation"], **kwargs),
-            scale=EGSize._from_json(data["dimensions"], **kwargs),
+            scale=EGScale._from_json(data["dimensions"], **kwargs),
             source_id=data["source_id"],
         )
 
@@ -524,7 +483,7 @@ class EGObject2D(EGWithID):
     The category of the object.
     """
 
-    scale: EGSize
+    scale: EGScale
     """
     Physical dimensions of the object.
     """
@@ -569,7 +528,7 @@ class EGObject2D(EGWithID):
             place_id=data["place_id"],
             position=EGPoint2D._from_json(data["position"], **kwargs),
             orientation=EGRotation._from_json(data["rotation"], **kwargs),
-            scale=EGSize._from_json(data["dimensions"], **kwargs),
+            scale=EGScale._from_json(data["dimensions"], **kwargs),
             source_id=data["source_id"],
         )
 
@@ -995,7 +954,7 @@ class EGRoom(EGWithID):
     """
 
     # Currently only rectangular rooms, could use footprint: list[tuple[float, float]] for L-Shaped rooms
-    scale: EGSize
+    scale: EGScale
     """
     The scale of the room.
     """
@@ -1050,7 +1009,7 @@ class EGRoom(EGWithID):
         return cls(
             id=data["id"],
             room_type=data["room_type"],
-            scale=EGSize._from_json(data["scale"], **kwargs),
+            scale=EGScale._from_json(data["scale"], **kwargs),
             position=EGPosition._from_json(data["position"], **kwargs),
             objects=[EGObject._from_json(o, **kwargs) for o in data["objects"]],
             walls=[EGWall._from_json(w, **kwargs) for w in data["walls"]],
@@ -1165,7 +1124,7 @@ class EGShelfLayer(EGBase):
     size from the parent shelf.
     """
 
-    scale: EGSize
+    scale: EGScale
     """
     Physical dimensions of the layer slab (width × length × height).
     """
@@ -1185,64 +1144,76 @@ class EGShelfLayer(EGBase):
     @classmethod
     def _from_json(cls, data: dict[str, Any], **kwargs) -> Self:
         return cls(
-            scale=EGSize._from_json(data["scale"], **kwargs),
+            scale=EGScale._from_json(data["scale"], **kwargs),
             objects=[EGObject2D._from_json(o, **kwargs) for o in data["objects"]],
         )
 
 
-@dataclass
-class _MeshSizeMatcher:
+@dataclass(frozen=True)
+class MeshCandidate:
     """
-    Selects, from a pool of candidate meshes, the one whose native bounding box
-    is closest to a target :class:`EGSize`.
+    A mesh asset available for rendering a sampled object, together with the
+    generalized object type it was captured from.
+    """
+
+    scene_dir: Path
+    """
+    Directory containing the ``objects/`` sub-folder with this mesh's PLY and
+    texture files.
+    """
+
+    source_id: str
+    """
+    Identifier used to look up this mesh's PLY and texture files within
+    :attr:`scene_dir`.
+    """
+
+    object_type: ObjectType
+    """
+    The generalized category of the object this mesh was captured from.
+    """
+
+
+@dataclass
+class _MeshTypeMatcher:
+    """
+    Selects, from a pool of candidate meshes, a random one captured from an
+    object of the same :class:`ObjectType`.
 
     Object-type labels in the source dataset are effectively per-
-    instance identifiers rather than real categories, so matching by
-    declared size instead of by label is what keeps a randomly-drawn
-    mesh visually plausible for the scale an object was sampled at.
+    instance identifiers rather than real categories, so grouping meshes by
+    their already-generalized :class:`ObjectType` -- rather than matching
+    declared size -- is what keeps a randomly-drawn mesh semantically
+    plausible for the category an object was sampled as.
+
+    .. note::
+        If the pool holds no mesh of the requested type, a random mesh is
+        drawn from the whole pool instead of raising, so sampling never
+        fails outright. This can still yield a mesh that mismatches the
+        requested type when the pool has no candidates of that type.
     """
 
-    candidates: list[tuple[Path, str]]
+    candidates: list[MeshCandidate]
     """
-    (scene_dir, source_id) pairs to choose from.
-    """
-
-    _native_extents_by_source_id: dict[str, np.ndarray] = field(
-        default_factory=dict, init=False, repr=False
-    )
-    """
-    Cache of source_id -> native (x, y, z) mesh extents, populated lazily since
-    reading every candidate's PLY file is only needed once per pool.
+    Pool of meshes to choose from.
     """
 
-    def _native_extents(self, scene_dir: Path, source_id: str) -> np.ndarray:
-        if source_id not in self._native_extents_by_source_id:
-            ply_file = scene_dir / "objects" / f"{source_id}.ply"
-            self._native_extents_by_source_id[source_id] = trimesh.load(
-                str(ply_file), process=False
-            ).extents
-        return self._native_extents_by_source_id[source_id]
-
-    def closest_match(self, target_scale: EGSize) -> tuple[Path, str]:
+    def random_match(self, object_type: ObjectType) -> MeshCandidate:
         """
-        Return the candidate whose native bounding box is closest to
-        *target_scale*, using the same width/length/height to x/y/z axis
-        convention as the collision-resolution box proxy.
+        Return a random candidate whose :attr:`MeshCandidate.object_type`
+        equals *object_type*, falling back to the full pool when no candidate
+        of that type is available.
 
-        :param target_scale: The declared size to match against.
-        :return: The best-matching (scene_dir, source_id) pair.
+        :param object_type: The category of the object a mesh is being
+            selected for.
+        :return: The selected candidate.
         """
-        if len(self.candidates) == 1:
-            return self.candidates[0]
-        target_extents = np.array(
-            [target_scale.width, target_scale.length, target_scale.height]
-        )
-        return min(
-            self.candidates,
-            key=lambda candidate: np.linalg.norm(
-                self._native_extents(*candidate) - target_extents
-            ),
-        )
+        matching_candidates = [
+            candidate
+            for candidate in self.candidates
+            if candidate.object_type == object_type
+        ]
+        return random.choice(matching_candidates or self.candidates)
 
 
 @dataclass
@@ -1256,7 +1227,7 @@ class EGShelf(EGBase):
     Position of the Shelf, relative to its parent frame.
     """
 
-    scale: EGSize
+    scale: EGScale
     """
     Scale of the Shelf.
     """
@@ -1271,10 +1242,9 @@ class EGShelf(EGBase):
     The layers of the Shelf.
     """
 
-    source_ids: list[tuple[Path, str]] | None = field(default=None)
+    source_ids: list[MeshCandidate] | None = field(default=None)
     """
-    List of (scene_dir, source_id) pairs for meshes used when placing objects
-    on shelf layers.
+    Pool of candidate meshes used when placing objects on shelf layers.
     """
 
     def to_json(self) -> dict[str, Any]:
@@ -1290,7 +1260,7 @@ class EGShelf(EGBase):
     def _from_json(cls, data: dict[str, Any], **kwargs) -> Self:
         return cls(
             position=EGPoint2D._from_json(data["position"], **kwargs),
-            scale=EGSize._from_json(data["scale"], **kwargs),
+            scale=EGScale._from_json(data["scale"], **kwargs),
             orientation=EGRotation._from_json(data["orientation"], **kwargs),
             layers=[EGShelfLayer._from_json(l, **kwargs) for l in data["layers"]],
         )
@@ -1343,7 +1313,7 @@ class EGShelf(EGBase):
         step = corpus_height / (len(self.layers) + 1)
         layer_z_heights = [step * (i + 1) for i in range(len(self.layers))]
 
-        mesh_matcher = _MeshSizeMatcher(candidates=self.source_ids or [])
+        mesh_matcher = _MeshTypeMatcher(candidates=self.source_ids or [])
         cos_yaw = math.cos(yaw_radians)
         sin_yaw = math.sin(yaw_radians)
 
@@ -1381,8 +1351,8 @@ class EGShelf(EGBase):
 
                 if not self.source_ids:
                     continue
-                scene_dir, source_id = mesh_matcher.closest_match(obj.scale)
-                obj.source_id = source_id
+                candidate = mesh_matcher.random_match(obj.object_type)
+                obj.source_id = candidate.source_id
                 # Compound the shelf's own yaw into the object's orientation
                 # so it turns together with the shelf, not just its position.
                 rotated_object = replace(
@@ -1395,7 +1365,7 @@ class EGShelf(EGBase):
                 )
                 rotated_object.create_in_world(
                     _world,
-                    scene_dir,
+                    candidate.scene_dir,
                     parent=_parent,
                     x=absolute_x,
                     y=absolute_y,
@@ -1560,7 +1530,7 @@ class EGChair(EGWithID):
     The category of the object (normally :attr:`ObjectType.CHAIR`).
     """
 
-    scale: EGSize
+    scale: EGScale
     """
     Physical dimensions of the chair.
     """
@@ -1594,7 +1564,7 @@ class EGChair(EGWithID):
             object_type=ObjectType._value2member_map_.get(
                 data["type"], ObjectType.OTHER
             ),
-            scale=EGSize._from_json(data["scale"], **kwargs),
+            scale=EGScale._from_json(data["scale"], **kwargs),
             relative_pose=EGRelativePolarPose._from_json(
                 data["relative_pose"], **kwargs
             ),
@@ -1706,7 +1676,7 @@ class EGTableWithChairs(EGBase):
     Position of the table's centre, relative to its parent frame.
     """
 
-    scale: EGSize
+    scale: EGScale
     """
     Scale of the table.
     """
@@ -1724,10 +1694,9 @@ class EGTableWithChairs(EGBase):
     and yaw.
     """
 
-    source_ids: list[tuple[Path, str]] | None = field(default=None)
+    source_ids: list[MeshCandidate] | None = field(default=None)
     """
-    List of (scene_dir, source_id) pairs for meshes used when placing chairs
-    around the table.
+    Pool of candidate meshes used when placing chairs around the table.
     """
 
     def to_json(self) -> dict[str, Any]:
@@ -1743,7 +1712,7 @@ class EGTableWithChairs(EGBase):
     def _from_json(cls, data: dict[str, Any], **kwargs) -> Self:
         return cls(
             position=EGPoint2D._from_json(data["position"], **kwargs),
-            scale=EGSize._from_json(data["scale"], **kwargs),
+            scale=EGScale._from_json(data["scale"], **kwargs),
             orientation=EGRotation._from_json(data["orientation"], **kwargs),
             chairs=[EGChair._from_json(c, **kwargs) for c in data["chairs"]],
         )
@@ -1787,16 +1756,16 @@ class EGTableWithChairs(EGBase):
                 scale=Scale(x=self.scale.length, y=self.scale.width, z=self.scale.height),
             )
 
-        mesh_matcher = _MeshSizeMatcher(candidates=self.source_ids or [])
+        mesh_matcher = _MeshTypeMatcher(candidates=self.source_ids or [])
 
         for i, chair in enumerate(self.chairs):
             if not self.source_ids:
                 continue
-            scene_dir, source_id = mesh_matcher.closest_match(chair.scale)
-            chair.source_id = source_id
+            candidate = mesh_matcher.random_match(chair.object_type)
+            chair.source_id = candidate.source_id
             chair.create_in_world(
                 _world,
-                scene_dir,
+                candidate.scene_dir,
                 parent=_parent,
                 table_position=self.position,
                 table_orientation=self.orientation,
