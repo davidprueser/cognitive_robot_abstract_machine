@@ -19,7 +19,11 @@ from experiments.orm.ormatic_interface import (
 from experiments.scene_generation_experiments.table_chair_generation import (
     _extract_table_chair_groups_from_spatial_proximity,
 )
+from experiments.scene_generation_experiments.table_chair_collision_resolution import (
+    build_chair_pose_resample_query,
+)
 from krrood.ormatic.utils import create_engine
+from krrood.parametrization.parameterizer import UnderspecifiedParameters
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.scene_generation.scene_schema import (
     EGChair,
@@ -382,3 +386,58 @@ def test_table_with_chairs_create_in_world_places_every_chair_facing_the_table(
 
     yaw = chair_body.parent_connection.origin.to_rotation_matrix().to_rpy()[2]
     assert float(yaw.to_np().item()) == pytest.approx(math.pi / 2, abs=1e-6)
+
+
+def _chair(chair_id: str, distance: float, angle: float) -> EGChair:
+    return EGChair(
+        id=chair_id,
+        room_id="room_1",
+        object_type=ObjectType.CHAIR,
+        scale=EGScale(height=0.9, length=0.5, width=0.5),
+        relative_pose=EGRelativePolarPose(
+            distance_from_table_center=distance,
+            angle_from_table_center=angle,
+            facing_angle_relative_to_table=0.0,
+        ),
+        source_id="chair_src",
+    )
+
+
+def test_build_chair_pose_resample_query_frees_resampled_scale_and_pose() -> None:
+    """
+    build_chair_pose_resample_query must condition only the fixed chairs'
+    scale and relative pose, leaving the resampled chair's scale and relative
+    pose both free to be redrawn.
+
+    Conditioning a resampled slot on its own scale pins the query to the
+    single training example that combination of evidence (its own scale plus
+    every fixed neighbour's exact pose) came from, collapsing the RSPN's
+    posterior for that slot's relative pose back to its original,
+    still-colliding value -- observed as a repair pass that redraws the exact
+    same pose every time and so can never actually resolve a collision.
+    Regression test for that collapse.
+    """
+    query = build_chair_pose_resample_query(
+        [_chair("fixed", distance=1.0, angle=0.0)],
+        [_chair("resampled", distance=1.0, angle=0.0)],
+        EGPoint2D(x=0.0, y=0.0),
+        EGScale(height=0.75, length=1.2, width=0.8),
+        EGRotation(x=0.0, y=0.0, z=0.0),
+    )
+    params = UnderspecifiedParameters(query)
+    conditioned_names = {
+        variable.name
+        for variable in params.conditioning_assignments_from_literal_values
+    }
+    conditioned_distances = [
+        name for name in conditioned_names if "distance_from_table_center" in name
+    ]
+    # "chairs[" scopes to per-chair scale, excluding the table's own
+    # (always-fixed) EGTableWithChairs.scale.width.
+    conditioned_scales = [
+        name for name in conditioned_names if "chairs[" in name and "scale.width" in name
+    ]
+    # Only the one fixed chair's relative pose and scale are conditioned; the
+    # resampled chair's are left entirely free.
+    assert len(conditioned_distances) == 1
+    assert len(conditioned_scales) == 1

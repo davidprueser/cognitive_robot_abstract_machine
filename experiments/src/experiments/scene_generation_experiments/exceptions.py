@@ -6,15 +6,15 @@ from krrood.exceptions import DataclassException
 
 
 @dataclass
-class ShelfLayoutResolutionError(DataclassException):
+class LayoutResolutionError(DataclassException):
     """
-    Raised when resolve_shelf_collisions cannot reach a collision-free, in-
-    bounds layout within the allowed number of repair passes.
+    Raised when the in-world resolver cannot reach a collision-free, supported
+    layout within the allowed number of repair passes.
     """
 
-    remaining_layer_indices: frozenset[int]
+    remaining_groups: frozenset[int]
     """
-    Indices into the layers list that still had a collision or an out-of-bounds
+    Indices of the collision groups that still had a colliding or unsupported
     object when resolution gave up.
     """
 
@@ -25,46 +25,13 @@ class ShelfLayoutResolutionError(DataclassException):
 
     def error_message(self) -> str:
         return (
-            f"Failed to resolve shelf layout after {self.passes_attempted} passes; "
-            f"layers {sorted(self.remaining_layer_indices)} still have unresolved "
-            "collisions or out-of-bounds objects."
+            f"Failed to resolve layout after {self.passes_attempted} passes; "
+            f"groups {sorted(self.remaining_groups)} still have unresolved "
+            "collisions or unsupported objects."
         )
 
     def suggest_correction(self) -> str:
         return (
-            "Re-sample the shelf from scratch, or check whether the sampled "
-            "layer/object scales make a valid arrangement unreachable."
-        )
-
-
-@dataclass
-class TableChairLayoutResolutionError(DataclassException):
-    """
-    Raised when resolve_table_chair_collisions cannot reach a collision-free
-    arrangement of chairs around a table within the allowed number of repair
-    passes.
-    """
-
-    remaining_chair_indices: frozenset[int]
-    """
-    Indices into the chairs list that still collided with another chair when
-    resolution gave up.
-    """
-
-    passes_attempted: int
-    """
-    The number of repair passes attempted before giving up.
-    """
-
-    def error_message(self) -> str:
-        return (
-            f"Failed to resolve table-chair layout after {self.passes_attempted} "
-            f"passes; chairs {sorted(self.remaining_chair_indices)} still collide."
-        )
-
-    def suggest_correction(self) -> str:
-        return (
-            "Re-sample the table-with-chairs group from scratch, or check "
-            "whether the sampled chair scales make a collision-free "
-            "arrangement unreachable."
+            "Re-sample the layout from scratch, or check whether the sampled "
+            "scales make a valid arrangement unreachable."
         )

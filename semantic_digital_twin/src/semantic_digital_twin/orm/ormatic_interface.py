@@ -745,6 +745,25 @@ class EGRoomDAO_tables_association(Base, AssociationDataAccessObject):
     )
 
 
+class SpawnedShelfDAO_layers_association(Base, AssociationDataAccessObject):
+    __tablename__ = "_42575814882947596720493694367602161959746357191766437294460808"
+
+    database_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+
+    source_spawnedshelfdao_id: Mapped[int] = mapped_column(
+        ForeignKey("SpawnedShelfDAO.database_id")
+    )
+    target_spawnedshelflayerdao_id: Mapped[int] = mapped_column(
+        ForeignKey("SpawnedShelfLayerDAO.database_id")
+    )
+
+    target: Mapped[SpawnedShelfLayerDAO] = relationship(
+        "SpawnedShelfLayerDAO",
+        foreign_keys=[target_spawnedshelflayerdao_id],
+        lazy="selectin",
+    )
+
+
 class _MeshTypeMatcherDAO_candidates_association(Base, AssociationDataAccessObject):
     __tablename__ = "_97865599609845309174672272250291038399671313879173922378753955"
 
@@ -9632,6 +9651,132 @@ class SceneGeneratorDAO(
     __mapper_args__ = {
         "polymorphic_identity": "SceneGeneratorDAO",
         "inherit_condition": database_id == EGWithIDDAO.database_id,
+        "polymorphic_load": "selectin",
+    }
+
+
+class SpawnedLayoutDAO(
+    Base,
+    DataAccessObject[semantic_digital_twin.scene_generation.scene_schema.SpawnedLayout],
+):
+    __tablename__ = "SpawnedLayoutDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        Integer, primary_key=True, use_existing_column=True
+    )
+
+    polymorphic_type: Mapped[str] = mapped_column(
+        String(255), nullable=False, use_existing_column=True
+    )
+
+    world_id: Mapped[int] = mapped_column(
+        ForeignKey("WorldMappingDAO.database_id", use_alter=True),
+        nullable=True,
+        use_existing_column=True,
+    )
+
+    world: Mapped[WorldMappingDAO] = relationship(
+        "WorldMappingDAO", uselist=False, foreign_keys=[world_id], post_update=True
+    )
+
+    __mapper_args__ = {
+        "polymorphic_on": "polymorphic_type",
+        "polymorphic_identity": "SpawnedLayoutDAO",
+    }
+
+
+class SpawnedShelfDAO(
+    SpawnedLayoutDAO,
+    DataAccessObject[semantic_digital_twin.scene_generation.scene_schema.SpawnedShelf],
+):
+    __tablename__ = "SpawnedShelfDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        ForeignKey(SpawnedLayoutDAO.database_id),
+        primary_key=True,
+        use_existing_column=True,
+    )
+
+    parent_id: Mapped[int] = mapped_column(
+        ForeignKey("KinematicStructureEntityDAO.database_id", use_alter=True),
+        nullable=True,
+        use_existing_column=True,
+    )
+
+    parent: Mapped[KinematicStructureEntityDAO] = relationship(
+        "KinematicStructureEntityDAO",
+        uselist=False,
+        foreign_keys=[parent_id],
+        post_update=True,
+    )
+    layers: Mapped[builtins.list[SpawnedShelfDAO_layers_association]] = relationship(
+        "SpawnedShelfDAO_layers_association",
+        collection_class=builtins.list,
+        cascade="all, delete-orphan",
+        foreign_keys="[SpawnedShelfDAO_layers_association.source_spawnedshelfdao_id]",
+        lazy="selectin",
+    )
+
+    __mapper_args__ = {
+        "polymorphic_identity": "SpawnedShelfDAO",
+        "inherit_condition": database_id == SpawnedLayoutDAO.database_id,
+        "polymorphic_load": "selectin",
+    }
+
+
+class SpawnedShelfLayerDAO(
+    Base,
+    DataAccessObject[
+        semantic_digital_twin.scene_generation.scene_schema.SpawnedShelfLayer
+    ],
+):
+    __tablename__ = "SpawnedShelfLayerDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        Integer, primary_key=True, use_existing_column=True
+    )
+
+    surface_id: Mapped[int] = mapped_column(
+        ForeignKey("ShelfLayerDAO.database_id", use_alter=True),
+        nullable=True,
+        use_existing_column=True,
+    )
+
+    surface: Mapped[ShelfLayerDAO] = relationship(
+        "ShelfLayerDAO", uselist=False, foreign_keys=[surface_id], post_update=True
+    )
+
+
+class SpawnedTableWithChairsDAO(
+    SpawnedLayoutDAO,
+    DataAccessObject[
+        semantic_digital_twin.scene_generation.scene_schema.SpawnedTableWithChairs
+    ],
+):
+    __tablename__ = "SpawnedTableWithChairsDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        ForeignKey(SpawnedLayoutDAO.database_id),
+        primary_key=True,
+        use_existing_column=True,
+    )
+
+    parent_id: Mapped[int] = mapped_column(
+        ForeignKey("KinematicStructureEntityDAO.database_id", use_alter=True),
+        nullable=True,
+        use_existing_column=True,
+    )
+
+    parent: Mapped[KinematicStructureEntityDAO] = relationship(
+        "KinematicStructureEntityDAO",
+        uselist=False,
+        foreign_keys=[parent_id],
+        post_update=True,
+    )
+
+    __mapper_args__ = {
+        "polymorphic_identity": "SpawnedTableWithChairsDAO",
+        "inherit_condition": database_id == SpawnedLayoutDAO.database_id,
         "polymorphic_load": "selectin",
     }
 

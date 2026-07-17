@@ -3,10 +3,10 @@ from __future__ import annotations
 import enum
 import math
 import random
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
-from typing import Any, Self, assert_never
+from typing import Any, ClassVar, Self, assert_never
 
 import numpy as np
 import trimesh
@@ -562,6 +562,7 @@ class EGObject2D(EGWithID):
         x: float | None = None,
         y: float | None = None,
         z: float = 0.0,
+        world_pose: HomogeneousTransformationMatrix | None = None,
         **kwargs,
     ) -> Body:
         """
@@ -581,6 +582,9 @@ class EGObject2D(EGWithID):
         :param y: Absolute y in world coordinates (defaults to
             ``self.position.y``).
         :param z: Absolute z in world coordinates.
+        :param world_pose: When given, the body is placed at this pose and
+            *x*, *y*, *z* are ignored, so a caller that already computed the
+            pose can reuse it for both spawning and later repositioning.
         :raises ValueError: If *mesh_path* does not exist.
         :return: The created :class:`Body`.
         """
@@ -599,14 +603,18 @@ class EGObject2D(EGWithID):
         body = Body()
         body.name = PrefixedName(name=str(body.id), prefix=self.id)
 
-        root_T_body = HomogeneousTransformationMatrix.from_xyz_rpy(
-            self.position.x if x is None else x,
-            self.position.y if y is None else y,
-            z,
-            *self.orientation.as_roll_pitch_yaw_in_radians(),
-            reference_frame=parent,
-            child_frame=body,
-        )
+        if world_pose is not None:
+            world_pose.child_frame = body
+            root_T_body = world_pose
+        else:
+            root_T_body = HomogeneousTransformationMatrix.from_xyz_rpy(
+                self.position.x if x is None else x,
+                self.position.y if y is None else y,
+                z,
+                *self.orientation.as_roll_pitch_yaw_in_radians(),
+                reference_frame=parent,
+                child_frame=body,
+            )
 
         native_extents = trimesh.load(str(ply_file), process=False).extents
         mesh = Mesh.from_ply_file(
@@ -625,10 +633,14 @@ class EGObject2D(EGWithID):
                 world=world,
                 parent=parent,
                 child=body,
-                parent_T_connection_expression=root_T_body,
             )
             world.add_body(body)
             world.add_connection(root_C_body)
+
+        # Placing the pose in the connection's degrees of freedom rather than in
+        # a fixed parent expression keeps the object movable: the ``.origin``
+        # setter can later reposition it in place.
+        body.parent_connection.origin = root_T_body
 
         annotation = NaturalLanguageWithTypeDescription(
             root=body, description=None, type_description=self.object_type
@@ -1074,7 +1086,9 @@ class EGRoom(EGWithID):
         for wall in self.walls:
             wall_annotation = wall.create_in_world(world, parent)
             walls_of_room.append(wall_annotation)
-            doors_of_this_wall = [door for door in self.doors if door.wall_id == wall.id]
+            doors_of_this_wall = [
+                door for door in self.doors if door.wall_id == wall.id
+            ]
             doors_of_room += [
                 door.create_in_world(
                     world,
@@ -1217,9 +1231,77 @@ class _MeshTypeMatcher:
 
 
 @dataclass
+class SpawnedLayout:
+    """
+    A generated layout instantiated in a :class:`World`.
+
+    Base for the per-generator spawn results, so the in-world resolver can spawn,
+    repair, and return any layout through one type.
+    """
+
+    world: World
+    """
+    The world the layout was spawned into.
+    """
+
+
+@dataclass
+class SpawnedShelfLayer:
+    """
+    Runtime handles to one shelf layer instantiated in a :class:`World`.
+
+    Positionally aligned with :attr:`SpawnedShelf.layers`, so the ``i``-th entry
+    corresponds to the ``i``-th layer of the spawned shelf.
+    """
+
+    surface: ShelfLayer
+    """
+    The layer's supporting-surface annotation in the world.
+    """
+
+    object_bodies: dict[int, Body]
+    """
+    Bodies spawned for the layer's objects, keyed by their index in
+    :attr:`EGShelfLayer.objects`; objects skipped at spawn have no entry.
+    """
+
+
+@dataclass
+class SpawnedShelf(SpawnedLayout):
+    """
+    A shelf instantiated in a :class:`World`, with handles for in-world
+    validation and repositioning of its objects.
+    """
+
+    parent: KinematicStructureEntity
+    """
+    The frame the shelf's objects' poses are expressed relative to.
+    """
+
+    layers: list[SpawnedShelfLayer]
+    """
+    Per-layer spawn handles, in shelf-layer order.
+    """
+
+    corpus: Body
+    """
+    The shelf corpus's body, so a caller can check objects for collision
+    against its walls in addition to each other.
+    """
+
+
+@dataclass
 class EGShelf(EGBase):
     """
     A shelf with four explicit horizontal layers.
+    """
+
+    _CORPUS_WALL_THICKNESS: ClassVar[float] = 0.03
+    """
+    Thickness of the spawned :class:`Cabinet` corpus's walls. The corpus is
+    sized larger than the layers' own footprint by this amount (see
+    :meth:`spawn_in_world`), so a wall carved out of that footprint never
+    intrudes into the region objects were trained to occupy.
     """
 
     position: EGPoint2D
@@ -1265,21 +1347,91 @@ class EGShelf(EGBase):
             layers=[EGShelfLayer._from_json(l, **kwargs) for l in data["layers"]],
         )
 
-    def create_in_world(
+    def object_world_pose(
+        self,
+        origin_z: float,
+        obj: EGObject2D,
+        parent: KinematicStructureEntity,
+    ) -> HomogeneousTransformationMatrix:
+        """
+        Compute the world pose of an object on one of this shelf's layers.
+
+        The object's layer-local offset and orientation are rotated by the
+        shelf's own yaw so it turns together with the shelf, while *origin_z*
+        fixes its height. Used both when first spawning an object body and when
+        moving it to a resampled pose, so the two placements can never drift
+        apart.
+
+        :param origin_z: Height of the object body's origin in *parent*'s frame.
+        :param obj: The object whose pose is computed; its ``position.y``/``x``
+            map to the shelf's local x/y axes.
+        :param parent: The frame the returned pose is expressed relative to.
+        :return: The object body's pose in *parent*'s frame.
+        """
+        yaw_radians = math.radians(self.orientation.z)
+        cos_yaw = math.cos(yaw_radians)
+        sin_yaw = math.sin(yaw_radians)
+        local_dx = obj.position.y
+        local_dy = obj.position.x
+        rotated_dx = local_dx * cos_yaw - local_dy * sin_yaw
+        rotated_dy = local_dx * sin_yaw + local_dy * cos_yaw
+        roll, pitch, yaw = obj.orientation.as_roll_pitch_yaw_in_radians()
+        return HomogeneousTransformationMatrix.from_xyz_rpy(
+            self.position.x + rotated_dx,
+            self.position.y + rotated_dy,
+            origin_z,
+            roll,
+            pitch,
+            yaw + yaw_radians,
+            reference_frame=parent,
+        )
+
+    def _seat_object_on_layer(
+        self,
+        obj: EGObject2D,
+        body: Body,
+        slab_top_z: float,
+        parent: KinematicStructureEntity,
+    ) -> None:
+        """
+        Lower *body* so its mesh rests on the layer slab with a small contact
+        overlap.
+
+        Object meshes carry their own, mesh-specific origin offset, so seating
+        them by their measured collision bottom -- rather than by a fixed
+        origin height -- both makes them actually rest on the slab and gives the
+        slight overlap that :func:`is_supported_by` needs to register support.
+        Assumes the object is upright, so its body-frame vertical extent equals
+        its world one.
+
+        :param obj: The object being seated, used to recompute the pose.
+        :param body: The already-spawned body to lower.
+        :param slab_top_z: Height of the layer slab's top face in *parent*'s
+            frame.
+        :param parent: The frame the pose is expressed relative to.
+        """
+        mesh_bottom = body.collision.combined_mesh.bounds[0][2]
+        origin_z = slab_top_z - mesh_bottom - 0.005
+        body.parent_connection.origin = self.object_world_pose(origin_z, obj, parent)
+
+    def spawn_in_world(
         self,
         world: World | None = None,
         parent: KinematicStructureEntity | None = None,
-    ) -> World:
+    ) -> SpawnedShelf:
         """
-        Instantiate the shelf and its objects inside a :class:`World`.
+        Instantiate the shelf and its objects inside a :class:`World`, returning
+        handles to the created layer annotations and object bodies.
 
-        :param world: Existing world to extend. A fresh world with a
-            ``map`` root body is created when omitted.
+        The handles let a caller validate and reposition individual objects in
+        the spawned world without rebuilding it.
+
+        :param world: Existing world to extend. A fresh world with a ``map``
+            root body is created when omitted.
         :param parent: The parent entity the shelf's own
-            :attr:`position`/ :attr:`orientation` are expressed relative
-            to. Defaults to the world's root when omitted, so standalone
-            callers are unaffected.
-        :return: The world containing the shelf.
+            :attr:`position`/ :attr:`orientation` are expressed relative to.
+            Defaults to the world's root when omitted.
+        :return: The spawned shelf, its world, and per-layer handles.
         """
         _world: World = world if world is not None else World()
         if world is None:
@@ -1289,8 +1441,15 @@ class EGShelf(EGBase):
 
         _parent = parent if parent is not None else _world.root
 
-        corpus_face = max(layer.scale.width for layer in self.layers)
-        corpus_depth = max(layer.scale.length for layer in self.layers)
+        # Padded by twice the wall thickness so the carved-out interior is at
+        # least as large as the layers' own footprint -- otherwise a wall
+        # intrudes into the region objects were trained to occupy, and an
+        # object placed near the training data's edge margin collides with
+        # it (most visible on small shelves, where that margin is thinner
+        # than the wall).
+        wall_margin = 2 * self._CORPUS_WALL_THICKNESS
+        corpus_face = max(layer.scale.width for layer in self.layers) + wall_margin
+        corpus_depth = max(layer.scale.length for layer in self.layers) + wall_margin
         corpus_height = self.scale.height
         yaw_radians = math.radians(self.orientation.z)
 
@@ -1302,21 +1461,20 @@ class EGShelf(EGBase):
             reference_frame=_parent,
         )
         with _world.modify_world():
-            Cabinet.create_with_new_body_in_world(
+            corpus_annotation = Cabinet.create_with_new_body_in_world(
                 name=PrefixedName(name="shelf_corpus"),
                 world=_world,
                 world_root_T_self=corpus_pose,
                 scale=Scale(x=corpus_depth, y=corpus_face, z=corpus_height),
-                wall_thickness=0.03,
+                wall_thickness=self._CORPUS_WALL_THICKNESS,
             )
 
         step = corpus_height / (len(self.layers) + 1)
         layer_z_heights = [step * (i + 1) for i in range(len(self.layers))]
 
         mesh_matcher = _MeshTypeMatcher(candidates=self.source_ids or [])
-        cos_yaw = math.cos(yaw_radians)
-        sin_yaw = math.sin(yaw_radians)
 
+        spawned_layers: list[SpawnedShelfLayer] = []
         for i, (layer, z_height) in enumerate(zip(self.layers, layer_z_heights)):
             layer_scale = Scale(x=layer.scale.length, y=layer.scale.width, z=0.02)
             layer_pose = HomogeneousTransformationMatrix.from_xyz_rpy(
@@ -1327,52 +1485,65 @@ class EGShelf(EGBase):
                 reference_frame=_parent,
             )
             with _world.modify_world():
-                ShelfLayer.create_with_new_body_in_world(
+                layer_annotation = ShelfLayer.create_with_new_body_in_world(
                     name=PrefixedName(name=f"layer_{i}"),
                     world=_world,
                     world_root_T_self=layer_pose,
                     scale=layer_scale,
                 )
 
-            for obj in layer.objects:
+            slab_top_z = z_height + 0.02 / 2
+            object_bodies: dict[int, Body] = {}
+            for object_index, obj in enumerate(layer.objects):
                 if not isinstance(obj.position.x, (int, float)):
                     continue
-                # obj.position.y/x map to the shelf's local x/y axes (the
-                # shelf's own width=y-face/length=x-depth convention); rotate
-                # that local offset by the shelf's own yaw before translating
-                # by self.position, so objects turn with the shelf.
-                local_dx = obj.position.y
-                local_dy = obj.position.x
-                rotated_dx = local_dx * cos_yaw - local_dy * sin_yaw
-                rotated_dy = local_dx * sin_yaw + local_dy * cos_yaw
-                absolute_x = self.position.x + rotated_dx
-                absolute_y = self.position.y + rotated_dy
-                absolute_z = z_height + layer_scale.z / 2
-
                 if not self.source_ids:
                     continue
                 candidate = mesh_matcher.random_match(obj.object_type)
                 obj.source_id = candidate.source_id
-                # Compound the shelf's own yaw into the object's orientation
-                # so it turns together with the shelf, not just its position.
-                rotated_object = replace(
-                    obj,
-                    orientation=EGRotation(
-                        x=obj.orientation.x,
-                        y=obj.orientation.y,
-                        z=obj.orientation.z + self.orientation.z,
-                    ),
-                )
-                rotated_object.create_in_world(
+                body = obj.create_in_world(
                     _world,
                     candidate.scene_dir,
                     parent=_parent,
-                    x=absolute_x,
-                    y=absolute_y,
-                    z=absolute_z,
+                    world_pose=self.object_world_pose(slab_top_z, obj, _parent),
                 )
+                object_bodies[object_index] = body
+                self._seat_object_on_layer(obj, body, slab_top_z, _parent)
 
-        return _world
+            spawned_layers.append(
+                SpawnedShelfLayer(
+                    surface=layer_annotation,
+                    object_bodies=object_bodies,
+                )
+            )
+
+        return SpawnedShelf(
+            world=_world,
+            parent=_parent,
+            layers=spawned_layers,
+            corpus=corpus_annotation.root,
+        )
+
+    def create_in_world(
+        self,
+        world: World | None = None,
+        parent: KinematicStructureEntity | None = None,
+    ) -> World:
+        """
+        Instantiate the shelf and its objects inside a :class:`World`.
+
+        Thin wrapper over :meth:`spawn_in_world` for callers that only need the
+        resulting world and not the per-object body handles.
+
+        :param world: Existing world to extend. A fresh world with a ``map``
+            root body is created when omitted.
+        :param parent: The parent entity the shelf's own
+            :attr:`position`/ :attr:`orientation` are expressed relative to.
+            Defaults to the world's root when omitted, so standalone callers
+            are unaffected.
+        :return: The world containing the shelf.
+        """
+        return self.spawn_in_world(world, parent).world
 
 
 def wrap_angle_degrees(angle: float) -> float:
@@ -1576,8 +1747,9 @@ class EGChair(EGWithID):
         world: World,
         mesh_path: Path | None,
         parent: KinematicStructureEntity,
-        table_position: EGPoint2D,
-        table_orientation: EGRotation,
+        table_position: EGPoint2D | None = None,
+        table_orientation: EGRotation | None = None,
+        world_pose: HomogeneousTransformationMatrix | None = None,
         **kwargs,
     ) -> Body:
         """
@@ -1589,8 +1761,13 @@ class EGChair(EGWithID):
         :param mesh_path: Directory containing the ``objects/`` sub-
             folder with PLY and texture files for this chair.
         :param parent: The parent kinematic structure entity.
-        :param table_position: Absolute position of the table centre.
-        :param table_orientation: Absolute orientation of the table.
+        :param table_position: Absolute position of the table centre; required
+            unless *world_pose* is given.
+        :param table_orientation: Absolute orientation of the table; required
+            unless *world_pose* is given.
+        :param world_pose: When given, the chair is placed at this pose and the
+            table pose is ignored, so a caller that already computed the pose
+            can reuse it for both spawning and later repositioning.
         :raises ValueError: If *mesh_path* does not exist.
         :return: The created :class:`Body`.
         """
@@ -1606,23 +1783,28 @@ class EGChair(EGWithID):
         ply_file = mesh_path / "objects" / f"{self.source_id}.ply"
         texture_file = mesh_path / "objects" / f"{self.source_id}_texture.png"
 
-        absolute_x, absolute_y, chair_yaw_world = self.relative_pose.to_absolute_pose(
-            table_position.x, table_position.y, table_orientation.z
-        )
-
         body = Body()
         body.name = PrefixedName(name=str(body.id), prefix=self.id)
 
-        root_T_body = HomogeneousTransformationMatrix.from_xyz_rpy(
-            absolute_x,
-            absolute_y,
-            0.0,
-            0.0,
-            0.0,
-            math.radians(chair_yaw_world),
-            reference_frame=parent,
-            child_frame=body,
-        )
+        if world_pose is not None:
+            world_pose.child_frame = body
+            root_T_body = world_pose
+        else:
+            absolute_x, absolute_y, chair_yaw_world = (
+                self.relative_pose.to_absolute_pose(
+                    table_position.x, table_position.y, table_orientation.z
+                )
+            )
+            root_T_body = HomogeneousTransformationMatrix.from_xyz_rpy(
+                absolute_x,
+                absolute_y,
+                0.0,
+                0.0,
+                0.0,
+                math.radians(chair_yaw_world),
+                reference_frame=parent,
+                child_frame=body,
+            )
 
         native_extents = trimesh.load(str(ply_file), process=False).extents
         target_extents = (self.scale.width, self.scale.length, self.scale.height)
@@ -1648,10 +1830,14 @@ class EGChair(EGWithID):
                 world=world,
                 parent=parent,
                 child=body,
-                parent_T_connection_expression=root_T_body,
             )
             world.add_body(body)
             world.add_connection(root_C_body)
+
+        # Placing the pose in the connection's degrees of freedom rather than in
+        # a fixed parent expression keeps the chair movable: the ``.origin``
+        # setter can later reposition it in place.
+        body.parent_connection.origin = root_T_body
 
         annotation = NaturalLanguageWithTypeDescription(
             root=body, description=None, type_description=self.object_type
@@ -1661,6 +1847,25 @@ class EGChair(EGWithID):
             world.add_semantic_annotation(annotation)
 
         return body
+
+
+@dataclass
+class SpawnedTableWithChairs(SpawnedLayout):
+    """
+    A table-with-chairs group instantiated in a :class:`World`, with handles for
+    in-world validation and repositioning of its chairs.
+    """
+
+    parent: KinematicStructureEntity
+    """
+    The frame the chairs' poses are expressed relative to.
+    """
+
+    chair_bodies: dict[int, Body]
+    """
+    Bodies spawned for the chairs, keyed by their index in
+    :attr:`EGTableWithChairs.chairs`; chairs skipped at spawn have no entry.
+    """
 
 
 @dataclass
@@ -1717,21 +1922,52 @@ class EGTableWithChairs(EGBase):
             chairs=[EGChair._from_json(c, **kwargs) for c in data["chairs"]],
         )
 
-    def create_in_world(
+    def chair_world_pose(
+        self, chair: EGChair, parent: KinematicStructureEntity
+    ) -> HomogeneousTransformationMatrix:
+        """
+        Compute the world pose of a chair around this table from its
+        table-relative polar pose.
+
+        Used both when first spawning a chair body and when moving it to a
+        resampled pose, so the two placements can never drift apart.
+
+        :param chair: The chair whose pose is computed.
+        :param parent: The frame the returned pose is expressed relative to.
+        :return: The chair body's pose in *parent*'s frame; chairs rest on the
+            floor, so its height is zero.
+        """
+        absolute_x, absolute_y, chair_yaw_world = chair.relative_pose.to_absolute_pose(
+            self.position.x, self.position.y, self.orientation.z
+        )
+        return HomogeneousTransformationMatrix.from_xyz_rpy(
+            absolute_x,
+            absolute_y,
+            0.0,
+            0.0,
+            0.0,
+            math.radians(chair_yaw_world),
+            reference_frame=parent,
+        )
+
+    def spawn_in_world(
         self,
         world: World | None = None,
         parent: KinematicStructureEntity | None = None,
-    ) -> World:
+    ) -> SpawnedTableWithChairs:
         """
-        Instantiate the table and its chairs inside a :class:`World`.
+        Instantiate the table and its chairs inside a :class:`World`, returning
+        handles to the table annotation and chair bodies.
 
-        :param world: Existing world to extend. A fresh world with a
-            ``map`` root body is created when omitted.
+        The handles let a caller validate and reposition individual chairs in
+        the spawned world without rebuilding it.
+
+        :param world: Existing world to extend. A fresh world with a ``map``
+            root body is created when omitted.
         :param parent: The parent entity the table's own
-            :attr:`position`/ :attr:`orientation` are expressed relative
-            to. Defaults to the world's root when omitted, so standalone
-            callers are unaffected.
-        :return: The world containing the table and its chairs.
+            :attr:`position`/ :attr:`orientation` are expressed relative to.
+            Defaults to the world's root when omitted.
+        :return: The spawned group, its world, and per-chair handles.
         """
         _world: World = world if world is not None else World()
         if world is None:
@@ -1753,25 +1989,52 @@ class EGTableWithChairs(EGBase):
                 name=PrefixedName(name="table"),
                 world=_world,
                 world_root_T_self=table_pose,
-                scale=Scale(x=self.scale.length, y=self.scale.width, z=self.scale.height),
+                scale=Scale(
+                    x=self.scale.length, y=self.scale.width, z=self.scale.height
+                ),
             )
 
         mesh_matcher = _MeshTypeMatcher(candidates=self.source_ids or [])
 
+        chair_bodies: dict[int, Body] = {}
         for i, chair in enumerate(self.chairs):
             if not self.source_ids:
                 continue
             candidate = mesh_matcher.random_match(chair.object_type)
             chair.source_id = candidate.source_id
-            chair.create_in_world(
+            chair_bodies[i] = chair.create_in_world(
                 _world,
                 candidate.scene_dir,
                 parent=_parent,
-                table_position=self.position,
-                table_orientation=self.orientation,
+                world_pose=self.chair_world_pose(chair, _parent),
             )
 
-        return _world
+        return SpawnedTableWithChairs(
+            world=_world,
+            parent=_parent,
+            chair_bodies=chair_bodies,
+        )
+
+    def create_in_world(
+        self,
+        world: World | None = None,
+        parent: KinematicStructureEntity | None = None,
+    ) -> World:
+        """
+        Instantiate the table and its chairs inside a :class:`World`.
+
+        Thin wrapper over :meth:`spawn_in_world` for callers that only need the
+        resulting world and not the per-chair body handles.
+
+        :param world: Existing world to extend. A fresh world with a ``map``
+            root body is created when omitted.
+        :param parent: The parent entity the table's own
+            :attr:`position`/ :attr:`orientation` are expressed relative to.
+            Defaults to the world's root when omitted, so standalone callers
+            are unaffected.
+        :return: The world containing the table and its chairs.
+        """
+        return self.spawn_in_world(world, parent).world
 
 
 @dataclass

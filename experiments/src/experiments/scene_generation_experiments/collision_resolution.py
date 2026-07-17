@@ -3,13 +3,7 @@ from __future__ import annotations
 from collections import Counter
 from itertools import combinations
 
-from experiments.scene_generation_experiments.exceptions import ShelfLayoutResolutionError
-from krrood.entity_query_language.backends import ProbabilisticBackend
 from krrood.entity_query_language.factories import underspecified
-from krrood.parametrization.model_registries import RelationalCircuitRegistry
-from probabilistic_model.probabilistic_circuit.relational.rspn import (
-    RelationalProbabilisticCircuit,
-)
 from semantic_digital_twin.scene_generation.scene_schema import (
     EGObject2D,
     EGPoint2D,
@@ -24,106 +18,24 @@ from semantic_digital_twin.collision_checking.collision_matrix import (
 from semantic_digital_twin.collision_checking.trimesh_collision_detector import (
     FCLCollisionDetector,
 )
-from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
-from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
-from semantic_digital_twin.world import World
-from semantic_digital_twin.world_description.connections import Connection6DoF
-from semantic_digital_twin.world_description.geometry import Box, Scale
-from semantic_digital_twin.world_description.shape_collection import ShapeCollection
 from semantic_digital_twin.world_description.world_entity import Body
 
 
-def _create_book_world(layer: EGShelfLayer) -> tuple[World, dict[Body, int]]:
+def minimal_resample_set(colliding_pairs: set[tuple[int, int]]) -> set[int]:
     """
-    Build a temporary world with one box body per EGObject2D in the layer.
+    Return a minimal set of indices whose removal breaks every colliding pair.
 
-    Each body uses the object's scale as its box extent and the object's
-    2-D position and orientation as its placement.
+    Greedy minimum vertex cover: repeatedly discard the index involved in the
+    most remaining colliding pairs, breaking ties by the higher index for
+    reproducibility. The result depends only on which indices collide, not on
+    the order the pairs are reported, so callers get the same, stable choice
+    regardless of how the underlying collision detector orders its contacts.
 
-    :param layer: The shelf layer whose objects should be represented.
-    :return: Tuple of (world, body_to_index) where body_to_index maps
-        each created Body back to its index in layer.objects.
+    :param colliding_pairs: Pairs of indices that collide, each a sorted
+        ``(low, high)`` tuple.
+    :return: Indices to resample so that no colliding pair remains.
     """
-    world = World()
-    root = Body(name=PrefixedName(name="collision_root"))
-    body_to_index: dict[Body, int] = {}
-
-    with world.modify_world():
-        for index, object_2d in enumerate(layer.objects):
-            if not isinstance(object_2d.position.x, (int, float)):
-                continue
-            body = Body(
-                name=PrefixedName(name=f"book_{index}"),
-                collision=ShapeCollection(
-                    [
-                        Box(
-                            origin=HomogeneousTransformationMatrix.from_xyz_rpy(),
-                            scale=Scale(
-                                x=object_2d.scale.width,
-                                y=object_2d.scale.length,
-                                z=object_2d.scale.height,
-                            ),
-                        )
-                    ]
-                ),
-            )
-            conn = Connection6DoF.create_with_dofs(parent=root, child=body, world=world)
-            world.add_body(body)
-            world.add_connection(conn)
-            body_to_index[body] = index
-
-    for body, index in body_to_index.items():
-        object_2d = layer.objects[index]
-        body.parent_connection.origin = HomogeneousTransformationMatrix.from_xyz_rpy(
-            object_2d.position.x,
-            object_2d.position.y,
-            0.0,
-            *object_2d.orientation.as_roll_pitch_yaw_in_radians(),
-        )
-
-    return world, body_to_index
-
-
-def _find_colliding_indices(layer: EGShelfLayer) -> set[int]:
-    """
-    Return a minimal set of object indices that must be resampled to resolve
-    all collisions.
-
-    Builds the pairwise collision graph and greedily discards the index
-    involved in the most remaining colliding pairs (a greedy minimum
-    vertex cover), repeating until no pair is left; ties are broken by
-    the higher index for reproducibility. The choice depends only on
-    which indices collide with which, not on the arbitrary body_a/body_b
-    order the underlying collision detector reports on a given call -- a
-    detector that orders contacts differently between otherwise-
-    identical calls would previously make this function pick a different
-    (and sometimes non- minimal) set each time, which stalled the repair
-    loop in :func:`resolve_shelf_collisions` on layouts that had a valid
-    fix.
-
-    :param layer: The shelf layer to inspect.
-    :return: Set of indices (into layer.objects) that must be replaced.
-    """
-    world, body_to_index = _create_book_world(layer)
-    if len(body_to_index) < 2:
-        return set()
-
-    detector = FCLCollisionDetector(_world=world)
-    collision_matrix = CollisionMatrix(
-        collision_checks={
-            CollisionCheck(body_a=body_a, body_b=body_b, distance=0.0)
-            for body_a, body_b in combinations(body_to_index.keys(), 2)
-        }
-    )
-    result = detector.check_collisions(collision_matrix)
-    if not result.any():
-        return set()
-
-    remaining_pairs = {
-        tuple(sorted((body_to_index[contact.body_a], body_to_index[contact.body_b])))
-        for contact in result.contacts
-    }
-
+    remaining_pairs = set(colliding_pairs)
     indices_to_resample: set[int] = set()
     while remaining_pairs:
         involvement_counts = Counter(
@@ -140,56 +52,58 @@ def _find_colliding_indices(layer: EGShelfLayer) -> set[int]:
     return indices_to_resample
 
 
-def _footprint_fits_within_bounds(
-    object_2d: EGObject2D, half_width: float, half_length: float
-) -> bool:
+def in_world_colliding_indices(
+    detector: FCLCollisionDetector,
+    bodies_by_index: dict[int, Body],
+    static_obstacles: tuple[Body, ...] = (),
+) -> set[int]:
     """
-    Check whether *object_2d*'s axis-aligned footprint fits within a rectangle
-    of the given half-extents centered at the origin.
+    Return a minimal set of *bodies_by_index* keys whose resampling clears every
+    real-mesh collision among those bodies, and against *static_obstacles*, in
+    the spawned world.
 
-    Sampled yaw (``orientation.z``) varies widely in this dataset, but a
-    yaw-rotated corner check rejects the majority of even real, ground-truth
-    training placements (measured up to ~57%), making a resample loop that
-    enforces it unsatisfiable. Books legitimately overhang, lean, or rest
-    against edges in this dataset, so only the axis-aligned footprint is
-    checked; a large, heavily-rotated object may still poke past a wall
-    undetected -- an accepted gap in exchange for a check the sampling
-    distribution can actually satisfy.
+    Shared by the in-world shelf and table resolvers so both check collisions
+    between real spawned bodies -- rather than box proxies -- through the same
+    detector, matrix, and greedy-cover path. A body that hits a static
+    obstacle (e.g. a shelf's corpus wall) is always resampled directly: unlike
+    an inter-body collision, there is no choice of *which* side to move.
 
-    :param object_2d: The object whose footprint is checked.
-    :param half_width: Half of the usable width (x-axis) to fit within.
-    :param half_length: Half of the usable length (y-axis) to fit within.
-    :return: ``True`` if the axis-aligned footprint lies within bounds.
+    :param detector: A collision detector already synced to the world the
+        bodies live in; it re-syncs on the state changes body moves emit.
+    :param bodies_by_index: The bodies to check against each other, keyed by
+        their index in the owning collection.
+    :param static_obstacles: Fixed bodies that never move, checked against
+        each of *bodies_by_index* in addition to the pairwise checks among
+        them.
+    :return: Indices whose bodies must be resampled to remove all collisions.
     """
-    half_object_width = object_2d.scale.width / 2
-    half_object_length = object_2d.scale.length / 2
-    return (
-        abs(object_2d.position.x) + half_object_width <= half_width
-        and abs(object_2d.position.y) + half_object_length <= half_length
-    )
-
-
-def _out_of_bounds_indices(layer: EGShelfLayer) -> set[int]:
-    """
-    Return indices of objects whose axis-aligned footprint extends past the
-    layer's own width/length, meaning they would hang off the layer edge.
-
-    No wall-thickness margin is subtracted: measured against real training
-    data, doing so raises the violation rate from ~8% to ~29%, which a
-    resample loop cannot reliably satisfy since it draws from the same
-    distribution that data was fit from.
-
-    :param layer: The shelf layer to inspect.
-    :return: Set of indices (into layer.objects) that must be replaced.
-    """
-    half_width = layer.scale.width / 2
-    half_length = layer.scale.length / 2
-    return {
-        index
-        for index, object_2d in enumerate(layer.objects)
-        if isinstance(object_2d.position.x, (int, float))
-        and not _footprint_fits_within_bounds(object_2d, half_width, half_length)
+    body_to_index = {body: index for index, body in bodies_by_index.items()}
+    collision_checks = {
+        CollisionCheck(body_a=body_a, body_b=body_b, distance=0.0)
+        for body_a, body_b in combinations(body_to_index, 2)
+    } | {
+        CollisionCheck(body_a=body, body_b=obstacle, distance=0.0)
+        for body in body_to_index
+        for obstacle in static_obstacles
     }
+    if not collision_checks:
+        return set()
+    result = detector.check_collisions(CollisionMatrix(collision_checks=collision_checks))
+    if not result.any():
+        return set()
+    obstacles = set(static_obstacles)
+    colliding_pairs: set[tuple[int, int]] = set()
+    obstacle_hit_indices: set[int] = set()
+    for contact in result.contacts:
+        if contact.body_a in obstacles:
+            obstacle_hit_indices.add(body_to_index[contact.body_b])
+        elif contact.body_b in obstacles:
+            obstacle_hit_indices.add(body_to_index[contact.body_a])
+        else:
+            colliding_pairs.add(
+                tuple(sorted((body_to_index[contact.body_a], body_to_index[contact.body_b])))
+            )
+    return minimal_resample_set(colliding_pairs) | obstacle_hit_indices
 
 
 def _build_free_object2d_query():
@@ -207,6 +121,30 @@ def _build_free_object2d_query():
         scale=underspecified(EGScale)(width=..., length=..., height=...),
         position=underspecified(EGPoint2D)(x=..., y=...),
         orientation=underspecified(EGRotation)(x=..., y=..., z=...),
+        source_id=None,
+    )
+
+
+def _fixed_object_slot(object_2d: EGObject2D):
+    """
+    Build an EGObject2D query slot whose spatial fields are pinned to
+    *object_2d* as conditioning evidence.
+
+    The object_type is left underspecified to avoid enum-to-float conversion
+    issues in the RSPN sampling backend.
+
+    :param object_2d: The object whose position, scale, and orientation are
+        fixed.
+    :return: A partially-underspecified EGObject2D holding *object_2d*'s pose.
+    """
+    return underspecified(EGObject2D)(
+        id=None,
+        room_id=None,
+        place_id=None,
+        object_type=...,
+        scale=object_2d.scale,
+        position=object_2d.position,
+        orientation=object_2d.orientation,
         source_id=None,
     )
 
@@ -232,29 +170,12 @@ def _build_conditioned_layer_query(
         When ``None``, scale is sampled freely from the RSPN marginal.
     :return: An underspecified EGShelfLayer query ready for ProbabilisticBackend evaluation.
     """
-
-    def _fixed_slot(object_2d: EGObject2D):
-        return underspecified(EGObject2D)(
-            id=None,
-            room_id=None,
-            place_id=None,
-            object_type=...,
-            scale=object_2d.scale,
-            position=object_2d.position,
-            orientation=object_2d.orientation,
-            source_id=None,
-        )
-
     scale_argument = (
         target_scale
         if target_scale is not None
         else underspecified(EGScale)(width=..., length=..., height=...)
     )
-    return underspecified(EGShelfLayer)(
-        scale=scale_argument,
-        objects=[_fixed_slot(object_2d) for object_2d in fixed_objects]
-        + [_build_free_object2d_query() for _ in range(free_count)],
-    )
+    return build_pose_resample_query(fixed_objects, free_count, scale_argument)
 
 
 def build_free_layer_query(object_count: int):
@@ -295,82 +216,34 @@ def build_layer_query_with_fixed_scale(object_count: int, scale: EGScale):
     return _build_conditioned_layer_query([], object_count, target_scale=scale)
 
 
-def _fix_layer(
-    layer: EGShelfLayer,
-    colliding_indices: set[int],
-    rspn: RelationalProbabilisticCircuit,
-) -> EGShelfLayer:
+def build_pose_resample_query(
+    fixed_objects: list[EGObject2D],
+    free_count: int,
+    layer_scale: EGScale,
+):
     """
-    Perform one repair pass on a layer: condition on valid books and resample
-    the given colliding indices.
+    Build an EGShelfLayer query that keeps every non-resampled object fixed and
+    redraws the scale, position, and orientation of free_count fresh objects.
 
-    :param layer: The shelf layer to repair.
-    :param colliding_indices: Indices into ``layer.objects`` that must
-        be resampled, as already computed by the caller.
-    :param rspn: The fitted RSPN used to draw replacement book
-        positions.
-    :return: A new EGShelfLayer with colliding books replaced by fresh
-        samples.
+    Conditioning a resampled slot on its own scale, in addition to the other
+    objects' exact poses, pins the query to the single training example that
+    combination of evidence came from, collapsing the RSPN's posterior for
+    that slot's position back to its original, still-colliding value -- so the
+    scale is left free like every other field. The caller keeps the body's
+    existing mesh regardless, since it only ever applies the redrawn position
+    and orientation, never the redrawn scale. Free slots are appended after
+    the fixed ones, so the caller reads the redrawn objects off the tail of
+    the result.
+
+    :param fixed_objects: Objects whose full pose is held as evidence.
+    :param free_count: Number of fully-underspecified object slots to
+        resample.
+    :param layer_scale: The layer dimensions to condition on.
+    :return: An underspecified EGShelfLayer query ready for
+        :class:`ProbabilisticBackend` evaluation.
     """
-    fixed_objects = [object_2d for index, object_2d in enumerate(layer.objects) if index not in colliding_indices]
-    free_count = len(colliding_indices)
-    query = _build_conditioned_layer_query(fixed_objects, free_count, target_scale=layer.scale)
-    registry = RelationalCircuitRegistry(
-        relational_probabilistic_circuit=rspn
-    )
-    backend = ProbabilisticBackend(model_registry=registry, number_of_samples=1)
-    new_layer = next(iter(backend.evaluate(query)))
-    # Restore original fixed objects (preserves object_type left free in conditioned slots);
-    # take the trailing free_count entries as the newly sampled replacements.
-    new_objects = new_layer.objects[len(fixed_objects):]
-    return EGShelfLayer(scale=layer.scale, objects=fixed_objects + new_objects)
-
-
-def resolve_shelf_collisions(
-    layers: list[EGShelfLayer],
-    rspn: RelationalProbabilisticCircuit,
-    max_passes: int = 50,
-) -> list[EGShelfLayer]:
-    """
-    Return collision-free, in-bounds versions of all shelf layers by iterating
-    until every layer is clean.
-
-    The outer loop repeats until no layer contains any colliding book
-    pair or out-of-bounds object. On each pass only layers that still
-    have a violation are repaired, so already-clean layers are never
-    touched again. The violating indices found while deciding whether a
-    layer needs repair are reused for the repair itself, instead of
-    being recomputed.
-
-    :param layers: All layers of a shelf, each containing sampled
-        EGObject2D books.
-    :param rspn: The fitted RSPN used to draw replacement book
-        positions.
-    :param max_passes: Upper bound on repair passes before giving up,
-        since an out-of-bounds object can be sampled in a way that never
-        fits.
-    :raises ShelfLayoutResolutionError: If no valid layout is reached
-        within *max_passes* repair passes.
-    :return: A list of EGShelfLayer instances with no pairwise book
-        collisions and no objects extending past the layer or its walls.
-    """
-    layers = list(layers)
-    for _ in range(max_passes):
-        violating_indices_by_layer = {
-            index: violating_indices
-            for index, layer in enumerate(layers)
-            if (
-                violating_indices := (
-                    _find_colliding_indices(layer) | _out_of_bounds_indices(layer)
-                )
-            )
-        }
-        if not violating_indices_by_layer:
-            return layers
-        for index, violating_indices in violating_indices_by_layer.items():
-            layers[index] = _fix_layer(layers[index], violating_indices, rspn)
-
-    raise ShelfLayoutResolutionError(
-        remaining_layer_indices=frozenset(violating_indices_by_layer.keys()),
-        passes_attempted=max_passes,
+    return underspecified(EGShelfLayer)(
+        scale=layer_scale,
+        objects=[_fixed_object_slot(object_2d) for object_2d in fixed_objects]
+        + [_build_free_object2d_query() for _ in range(free_count)],
     )

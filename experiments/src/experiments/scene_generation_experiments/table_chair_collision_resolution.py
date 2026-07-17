@@ -2,25 +2,12 @@ from __future__ import annotations
 
 import random
 
-from experiments.scene_generation_experiments.collision_resolution import (
-    _find_colliding_indices,
-)
-from experiments.scene_generation_experiments.exceptions import (
-    TableChairLayoutResolutionError,
-)
-from krrood.entity_query_language.backends import ProbabilisticBackend
 from krrood.entity_query_language.factories import underspecified
-from krrood.parametrization.model_registries import RelationalCircuitRegistry
-from probabilistic_model.probabilistic_circuit.relational.rspn import (
-    RelationalProbabilisticCircuit,
-)
 from semantic_digital_twin.scene_generation.scene_schema import (
     EGChair,
-    EGObject2D,
     EGPoint2D,
     EGRelativePolarPose,
     EGRotation,
-    EGShelfLayer,
     EGScale,
     EGTableWithChairs,
 )
@@ -51,55 +38,6 @@ def sample_chair_count(training_chair_counts: list[int]) -> int:
     return random.choice(training_chair_counts)
 
 
-def _project_chair_to_object2d(chair: EGChair) -> EGObject2D:
-    """
-    Project a chair's table-relative polar pose into a Cartesian
-    :class:`EGObject2D` in the table's own local frame, so chair-chair
-    collisions can be checked with the same box-proxy machinery already used
-    for shelf objects.
-
-    :param chair: The chair to project.
-    :return: A Cartesian stand-in for *chair*, positioned in the table's
-        local frame.
-    """
-    local_x, local_y, chair_yaw_relative_to_table = (
-        chair.relative_pose.to_absolute_pose(0.0, 0.0, 0.0)
-    )
-    return EGObject2D(
-        id=chair.id,
-        room_id=chair.room_id,
-        place_id="floor",
-        object_type=chair.object_type,
-        scale=chair.scale,
-        position=EGPoint2D(x=local_x, y=local_y),
-        orientation=EGRotation(x=0.0, y=0.0, z=chair_yaw_relative_to_table),
-        source_id=chair.source_id,
-    )
-
-
-def _find_colliding_chair_indices(table_with_chairs: EGTableWithChairs) -> set[int]:
-    """
-    Return indices of chairs that collide with another chair around the table.
-
-    Chairs are never checked against the table's own footprint: measured
-    against real training data, chairs assigned to a table never overlap
-    its bounding box, so treating the table as a collision obstacle
-    would only risk rejecting plausible layouts the fitted distribution
-    already produces.
-
-    :param table_with_chairs: The table-with-chairs group to inspect.
-    :return: Set of indices (into ``table_with_chairs.chairs``) that
-        must be replaced.
-    """
-    proxy_layer = EGShelfLayer(
-        scale=table_with_chairs.scale,
-        objects=[
-            _project_chair_to_object2d(chair) for chair in table_with_chairs.chairs
-        ],
-    )
-    return _find_colliding_indices(proxy_layer)
-
-
 def _build_free_chair_query():
     """
     Build a fully underspecified EGChair query with all pose fields free.
@@ -117,6 +55,27 @@ def _build_free_chair_query():
             angle_from_table_center=...,
             facing_angle_relative_to_table=...,
         ),
+        source_id=None,
+    )
+
+
+def _fixed_chair_slot(chair: EGChair):
+    """
+    Build an EGChair query slot whose scale and relative pose are pinned to
+    *chair* as conditioning evidence.
+
+    The object_type is left underspecified to avoid enum-to-float conversion
+    issues in the RSPN sampling backend.
+
+    :param chair: The chair whose scale and relative pose are fixed.
+    :return: A partially-underspecified EGChair holding *chair*'s pose.
+    """
+    return underspecified(EGChair)(
+        id=None,
+        room_id=None,
+        object_type=...,
+        scale=chair.scale,
+        relative_pose=chair.relative_pose,
         source_id=None,
     )
 
@@ -146,17 +105,6 @@ def _build_conditioned_table_query(
     :return: An underspecified EGTableWithChairs query ready for
         ProbabilisticBackend evaluation.
     """
-
-    def _fixed_slot(chair: EGChair):
-        return underspecified(EGChair)(
-            id=None,
-            room_id=None,
-            object_type=...,
-            scale=chair.scale,
-            relative_pose=chair.relative_pose,
-            source_id=None,
-        )
-
     position_argument = (
         table_position
         if table_position is not None
@@ -176,8 +124,47 @@ def _build_conditioned_table_query(
         position=position_argument,
         scale=scale_argument,
         orientation=orientation_argument,
-        chairs=[_fixed_slot(chair) for chair in fixed_chairs]
+        chairs=[_fixed_chair_slot(chair) for chair in fixed_chairs]
         + [_build_free_chair_query() for _ in range(free_count)],
+    )
+
+
+def build_chair_pose_resample_query(
+    fixed_chairs: list[EGChair],
+    resampled_chairs: list[EGChair],
+    table_position: EGPoint2D,
+    table_scale: EGScale,
+    table_orientation: EGRotation,
+):
+    """
+    Build an EGTableWithChairs query that keeps every non-resampled chair fixed
+    and redraws the scale and relative pose of the resampled chairs.
+
+    Conditioning a resampled slot on its own scale, in addition to the other
+    chairs' exact poses, pins the query to the single training example that
+    combination of evidence came from, collapsing the RSPN's posterior for
+    that slot's relative pose back to its original, still-colliding value --
+    so the scale is left free like every other field. The caller keeps the
+    body's existing mesh regardless, since it only ever applies the redrawn
+    relative pose, never the redrawn scale. Resampled slots are appended
+    after the fixed ones, so the caller reads the redrawn chairs off the tail
+    of the result in the order of *resampled_chairs*.
+
+    :param fixed_chairs: Chairs whose full pose is held as evidence.
+    :param resampled_chairs: Chairs whose relative pose is redrawn; only used
+        to determine how many free slots to add.
+    :param table_position: The table position to condition on.
+    :param table_scale: The table scale to condition on.
+    :param table_orientation: The table orientation to condition on.
+    :return: An underspecified EGTableWithChairs query ready for
+        :class:`ProbabilisticBackend` evaluation.
+    """
+    return underspecified(EGTableWithChairs)(
+        position=table_position,
+        scale=table_scale,
+        orientation=table_orientation,
+        chairs=[_fixed_chair_slot(chair) for chair in fixed_chairs]
+        + [_build_free_chair_query() for _ in resampled_chairs],
     )
 
 
@@ -194,77 +181,3 @@ def build_free_table_query(chair_count: int):
     return _build_conditioned_table_query([], chair_count)
 
 
-def _fix_table_chairs(
-    table_with_chairs: EGTableWithChairs,
-    colliding_indices: set[int],
-    rspn: RelationalProbabilisticCircuit,
-) -> EGTableWithChairs:
-    """
-    Perform one repair pass: condition on non-colliding chairs and the table's
-    own pose, and resample the given colliding indices.
-
-    :param table_with_chairs: The table-with-chairs group to repair.
-    :param colliding_indices: Indices into ``table_with_chairs.chairs``
-        that must be resampled, as already computed by the caller.
-    :param rspn: The fitted RSPN used to draw replacement chair poses.
-    :return: A new EGTableWithChairs with colliding chairs replaced by
-        fresh samples.
-    """
-    fixed_chairs = [
-        chair
-        for index, chair in enumerate(table_with_chairs.chairs)
-        if index not in colliding_indices
-    ]
-    free_count = len(colliding_indices)
-    query = _build_conditioned_table_query(
-        fixed_chairs,
-        free_count,
-        table_position=table_with_chairs.position,
-        table_scale=table_with_chairs.scale,
-        table_orientation=table_with_chairs.orientation,
-    )
-    registry = RelationalCircuitRegistry(relational_probabilistic_circuit=rspn)
-    backend = ProbabilisticBackend(model_registry=registry, number_of_samples=1)
-    new_sample = next(iter(backend.evaluate(query)))
-    new_chairs = new_sample.chairs[len(fixed_chairs) :]
-    return EGTableWithChairs(
-        position=table_with_chairs.position,
-        scale=table_with_chairs.scale,
-        orientation=table_with_chairs.orientation,
-        chairs=fixed_chairs + new_chairs,
-        source_ids=table_with_chairs.source_ids,
-    )
-
-
-def resolve_table_chair_collisions(
-    table_with_chairs: EGTableWithChairs,
-    rspn: RelationalProbabilisticCircuit,
-    max_passes: int = 50,
-) -> EGTableWithChairs:
-    """
-    Return a collision-free version of table_with_chairs by iterating until no
-    two chairs overlap.
-
-    Only the chairs flagged in a given pass are resampled; already-clean
-    chairs are fixed as conditioning evidence, mirroring
-    :func:`~experiments.scene_generation_experiments.collision_resolution.resolve_shelf_collisions`.
-
-    :param table_with_chairs: A table with sampled chairs around it.
-    :param rspn: The fitted RSPN used to draw replacement chair poses.
-    :param max_passes: Upper bound on repair passes before giving up.
-    :raises TableChairLayoutResolutionError: If no collision-free
-        arrangement is reached within *max_passes* repair passes.
-    :return: An EGTableWithChairs with no pairwise chair collisions.
-    """
-    current = table_with_chairs
-    colliding_indices: set[int] = set()
-    for _ in range(max_passes):
-        colliding_indices = _find_colliding_chair_indices(current)
-        if not colliding_indices:
-            return current
-        current = _fix_table_chairs(current, colliding_indices, rspn)
-
-    raise TableChairLayoutResolutionError(
-        remaining_chair_indices=frozenset(colliding_indices),
-        passes_attempted=max_passes,
-    )

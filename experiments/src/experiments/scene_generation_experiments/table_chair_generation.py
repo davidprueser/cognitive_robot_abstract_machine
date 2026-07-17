@@ -9,10 +9,16 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 
 from experiments.scene_generation_experiments.utils import rclpy_node, _get_source_ids_for_objects
-from krrood.entity_query_language.backends import ProbabilisticBackend
+from experiments.scene_generation_experiments.in_world_resolver import (
+    InWorldLayoutResolver,
+)
+from experiments.scene_generation_experiments.rspn_sampling import probabilistic_backend
+from experiments.scene_generation_experiments.table_chair_collision_resolution import (
+    build_free_table_query,
+    sample_chair_count,
+)
 from krrood.ormatic.data_access_objects.helper import to_dao
 from krrood.ormatic.utils import create_engine
-from krrood.parametrization.model_registries import RelationalCircuitRegistry
 from probabilistic_model.probabilistic_circuit.relational.rspn import (
     RelationalProbabilisticCircuit,
 )
@@ -148,8 +154,9 @@ def _extract_table_chair_groups_from_spatial_proximity(
 
 def generate_table_with_chairs(node) -> None:
     """
-    Train an RSPN on table-with-chairs data from the database, sample a
-    collision-free arrangement, and visualise it via RViz markers.
+    Train an RSPN on table-with-chairs data from the database, spawn a sampled
+    arrangement into a world, repair chair collisions directly in that world,
+    and visualise the result via RViz markers.
 
     :param node: An active rclpy node used to publish visualisation
         markers.
@@ -168,20 +175,10 @@ def generate_table_with_chairs(node) -> None:
     rspn = RelationalProbabilisticCircuit(EGTableWithChairs)
     rspn = rspn.fit(data_access_objects)
 
-    registry = RelationalCircuitRegistry(relational_probabilistic_circuit=rspn)
-    probability_backend = ProbabilisticBackend(
-        model_registry=registry, number_of_samples=1
-    )
-
-    from experiments.scene_generation_experiments.table_chair_collision_resolution import (
-        build_free_table_query,
-        resolve_table_chair_collisions,
-        sample_chair_count,
-    )
+    probability_backend = probabilistic_backend(rspn)
 
     chair_count = sample_chair_count([len(group.chairs) for group in table_chair_groups])
     sample = next(iter(probability_backend.evaluate(build_free_table_query(chair_count))))
-    sample = resolve_table_chair_collisions(sample, rspn)
 
     source_ids_for_sampled_objects = _get_source_ids_for_objects(
         training_objects, object_type=ObjectType.CHAIR
@@ -190,7 +187,8 @@ def generate_table_with_chairs(node) -> None:
     sample.orientation = EGRotation(x=0.0, y=0.0, z=0.0)
     sample.source_ids = source_ids_for_sampled_objects
 
-    world = sample.create_in_world()
+    spawned_group = InWorldLayoutResolver.for_table_with_chairs(sample, rspn).resolve()
+    world = spawned_group.world
     viz_marker = VizMarkerPublisher(_world=world, node=node)
     viz_marker.with_tf_publisher()
     print(f"Finished generating table-with-chairs sample in {time.time() - start:.2f}s")

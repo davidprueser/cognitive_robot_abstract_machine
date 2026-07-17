@@ -7,10 +7,8 @@ from collections import Counter
 
 from sqlalchemy.orm import Session
 
-from krrood.entity_query_language.backends import ProbabilisticBackend
 from krrood.ormatic.data_access_objects.helper import to_dao
 from krrood.ormatic.utils import create_engine
-from krrood.parametrization.model_registries import RelationalCircuitRegistry
 from probabilistic_model.probabilistic_circuit.relational.rspn import (
     RelationalProbabilisticCircuit,
 )
@@ -23,8 +21,11 @@ from experiments.scene_generation_experiments.utils import rclpy_node, _get_sour
 from experiments.scene_generation_experiments.collision_resolution import (
     build_free_layer_query,
     build_layer_query_with_fixed_scale,
-    resolve_shelf_collisions,
 )
+from experiments.scene_generation_experiments.in_world_resolver import (
+    InWorldLayoutResolver,
+)
+from experiments.scene_generation_experiments.rspn_sampling import probabilistic_backend
 from semantic_digital_twin.adapters.ros.visualization.viz_marker import VizMarkerPublisher
 from semantic_digital_twin.scene_generation.scene_schema import (
     EGPoint2D,
@@ -129,10 +130,11 @@ def generate_shelf_with_arbitrary_objects(node) -> None:
     of that type is available, a mesh is drawn from the full pool instead.
 
     .. note::
-        The RSPN learns object *scale* from training data, but PLY meshes are
-        rendered at their native size. Object types with high size variance
-        (e.g. plants, containers) may produce visual overlaps even after
-        collision resolution.
+        Meshes are rescaled so their bounding box matches the RSPN-sampled
+        scale, and collisions are resolved against those real meshes. A mesh
+        whose native aspect ratio differs from the sampled scale is stretched
+        to fit, which can look unnatural for high-variance types (e.g. plants,
+        containers).
 
     :param node: An active rclpy node used to publish visualisation markers.
     """
@@ -152,16 +154,25 @@ def generate_shelf_with_arbitrary_objects(node) -> None:
     rspn = RelationalProbabilisticCircuit(EGShelfLayer)
     rspn = rspn.fit(shelf_layer_data_access_objects)
 
-    registry = RelationalCircuitRegistry(relational_probabilistic_circuit=rspn)
-    probability_backend = ProbabilisticBackend(model_registry=registry, number_of_samples=1)
+    probability_backend = probabilistic_backend(rspn)
 
-    reference_layer = next(iter(probability_backend.evaluate(build_free_layer_query(3))))
+    objects_per_layer = 3
+    layer_count = 4
+    reference_layer = next(
+        iter(probability_backend.evaluate(build_free_layer_query(objects_per_layer)))
+    )
     target_scale = reference_layer.scale
     remaining_layers = [
-        next(iter(probability_backend.evaluate(build_layer_query_with_fixed_scale(3, target_scale))))
-        for _ in range(3)
+        next(
+            iter(
+                probability_backend.evaluate(
+                    build_layer_query_with_fixed_scale(objects_per_layer, target_scale)
+                )
+            )
+        )
+        for _ in range(layer_count - 1)
     ]
-    sampled_layers = resolve_shelf_collisions([reference_layer] + remaining_layers, rspn)
+    sampled_layers = [reference_layer] + remaining_layers
 
     source_ids = _get_source_ids_for_objects(training_objects, object_type=None)
     source_ids = _coarsen_mesh_candidate_types(source_ids, frequent_types)
@@ -173,7 +184,8 @@ def generate_shelf_with_arbitrary_objects(node) -> None:
         source_ids=source_ids,
     )
 
-    world = shelf_sample.create_in_world()
+    spawned_shelf = InWorldLayoutResolver.for_shelf(shelf_sample, rspn).resolve()
+    world = spawned_shelf.world
     viz_marker = VizMarkerPublisher(_world=world, node=node)
     viz_marker.with_tf_publisher()
     print(f"Finished generating shelf sample in {time.time() - start:.2f}s")

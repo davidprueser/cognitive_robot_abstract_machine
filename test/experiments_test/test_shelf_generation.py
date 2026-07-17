@@ -25,6 +25,7 @@ from experiments.scene_generation_experiments.book_shelf_generation import (
 from experiments.scene_generation_experiments.utils import _get_source_ids_for_objects
 from experiments.scene_generation_experiments.collision_resolution import (
     build_layer_query_with_fixed_scale,
+    build_pose_resample_query,
 )
 from experiments.scene_generation_experiments.shelf_generation import (
     _coarsen_mesh_candidate_types,
@@ -326,7 +327,12 @@ def test_coarsen_rare_object_types_keeps_only_the_most_frequent_types() -> None:
         ObjectType.OTHER,
         ObjectType.OTHER,
     ]
-    assert [obj.id for obj in result[0].objects] == ["cup_1", "cup_2", "plant_1", "chair_1"]
+    assert [obj.id for obj in result[0].objects] == [
+        "cup_1",
+        "cup_2",
+        "plant_1",
+        "chair_1",
+    ]
 
 
 def test_coarsen_rare_object_types_leaves_layer_within_keep_count_unchanged() -> None:
@@ -337,15 +343,23 @@ def test_coarsen_rare_object_types_leaves_layer_within_keep_count_unchanged() ->
     """
     layer = EGShelfLayer(
         scale=EGScale(height=0.02, length=0.3, width=0.4),
-        objects=[_typed_object(ObjectType.CUP, "cup_1"), _typed_object(ObjectType.PLANT, "plant_1")],
+        objects=[
+            _typed_object(ObjectType.CUP, "cup_1"),
+            _typed_object(ObjectType.PLANT, "plant_1"),
+        ],
     )
 
     result = _coarsen_rare_object_types([layer], keep_count=2)
 
-    assert [obj.object_type for obj in result[0].objects] == [ObjectType.CUP, ObjectType.PLANT]
+    assert [obj.object_type for obj in result[0].objects] == [
+        ObjectType.CUP,
+        ObjectType.PLANT,
+    ]
 
 
-def test_coarsen_mesh_candidate_types_relabels_candidates_outside_frequent_types() -> None:
+def test_coarsen_mesh_candidate_types_relabels_candidates_outside_frequent_types() -> (
+    None
+):
     """
     _coarsen_mesh_candidate_types must relabel every candidate whose type
     falls outside frequent_types as ObjectType.OTHER, mirroring
@@ -436,7 +450,10 @@ def test_build_layer_query_with_fixed_scale_conditions_scale() -> None:
     target_scale = EGScale(width=0.5, length=0.3, height=0.02)
     query = build_layer_query_with_fixed_scale(2, target_scale)
     params = UnderspecifiedParameters(query)
-    conditioned_names = {variable.name for variable in params.conditioning_assignments_from_literal_values}
+    conditioned_names = {
+        variable.name
+        for variable in params.conditioning_assignments_from_literal_values
+    }
     assert any("scale.width" in name for name in conditioned_names)
     assert any("scale.length" in name for name in conditioned_names)
 
@@ -453,9 +470,50 @@ def test_build_free_layer_query_does_not_condition_scale() -> None:
 
     query = build_free_layer_query(2)
     params = UnderspecifiedParameters(query)
-    conditioned_names = {variable.name for variable in params.conditioning_assignments_from_literal_values}
+    conditioned_names = {
+        variable.name
+        for variable in params.conditioning_assignments_from_literal_values
+    }
     assert not any("scale.width" in name for name in conditioned_names)
     assert not any("scale.length" in name for name in conditioned_names)
+
+
+def test_build_pose_resample_query_frees_resampled_scale_and_pose() -> None:
+    """
+    build_pose_resample_query must condition only the fixed objects' scale and
+    pose, leaving the resampled object's scale, position, and orientation all
+    free to be redrawn.
+
+    Conditioning a resampled slot on its own scale pins the query to the
+    single training example that combination of evidence (its own scale plus
+    every fixed neighbour's exact pose) came from, collapsing the RSPN's
+    posterior for that slot's position back to its original, still-colliding
+    value -- observed as a repair pass that redraws the exact same pose every
+    time and so can never actually resolve a collision. Regression test for
+    that collapse.
+    """
+    query = build_pose_resample_query(
+        [_typed_object(ObjectType.BOOK, "fixed")],
+        len([_typed_object(ObjectType.BOOK, "resampled")]),
+        EGScale(width=0.5, length=0.3, height=0.02),
+    )
+    params = UnderspecifiedParameters(query)
+    conditioned_names = {
+        variable.name
+        for variable in params.conditioning_assignments_from_literal_values
+    }
+    conditioned_positions = [name for name in conditioned_names if "position.x" in name]
+    # "objects[" scopes to per-object scale, excluding the layer's own
+    # (always-fixed) EGShelfLayer.scale.width.
+    conditioned_scales = [
+        name
+        for name in conditioned_names
+        if "objects[" in name and "scale.width" in name
+    ]
+    # Only the one fixed object's position and scale are conditioned; the
+    # resampled one's are left entirely free.
+    assert len(conditioned_positions) == 1
+    assert len(conditioned_scales) == 1
 
 
 # ---------------------------------------------------------------------------
@@ -476,7 +534,9 @@ def test_object_mesh_is_rescaled_to_match_declared_egsize(tmp_path: Path) -> Non
     despite collision resolution having judged the layout collision-
     free.
     """
-    resources_root = Path(files("semantic_digital_twin")).parent.parent / "resources" / "ply"
+    resources_root = (
+        Path(files("semantic_digital_twin")).parent.parent / "resources" / "ply"
+    )
     objects_dir = tmp_path / "objects"
     objects_dir.mkdir()
     shutil.copy(resources_root / "chair.ply", objects_dir / "test_object.ply")
