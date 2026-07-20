@@ -9,6 +9,9 @@ from sklearn.cluster import DBSCAN
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 
+from experiments.scene_generation_experiments.data_preprocessing import (
+    Sage10kSceneDownloader,
+)
 from experiments.scene_generation_experiments.utils import (
     _get_source_ids_for_objects,
     rclpy_node,
@@ -182,7 +185,11 @@ def generate_book_shelf(node) -> None:
     ]
     sampled_layers = [reference_layer] + remaining_layers
 
-    source_ids_for_sampled_objects = _get_source_ids_for_objects(training_objects)
+    sage10k_session = Session(create_engine(os.environ.get("SAGE10k_DATABASE_URI")))
+    downloader = Sage10kSceneDownloader(session=sage10k_session)
+    source_ids_for_sampled_objects = _get_source_ids_for_objects(
+        training_objects, downloader=downloader
+    )
     shelf_sample = EGShelf(
         position=EGPoint2D(x=0.0, y=0.0),
         scale=EGScale(height=2.0, length=target_scale.length, width=target_scale.width),

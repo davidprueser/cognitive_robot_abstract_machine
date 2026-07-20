@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from importlib.resources import files
 from pathlib import Path
 from typing import TYPE_CHECKING
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from sqlalchemy import event
@@ -135,6 +135,85 @@ def test_missing_source_id_is_excluded(source_path_map: dict[str, Path]) -> None
     ):
         result = _get_source_ids_for_objects(objects_without_path, object_type=None)
     assert result == []
+
+
+def test_downloader_fills_pool_up_to_minimum_candidates() -> None:
+    """
+    With no book meshes cached locally, a downloader must be used to fetch
+    scenes for distinct book source_ids until minimum_candidates is reached.
+    """
+    books = [
+        _MockShelfObject(object_type=ObjectType.BOOK, source_id=f"book_{i}")
+        for i in range(5)
+    ]
+    downloader = MagicMock()
+    downloader.download_scene_for_source_id.side_effect = lambda source_id: (
+        _FAKE_PATH / source_id
+    )
+
+    with patch(
+        "experiments.scene_generation_experiments.utils.build_source_id_to_path",
+        return_value={},
+    ):
+        result = _get_source_ids_for_objects(
+            books, downloader=downloader, minimum_candidates=3
+        )
+
+    assert len(result) == 3
+    assert downloader.download_scene_for_source_id.call_count == 3
+
+
+def test_downloader_is_not_used_once_the_pool_already_meets_the_minimum(
+    source_path_map: dict[str, Path],
+) -> None:
+    """
+    A downloader must not be consulted at all when enough matching meshes are
+    already cached locally.
+    """
+    books = [_MockShelfObject(object_type=ObjectType.BOOK, source_id="book_src")]
+    downloader = MagicMock()
+
+    with patch(
+        "experiments.scene_generation_experiments.utils.build_source_id_to_path",
+        return_value=source_path_map,
+    ):
+        _get_source_ids_for_objects(books, downloader=downloader, minimum_candidates=1)
+
+    downloader.download_scene_for_source_id.assert_not_called()
+
+
+def test_downloader_skips_source_ids_the_sage10k_database_does_not_know() -> None:
+    """
+    A source_id the Sage-10k database has no record of must be skipped rather
+    than aborting the whole pool -- objects can come from a different data
+    source than the one the downloader looks scenes up in.
+    """
+    from experiments.scene_generation_experiments.data_preprocessing import (
+        SourceIdNotFoundError,
+    )
+
+    books = [
+        _MockShelfObject(object_type=ObjectType.BOOK, source_id="unknown_book"),
+        _MockShelfObject(object_type=ObjectType.BOOK, source_id="known_book"),
+    ]
+    downloader = MagicMock()
+
+    def _download(source_id: str) -> Path:
+        if source_id == "unknown_book":
+            raise SourceIdNotFoundError(source_id)
+        return _FAKE_PATH / source_id
+
+    downloader.download_scene_for_source_id.side_effect = _download
+
+    with patch(
+        "experiments.scene_generation_experiments.utils.build_source_id_to_path",
+        return_value={},
+    ):
+        result = _get_source_ids_for_objects(
+            books, downloader=downloader, minimum_candidates=5
+        )
+
+    assert [candidate.source_id for candidate in result] == ["known_book"]
 
 
 # ---------------------------------------------------------------------------

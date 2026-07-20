@@ -9,6 +9,10 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 
 from experiments.orm.ormatic_interface import EGObjectDAO
+from experiments.scene_generation_experiments.data_preprocessing import (
+    Sage10kSceneDownloader,
+    SourceIdNotFoundError,
+)
 from semantic_digital_twin.scene_generation.scene_schema import MeshCandidate, ObjectType
 
 from semantic_digital_twin.utils import rclpy_installed
@@ -69,6 +73,8 @@ def load_all_objects(session: Session) -> list[EGObjectDAO]:
 def _get_source_ids_for_objects(
     objects: list[EGObjectDAO],
     object_type: ObjectType | None = ObjectType.BOOK,
+    downloader: Sage10kSceneDownloader | None = None,
+    minimum_candidates: int = 5,
 ) -> list[MeshCandidate]:
     """
     Build the pool of mesh candidates for objects of *object_type* that have a
@@ -79,20 +85,71 @@ def _get_source_ids_for_objects(
         included. Defaults to :attr:`ObjectType.BOOK` to reproduce the
         original book-only behaviour; pass ``None`` to include every
         type.
+    :param downloader: When given, scenes are downloaded on demand for
+        matching objects whose mesh isn't cached locally yet, until
+        *minimum_candidates* distinct meshes are available or every
+        matching object has been tried. ``None`` skips downloading, so
+        the pool is whatever is already cached.
+    :param minimum_candidates: Target number of distinct meshes to have
+        available; only consulted when *downloader* is given.
     :return: Pool of mesh candidates, one per matching object with a
         resolvable PLY mesh.
     """
     source_id_to_path = build_source_id_to_path()
+    matching_objects = [
+        obj for obj in objects if object_type is None or obj.object_type == object_type
+    ]
+    if downloader is not None:
+        _ensure_minimum_mesh_pool(
+            matching_objects, source_id_to_path, downloader, minimum_candidates
+        )
     return [
         MeshCandidate(
             scene_dir=source_id_to_path[obj.source_id],
             source_id=obj.source_id,
             object_type=obj.object_type,
         )
-        for obj in objects
-        if (object_type is None or obj.object_type == object_type)
-        and obj.source_id in source_id_to_path
+        for obj in matching_objects
+        if obj.source_id in source_id_to_path
     ]
+
+
+def _ensure_minimum_mesh_pool(
+    objects: list[EGObjectDAO],
+    source_id_to_path: dict[str, Path],
+    downloader: Sage10kSceneDownloader,
+    minimum_candidates: int,
+) -> None:
+    """
+    Download scenes for *objects* not yet in *source_id_to_path*, mutating it
+    in place, until *minimum_candidates* distinct meshes are cached or every
+    object has been tried.
+
+    Not every ``source_id`` resolves in the Sage-10k database (e.g. objects
+    from a different data source), so a lookup miss is skipped rather than
+    aborting the whole pool.
+
+    :param objects: Candidate objects to download meshes for.
+    :param source_id_to_path: Mapping of already-cached source IDs to their
+        scene directory; extended in place with newly downloaded ones.
+    :param downloader: Resolves a source ID to its scene and downloads it.
+    :param minimum_candidates: Target number of distinct meshes to have
+        available, among *objects* specifically -- other object types
+        already cached in *source_id_to_path* don't count towards it.
+    """
+    available = {obj.source_id for obj in objects if obj.source_id in source_id_to_path}
+    for obj in objects:
+        if len(available) >= minimum_candidates:
+            return
+        if obj.source_id in available:
+            continue
+        try:
+            source_id_to_path[obj.source_id] = downloader.download_scene_for_source_id(
+                obj.source_id
+            )
+        except SourceIdNotFoundError:
+            continue
+        available.add(obj.source_id)
 
 
 def build_source_id_to_path(
