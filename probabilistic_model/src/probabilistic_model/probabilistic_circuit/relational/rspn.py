@@ -229,6 +229,23 @@ class RelationalProbabilisticCircuit:
     Must be a positive integer.
     """
 
+    min_samples_per_leaf: int | float = 1
+    """
+    Minimum number of samples required to create another sum node in the
+    class-level :class:`~probabilistic_model.learning.jpt.jpt.JointProbabilityTree`,
+    forwarded unchanged to every recursively fitted exchangeable part's
+    ``RelationalProbabilisticCircuit``.
+
+    A value below one is interpreted as a fraction of the training set size.
+    With the default of one, near-unique training columns (e.g. an ``id`` or
+    other identifier-like field) can grow one leaf per sample, so a class
+    fitted on many thousands of instances produces a circuit with as many
+    nodes; grounding then deep-copies that circuit once per exchangeable
+    part instance, which can exhaust memory. Callers fitting on large,
+    high-cardinality datasets should pass a fractional value to bound the
+    circuit's size.
+    """
+
     schema_information: Optional[DataAccessObjectSchema] = field(
         init=False, default=None
     )
@@ -381,7 +398,9 @@ class RelationalProbabilisticCircuit:
             if inferred.variable.name in aggregation_names
         ]
         template = ExchangeableDistributionTemplate(
-            RelationalProbabilisticCircuit(child_type),
+            RelationalProbabilisticCircuit(
+                child_type, min_samples_per_leaf=self.min_samples_per_leaf
+            ),
             latent_variables,
         )
         template.template_distribution.fit(
@@ -415,7 +434,8 @@ class RelationalProbabilisticCircuit:
         )
         variables = infer_variables_from_dataframe(class_dataframe)
         self.class_probabilistic_circuit = JointProbabilityTree(
-            annotated_variables=variables
+            annotated_variables=variables,
+            min_samples_per_leaf=self.min_samples_per_leaf,
         ).fit(class_dataframe)
         self.schema_information = get_dao_schema(type(instances[0]))
         for collection_relationship in self.schema_information.collection_relationships:

@@ -7,13 +7,6 @@ from pathlib import Path
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from experiments.orm.ormatic_interface import (
-    Base,
-    Sage10kObjectDAO,
-    Sage10kRoomDAO,
-    Sage10kSceneDAO,
-    Sage10kSceneDAO_rooms_association,
-)
 from krrood.ormatic.utils import create_engine
 from semantic_digital_twin.scene_generation.sage10k_processing import EGDataProcessing
 from semantic_digital_twin.semantic_annotations.description_matching import DescriptionCategoryScorer
@@ -83,6 +76,13 @@ class Sage10kSceneDownloader:
         :raises SourceIdNotFoundError: If the traversal fails at any
             step.
         """
+        from experiments.orm.ormatic_interface import (
+            Sage10kObjectDAO,
+            Sage10kRoomDAO,
+            Sage10kSceneDAO,
+            Sage10kSceneDAO_rooms_association,
+        )
+
         object_record = self.session.scalars(
             select(Sage10kObjectDAO)
             .where(Sage10kObjectDAO.source_id == source_id)
@@ -120,6 +120,8 @@ def demo() -> None:
     Print NLP description category scores for the first 1000 Sage-10k objects
     found in the configured database.
     """
+    from experiments.orm.ormatic_interface import Base, Sage10kObjectDAO
+
     uri = os.environ.get("SAGE10k_DATABASE_URI")
     engine = create_engine(uri)
     Base.metadata.create_all(bind=engine)

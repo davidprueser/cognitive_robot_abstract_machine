@@ -34,7 +34,9 @@ from semantic_digital_twin.scene_generation.scene_schema import (
     SpawnedTableWithChairs,
 )
 from semantic_digital_twin.semantic_annotations.semantic_annotations import Table
+from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
 from semantic_digital_twin.world import World
+from semantic_digital_twin.world_description.connections import Connection6DoF
 
 
 @pytest.fixture
@@ -120,20 +122,48 @@ def test_spawn_in_world_returns_a_body_per_chair_and_spawns_the_table(
     assert spawned.world.get_semantic_annotations_by_type(Table)
 
 
-def test_spawned_chair_body_pose_matches_chair_world_pose(
+def test_spawned_chair_body_pose_matches_chair_local_pose(
     mesh_candidate: MeshCandidate,
 ) -> None:
     """
-    A freshly spawned chair body must sit exactly where
-    :meth:`EGTableWithChairs.chair_world_pose` says it should -- pinning the
+    A freshly spawned chair body must sit, in the table frame, exactly where
+    :meth:`EGTableWithChairs.chair_local_pose` says it should -- pinning the
     single pose formula that both spawning and later moving rely on.
     """
     group = _group([_chair("chair_0", 1.0, 45.0)], mesh_candidate)
     spawned = group.spawn_in_world()
     body = spawned.chair_bodies[0]
 
-    expected = group.chair_world_pose(group.chairs[0], spawned.parent)
-    assert body.global_pose.to_np() == pytest.approx(expected.to_np())
+    expected = group.chair_local_pose(group.chairs[0], spawned.table)
+    assert body.parent_connection.origin.to_np() == pytest.approx(expected.to_np())
+
+
+def test_spawned_table_is_movable_as_a_unit(mesh_candidate: MeshCandidate) -> None:
+    """
+    The table must hang off its parent by a movable 6-DoF connection, so a
+    room-level resolver can reposition the whole group -- table and chairs -- in
+    place by setting the table origin, and its chairs follow.
+    """
+    group = _group([_chair("chair_0", 1.0, 0.0)], mesh_candidate)
+    spawned = group.spawn_in_world()
+    table = spawned.table
+    chair_body = spawned.chair_bodies[0]
+
+    assert isinstance(table.parent_connection, Connection6DoF)
+
+    before = chair_body.global_pose.to_position().to_np()
+    table_origin = table.parent_connection.origin
+    shifted = HomogeneousTransformationMatrix.from_xyz_rpy(
+        table_origin.to_position().to_np()[0] + 2.0,
+        table_origin.to_position().to_np()[1],
+        table_origin.to_position().to_np()[2],
+        reference_frame=table_origin.reference_frame,
+    )
+    table.parent_connection.origin = shifted
+
+    after = chair_body.global_pose.to_position().to_np()
+    assert after[0] == pytest.approx(before[0] + 2.0)
+    assert after[1] == pytest.approx(before[1])
 
 
 def test_resolver_moves_colliding_chair_until_group_is_collision_free(

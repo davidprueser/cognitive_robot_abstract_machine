@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from experiments.scene_generation_experiments.collision_resolution import (
+    _build_free_object2d_query,
     minimal_resample_set,
 )
 
@@ -32,3 +33,24 @@ def test_minimal_resample_set_is_empty_without_collisions() -> None:
     With no colliding pairs, nothing needs resampling.
     """
     assert minimal_resample_set(set()) == set()
+
+
+# ---------------------------------------------------------------------------
+# _build_free_object2d_query - free floor object sampling query
+# ---------------------------------------------------------------------------
+
+
+def test_build_free_object2d_query_pins_roll_and_pitch_to_upright() -> None:
+    """
+    Free floor objects always sit upright without tilting (only yaw varies),
+    so roll and pitch must be fixed evidence rather than left underspecified.
+    A degenerate (always-constant) circuit dimension left underspecified
+    leaks the query's ``...`` placeholder straight through the sample instead
+    of resolving it to a number, so only yaw -- which genuinely varies in the
+    training data -- may be left for the RSPN to sample.
+    """
+    orientation = _build_free_object2d_query().kwargs["orientation"]
+
+    assert orientation.kwargs["x"] == 0.0
+    assert orientation.kwargs["y"] == 0.0
+    assert orientation.kwargs["z"] is ...

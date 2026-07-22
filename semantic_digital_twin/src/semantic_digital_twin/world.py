@@ -1597,6 +1597,37 @@ class World(HasSimulatorProperties):
         if isinstance(old_connection, Connection6DoF):
             new_connection.origin = new_parent_T_branch_root
 
+    def make_branch_movable(
+        self, branch_root: KinematicStructureEntity
+    ) -> Connection6DoF:
+        """
+        Replace ``branch_root``'s parent connection with a fresh
+        :class:`Connection6DoF` at the same world pose, so the whole branch can
+        be repositioned in place by setting the returned connection's ``origin``.
+
+        The branch keeps its world pose: the new connection's degrees of freedom
+        are initialised to the pose the branch currently holds under its parent.
+        A branch already carried by a :class:`Connection6DoF` is returned as-is.
+
+        :param branch_root: The root of the branch to make movable.
+        :return: The movable connection now carrying the branch.
+        """
+        old_connection = branch_root.parent_connection
+        if isinstance(old_connection, Connection6DoF):
+            return old_connection
+
+        self.update_forward_kinematics()
+        parent = old_connection.parent
+        parent_T_branch_root = self.compute_forward_kinematics(parent, branch_root)
+        with self.modify_world():
+            self.remove_connection(old_connection)
+            movable_connection = Connection6DoF.create_with_dofs(
+                parent=parent, child=branch_root, world=self
+            )
+            self.add_connection(movable_connection)
+        movable_connection.origin = parent_T_branch_root
+        return movable_connection
+
     def move_branch_to_new_world(self, new_root: KinematicStructureEntity) -> World:
         """
         Copies the subgraph of the kinematic structure from the root body to a new world and removes it from the old world.

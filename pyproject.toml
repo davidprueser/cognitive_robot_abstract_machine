@@ -23,7 +23,8 @@ dependencies = [
   "physics_simulators",
   "experiments",
   "ipykernel>=7.2.0",
-  "lark-parser>=0.12.0"
+  "lark-parser>=0.12.0",
+  "argcomplete (>=3.7.0,<4.0.0)"
 ]
 
 [project.optional-dependencies]

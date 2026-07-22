@@ -24,22 +24,21 @@ def create_environment(scene_to_shelf_object: dict) -> tuple[SceneGenerator, Wor
     """
     data_processing = EGDataProcessing()
     scene_directory_to_object = {
-        data_processing.download_specific_scene(scene_id): shelf_object
+        data_processing.download_specific_scene(scene_id): shelf_object.from_dao()
         for scene_id, shelf_object in scene_to_shelf_object.items()
     }
-    mesh_to_object = {
-        directory: shelf_object.from_dao()
-        for directory, shelf_object in scene_directory_to_object.items()
+    object_id_to_mesh_path = {
+        obj.id: directory for directory, obj in scene_directory_to_object.items()
     }
     scene_generator = SceneGenerator(
         id="scene_1",
-        mesh_to_object_mapping=mesh_to_object,
+        object_id_to_mesh_path=object_id_to_mesh_path,
         room=EGRoom(
             id="room_1",
             room_type="living_room",
             scale=EGScale(0, 1, 2),
             position=EGPosition(0, 0, 0),
-            objects=list(mesh_to_object.values()),
+            objects=list(scene_directory_to_object.values()),
             walls=[
                 EGWall(
                     id="wall_1",

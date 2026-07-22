@@ -1,3 +1,5 @@
+import random
+
 import numpy as np
 import pytest
 
@@ -177,3 +179,33 @@ def test_ground_variable_count_scales_with_query_size(rpc):
     )
     query_4.resolve()
     assert len(rpc.ground(query_4).variables) > len(rpc.ground(query_2).variables)
+
+
+def _many_rooms(count: int) -> list:
+    random_x = random.Random(0)
+    random_y = random.Random(1)
+    return [
+        to_dao(
+            SceneRoom(
+                position=KRROODPosition(
+                    x=random_x.uniform(0.0, 100.0),
+                    y=random_y.uniform(0.0, 100.0),
+                    z=0.0,
+                ),
+                orientation=KRROODOrientation(x=0.0, y=0.0, z=0.0, w=1.0),
+                objects=[SceneObject(type=SceneObjectType.CHAIR)],
+            )
+        )
+        for _ in range(count)
+    ]
+
+
+def test_min_samples_per_leaf_is_forwarded_to_exchangeable_part_templates():
+    """The bound must also apply to recursively fitted exchangeable parts
+    (e.g. a room's ``objects``), since those are the circuits that get
+    deep-copied once per grounded instance during sampling."""
+    model = RelationalProbabilisticCircuit(SceneRoom, min_samples_per_leaf=0.1).fit(
+        _many_rooms(50)
+    )
+    template = model.exchangeable_distribution_templates["objects"]
+    assert template.template_distribution.min_samples_per_leaf == 0.1

@@ -5,10 +5,16 @@ import os
 import time
 from collections import defaultdict
 
-from sqlalchemy import select
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session
 
-from experiments.scene_generation_experiments.utils import rclpy_node, _get_source_ids_for_objects
+from experiments.scene_generation_experiments.utils import (
+    DEFAULT_TRAINING_ROOM_COUNT,
+    _get_source_ids_for_objects,
+    load_all_objects,
+    objects_for_rooms,
+    rclpy_node,
+    sampled_room_ids,
+)
 from experiments.scene_generation_experiments.in_world_resolver import (
     InWorldLayoutResolver,
 )
@@ -77,11 +83,13 @@ def _extract_table_chair_groups_from_spatial_proximity(
     session: Session,
     max_distance_from_table: float = 1.5,
     object_type: ObjectType = ObjectType.CHAIR,
+    room_count: int = DEFAULT_TRAINING_ROOM_COUNT,
 ) -> tuple[list[EGTableWithChairs], list[EGObjectDAO]]:
     """
-    Load all scenes and group chairs with the nearest table in the same room,
-    since chairs do not carry a ``place_id`` link to their table in the source
-    data the way shelf contents link to their shelf.
+    Load a random sample of rooms and group each one's chairs with the
+    nearest table in the same room, since chairs do not carry a ``place_id``
+    link to their table in the source data the way shelf contents link to
+    their shelf.
 
     Tables that end up with no assigned chairs are dropped: the RSPN's
     feature extractor decides whether a relation gets an exchangeable
@@ -89,23 +97,19 @@ def _extract_table_chair_groups_from_spatial_proximity(
     training instance's collection, so a bare table as the first instance
     would silently suppress chair modelling entirely.
 
+    Rooms are sampled first, then loaded in full, so a room's tables and
+    chairs are never truncated by a row-count limit on the underlying object
+    query.
+
     :param session: Database session to query objects from.
     :param max_distance_from_table: Maximum Euclidean distance, in metres,
         between a chair and a table for the chair to be assigned to it.
     :param object_type: Only objects whose type equals this value are
         considered chairs. Defaults to :attr:`ObjectType.CHAIR`.
+    :param room_count: Maximum number of distinct rooms to sample.
     :return: Extracted table-with-chairs groups and all loaded object DAOs.
     """
-    objects = session.scalars(
-        select(EGObjectDAO)
-        .options(
-            joinedload(EGObjectDAO.scale),
-            joinedload(EGObjectDAO.position),
-            joinedload(EGObjectDAO.orientation),
-        )
-        .distinct()
-        .limit(50000)
-    ).all()
+    objects = objects_for_rooms(session, sampled_room_ids(session, room_count))
 
     tables_by_room: defaultdict[str, list[EGObjectDAO]] = defaultdict(list)
     for obj in objects:
@@ -167,9 +171,7 @@ def generate_table_with_chairs(node) -> None:
     Base.metadata.create_all(bind=engine)
     session = Session(engine)
 
-    table_chair_groups, training_objects = (
-        _extract_table_chair_groups_from_spatial_proximity(session)
-    )
+    table_chair_groups, _ = _extract_table_chair_groups_from_spatial_proximity(session)
     data_access_objects = [to_dao(group) for group in table_chair_groups]
 
     rspn = RelationalProbabilisticCircuit(EGTableWithChairs)
@@ -181,7 +183,7 @@ def generate_table_with_chairs(node) -> None:
     sample = next(iter(probability_backend.evaluate(build_free_table_query(chair_count))))
 
     source_ids_for_sampled_objects = _get_source_ids_for_objects(
-        training_objects, object_type=ObjectType.CHAIR
+        load_all_objects(session), object_type=ObjectType.CHAIR
     )
     sample.position = EGPoint2D(x=0.0, y=0.0)
     sample.orientation = EGRotation(x=0.0, y=0.0, z=0.0)

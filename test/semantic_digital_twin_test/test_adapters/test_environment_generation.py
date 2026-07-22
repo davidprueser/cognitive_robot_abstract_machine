@@ -71,7 +71,7 @@ def test_simple_underspecified_environment(rclpy_node):
 
     underspecified_scene_generator = underspecified(SceneGenerator)(
         id=None,
-        mesh_to_object_mapping=None,
+        object_id_to_mesh_path=None,
         room=underspecified(EGRoom)(
             id=None,
             room_type=None,

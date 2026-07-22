@@ -6,15 +6,18 @@ from collections import defaultdict
 
 import numpy as np
 from sklearn.cluster import DBSCAN
-from sqlalchemy import select
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session
 
 from experiments.scene_generation_experiments.data_preprocessing import (
     Sage10kSceneDownloader,
 )
 from experiments.scene_generation_experiments.utils import (
+    DEFAULT_TRAINING_ROOM_COUNT,
     _get_source_ids_for_objects,
+    load_all_objects,
+    objects_for_rooms,
     rclpy_node,
+    sampled_room_ids,
 )
 from krrood.ormatic.data_access_objects.helper import to_dao
 from krrood.ormatic.utils import create_engine
@@ -49,10 +52,11 @@ def _extract_shelf_layers_from_place_id(
     session: Session,
     edge_margin_fraction: float = 0.10,
     object_type: ObjectType | None = ObjectType.BOOK,
+    room_count: int = DEFAULT_TRAINING_ROOM_COUNT,
 ) -> tuple[list[EGShelfLayer], list[EGObjectDAO]]:
     """
-    Load all scenes and group objects by the shelf declared in their
-    ``place_id``.
+    Load a random sample of rooms and group their objects by the shelf
+    declared in their ``place_id``.
 
     An object is considered a shelf occupant when ``"shelf"`` appears in its
     ``place_id`` (e.g. ``room_b12d7278_shelf_51fd4e1e``).  Shelf membership
@@ -63,23 +67,18 @@ def _extract_shelf_layers_from_place_id(
     (inset by *edge_margin_fraction*) are discarded so that the learned RSPN
     does not place objects at positions where they would protrude from the shelf.
 
+    Rooms are sampled first, then loaded in full, so a shelf's contents are
+    never truncated by a row-count limit on the underlying object query.
+
     :param edge_margin_fraction: Fraction of each shelf dimension to use as
         an inset margin on X and Y when filtering out-of-bounds objects.
     :param object_type: Only objects whose type equals this value are
         included. Defaults to :attr:`ObjectType.BOOK` to reproduce the
         original book-only behaviour; pass ``None`` to include every type.
+    :param room_count: Maximum number of distinct rooms to sample.
     :return: Extracted shelf layers and all loaded object DAOs.
     """
-    objects = session.scalars(
-        select(EGObjectDAO)
-        .options(
-            joinedload(EGObjectDAO.scale),
-            joinedload(EGObjectDAO.position),
-            joinedload(EGObjectDAO.orientation),
-        )
-        .distinct()
-        .limit(50000)
-    ).all()
+    objects = objects_for_rooms(session, sampled_room_ids(session, room_count))
 
     shelves: list[EGObjectDAO] = [
         obj for obj in objects if obj.object_type == ObjectType.SHELF
@@ -159,7 +158,7 @@ def generate_book_shelf(node) -> None:
     Base.metadata.create_all(bind=engine)
     session = Session(engine)
 
-    shelf_layers, training_objects = _extract_shelf_layers_from_place_id(session)
+    shelf_layers, _ = _extract_shelf_layers_from_place_id(session)
     shelf_layer_data_access_objects = [to_dao(layer) for layer in shelf_layers]
 
     rspn = RelationalProbabilisticCircuit(EGShelfLayer)
@@ -188,7 +187,7 @@ def generate_book_shelf(node) -> None:
     sage10k_session = Session(create_engine(os.environ.get("SAGE10k_DATABASE_URI")))
     downloader = Sage10kSceneDownloader(session=sage10k_session)
     source_ids_for_sampled_objects = _get_source_ids_for_objects(
-        training_objects, downloader=downloader
+        load_all_objects(session), downloader=downloader
     )
     shelf_sample = EGShelf(
         position=EGPoint2D(x=0.0, y=0.0),

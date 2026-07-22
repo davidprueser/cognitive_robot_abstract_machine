@@ -17,7 +17,11 @@ from experiments.orm.ormatic_interface import *  # type: ignore
 from experiments.scene_generation_experiments.book_shelf_generation import (
     _extract_shelf_layers_from_place_id,
 )
-from experiments.scene_generation_experiments.utils import rclpy_node, _get_source_ids_for_objects
+from experiments.scene_generation_experiments.utils import (
+    _get_source_ids_for_objects,
+    load_all_objects,
+    rclpy_node,
+)
 from experiments.scene_generation_experiments.collision_resolution import (
     build_free_layer_query,
     build_layer_query_with_fixed_scale,
@@ -144,9 +148,7 @@ def generate_shelf_with_arbitrary_objects(node) -> None:
     Base.metadata.create_all(bind=engine)
     session = Session(engine)
 
-    shelf_layers, training_objects = _extract_shelf_layers_from_place_id(
-        session, object_type=None
-    )
+    shelf_layers, _ = _extract_shelf_layers_from_place_id(session, object_type=None)
     frequent_types = _frequent_object_types(shelf_layers, keep_count=20)
     shelf_layers = _coarsen_rare_object_types(shelf_layers)
     shelf_layer_data_access_objects = [to_dao(layer) for layer in shelf_layers]
@@ -174,7 +176,7 @@ def generate_shelf_with_arbitrary_objects(node) -> None:
     ]
     sampled_layers = [reference_layer] + remaining_layers
 
-    source_ids = _get_source_ids_for_objects(training_objects, object_type=None)
+    source_ids = _get_source_ids_for_objects(load_all_objects(session), object_type=None)
     source_ids = _coarsen_mesh_candidate_types(source_ids, frequent_types)
     shelf_sample = EGShelf(
         position=EGPoint2D(x=0.0, y=0.0),

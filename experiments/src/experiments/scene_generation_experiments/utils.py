@@ -3,9 +3,10 @@ from __future__ import annotations
 import contextlib
 import threading
 import time
+from collections.abc import Sequence
 from pathlib import Path
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session, joinedload
 
 from experiments.orm.ormatic_interface import EGObjectDAO
@@ -16,6 +17,18 @@ from experiments.scene_generation_experiments.data_preprocessing import (
 from semantic_digital_twin.scene_generation.scene_schema import MeshCandidate, ObjectType
 
 from semantic_digital_twin.utils import rclpy_installed
+
+DEFAULT_TRAINING_ROOM_COUNT = 1500
+"""
+Default number of distinct rooms sampled by :func:`sampled_room_ids` for RSPN
+training. Selecting rooms first, then loading every object that belongs to
+them via :func:`objects_for_rooms`, keeps each selected room's piece
+membership complete -- unlike capping the object query directly, which
+truncated most rooms' pieces long before their true membership was reached
+(the dataset's true median is 23 floor pieces per room, but a flat 50000-row
+cap across the whole object table left a median of just 2 pieces per room
+actually represented).
+"""
 
 
 @contextlib.contextmanager
@@ -52,11 +65,17 @@ def rclpy_node():
 
 def load_all_objects(session: Session) -> list[EGObjectDAO]:
     """
-    Load all object DAOs from the database, eagerly joining their
-    scale/position/orientation.
+    Load a broad, capped sample of object DAOs, eagerly joining their
+    scale/position/orientation, for use as a mesh-candidate pool.
+
+    Deliberately independent of :func:`sampled_room_ids`/
+    :func:`objects_for_rooms`: capping the *rooms* selected for RSPN training
+    must not also narrow which meshes are available to dress the sampled
+    result, so callers building a mesh-candidate pool should use this
+    instead of the objects an RSPN-training extractor happened to load.
 
     :param session: Database session to query objects from.
-    :return: All loaded object DAOs.
+    :return: Loaded object DAOs.
     """
     return session.scalars(
         select(EGObjectDAO)
@@ -67,6 +86,55 @@ def load_all_objects(session: Session) -> list[EGObjectDAO]:
         )
         .distinct()
         .limit(50000)
+    ).all()
+
+
+def sampled_room_ids(
+    session: Session, room_count: int = DEFAULT_TRAINING_ROOM_COUNT
+) -> list[str]:
+    """
+    Return a random sample of up to *room_count* distinct room ids.
+
+    Meant to be followed by :func:`objects_for_rooms`, so a bounded number of
+    rooms are selected first and then loaded in full -- rather than capping
+    the object query itself, which truncates almost every room's pieces long
+    before its true membership is reached.
+
+    :param session: Database session to query room ids from.
+    :param room_count: Maximum number of distinct room ids to return.
+    :return: Sampled room ids.
+    """
+    distinct_room_ids = select(EGObjectDAO.room_id).distinct().subquery()
+    return list(
+        session.scalars(
+            select(distinct_room_ids.c.room_id)
+            .order_by(func.random())
+            .limit(room_count)
+        ).all()
+    )
+
+
+def objects_for_rooms(session: Session, room_ids: Sequence[str]) -> list[EGObjectDAO]:
+    """
+    Load every object DAO belonging to any of *room_ids*, eagerly joining
+    scale/position/orientation, with no cap on row count.
+
+    A room's full piece membership must not be truncated, or an RSPN trained
+    on the result learns an artificially sparse room composition.
+
+    :param session: Database session to query objects from.
+    :param room_ids: Room ids whose member objects should be loaded.
+    :return: All matching object DAOs.
+    """
+    return session.scalars(
+        select(EGObjectDAO)
+        .where(EGObjectDAO.room_id.in_(room_ids))
+        .options(
+            joinedload(EGObjectDAO.scale),
+            joinedload(EGObjectDAO.position),
+            joinedload(EGObjectDAO.orientation),
+        )
+        .distinct()
     ).all()
 
 

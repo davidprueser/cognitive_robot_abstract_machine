@@ -38,7 +38,9 @@ from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Cabinet,
     ShelfLayer,
 )
+from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
 from semantic_digital_twin.world import World
+from semantic_digital_twin.world_description.connections import Connection6DoF
 
 
 @pytest.fixture
@@ -131,12 +133,12 @@ def test_spawn_in_world_returns_a_body_per_object_and_a_layer_annotation(
     assert isinstance(spawned.layers[0].surface, ShelfLayer)
 
 
-def test_spawned_body_pose_matches_object_world_pose(
+def test_spawned_body_pose_matches_object_local_pose(
     mesh_candidate: MeshCandidate,
 ) -> None:
     """
-    A freshly spawned object body must sit exactly where
-    :meth:`EGShelf.object_world_pose` says it should -- pinning the single pose
+    A freshly spawned object body must sit, in the corpus frame, exactly where
+    :meth:`EGShelf.object_local_pose` says it should -- pinning the single pose
     formula that both spawning and later moving rely on, so the two can never
     drift.
     """
@@ -144,9 +146,41 @@ def test_spawned_body_pose_matches_object_world_pose(
     spawned = shelf.spawn_in_world()
     body = spawned.layers[0].object_bodies[0]
 
-    resting_z = body.global_pose.to_position().to_np()[2]
-    expected = shelf.object_world_pose(resting_z, shelf.layers[0].objects[0], spawned.parent)
-    assert body.global_pose.to_np() == pytest.approx(expected.to_np())
+    resting_z = body.parent_connection.origin.to_position().to_np()[2]
+    expected = shelf.object_local_pose(
+        shelf.layers[0].objects[0], resting_z, spawned.corpus
+    )
+    assert body.parent_connection.origin.to_np() == pytest.approx(expected.to_np())
+
+
+def test_spawned_shelf_corpus_is_movable_as_a_unit(
+    mesh_candidate: MeshCandidate,
+) -> None:
+    """
+    The shelf corpus must hang off its parent by a movable 6-DoF connection, so
+    a room-level resolver can reposition the whole shelf -- corpus, slabs, and
+    objects -- in place by setting the corpus origin, and its contents follow.
+    """
+    shelf = _shelf([_object("book_0", 0.0, 0.0)], mesh_candidate)
+    spawned = shelf.spawn_in_world()
+    corpus = spawned.corpus
+    object_body = spawned.layers[0].object_bodies[0]
+
+    assert isinstance(corpus.parent_connection, Connection6DoF)
+
+    before = object_body.global_pose.to_position().to_np()
+    corpus_origin = corpus.parent_connection.origin
+    shifted = HomogeneousTransformationMatrix.from_xyz_rpy(
+        corpus_origin.to_position().to_np()[0] + 2.0,
+        corpus_origin.to_position().to_np()[1],
+        corpus_origin.to_position().to_np()[2],
+        reference_frame=corpus_origin.reference_frame,
+    )
+    corpus.parent_connection.origin = shifted
+
+    after = object_body.global_pose.to_position().to_np()
+    assert after[0] == pytest.approx(before[0] + 2.0)
+    assert after[1] == pytest.approx(before[1])
 
 
 def test_spawn_in_world_keeps_edge_object_clear_of_the_corpus_walls(
@@ -163,7 +197,7 @@ def test_spawn_in_world_keeps_edge_object_clear_of_the_corpus_walls(
     thickness, but reliably triggered on small ones.
     """
     small_layer_width = 0.4
-    # World Y is controlled by an object's *length* (see EGShelf.object_world_pose):
+    # Corpus Y is controlled by an object's *length* (see EGShelf.object_local_pose):
     # a wide, thin object here maximises the footprint pressed against the
     # face walls (the sides Cabinet's hole_direction leaves walled).
     edge_object = EGObject2D(
@@ -215,9 +249,10 @@ def test_unsupported_indices_flags_object_that_slid_off_the_layer(
     group = ShelfLayerGroup(
         bodies=spawned_layer.object_bodies,
         supporting_body=spawned_layer.surface.root,
+        backend=MagicMock(),
         shelf=shelf,
         layer_index=0,
-        parent=spawned.parent,
+        corpus=spawned.corpus,
     )
 
     assert group.unsupported_indices() == set()

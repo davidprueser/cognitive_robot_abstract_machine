@@ -10,6 +10,7 @@ from krrood.parametrization.feature_extraction.aggregations import AggregationSt
 from semantic_digital_twin.scene_generation.scene_schema import (
     EGShelf,
     EGRoom,
+    EGRoomFloorLayout,
     EGShelfLayer,
     EGTableWithChairs,
 )
@@ -97,6 +98,29 @@ class RoomAggregations(AggregationStatistic[EGRoom]):
         """
         [table_count] = count(variable(EGRoom, self.instance.tables)).tolist()
         return table_count
+
+
+@dataclass
+class EGRoomFloorLayoutAggregations(AggregationStatistic[EGRoomFloorLayout]):
+    """
+    Aggregation statistics over the floor pieces of a room floor layout.
+
+    Without this class, ``pieces`` has no registered
+    :class:`AggregationStatistic`, so :class:`RelationalProbabilisticCircuit`
+    silently treats it as non-exchangeable: it never fits a distribution
+    template for it, and every piece's own attributes are then left
+    unresolved (still the query's placeholder value) after sampling.
+    """
+
+    @aggregation_statistic("pieces")
+    def total_count(self) -> int:
+        """
+        Number of floor pieces in the layout.
+        """
+        [piece_count] = count(
+            variable(EGRoomFloorLayout, self.instance.pieces)
+        ).tolist()
+        return piece_count
 
 
 @dataclass

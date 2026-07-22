@@ -8,6 +8,7 @@ from semantic_digital_twin.scene_generation.scene_schema import (
     EGObject2D,
     EGPoint2D,
     EGRotation,
+    EGRoomFloorLayout,
     EGShelfLayer,
     EGScale,
 )
@@ -110,8 +111,15 @@ def _build_free_object2d_query():
     """
     Build a fully underspecified EGObject2D query with all spatial fields free.
 
-    :return: An underspecified EGObject2D with position, scale, and
-        orientation unset.
+    Roll and pitch are fixed to ``0.0`` rather than left underspecified:
+    floor objects always sit upright without tilting, so those two circuit
+    dimensions are constant across every training example, and leaving a
+    constant dimension underspecified lets the RSPN sampling backend leak
+    the query's placeholder straight through instead of resolving it. Only
+    yaw genuinely varies and is left for the RSPN to sample.
+
+    :return: An underspecified EGObject2D with position, scale, and yaw
+        unset.
     """
     return underspecified(EGObject2D)(
         id=None,
@@ -120,7 +128,7 @@ def _build_free_object2d_query():
         object_type=...,
         scale=underspecified(EGScale)(width=..., length=..., height=...),
         position=underspecified(EGPoint2D)(x=..., y=...),
-        orientation=underspecified(EGRotation)(x=..., y=..., z=...),
+        orientation=underspecified(EGRotation)(x=0.0, y=0.0, z=...),
         source_id=None,
     )
 
@@ -214,6 +222,31 @@ def build_layer_query_with_fixed_scale(object_count: int, scale: EGScale):
         *scale*.
     """
     return _build_conditioned_layer_query([], object_count, target_scale=scale)
+
+
+def build_free_room_floor_query(piece_count: int, height: float):
+    """
+    Build an :class:`EGRoomFloorLayout` query with *piece_count* free
+    floor-piece slots and the room's ceiling height fixed as conditioning
+    evidence.
+
+    The room footprint (width/length) is left free so the RSPN samples it
+    from the marginal, alongside which pieces the room holds and where they
+    sit. Height is fixed rather than sampled: it is a generation parameter,
+    not something to learn, and every training layout already carries the
+    same constant value.
+
+    :param piece_count: Number of free floor-piece slots to include.
+    :param height: The room's ceiling height, fixed as conditioning
+        evidence.
+    :return: An underspecified :class:`EGRoomFloorLayout` query with the
+        given height as its only fixed evidence, ready for
+        :class:`ProbabilisticBackend` evaluation.
+    """
+    return underspecified(EGRoomFloorLayout)(
+        scale=underspecified(EGScale)(width=..., length=..., height=height),
+        pieces=[_build_free_object2d_query() for _ in range(piece_count)],
+    )
 
 
 def build_pose_resample_query(

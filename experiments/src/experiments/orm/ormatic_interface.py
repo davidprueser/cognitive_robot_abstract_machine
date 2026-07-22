@@ -188,6 +188,23 @@ class InWorldLayoutResolverDAO_groups_association(Base, AssociationDataAccessObj
     )
 
 
+class SpawnedCollisionGroupDAO_static_obstacles_association(
+    Base, AssociationDataAccessObject
+):
+    __tablename__ = "_10067991749856212586754918203330440703283391861653960695154440"
+
+    database_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+
+    source_spawnedcollisiongroupdao_id: Mapped[int] = mapped_column(
+        ForeignKey("SpawnedCollisionGroupDAO.database_id")
+    )
+    target_bodydao_id: Mapped[int] = mapped_column(ForeignKey("BodyDAO.database_id"))
+
+    target: Mapped[BodyDAO] = relationship(
+        "BodyDAO", foreign_keys=[target_bodydao_id], lazy="selectin"
+    )
+
+
 class WorldModelSnapshotDAO_modifications_association(
     Base, AssociationDataAccessObject
 ):
@@ -656,6 +673,23 @@ class PipelineDAO_steps_association(Base, AssociationDataAccessObject):
     )
 
 
+class EGRoomFloorLayoutDAO_pieces_association(Base, AssociationDataAccessObject):
+    __tablename__ = "_58063516363443293235305289063830194456273151504855193717014013"
+
+    database_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+
+    source_egroomfloorlayoutdao_id: Mapped[int] = mapped_column(
+        ForeignKey("EGRoomFloorLayoutDAO.database_id")
+    )
+    target_egobject2ddao_id: Mapped[int] = mapped_column(
+        ForeignKey("EGObject2DDAO.database_id")
+    )
+
+    target: Mapped[EGObject2DDAO] = relationship(
+        "EGObject2DDAO", foreign_keys=[target_egobject2ddao_id], lazy="selectin"
+    )
+
+
 class EGShelfDAO_layers_association(Base, AssociationDataAccessObject):
     __tablename__ = "_69165578633834869743397640643144209473259670495627202536745592"
 
@@ -790,6 +824,57 @@ class EGRoomDAO_tables_association(Base, AssociationDataAccessObject):
     target: Mapped[EGTableWithChairsDAO] = relationship(
         "EGTableWithChairsDAO",
         foreign_keys=[target_egtablewithchairsdao_id],
+        lazy="selectin",
+    )
+
+
+class SpawnedRoomDAO_wall_bodies_association(Base, AssociationDataAccessObject):
+    __tablename__ = "_39882492635088693955496457861712066273022877354323599028786494"
+
+    database_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+
+    source_spawnedroomdao_id: Mapped[int] = mapped_column(
+        ForeignKey("SpawnedRoomDAO.database_id")
+    )
+    target_bodydao_id: Mapped[int] = mapped_column(ForeignKey("BodyDAO.database_id"))
+
+    target: Mapped[BodyDAO] = relationship(
+        "BodyDAO", foreign_keys=[target_bodydao_id], lazy="selectin"
+    )
+
+
+class SpawnedRoomDAO_spawned_shelves_association(Base, AssociationDataAccessObject):
+    __tablename__ = "_71399613724333534546130724732659804946163358411256882925025633"
+
+    database_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+
+    source_spawnedroomdao_id: Mapped[int] = mapped_column(
+        ForeignKey("SpawnedRoomDAO.database_id")
+    )
+    target_spawnedshelfdao_id: Mapped[int] = mapped_column(
+        ForeignKey("SpawnedShelfDAO.database_id")
+    )
+
+    target: Mapped[SpawnedShelfDAO] = relationship(
+        "SpawnedShelfDAO", foreign_keys=[target_spawnedshelfdao_id], lazy="selectin"
+    )
+
+
+class SpawnedRoomDAO_spawned_tables_association(Base, AssociationDataAccessObject):
+    __tablename__ = "_84320862220109934648657556909318905900422162621682007649552585"
+
+    database_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+
+    source_spawnedroomdao_id: Mapped[int] = mapped_column(
+        ForeignKey("SpawnedRoomDAO.database_id")
+    )
+    target_spawnedtablewithchairsdao_id: Mapped[int] = mapped_column(
+        ForeignKey("SpawnedTableWithChairsDAO.database_id")
+    )
+
+    target: Mapped[SpawnedTableWithChairsDAO] = relationship(
+        "SpawnedTableWithChairsDAO",
+        foreign_keys=[target_spawnedtablewithchairsdao_id],
         lazy="selectin",
     )
 
@@ -3016,6 +3101,16 @@ class SpawnedCollisionGroupDAO(
         String(255), nullable=False, use_existing_column=True
     )
 
+    static_obstacles: Mapped[
+        builtins.list[SpawnedCollisionGroupDAO_static_obstacles_association]
+    ] = relationship(
+        "SpawnedCollisionGroupDAO_static_obstacles_association",
+        collection_class=builtins.list,
+        cascade="all, delete-orphan",
+        foreign_keys="[SpawnedCollisionGroupDAO_static_obstacles_association.source_spawnedcollisiongroupdao_id]",
+        lazy="selectin",
+    )
+
     __mapper_args__ = {
         "polymorphic_on": "polymorphic_type",
         "polymorphic_identity": "SpawnedCollisionGroupDAO",
@@ -3041,7 +3136,7 @@ class ChairGroupDAO(
         nullable=True,
         use_existing_column=True,
     )
-    parent_id: Mapped[int] = mapped_column(
+    table_id: Mapped[int] = mapped_column(
         ForeignKey("KinematicStructureEntityDAO.database_id", use_alter=True),
         nullable=True,
         use_existing_column=True,
@@ -3050,15 +3145,46 @@ class ChairGroupDAO(
     group: Mapped[EGTableWithChairsDAO] = relationship(
         "EGTableWithChairsDAO", uselist=False, foreign_keys=[group_id], post_update=True
     )
-    parent: Mapped[KinematicStructureEntityDAO] = relationship(
+    table: Mapped[KinematicStructureEntityDAO] = relationship(
         "KinematicStructureEntityDAO",
         uselist=False,
-        foreign_keys=[parent_id],
+        foreign_keys=[table_id],
         post_update=True,
     )
 
     __mapper_args__ = {
         "polymorphic_identity": "ChairGroupDAO",
+        "inherit_condition": database_id == SpawnedCollisionGroupDAO.database_id,
+        "polymorphic_load": "selectin",
+    }
+
+
+class FloorObjectGroupDAO(
+    SpawnedCollisionGroupDAO,
+    DataAccessObject[
+        experiments.scene_generation_experiments.in_world_resolver.FloorObjectGroup
+    ],
+):
+    __tablename__ = "FloorObjectGroupDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        ForeignKey(SpawnedCollisionGroupDAO.database_id),
+        primary_key=True,
+        use_existing_column=True,
+    )
+
+    floor_id: Mapped[int] = mapped_column(
+        ForeignKey("FloorDAO.database_id", use_alter=True),
+        nullable=True,
+        use_existing_column=True,
+    )
+
+    floor: Mapped[FloorDAO] = relationship(
+        "FloorDAO", uselist=False, foreign_keys=[floor_id], post_update=True
+    )
+
+    __mapper_args__ = {
+        "polymorphic_identity": "FloorObjectGroupDAO",
         "inherit_condition": database_id == SpawnedCollisionGroupDAO.database_id,
         "polymorphic_load": "selectin",
     }
@@ -3085,7 +3211,7 @@ class ShelfLayerGroupDAO(
         nullable=True,
         use_existing_column=True,
     )
-    parent_id: Mapped[int] = mapped_column(
+    corpus_id: Mapped[int] = mapped_column(
         ForeignKey("KinematicStructureEntityDAO.database_id", use_alter=True),
         nullable=True,
         use_existing_column=True,
@@ -3094,10 +3220,10 @@ class ShelfLayerGroupDAO(
     shelf: Mapped[EGShelfDAO] = relationship(
         "EGShelfDAO", uselist=False, foreign_keys=[shelf_id], post_update=True
     )
-    parent: Mapped[KinematicStructureEntityDAO] = relationship(
+    corpus: Mapped[KinematicStructureEntityDAO] = relationship(
         "KinematicStructureEntityDAO",
         uselist=False,
-        foreign_keys=[parent_id],
+        foreign_keys=[corpus_id],
         post_update=True,
     )
 
@@ -10094,6 +10220,44 @@ class EGRelativePolarPoseDAO(
     }
 
 
+class EGRoomFloorLayoutDAO(
+    EGBaseDAO,
+    DataAccessObject[
+        semantic_digital_twin.scene_generation.scene_schema.EGRoomFloorLayout
+    ],
+):
+    __tablename__ = "EGRoomFloorLayoutDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        ForeignKey(EGBaseDAO.database_id), primary_key=True, use_existing_column=True
+    )
+
+    scale_id: Mapped[int] = mapped_column(
+        ForeignKey("EGScaleDAO.database_id", use_alter=True),
+        nullable=True,
+        use_existing_column=True,
+    )
+
+    scale: Mapped[EGScaleDAO] = relationship(
+        "EGScaleDAO", uselist=False, foreign_keys=[scale_id], post_update=True
+    )
+    pieces: Mapped[builtins.list[EGRoomFloorLayoutDAO_pieces_association]] = (
+        relationship(
+            "EGRoomFloorLayoutDAO_pieces_association",
+            collection_class=builtins.list,
+            cascade="all, delete-orphan",
+            foreign_keys="[EGRoomFloorLayoutDAO_pieces_association.source_egroomfloorlayoutdao_id]",
+            lazy="selectin",
+        )
+    )
+
+    __mapper_args__ = {
+        "polymorphic_identity": "EGRoomFloorLayoutDAO",
+        "inherit_condition": database_id == EGBaseDAO.database_id,
+        "polymorphic_load": "selectin",
+    }
+
+
 class EGRotationDAO(
     EGPoint2DDAO,
     DataAccessObject[semantic_digital_twin.scene_generation.scene_schema.EGRotation],
@@ -10690,6 +10854,73 @@ class SpawnedLayoutDAO(
     }
 
 
+class SpawnedRoomDAO(
+    SpawnedLayoutDAO,
+    DataAccessObject[semantic_digital_twin.scene_generation.scene_schema.SpawnedRoom],
+):
+    __tablename__ = "SpawnedRoomDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        ForeignKey(SpawnedLayoutDAO.database_id),
+        primary_key=True,
+        use_existing_column=True,
+    )
+
+    parent_id: Mapped[int] = mapped_column(
+        ForeignKey("KinematicStructureEntityDAO.database_id", use_alter=True),
+        nullable=True,
+        use_existing_column=True,
+    )
+    floor_id: Mapped[int] = mapped_column(
+        ForeignKey("FloorDAO.database_id", use_alter=True),
+        nullable=True,
+        use_existing_column=True,
+    )
+
+    parent: Mapped[KinematicStructureEntityDAO] = relationship(
+        "KinematicStructureEntityDAO",
+        uselist=False,
+        foreign_keys=[parent_id],
+        post_update=True,
+    )
+    floor: Mapped[FloorDAO] = relationship(
+        "FloorDAO", uselist=False, foreign_keys=[floor_id], post_update=True
+    )
+    wall_bodies: Mapped[builtins.list[SpawnedRoomDAO_wall_bodies_association]] = (
+        relationship(
+            "SpawnedRoomDAO_wall_bodies_association",
+            collection_class=builtins.list,
+            cascade="all, delete-orphan",
+            foreign_keys="[SpawnedRoomDAO_wall_bodies_association.source_spawnedroomdao_id]",
+            lazy="selectin",
+        )
+    )
+    spawned_shelves: Mapped[
+        builtins.list[SpawnedRoomDAO_spawned_shelves_association]
+    ] = relationship(
+        "SpawnedRoomDAO_spawned_shelves_association",
+        collection_class=builtins.list,
+        cascade="all, delete-orphan",
+        foreign_keys="[SpawnedRoomDAO_spawned_shelves_association.source_spawnedroomdao_id]",
+        lazy="selectin",
+    )
+    spawned_tables: Mapped[builtins.list[SpawnedRoomDAO_spawned_tables_association]] = (
+        relationship(
+            "SpawnedRoomDAO_spawned_tables_association",
+            collection_class=builtins.list,
+            cascade="all, delete-orphan",
+            foreign_keys="[SpawnedRoomDAO_spawned_tables_association.source_spawnedroomdao_id]",
+            lazy="selectin",
+        )
+    )
+
+    __mapper_args__ = {
+        "polymorphic_identity": "SpawnedRoomDAO",
+        "inherit_condition": database_id == SpawnedLayoutDAO.database_id,
+        "polymorphic_load": "selectin",
+    }
+
+
 class SpawnedShelfDAO(
     SpawnedLayoutDAO,
     DataAccessObject[semantic_digital_twin.scene_generation.scene_schema.SpawnedShelf],
@@ -10707,6 +10938,11 @@ class SpawnedShelfDAO(
         nullable=True,
         use_existing_column=True,
     )
+    corpus_id: Mapped[int] = mapped_column(
+        ForeignKey("BodyDAO.database_id", use_alter=True),
+        nullable=True,
+        use_existing_column=True,
+    )
 
     parent: Mapped[KinematicStructureEntityDAO] = relationship(
         "KinematicStructureEntityDAO",
@@ -10720,6 +10956,9 @@ class SpawnedShelfDAO(
         cascade="all, delete-orphan",
         foreign_keys="[SpawnedShelfDAO_layers_association.source_spawnedshelfdao_id]",
         lazy="selectin",
+    )
+    corpus: Mapped[BodyDAO] = relationship(
+        "BodyDAO", uselist=False, foreign_keys=[corpus_id], post_update=True
     )
 
     __mapper_args__ = {
@@ -10771,12 +11010,20 @@ class SpawnedTableWithChairsDAO(
         nullable=True,
         use_existing_column=True,
     )
+    table_id: Mapped[int] = mapped_column(
+        ForeignKey("BodyDAO.database_id", use_alter=True),
+        nullable=True,
+        use_existing_column=True,
+    )
 
     parent: Mapped[KinematicStructureEntityDAO] = relationship(
         "KinematicStructureEntityDAO",
         uselist=False,
         foreign_keys=[parent_id],
         post_update=True,
+    )
+    table: Mapped[BodyDAO] = relationship(
+        "BodyDAO", uselist=False, foreign_keys=[table_id], post_update=True
     )
 
     __mapper_args__ = {
@@ -10806,6 +11053,36 @@ class _MeshTypeMatcherDAO(
             foreign_keys="[_MeshTypeMatcherDAO_candidates_association.source__meshtypematcherdao_id]",
             lazy="selectin",
         )
+    )
+
+
+class EGRoomFloorLayoutAggregationsDAO(
+    Base,
+    DataAccessObject[
+        semantic_digital_twin.scene_generation.scene_schema_aggregations.EGRoomFloorLayoutAggregations
+    ],
+):
+    __tablename__ = "EGRoomFloorLayoutAggregationsDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        Integer, primary_key=True, use_existing_column=True
+    )
+
+    field_name: Mapped[typing.Optional[builtins.str]] = mapped_column(
+        sqlalchemy.sql.sqltypes.Text, use_existing_column=True
+    )
+
+    instance_id: Mapped[int] = mapped_column(
+        ForeignKey("EGRoomFloorLayoutDAO.database_id", use_alter=True),
+        nullable=True,
+        use_existing_column=True,
+    )
+
+    instance: Mapped[EGRoomFloorLayoutDAO] = relationship(
+        "EGRoomFloorLayoutDAO",
+        uselist=False,
+        foreign_keys=[instance_id],
+        post_update=True,
     )
 
 

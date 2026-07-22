@@ -9,7 +9,9 @@ from sqlalchemy.orm import Session, joinedload
 from krrood.ormatic.data_access_objects.helper import to_dao
 from krrood.ormatic.utils import create_engine
 from semantic_digital_twin.orm.ormatic_interface import *  # type: ignore
-from semantic_digital_twin.scene_generation.object_type_classifier import ObjectTypeClassifier
+from semantic_digital_twin.scene_generation.object_type_classifier import (
+    ObjectTypeClassifier,
+)
 from semantic_digital_twin.scene_generation.scene_schema import (
     EGObject,
     EGPosition,

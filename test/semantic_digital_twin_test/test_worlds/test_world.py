@@ -1357,6 +1357,76 @@ def test_move_branch_preserves_connection_type_and_pose():
     assert np.allclose(free_child.global_transform, free_child_pose)
 
 
+def test_make_branch_movable_swaps_fixed_for_movable_and_keeps_pose():
+    """
+    make_branch_movable replaces a branch's FixedConnection with a
+    Connection6DoF at the same world pose, and the returned connection's origin
+    setter then repositions the whole branch -- children following along.
+    """
+    world = World()
+    root = Body(name=PrefixedName("root"))
+    corpus = Body(name=PrefixedName("corpus"))
+    shelf_object = Body(name=PrefixedName("shelf_object"))
+    with world.modify_world():
+        for body in [root, corpus, shelf_object]:
+            world.add_kinematic_structure_entity(body)
+        world.add_connection(
+            FixedConnection(
+                parent=root,
+                child=corpus,
+                parent_T_connection_expression=HomogeneousTransformationMatrix.from_xyz_rpy(
+                    x=1.0, y=2.0, yaw=0.5
+                ),
+            )
+        )
+        world.add_connection(
+            FixedConnection(
+                parent=corpus,
+                child=shelf_object,
+                parent_T_connection_expression=HomogeneousTransformationMatrix.from_xyz_rpy(
+                    x=0.3, z=0.4
+                ),
+            )
+        )
+
+    corpus_pose = corpus.global_transform
+    object_pose = shelf_object.global_transform
+
+    movable_connection = world.make_branch_movable(corpus)
+
+    assert movable_connection is corpus.parent_connection
+    assert isinstance(corpus.parent_connection, Connection6DoF)
+    assert np.allclose(corpus.global_transform, corpus_pose)
+    assert np.allclose(shelf_object.global_transform, object_pose)
+
+    movable_connection.origin = HomogeneousTransformationMatrix.from_xyz_rpy(
+        x=5.0, y=2.0, yaw=0.5, reference_frame=root
+    )
+    assert np.allclose(corpus.global_transform[0, 3], 5.0)
+    assert np.allclose(
+        shelf_object.global_transform[0, 3], object_pose[0, 3] + 4.0
+    )
+
+
+def test_make_branch_movable_is_idempotent_for_already_movable_branch():
+    """
+    A branch already carried by a Connection6DoF is returned unchanged, so the
+    call is safe to repeat.
+    """
+    world = World()
+    root = Body(name=PrefixedName("root"))
+    child = Body(name=PrefixedName("child"))
+    with world.modify_world():
+        world.add_kinematic_structure_entity(root)
+        world.add_kinematic_structure_entity(child)
+        world.add_connection(
+            Connection6DoF.create_with_dofs(parent=root, child=child, world=world)
+        )
+
+    original_connection = child.parent_connection
+    assert world.make_branch_movable(child) is original_connection
+
+
 def test_memoization_clears_only_last_modification_block():
     world = World()
     b1 = Body(name=PrefixedName("b1"))
