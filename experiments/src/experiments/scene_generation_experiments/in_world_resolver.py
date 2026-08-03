@@ -498,28 +498,70 @@ class InWorldLayoutResolver:
         Repair every group until all are collision-free and supported, moving
         offending bodies in place.
 
-        :raises LayoutResolutionError: If no valid layout is reached within
-            :attr:`max_passes` passes.
+        Some sampled arrangements cannot be separated by moving alone -- objects
+        too big or too many for the space. After :attr:`max_passes`, the still
+        offending objects are dropped from the layout, so a best-effort
+        collision-free arrangement is returned rather than failing the whole
+        sample.
+
+        :raises LayoutResolutionError: If violations remain even after dropping
+            the offending objects -- a state that should not occur.
         :return: The spawned, repaired layout.
         """
-        detector = FCLCollisionDetector(_world=self.spawned.world)
-        remaining: dict[int, set[int]] = {}
         for _ in range(self.max_passes):
-            remaining = {
-                group_index: violations
-                for group_index, group in enumerate(self.groups)
-                if (
-                    violations := in_world_colliding_indices(
-                        detector, group.bodies, group.static_obstacles
-                    )
-                    | group.unsupported_indices()
-                )
-            }
+            remaining = self._remaining_violations()
             if not remaining:
                 return self.spawned
             for group_index, violations in remaining.items():
                 self.groups[group_index].resample_and_move(violations)
-        raise LayoutResolutionError(
-            remaining_groups=frozenset(remaining),
-            passes_attempted=self.max_passes,
-        )
+
+        remaining = self._remaining_violations()
+        if not remaining:
+            return self.spawned
+        self._drop_objects(remaining)
+
+        remaining = self._remaining_violations()
+        if remaining:
+            raise LayoutResolutionError(
+                remaining_groups=frozenset(remaining),
+                passes_attempted=self.max_passes,
+            )
+        return self.spawned
+
+    def _remaining_violations(self) -> dict[int, set[int]]:
+        """
+        Map each group index to its members that collide or are unsupported.
+
+        A fresh detector is built each call so it reflects the current world,
+        including any bodies moved or dropped since the last check.
+
+        :return: Offending member indices per group; groups with none are
+            omitted.
+        """
+        detector = FCLCollisionDetector(_world=self.spawned.world)
+        return {
+            group_index: violations
+            for group_index, group in enumerate(self.groups)
+            if (
+                violations := in_world_colliding_indices(
+                    detector, group.bodies, group.static_obstacles
+                )
+                | group.unsupported_indices()
+            )
+        }
+
+    def _drop_objects(self, offenders: dict[int, set[int]]) -> None:
+        """
+        Remove *offenders* from their groups and from the world, so an
+        arrangement that cannot be packed is rendered without the objects that
+        do not fit rather than not at all.
+
+        :param offenders: Offending member indices per group index.
+        """
+        world = self.spawned.world
+        with world.modify_world():
+            for group_index, indices in offenders.items():
+                bodies = self.groups[group_index].bodies
+                for index in indices:
+                    world.remove_kinematic_structure_entity(bodies.pop(index))
+            world.delete_orphaned_dofs()

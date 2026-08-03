@@ -41,6 +41,19 @@ from semantic_digital_twin.scene_generation.scene_schema import (
     ObjectType,
 )
 
+_MIN_SAMPLES_PER_LEAF_FRACTION = 0.05
+"""
+Fraction of the training set required to create another split node when fitting
+the shelf-layer RSPN, passed as ``min_samples_per_leaf`` to
+:class:`~probabilistic_model.probabilistic_circuit.relational.rspn.RelationalProbabilisticCircuit`.
+
+Each shelf object carries near-unique identifiers (``id``, ``source_id``), so
+with the library default of one sample per leaf the object-level circuit grows
+one leaf per training object; grounding then deep-copies that circuit once per
+sampled object, which makes sampling run for minutes. A fraction bounds the
+circuit's size instead.
+"""
+
 
 def _frequent_object_types(
     shelf_layers: list[EGShelfLayer],
@@ -153,7 +166,9 @@ def generate_shelf_with_arbitrary_objects(node) -> None:
     shelf_layers = _coarsen_rare_object_types(shelf_layers)
     shelf_layer_data_access_objects = [to_dao(layer) for layer in shelf_layers]
 
-    rspn = RelationalProbabilisticCircuit(EGShelfLayer)
+    rspn = RelationalProbabilisticCircuit(
+        EGShelfLayer, min_samples_per_leaf=_MIN_SAMPLES_PER_LEAF_FRACTION
+    )
     rspn = rspn.fit(shelf_layer_data_access_objects)
 
     probability_backend = probabilistic_backend(rspn)

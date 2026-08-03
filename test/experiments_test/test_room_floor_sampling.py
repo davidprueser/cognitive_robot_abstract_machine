@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import shutil
+from importlib.resources import files
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -9,13 +11,19 @@ from experiments.scene_generation_experiments.collision_resolution import (
     build_free_room_floor_query,
 )
 from experiments.scene_generation_experiments.room_floor_sampling import (
+    SampledRoomShape,
     _rectangular_walls,
     build_room_from_floor_layout,
-    sample_piece_count,
+    sample_room_shape,
 )
+from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
+from semantic_digital_twin.world import World
+from semantic_digital_twin.world_description.world_entity import Body
 from semantic_digital_twin.scene_generation.scene_schema import (
     EGChair,
+    EGObject,
     EGObject2D,
+    EGPosition,
     EGPoint2D,
     EGRelativePolarPose,
     EGRoomFloorLayout,
@@ -76,12 +84,38 @@ def _table_backend() -> MagicMock:
     return backend
 
 
-def test_sample_piece_count_draws_from_the_training_counts() -> None:
+def test_sample_room_shape_keeps_piece_count_and_footprint_from_the_same_layout() -> None:
     """
-    The sampled piece count must come from the observed training counts, so a
-    room holds a plausible number of floor pieces.
+    Piece count and floor footprint are correlated in the training data, so they
+    must be drawn together from one layout. Drawing them independently would
+    readily pair a large room's piece count with a small room's footprint.
     """
-    assert sample_piece_count([4, 4, 4]) == 4
+    small = EGRoomFloorLayout(
+        scale=EGScale(width=2.0, length=2.0, height=2.7),
+        pieces=[_piece(ObjectType.VASE, 0.0, 0.0, "small_src")],
+    )
+    large = EGRoomFloorLayout(
+        scale=EGScale(width=12.0, length=9.0, height=2.7),
+        pieces=[_piece(ObjectType.VASE, float(index), 0.0, f"large_{index}") for index in range(7)],
+    )
+    valid_pairings = {(1, 2.0), (7, 12.0)}
+
+    for _ in range(30):
+        shape = sample_room_shape([small, large])
+        assert (shape.piece_count, shape.scale.width) in valid_pairings
+
+
+def test_build_free_room_floor_query_fixes_the_sampled_footprint() -> None:
+    """
+    The footprint must enter the query as fixed evidence, so the
+    ``floor_area``/``aspect_ratio`` aggregations stay determinable at grounding
+    rather than being integrated out via Monte-Carlo.
+    """
+    scale = EGScale(width=6.0, length=3.0, height=2.7)
+    query = build_free_room_floor_query(SampledRoomShape(piece_count=3, scale=scale))
+    query.resolve()
+
+    assert query.construct_instance().scale == scale
 
 
 def test_build_free_room_floor_query_builds_for_any_piece_count() -> None:
@@ -91,7 +125,12 @@ def test_build_free_room_floor_query_builds_for_any_piece_count() -> None:
     turned into a query.
     """
     for piece_count in (1, 3, 7):
-        build_free_room_floor_query(piece_count, height=2.7)
+        build_free_room_floor_query(
+            SampledRoomShape(
+                piece_count=piece_count,
+                scale=EGScale(width=5.0, length=5.0, height=2.7),
+            )
+        )
 
 
 def test_room_floor_layout_round_trips_through_json() -> None:
@@ -273,3 +312,47 @@ def test_build_room_places_furniture_at_the_pieces_floor_pose() -> None:
 
     assert room.shelves[0].position == EGPoint2D(x=1.5, y=-2.0)
     assert room.shelves[0].orientation.z == 15.0
+
+
+def test_free_floor_object_mesh_is_rescaled_to_its_sampled_scale(tmp_path: Path) -> None:
+    """
+    A free-standing floor object must render at the size the circuit sampled for
+    it, the same way shelf contents and chairs already do.
+
+    Rendering the PLY at its native size instead makes the sampled footprint
+    purely decorative: collisions are checked against the real spawned mesh, so
+    the layout ends up arranged for one size and drawn at another.
+    """
+    resources_root = (
+        Path(files("semantic_digital_twin")).parent.parent / "resources" / "ply"
+    )
+    objects_dir = tmp_path / "objects"
+    objects_dir.mkdir()
+    shutil.copy(resources_root / "chair.ply", objects_dir / "test_object.ply")
+    shutil.copy(
+        resources_root / "chair_texture.png", objects_dir / "test_object_texture.png"
+    )
+
+    target_scale = EGScale(width=0.2, length=0.3, height=0.4)
+    floor_object = EGObject(
+        id="free_object_0",
+        room_id="room_1",
+        place_id="floor",
+        object_type=ObjectType.CHAIR,
+        scale=target_scale,
+        position=EGPosition(x=0.0, y=0.0, z=0.0),
+        orientation=EGRotation(x=0.0, y=0.0, z=0.0),
+        source_id="test_object",
+    )
+
+    world = World()
+    root = Body(name=PrefixedName(name="root"))
+    with world.modify_world():
+        world.add_body(root)
+
+    body = floor_object.create_in_world(world, tmp_path, parent=root)
+
+    rendered_extents = body.collision.shapes[0].mesh.extents
+    assert rendered_extents[0] == pytest.approx(target_scale.width, rel=1e-3)
+    assert rendered_extents[1] == pytest.approx(target_scale.length, rel=1e-3)
+    assert rendered_extents[2] == pytest.approx(target_scale.height, rel=1e-3)

@@ -3,14 +3,12 @@ from __future__ import annotations
 import os
 import time
 from collections import defaultdict
+from typing import TYPE_CHECKING
 
 import numpy as np
 from sklearn.cluster import DBSCAN
 from sqlalchemy.orm import Session
 
-from experiments.scene_generation_experiments.data_preprocessing import (
-    Sage10kSceneDownloader,
-)
 from experiments.scene_generation_experiments.utils import (
     DEFAULT_TRAINING_ROOM_COUNT,
     _get_source_ids_for_objects,
@@ -45,7 +43,37 @@ from semantic_digital_twin.scene_generation.scene_schema import (
     EGShelfLayer,
     EGScale,
     ObjectType,
+    wrap_angle_degrees,
 )
+
+if TYPE_CHECKING:
+    from experiments.scene_generation_experiments.data_preprocessing import (
+        Sage10kSceneDownloader,
+    )
+
+_MIN_SAMPLES_PER_LEAF_FRACTION = 0.05
+"""
+Fraction of the training set required to create another split node when fitting
+the shelf-layer RSPN, passed as ``min_samples_per_leaf`` to
+:class:`~probabilistic_model.probabilistic_circuit.relational.rspn.RelationalProbabilisticCircuit`.
+
+Each shelf object carries near-unique identifiers (``id``, ``source_id``), so
+with the library default of one sample per leaf the object-level circuit grows
+one leaf per training object; grounding then deep-copies that circuit once per
+sampled object, which makes sampling run for minutes. A fraction bounds the
+circuit's size instead.
+"""
+
+_SHELF_HEIGHT = 2.0
+"""
+Height, in metres, of the spawned shelf corpus.
+
+The corpus height is what :meth:`EGShelf.spawn_in_world` spreads the layers
+across, so it must be the shelf's own height, not a layer's slab thickness.
+The extracted layers only carry a fixed slab thickness, so a real corpus
+height is supplied here until the shelf's own height is carried through the
+training data.
+"""
 
 
 def _extract_shelf_layers_from_place_id(
@@ -91,6 +119,8 @@ def _extract_shelf_layers_from_place_id(
     shelf_layers = []
     for shelf in shelves:
         members = objects_by_place_id[shelf.id]
+        if not members:
+            continue
         max_relative_x = shelf.scale.width / 2 * (1 - edge_margin_fraction)
         max_relative_y = shelf.scale.length / 2 * (1 - edge_margin_fraction)
 
@@ -109,6 +139,19 @@ def _extract_shelf_layers_from_place_id(
 
         objects_per_layer: defaultdict[int, list[EGObject2D]] = defaultdict(list)
         for obj, label in zip(within_bounds, labels):
+            # Store the pose in the shelf's content frame (the shelf yaw plus
+            # EGShelf.CONTENT_FRAME_YAW_OFFSET_DEGREES), the same frame
+            # :meth:`EGShelf.spawn_in_world` builds the corpus in. Rotating the
+            # world offset into that frame puts the contents' wide face spread on
+            # the corpus's wide axis; without it the spread lands on the shelf's
+            # shallow depth axis and contents overflow front and back.
+            content_frame_yaw = (
+                shelf.orientation.z + EGShelf.CONTENT_FRAME_YAW_OFFSET_DEGREES
+            )
+            shelf_local_offset = EGPoint2D(
+                x=obj.position.x - shelf.position.x,
+                y=obj.position.y - shelf.position.y,
+            ).rotated_into_frame(content_frame_yaw)
             relative_object = EGObject2D(
                 id=obj.id,
                 room_id=obj.room_id,
@@ -119,12 +162,11 @@ def _extract_shelf_layers_from_place_id(
                     length=obj.scale.length,
                     height=obj.scale.height,
                 ),
-                position=EGPoint2D(
-                    x=obj.position.x - shelf.position.x,
-                    y=obj.position.y - shelf.position.y,
-                ),
+                position=EGPoint2D(x=shelf_local_offset.x, y=shelf_local_offset.y),
                 orientation=EGRotation(
-                    x=obj.orientation.x, y=obj.orientation.y, z=obj.orientation.z
+                    x=obj.orientation.x,
+                    y=obj.orientation.y,
+                    z=wrap_angle_degrees(obj.orientation.z - content_frame_yaw),
                 ),
                 source_id=obj.source_id,
             )
@@ -143,7 +185,7 @@ def _extract_shelf_layers_from_place_id(
     return shelf_layers, objects
 
 
-def generate_book_shelf(node) -> None:
+def generate_book_shelf(node, downloader: Sage10kSceneDownloader | None = None) -> None:
     """
     Train an RSPN on shelf-layer data from the database, spawn a sampled
     arrangement into a world, repair collisions and off-surface placements
@@ -151,6 +193,10 @@ def generate_book_shelf(node) -> None:
 
     :param node: An active rclpy node used to publish visualisation
         markers.
+    :param downloader: When given, book meshes are downloaded on demand until
+        the candidate pool is filled. Left as ``None`` the pool is whatever is
+        already cached, which keeps the demo fast for iterative testing; pass a
+        downloader for a final demo that needs a broad mesh pool.
     """
     start = time.time()
     uri = os.environ.get("SEMANTIC_DIGITAL_TWIN_DATABASE_URI")
@@ -161,7 +207,9 @@ def generate_book_shelf(node) -> None:
     shelf_layers, _ = _extract_shelf_layers_from_place_id(session)
     shelf_layer_data_access_objects = [to_dao(layer) for layer in shelf_layers]
 
-    rspn = RelationalProbabilisticCircuit(EGShelfLayer)
+    rspn = RelationalProbabilisticCircuit(
+        EGShelfLayer, min_samples_per_leaf=_MIN_SAMPLES_PER_LEAF_FRACTION
+    )
     rspn = rspn.fit(shelf_layer_data_access_objects)
 
     probability_backend = probabilistic_backend(rspn)
@@ -184,14 +232,16 @@ def generate_book_shelf(node) -> None:
     ]
     sampled_layers = [reference_layer] + remaining_layers
 
-    sage10k_session = Session(create_engine(os.environ.get("SAGE10k_DATABASE_URI")))
-    downloader = Sage10kSceneDownloader(session=sage10k_session)
     source_ids_for_sampled_objects = _get_source_ids_for_objects(
         load_all_objects(session), downloader=downloader
     )
     shelf_sample = EGShelf(
         position=EGPoint2D(x=0.0, y=0.0),
-        scale=EGScale(height=2.0, length=target_scale.length, width=target_scale.width),
+        scale=EGScale(
+            height=_SHELF_HEIGHT,
+            length=target_scale.length,
+            width=target_scale.width,
+        ),
         orientation=EGRotation(x=0.0, y=0.0, z=0.0),
         layers=sampled_layers,
         source_ids=source_ids_for_sampled_objects,

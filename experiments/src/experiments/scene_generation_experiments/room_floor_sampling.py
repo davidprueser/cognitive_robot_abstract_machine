@@ -50,20 +50,42 @@ Thickness, in metres, of the walls enclosing a generated room.
 """
 
 
-def sample_piece_count(training_piece_counts: list[int]) -> int:
+@dataclasses.dataclass(frozen=True)
+class SampledRoomShape:
     """
-    Draw the number of floor pieces to place in a room from the empirical
-    distribution of piece counts observed in the training rooms.
-
-    Mirrors :func:`sample_chair_count`: an exchangeable relation's list length
-    is a structural property of the sampling query, so the count is drawn first
-    and the query is then built for exactly that many free slots.
-
-    :param training_piece_counts: Number of floor pieces observed per training
-        room.
-    :return: A piece count drawn from the training distribution.
+    The structural choices a room-floor query must fix before it can be built:
+    how many pieces the room holds and how large its floor is.
     """
-    return random.choice(training_piece_counts)
+
+    piece_count: int
+    """
+    Number of floor pieces to place in the room.
+    """
+
+    scale: EGScale
+    """
+    Footprint of the room floor the pieces are placed on.
+    """
+
+
+def sample_room_shape(training_layouts: list[EGRoomFloorLayout]) -> SampledRoomShape:
+    """
+    Draw a room's piece count and footprint together from the empirical
+    distribution observed in the training rooms.
+
+    Mirrors :func:`sample_chair_count`: an exchangeable relation's list length is
+    a structural property of the sampling query, so it is drawn before the query
+    is built. The footprint is drawn alongside it -- and from the *same* training
+    layout -- because the two are correlated in the data; drawing them
+    independently would readily place thirty pieces in a two-metre room. The
+    footprint is structural for the same reason once the room-geometry
+    aggregations condition on it.
+
+    :param training_layouts: The room floor layouts used for training.
+    :return: The drawn piece count and floor footprint.
+    """
+    layout = random.choice(training_layouts)
+    return SampledRoomShape(piece_count=len(layout.pieces), scale=layout.scale)
 
 
 def _rectangular_walls(scale: EGScale) -> list[EGWall]:
@@ -264,6 +286,8 @@ def build_room_from_floor_layout(
             )
         elif free_object_source_ids:
             candidate = mesh_matcher.random_match(piece.object_type)
+            if candidate is None:
+                continue
             free_object = _free_object(piece, len(free_objects), candidate)
             free_objects.append(free_object)
             object_id_to_mesh_path[free_object.id] = candidate.scene_dir

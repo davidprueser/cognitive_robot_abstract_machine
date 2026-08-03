@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import random
+from unittest.mock import MagicMock, patch
 
 import pytest
 from sqlalchemy.orm import Session
@@ -13,11 +14,21 @@ from experiments.orm.ormatic_interface import (
     EGRotationDAO,
     EGScaleDAO,
 )
+from experiments.scene_generation_experiments.collision_resolution import (
+    build_free_room_floor_query,
+)
+from experiments.scene_generation_experiments.room_floor_sampling import (
+    SampledRoomShape,
+)
 from experiments.scene_generation_experiments.room_generation import (
     _MIN_SAMPLES_PER_LEAF_FRACTION,
     _extract_room_floor_layouts,
 )
+from experiments.scene_generation_experiments.utils import build_cached_mesh_pool
 from krrood.ormatic.data_access_objects.helper import to_dao
+from krrood.parametrization.feature_extraction.aggregations import (
+    compute_aggregation_statistics,
+)
 from krrood.ormatic.utils import create_engine
 from probabilistic_model.probabilistic_circuit.relational.rspn import (
     RelationalProbabilisticCircuit,
@@ -178,7 +189,13 @@ def test_room_cap_selects_whole_rooms_without_truncating_their_pieces(
         assert len(layout.pieces) == piece_count_per_room
 
 
-def _synthetic_floor_layout(room_index: int, piece_count: int, rng: random.Random) -> EGRoomFloorLayout:
+def _synthetic_floor_layout(
+    room_index: int,
+    piece_count: int,
+    rng: random.Random,
+    scale: EGScale | None = None,
+) -> EGRoomFloorLayout:
+    room_scale = scale or EGScale(width=10.0, length=10.0, height=2.5)
     pieces = [
         EGObject2D(
             id=f"room{room_index}_piece{piece_index}",
@@ -192,15 +209,16 @@ def _synthetic_floor_layout(room_index: int, piece_count: int, rng: random.Rando
                 length=rng.uniform(0.3, 1.5),
                 height=rng.uniform(0.3, 2.0),
             ),
-            position=EGPoint2D(x=rng.uniform(-5.0, 5.0), y=rng.uniform(-5.0, 5.0)),
+            position=EGPoint2D(
+                x=rng.uniform(-room_scale.width / 2, room_scale.width / 2),
+                y=rng.uniform(-room_scale.length / 2, room_scale.length / 2),
+            ),
             orientation=EGRotation(x=0.0, y=0.0, z=rng.uniform(0.0, 360.0)),
             source_id=f"mesh_{rng.randint(0, 40)}",
         )
         for piece_index in range(piece_count)
     ]
-    return EGRoomFloorLayout(
-        scale=EGScale(width=10.0, length=10.0, height=2.5), pieces=pieces
-    )
+    return EGRoomFloorLayout(scale=room_scale, pieces=pieces)
 
 
 def test_min_samples_per_leaf_fraction_bounds_the_pieces_circuit_size() -> None:
@@ -233,3 +251,118 @@ def test_min_samples_per_leaf_fraction_bounds_the_pieces_circuit_size() -> None:
         ].template_distribution.class_probabilistic_circuit.nodes()
     )
     assert bounded_piece_nodes < default_piece_nodes / 2
+
+
+def _fitted_layout_model() -> RelationalProbabilisticCircuit:
+    """
+    Fit a room-floor circuit on layouts whose footprints genuinely vary, so the
+    room-geometry aggregations have a distribution to be conditioned on.
+    """
+    rng = random.Random(0)
+    layouts = [
+        _synthetic_floor_layout(
+            room_index,
+            rng.randint(3, 8),
+            rng,
+            scale=EGScale(
+                width=rng.uniform(3.0, 12.0),
+                length=rng.uniform(3.0, 12.0),
+                height=2.7,
+            ),
+        )
+        for room_index in range(60)
+    ]
+    return RelationalProbabilisticCircuit(
+        EGRoomFloorLayout, min_samples_per_leaf=_MIN_SAMPLES_PER_LEAF_FRACTION
+    ).fit([to_dao(layout) for layout in layouts])
+
+
+def test_room_geometry_aggregations_become_latent_variables_of_the_pieces_template() -> None:
+    """
+    Aggregations are the only channel carrying room-level context into the
+    piece circuit, so ``floor_area`` and ``aspect_ratio`` must surface as latent
+    variables of the ``pieces`` template. Without them a piece's position is
+    conditioned only on how many pieces the room holds, never on how big or what
+    shape it is.
+    """
+    template = _fitted_layout_model().exchangeable_distribution_templates["pieces"]
+
+    latent_names = {variable.name for variable in template.latent_variables}
+    assert "EGRoomFloorLayoutAggregations.floor_area()" in latent_names
+    assert "EGRoomFloorLayoutAggregations.aspect_ratio()" in latent_names
+
+
+def test_room_geometry_aggregations_are_determined_by_a_footprint_fixed_query() -> None:
+    """
+    Both statistics must be computable from the query itself, so grounding
+    conditions on them directly instead of integrating them out via Monte-Carlo.
+    Integration would marginalise the latents out of the class circuit, leaving
+    the sampled room footprint statistically decoupled from the piece positions
+    it produced -- reintroducing the very defect these aggregations exist to fix.
+    """
+    model = _fitted_layout_model()
+    template = model.exchangeable_distribution_templates["pieces"]
+    query = build_free_room_floor_query(
+        SampledRoomShape(piece_count=4, scale=EGScale(width=6.0, length=3.0, height=2.7))
+    )
+    query.resolve()
+
+    statistics = compute_aggregation_statistics(
+        query.construct_instance(),
+        model.feature_extractor.exchangeable_features["pieces"],
+        template.latent_variables,
+    )
+
+    determined = {variable.name: value for variable, value in statistics.items()}
+    assert determined["EGRoomFloorLayoutAggregations.floor_area()"] == pytest.approx(18.0)
+    assert determined["EGRoomFloorLayoutAggregations.aspect_ratio()"] == pytest.approx(2.0)
+
+    undetermined = [
+        variable for variable in template.latent_variables if variable not in statistics
+    ]
+    assert undetermined == []
+
+
+def test_scene_mesh_pool_uses_only_the_cache_without_a_downloader() -> None:
+    """
+    Building the scene mesh pool without a downloader must not trigger any
+    download, so the demo stays fast for iterative testing.
+    """
+    with patch(
+        "experiments.scene_generation_experiments.utils"
+        ".download_meshes_for_floor_object_types"
+    ) as download, patch(
+        "experiments.scene_generation_experiments.utils.build_source_id_to_path",
+        return_value={},
+    ), patch(
+        "experiments.scene_generation_experiments.utils.load_objects_with_cached_meshes",
+        return_value=[],
+    ) as load_cached:
+        result = build_cached_mesh_pool(MagicMock())
+
+    download.assert_not_called()
+    load_cached.assert_called_once()
+    assert result == []
+
+
+def test_scene_mesh_pool_tops_up_the_cache_when_given_a_downloader() -> None:
+    """
+    A downloader must broaden the pool by downloading floor-object meshes before
+    the cached objects are loaded.
+    """
+    session = MagicMock()
+    downloader = MagicMock()
+
+    with patch(
+        "experiments.scene_generation_experiments.utils"
+        ".download_meshes_for_floor_object_types"
+    ) as download, patch(
+        "experiments.scene_generation_experiments.utils.build_source_id_to_path",
+        return_value={},
+    ), patch(
+        "experiments.scene_generation_experiments.utils.load_objects_with_cached_meshes",
+        return_value=[],
+    ):
+        build_cached_mesh_pool(session, downloader)
+
+    download.assert_called_once_with(session, downloader)

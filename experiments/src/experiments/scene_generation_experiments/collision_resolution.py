@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import Counter
 from itertools import combinations
+from typing import TYPE_CHECKING
 
 from krrood.entity_query_language.factories import underspecified
 from semantic_digital_twin.scene_generation.scene_schema import (
@@ -20,6 +21,11 @@ from semantic_digital_twin.collision_checking.trimesh_collision_detector import 
     FCLCollisionDetector,
 )
 from semantic_digital_twin.world_description.world_entity import Body
+
+if TYPE_CHECKING:
+    from experiments.scene_generation_experiments.room_floor_sampling import (
+        SampledRoomShape,
+    )
 
 
 def minimal_resample_set(colliding_pairs: set[tuple[int, int]]) -> set[int]:
@@ -224,28 +230,27 @@ def build_layer_query_with_fixed_scale(object_count: int, scale: EGScale):
     return _build_conditioned_layer_query([], object_count, target_scale=scale)
 
 
-def build_free_room_floor_query(piece_count: int, height: float):
+def build_free_room_floor_query(shape: SampledRoomShape):
     """
-    Build an :class:`EGRoomFloorLayout` query with *piece_count* free
-    floor-piece slots and the room's ceiling height fixed as conditioning
-    evidence.
+    Build an :class:`EGRoomFloorLayout` query with the room's footprint fixed as
+    conditioning evidence and ``shape.piece_count`` free floor-piece slots.
 
-    The room footprint (width/length) is left free so the RSPN samples it
-    from the marginal, alongside which pieces the room holds and where they
-    sit. Height is fixed rather than sampled: it is a generation parameter,
-    not something to learn, and every training layout already carries the
-    same constant value.
+    The whole footprint is fixed rather than sampled, so the ``floor_area`` and
+    ``aspect_ratio`` aggregations are *determined* by the query. Leaving width
+    and length free would leave those latents undetermined, and grounding would
+    integrate them out via Monte-Carlo -- which marginalises them out of the
+    class circuit, statistically decoupling the footprint that ends up sampled
+    from the one the piece positions were conditioned on, and multiplying
+    grounding cost by the Monte-Carlo sample count.
 
-    :param piece_count: Number of free floor-piece slots to include.
-    :param height: The room's ceiling height, fixed as conditioning
-        evidence.
+    :param shape: The room's drawn piece count and floor footprint.
     :return: An underspecified :class:`EGRoomFloorLayout` query with the
-        given height as its only fixed evidence, ready for
-        :class:`ProbabilisticBackend` evaluation.
+        footprint as fixed evidence, ready for :class:`ProbabilisticBackend`
+        evaluation.
     """
     return underspecified(EGRoomFloorLayout)(
-        scale=underspecified(EGScale)(width=..., length=..., height=height),
-        pieces=[_build_free_object2d_query() for _ in range(piece_count)],
+        scale=shape.scale,
+        pieces=[_build_free_object2d_query() for _ in range(shape.piece_count)],
     )
 
 

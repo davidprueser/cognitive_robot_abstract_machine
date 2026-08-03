@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 import shutil
 from importlib.resources import files
 from itertools import combinations
@@ -7,10 +8,8 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+import trimesh
 
-from experiments.scene_generation_experiments.exceptions import (
-    LayoutResolutionError,
-)
 from experiments.scene_generation_experiments.in_world_resolver import (
     InWorldLayoutResolver,
     ShelfLayerGroup,
@@ -41,6 +40,14 @@ from semantic_digital_twin.semantic_annotations.semantic_annotations import (
 from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
 from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.connections import Connection6DoF
+
+
+_RESOURCES_PLY = Path(files("semantic_digital_twin")).parent.parent / "resources" / "ply"
+_CHAIR_EXTENTS = trimesh.load(str(_RESOURCES_PLY / "chair.ply"), process=False).extents
+"""
+Native (x, y, z) bounding-box size of the bundled chair mesh. Objects now spawn
+at their mesh's real size, so corpus-wall fixtures are sized relative to this.
+"""
 
 
 @pytest.fixture
@@ -104,6 +111,124 @@ def _colliding_bodies(spawned: SpawnedShelf) -> bool:
         }
     )
     return detector.check_collisions(matrix).any()
+
+
+def _multi_layer_shelf(candidate: MeshCandidate, corpus_height: float) -> EGShelf:
+    """
+    A four-layer shelf whose layers carry only the fixed slab thickness, so the
+    corpus height alone determines how the layers are spread vertically.
+    """
+    layers = [
+        EGShelfLayer(scale=EGScale(height=0.02, length=4.0, width=4.0), objects=[])
+        for _ in range(4)
+    ]
+    return EGShelf(
+        position=EGPoint2D(x=0.0, y=0.0),
+        scale=EGScale(height=corpus_height, length=4.0, width=4.0),
+        orientation=EGRotation(x=0.0, y=0.0, z=0.0),
+        layers=layers,
+        source_ids=[candidate],
+    )
+
+
+def test_shelf_layers_are_spread_across_the_corpus_height(
+    mesh_candidate: MeshCandidate,
+) -> None:
+    """
+    A multi-layer shelf must place its layers at distinct, increasing heights
+    that span its corpus, so passing the shelf's own height (not a layer's slab
+    thickness) keeps the layers from collapsing onto the floor.
+    """
+    corpus_height = 2.0
+    spawned = _multi_layer_shelf(mesh_candidate, corpus_height).spawn_in_world()
+
+    layer_heights = [
+        layer.surface.root.global_pose.to_position().to_np()[2]
+        for layer in spawned.layers
+    ]
+
+    assert layer_heights == sorted(layer_heights)
+    assert len(set(layer_heights)) == len(layer_heights)
+    assert max(layer_heights) - min(layer_heights) > corpus_height / 2
+
+
+def test_object_spawns_at_its_meshs_native_size(mesh_candidate: MeshCandidate) -> None:
+    """
+    A spawned object must keep its mesh's own real-world size, since sage10k
+    meshes already have their scale baked in. Stretching the mesh to an
+    RSPN-sampled scale distorts it, so the sampled scale must not override the
+    mesh's native extents.
+    """
+    sampled = _object("book_0", 0.0, 0.0)
+    sampled.scale = EGScale(height=5.0, length=5.0, width=5.0)
+    shelf = _shelf([sampled], mesh_candidate)
+
+    spawned = shelf.spawn_in_world()
+    body = spawned.layers[0].object_bodies[0]
+
+    native_extents = trimesh.load(
+        str(mesh_candidate.scene_dir / "objects" / "test_object.ply"), process=False
+    ).extents
+    spawned_extents = body.collision.combined_mesh.extents
+
+    assert spawned_extents == pytest.approx(native_extents, abs=1e-3)
+
+
+def _single_layer_shelf_with(
+    candidate: MeshCandidate, object_scale: EGScale
+) -> EGShelf:
+    """
+    A generous single-layer shelf holding one object, so only the candidate's
+    own size decides whether it is placed.
+    """
+    obj = EGObject2D(
+        id="obj_0",
+        room_id="room_1",
+        place_id="shelf_1",
+        object_type=ObjectType.BOOK,
+        scale=object_scale,
+        position=EGPoint2D(x=0.0, y=0.0),
+        orientation=EGRotation(x=0.0, y=0.0, z=0.0),
+        source_id="test_object",
+    )
+    return EGShelf(
+        position=EGPoint2D(x=0.0, y=0.0),
+        scale=EGScale(height=2.0, length=1.0, width=1.0),
+        orientation=EGRotation(x=0.0, y=0.0, z=0.0),
+        layers=[EGShelfLayer(scale=EGScale(height=0.02, length=1.0, width=1.0), objects=[obj])],
+        source_ids=[candidate],
+    )
+
+
+def test_object_too_big_for_the_layer_is_dropped(mesh_candidate: MeshCandidate) -> None:
+    """
+    An object whose only available mesh is taller than the layer's clearance
+    must be left out of the spawned shelf, since the resolver moves objects only
+    in the plane and could never repair a mesh piercing the shelf above.
+    """
+    too_tall = dataclasses.replace(
+        mesh_candidate, native_extents=(0.1, 0.1, 2.0)
+    )
+    shelf = _single_layer_shelf_with(too_tall, EGScale(height=0.1, length=0.1, width=0.1))
+
+    spawned = shelf.spawn_in_world()
+
+    assert spawned.layers[0].object_bodies == {}
+
+
+def test_object_that_fits_the_layer_is_kept(mesh_candidate: MeshCandidate) -> None:
+    """
+    An object with a mesh that fits the layer's clearance and footprint must be
+    spawned as usual.
+    """
+    fitting = dataclasses.replace(
+        mesh_candidate, native_extents=(0.1, 0.1, 0.1)
+    )
+    shelf = _single_layer_shelf_with(fitting, EGScale(height=0.1, length=0.1, width=0.1))
+
+    spawned = shelf.spawn_in_world()
+
+    assert set(spawned.layers[0].object_bodies) == {0}
 
 
 def test_create_in_world_still_returns_a_world(mesh_candidate: MeshCandidate) -> None:
@@ -187,36 +312,24 @@ def test_spawn_in_world_keeps_edge_object_clear_of_the_corpus_walls(
     mesh_candidate: MeshCandidate,
 ) -> None:
     """
-    An object placed near a small layer's own declared edge must not collide
-    with the spawned :class:`Cabinet` corpus's walls.
+    An object filling a layer edge-to-edge must not collide with the spawned
+    :class:`Cabinet` corpus's walls.
 
     The corpus used to be sized exactly to the layers' footprint and then had
     a wall carved out of that same footprint, so the wall intruded into the
-    region objects were trained to occupy -- invisible on large shelves,
-    where the training data's edge margin comfortably exceeds the wall
-    thickness, but reliably triggered on small ones.
+    region objects were trained to occupy. Sizing the layer to the object's own
+    native footprint presses it against every wall at once.
     """
-    small_layer_width = 0.4
-    # Corpus Y is controlled by an object's *length* (see EGShelf.object_local_pose):
-    # a wide, thin object here maximises the footprint pressed against the
-    # face walls (the sides Cabinet's hole_direction leaves walled).
-    edge_object = EGObject2D(
-        id="edge_book",
-        room_id="room_1",
-        place_id="shelf_1",
-        object_type=ObjectType.BOOK,
-        scale=EGScale(width=0.2, length=0.05, height=0.25),
-        position=EGPoint2D(x=0.17, y=0.0),
-        orientation=EGRotation(x=0.0, y=0.0, z=0.0),
-        source_id="test_object",
-    )
+    edge_object = _object("edge_book", 0.0, 0.0)
     layer = EGShelfLayer(
-        scale=EGScale(height=0.02, length=small_layer_width, width=small_layer_width),
+        scale=EGScale(
+            height=0.02, length=_CHAIR_EXTENTS[0], width=_CHAIR_EXTENTS[1]
+        ),
         objects=[edge_object],
     )
     shelf = EGShelf(
         position=EGPoint2D(x=0.0, y=0.0),
-        scale=EGScale(height=2.0, length=small_layer_width, width=small_layer_width),
+        scale=EGScale(height=2.0, length=_CHAIR_EXTENTS[0], width=_CHAIR_EXTENTS[1]),
         orientation=EGRotation(x=0.0, y=0.0, z=0.0),
         layers=[layer],
         source_ids=[mesh_candidate],
@@ -300,14 +413,18 @@ def test_resolver_moves_object_colliding_with_the_corpus_walls(
     objects, never against the shelf's own corpus -- so an object placed
     inside a wall was never flagged and stayed there.
     """
-    small_layer_width = 0.4
+    # A layer with room to spare around the object's native footprint, so a
+    # centred object clears the walls but one pushed toward the edge pokes into
+    # the corpus wall.
+    layer_length = _CHAIR_EXTENTS[0] * 1.4
+    layer_width = _CHAIR_EXTENTS[1] * 1.4
     layer = EGShelfLayer(
-        scale=EGScale(height=0.02, length=small_layer_width, width=small_layer_width),
-        objects=[_object("edge_book", 0.19, 0.0)],
+        scale=EGScale(height=0.02, length=layer_length, width=layer_width),
+        objects=[_object("edge_book", _CHAIR_EXTENTS[0] * 0.5, 0.0)],
     )
     shelf = EGShelf(
         position=EGPoint2D(x=0.0, y=0.0),
-        scale=EGScale(height=2.0, length=small_layer_width, width=small_layer_width),
+        scale=EGScale(height=2.0, length=layer_length, width=layer_width),
         orientation=EGRotation(x=0.0, y=0.0, z=0.0),
         layers=[layer],
         source_ids=[mesh_candidate],
@@ -366,12 +483,13 @@ def test_resolver_falls_back_to_relaxed_query_when_neighbour_evidence_has_no_sol
     assert not _colliding_bodies(spawned)
 
 
-def test_resolver_raises_when_layout_is_unsatisfiable(
+def test_resolver_drops_objects_it_cannot_separate(
     mesh_candidate: MeshCandidate,
 ) -> None:
     """
-    When resampling never separates the objects, the resolver must give up and
-    raise rather than spin forever.
+    When resampling never separates the objects, the resolver must give up
+    moving them and drop the offenders, returning a collision-free layout rather
+    than spinning forever or failing the whole sample.
     """
     shelf = _shelf(
         [_object("book_0", 0.0, 0.0), _object("book_1", 0.0, 0.0)], mesh_candidate
@@ -386,5 +504,7 @@ def test_resolver_raises_when_layout_is_unsatisfiable(
     ) as backend_factory:
         backend_factory.return_value.evaluate.return_value = [still_overlapping]
         resolver = InWorldLayoutResolver.for_shelf(shelf, rspn=MagicMock(), max_passes=3)
-        with pytest.raises(LayoutResolutionError):
-            resolver.resolve()
+        spawned = resolver.resolve()
+
+    assert not _colliding_bodies(spawned)
+    assert len(spawned.layers[0].object_bodies) < 2

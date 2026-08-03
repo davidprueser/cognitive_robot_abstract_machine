@@ -4,6 +4,7 @@ import math
 import os
 import time
 from collections import defaultdict
+from typing import TYPE_CHECKING
 
 from sqlalchemy.orm import Session
 
@@ -42,6 +43,24 @@ from semantic_digital_twin.scene_generation.scene_schema import (
     EGTableWithChairs,
     ObjectType,
 )
+
+if TYPE_CHECKING:
+    from experiments.scene_generation_experiments.data_preprocessing import (
+        Sage10kSceneDownloader,
+    )
+
+_MIN_SAMPLES_PER_LEAF_FRACTION = 0.05
+"""
+Fraction of the training set required to create another split node when fitting
+the table-with-chairs RSPN, passed as ``min_samples_per_leaf`` to
+:class:`~probabilistic_model.probabilistic_circuit.relational.rspn.RelationalProbabilisticCircuit`.
+
+Each chair carries near-unique identifiers (``id``, ``source_id``), so with the
+library default of one sample per leaf the chair-level circuit grows one leaf
+per training chair; grounding then deep-copies that circuit once per sampled
+chair, which makes sampling run for minutes. A fraction bounds the circuit's
+size instead.
+"""
 
 
 def _distance_between(first: EGObjectDAO, second: EGObjectDAO) -> float:
@@ -156,7 +175,9 @@ def _extract_table_chair_groups_from_spatial_proximity(
     return table_chair_groups, objects
 
 
-def generate_table_with_chairs(node) -> None:
+def generate_table_with_chairs(
+    node, downloader: Sage10kSceneDownloader | None = None
+) -> None:
     """
     Train an RSPN on table-with-chairs data from the database, spawn a sampled
     arrangement into a world, repair chair collisions directly in that world,
@@ -164,6 +185,10 @@ def generate_table_with_chairs(node) -> None:
 
     :param node: An active rclpy node used to publish visualisation
         markers.
+    :param downloader: When given, chair meshes are downloaded on demand until
+        the candidate pool is filled. Left as ``None`` the pool is whatever is
+        already cached, which keeps the demo fast for iterative testing; pass a
+        downloader for a final demo that needs a broad mesh pool.
     """
     start = time.time()
     uri = os.environ.get("SEMANTIC_DIGITAL_TWIN_DATABASE_URI")
@@ -174,7 +199,9 @@ def generate_table_with_chairs(node) -> None:
     table_chair_groups, _ = _extract_table_chair_groups_from_spatial_proximity(session)
     data_access_objects = [to_dao(group) for group in table_chair_groups]
 
-    rspn = RelationalProbabilisticCircuit(EGTableWithChairs)
+    rspn = RelationalProbabilisticCircuit(
+        EGTableWithChairs, min_samples_per_leaf=_MIN_SAMPLES_PER_LEAF_FRACTION
+    )
     rspn = rspn.fit(data_access_objects)
 
     probability_backend = probabilistic_backend(rspn)
@@ -183,7 +210,7 @@ def generate_table_with_chairs(node) -> None:
     sample = next(iter(probability_backend.evaluate(build_free_table_query(chair_count))))
 
     source_ids_for_sampled_objects = _get_source_ids_for_objects(
-        load_all_objects(session), object_type=ObjectType.CHAIR
+        load_all_objects(session), object_type=ObjectType.CHAIR, downloader=downloader
     )
     sample.position = EGPoint2D(x=0.0, y=0.0)
     sample.orientation = EGRotation(x=0.0, y=0.0, z=0.0)

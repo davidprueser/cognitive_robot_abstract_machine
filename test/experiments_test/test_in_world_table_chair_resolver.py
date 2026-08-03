@@ -8,9 +8,6 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from experiments.scene_generation_experiments.exceptions import (
-    LayoutResolutionError,
-)
 from experiments.scene_generation_experiments.in_world_resolver import (
     InWorldLayoutResolver,
 )
@@ -229,12 +226,13 @@ def test_resolver_falls_back_to_relaxed_query_when_neighbour_evidence_has_no_sol
     assert not _colliding_bodies(spawned)
 
 
-def test_resolver_raises_when_layout_is_unsatisfiable(
+def test_resolver_drops_chairs_it_cannot_separate(
     mesh_candidate: MeshCandidate,
 ) -> None:
     """
-    When resampling never separates the chairs, the resolver must give up and
-    raise rather than spin forever.
+    When resampling never separates the chairs, the resolver must give up moving
+    them and drop the offenders, returning a collision-free layout rather than
+    spinning forever or failing the whole sample.
     """
     group = _group(
         [_chair("chair_0", 1.0, 0.0), _chair("chair_1", 1.0, 0.0)], mesh_candidate
@@ -253,5 +251,7 @@ def test_resolver_raises_when_layout_is_unsatisfiable(
         resolver = InWorldLayoutResolver.for_table_with_chairs(
             group, rspn=MagicMock(), max_passes=3
         )
-        with pytest.raises(LayoutResolutionError):
-            resolver.resolve()
+        spawned = resolver.resolve()
+
+    assert not _colliding_bodies(spawned)
+    assert len(spawned.chair_bodies) < 2

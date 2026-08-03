@@ -3,7 +3,7 @@ from __future__ import annotations
 import contextlib
 import threading
 import time
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from pathlib import Path
 
 from sqlalchemy import func, select
@@ -14,7 +14,10 @@ from experiments.scene_generation_experiments.data_preprocessing import (
     Sage10kSceneDownloader,
     SourceIdNotFoundError,
 )
-from semantic_digital_twin.scene_generation.scene_schema import MeshCandidate, ObjectType
+from semantic_digital_twin.scene_generation.scene_schema import (
+    MeshCandidate,
+    ObjectType,
+)
 
 from semantic_digital_twin.utils import rclpy_installed
 
@@ -89,6 +92,56 @@ def load_all_objects(session: Session) -> list[EGObjectDAO]:
     ).all()
 
 
+def load_objects_with_cached_meshes(
+    session: Session, cached_source_ids: Collection[str]
+) -> list[EGObjectDAO]:
+    """
+    Load every object DAO whose mesh is already cached locally, eagerly joining
+    scale/position/orientation.
+
+    Selecting by mesh availability keeps the candidate pool complete and
+    reproducible. Capping an unordered query first and intersecting with the
+    cached meshes afterwards left the pool an accident of which rows the
+    database happened to return -- a few dozen candidates skewed towards
+    whichever types earlier demos had downloaded, so most sampled object types
+    found no mesh of their own kind and fell back to the whole pool. The result
+    is bounded by the size of the local cache, so it needs no row limit.
+
+    :param session: Database session to query objects from.
+    :param cached_source_ids: Source IDs whose mesh files are cached locally.
+    :return: All object DAOs whose mesh is available.
+    """
+    return session.scalars(
+        select(EGObjectDAO)
+        .where(EGObjectDAO.source_id.in_(cached_source_ids))
+        .options(
+            joinedload(EGObjectDAO.scale),
+            joinedload(EGObjectDAO.position),
+            joinedload(EGObjectDAO.orientation),
+        )
+        .distinct()
+    ).all()
+
+
+def objects_of_type(session: Session, object_type: ObjectType) -> list[EGObjectDAO]:
+    """
+    Load every floor-resting object DAO of *object_type*.
+
+    Used to build a per-type mesh-download worklist, so each commonly sampled
+    type can be given its own mesh coverage rather than sharing one global cap.
+
+    :param session: Database session to query objects from.
+    :param object_type: The type of object to load.
+    :return: The matching object DAOs.
+    """
+    return session.scalars(
+        select(EGObjectDAO)
+        .where(EGObjectDAO.object_type == object_type)
+        .where(EGObjectDAO.place_id == "floor")
+        .distinct()
+    ).all()
+
+
 def sampled_room_ids(
     session: Session, room_count: int = DEFAULT_TRAINING_ROOM_COUNT
 ) -> list[str]:
@@ -134,6 +187,7 @@ def objects_for_rooms(session: Session, room_ids: Sequence[str]) -> list[EGObjec
             joinedload(EGObjectDAO.position),
             joinedload(EGObjectDAO.orientation),
         )
+        .limit(50000)
         .distinct()
     ).all()
 
@@ -176,6 +230,7 @@ def _get_source_ids_for_objects(
             scene_dir=source_id_to_path[obj.source_id],
             source_id=obj.source_id,
             object_type=obj.object_type,
+            native_extents=(obj.scale.width, obj.scale.length, obj.scale.height),
         )
         for obj in matching_objects
         if obj.source_id in source_id_to_path
@@ -245,3 +300,91 @@ def build_source_id_to_path(
             if texture_file.exists():
                 mapping[ply_file.stem] = scene_dir
     return mapping
+
+
+FLOOR_OBJECT_TYPES: tuple[ObjectType, ...] = (
+    ObjectType.PLANT,
+    ObjectType.CHAIR,
+    ObjectType.LAMP,
+    ObjectType.SHELF,
+    ObjectType.TABLE,
+    ObjectType.OTHER,
+    ObjectType.CABINET,
+    ObjectType.DESK,
+    ObjectType.VASE,
+    ObjectType.BASKET,
+    ObjectType.BENCH,
+    ObjectType.SOFA,
+    ObjectType.COUNTER,
+    ObjectType.SIDEBOARD,
+    ObjectType.STAND,
+    ObjectType.BIN,
+)
+"""
+Object types to ensure mesh coverage for, ordered by how often they rest on a
+floor in the dataset.
+"""
+
+DEFAULT_MINIMUM_CANDIDATES_PER_TYPE = 50
+"""
+Distinct meshes to make available per floor object type.
+
+The library default of five is what left the cache dominated by a single type;
+a per-type target keeps every commonly sampled type able to find a mesh of its
+own kind.
+"""
+
+
+def download_meshes_for_floor_object_types(
+    session: Session,
+    downloader: Sage10kSceneDownloader,
+    minimum_candidates: int = DEFAULT_MINIMUM_CANDIDATES_PER_TYPE,
+) -> dict[ObjectType, int]:
+    """
+    Ensure at least *minimum_candidates* distinct meshes are cached for each of
+    :data:`FLOOR_OBJECT_TYPES`.
+
+    .. note::
+        This performs network downloads from HuggingFace and is intended for
+        pre-populating the cache ahead of a final demo, not for fast iteration.
+
+    :param session: Database session to read floor objects from.
+    :param downloader: Resolves a source ID to its scene and downloads it.
+    :param minimum_candidates: Distinct meshes to target per type.
+    :return: The number of cached meshes achieved per type.
+    """
+    source_id_to_path = build_source_id_to_path()
+    achieved: dict[ObjectType, int] = {}
+    for object_type in FLOOR_OBJECT_TYPES:
+        objects = objects_of_type(session, object_type)
+        _ensure_minimum_mesh_pool(
+            objects, source_id_to_path, downloader, minimum_candidates
+        )
+        achieved[object_type] = len(
+            {obj.source_id for obj in objects if obj.source_id in source_id_to_path}
+        )
+        print(f"{object_type.name}: {achieved[object_type]} meshes cached")
+    return achieved
+
+
+def build_cached_mesh_pool(
+    session: Session,
+    downloader: Sage10kSceneDownloader | None = None,
+) -> list[EGObjectDAO]:
+    """
+    Load the objects whose meshes are cached locally, first topping up the cache
+    via *downloader* when one is given.
+
+    With *downloader* left as ``None`` the pool is whatever is already cached,
+    which keeps demos fast for iterative testing. Passing a downloader turns on
+    adaptive downloading so a final demo can dress every sampled piece with a
+    mesh of its own kind.
+
+    :param session: Database session to query objects from.
+    :param downloader: When given, floor-object meshes are downloaded on demand
+        before the pool is loaded. ``None`` uses only the local cache.
+    :return: All object DAOs whose mesh is available locally.
+    """
+    if downloader is not None:
+        download_meshes_for_floor_object_types(session, downloader)
+    return load_objects_with_cached_meshes(session, build_source_id_to_path())

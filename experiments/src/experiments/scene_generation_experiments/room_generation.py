@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import time
 from collections import defaultdict
+from typing import TYPE_CHECKING
 
 from sqlalchemy.orm import Session
 
@@ -15,7 +16,7 @@ from experiments.scene_generation_experiments.in_world_resolver import (
 )
 from experiments.scene_generation_experiments.room_floor_sampling import (
     build_room_from_floor_layout,
-    sample_piece_count,
+    sample_room_shape,
 )
 from experiments.scene_generation_experiments.rspn_sampling import probabilistic_backend
 from experiments.scene_generation_experiments.shelf_generation import (
@@ -27,7 +28,7 @@ from experiments.scene_generation_experiments.table_chair_generation import (
 from experiments.scene_generation_experiments.utils import (
     DEFAULT_TRAINING_ROOM_COUNT,
     _get_source_ids_for_objects,
-    load_all_objects,
+    build_cached_mesh_pool,
     objects_for_rooms,
     rclpy_node,
     sampled_room_ids,
@@ -51,6 +52,11 @@ from semantic_digital_twin.scene_generation.scene_schema import (
     EGTableWithChairs,
     ObjectType,
 )
+
+if TYPE_CHECKING:
+    from experiments.scene_generation_experiments.data_preprocessing import (
+        Sage10kSceneDownloader,
+    )
 
 _ROOM_MARGIN = 1.0
 """
@@ -182,7 +188,7 @@ def _room_floor_layout(room_pieces: list[EGObjectDAO]) -> EGRoomFloorLayout:  # 
     )
 
 
-def generate_room(node) -> None:
+def generate_room(node, downloader: Sage10kSceneDownloader | None = None) -> None:
     """
     Train an RSPN on room floor layouts from the database, sample a room, let
     each shelf and table sample its own contents, spawn the whole room into a
@@ -190,6 +196,10 @@ def generate_room(node) -> None:
     world, and visualise the result via RViz markers.
 
     :param node: An active rclpy node used to publish visualisation markers.
+    :param downloader: When given, floor-object meshes are downloaded on demand
+        to broaden the mesh pool. Left as ``None`` the pool is whatever is
+        already cached, which keeps the demo fast for iterative testing; pass a
+        downloader for a final demo that needs a broad mesh pool.
     """
     start = time.time()
     uri = os.environ.get("SEMANTIC_DIGITAL_TWIN_DATABASE_URI")
@@ -212,16 +222,16 @@ def generate_room(node) -> None:
         EGTableWithChairs, min_samples_per_leaf=_MIN_SAMPLES_PER_LEAF_FRACTION
     ).fit([to_dao(group) for group in table_chair_groups])
 
-    piece_count = sample_piece_count([len(layout.pieces) for layout in floor_layouts])
+    room_shape = sample_room_shape(floor_layouts)
     sampled_layout = next(
         iter(
             probabilistic_backend(room_rspn).evaluate(
-                build_free_room_floor_query(piece_count, height=_ROOM_HEIGHT)
+                build_free_room_floor_query(room_shape)
             )
         )
     )
 
-    mesh_pool_objects = load_all_objects(session)
+    mesh_pool_objects = build_cached_mesh_pool(session, downloader)
     all_object_source_ids = _get_source_ids_for_objects(mesh_pool_objects, object_type=None)
     room, object_id_to_mesh_path = build_room_from_floor_layout(
         sampled_layout,

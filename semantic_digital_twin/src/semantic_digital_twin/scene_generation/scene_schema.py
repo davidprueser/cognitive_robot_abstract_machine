@@ -9,7 +9,6 @@ from pathlib import Path
 from typing import Any, ClassVar, Self, assert_never
 
 import numpy as np
-import trimesh
 
 from krrood.adapters.json_serializer import SubclassJSONSerializer, to_json
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
@@ -90,14 +89,13 @@ class EGScale(EGBase):
 
     length: float
     """
-    Depth of the object (shelf depth direction, world x-axis when placed as a
-    corpus).
+    Depth of the object, i.e. its shallow front-to-back extent for a shelf.
     """
 
     width: float
     """
-    Face width of the object (shelf face direction, world y-axis when placed as
-    a corpus).
+    Face extent of the object, i.e. the wide side a shelf's contents line up
+    along.
     """
 
     def to_json(self) -> dict[str, Any]:
@@ -120,6 +118,27 @@ class EGScale(EGBase):
 class EGPoint2D(EGBase):
     x: float
     y: float
+
+    def rotated_into_frame(self, frame_yaw_degrees: float) -> EGPoint2D:
+        """
+        Express this point, currently an offset along the world axes, in the
+        axes of a frame rotated by *frame_yaw_degrees*.
+
+        Needed wherever an object's offset from a rotated parent is stored for
+        later re-use *inside* that parent: keeping the offset on the world axes
+        makes it mean something different once the parent's own rotation is
+        applied again.
+
+        :param frame_yaw_degrees: Yaw of the target frame, in degrees.
+        :return: The same offset expressed in the target frame's axes.
+        """
+        frame_yaw_radians = math.radians(frame_yaw_degrees)
+        cosine = math.cos(frame_yaw_radians)
+        sine = math.sin(frame_yaw_radians)
+        return EGPoint2D(
+            x=self.x * cosine + self.y * sine,
+            y=-self.x * sine + self.y * cosine,
+        )
 
     def to_json(self) -> dict[str, Any]:
         return {
@@ -396,6 +415,12 @@ class EGObject(EGWithID):
         Instantiate this object in *world* by loading its PLY mesh from
         *mesh_path*.
 
+        The mesh keeps its own native real-world size, since sage10k PLY assets
+        already carry their real dimensions; collisions are checked against that
+        real mesh, so stretching it to an independently sampled scale would both
+        distort it and disagree with the geometry the layout is resolved
+        against.
+
         Walls are attached with a fixed connection; every other object is
         attached with a movable 6-DoF connection whose pose lives in its degrees
         of freedom, so a resolver can reposition it in place via the ``origin``
@@ -437,10 +462,14 @@ class EGObject(EGWithID):
                 child_frame=body,
             )
 
+        # sage10k meshes already carry their real-world size, so spawn at
+        # identity scale to keep the mesh's true proportions instead of
+        # stretching it to an independently sampled scale.
         mesh = Mesh.from_ply_file(
             ply_file_path=str(ply_file),
             texture_file_path=str(texture_file),
             origin=HomogeneousTransformationMatrix.from_xyz_rpy(reference_frame=body),
+            scale=Scale(1.0, 1.0, 1.0),
         )
 
         geometry = ShapeCollection([mesh], reference_frame=body)
@@ -552,28 +581,6 @@ class EGObject2D(EGWithID):
             source_id=data["source_id"],
         )
 
-    def _scale_to_match_extents(self, native_extents: np.ndarray) -> Scale:
-        """
-        Compute the per-axis factor that rescales a mesh with *native_extents*
-        so its bounding box matches this object's declared :attr:`scale`.
-
-        Mirrors the width/length/height to x/y/z axis convention used by
-        the collision-resolution box proxy, so the rendered mesh agrees
-        with the geometry that was already checked for collisions. Axes
-        with zero native extent are left unscaled.
-
-        :param native_extents: The mesh's raw (x, y, z) bounding-box
-            size, read before any scale is applied.
-        :return: A :class:`Scale` with one factor per axis.
-        """
-        target_extents = (self.scale.width, self.scale.length, self.scale.height)
-        return Scale(
-            *(
-                target / native if native > 0 else 1.0
-                for target, native in zip(target_extents, native_extents)
-            )
-        )
-
     def create_in_world(
         self,
         world: World,
@@ -588,10 +595,9 @@ class EGObject2D(EGWithID):
         """
         Instantiate this object in *world* at the given absolute pose.
 
-        The mesh is rescaled so its bounding box matches this object's
-        declared :attr:`scale`, since PLY assets are otherwise rendered
-        at their native size regardless of the sampled/declared
-        dimensions.
+        The mesh keeps its own native real-world size, since sage10k PLY assets
+        already carry their real dimensions; stretching them to an independently
+        sampled scale would distort them.
 
         :param world: The world where the object is created.
         :param mesh_path: Directory containing the ``objects/`` sub-
@@ -634,12 +640,14 @@ class EGObject2D(EGWithID):
                 child_frame=body,
             )
 
-        native_extents = trimesh.load(str(ply_file), process=False).extents
+        # sage10k meshes already carry their real-world size, so spawn at
+        # identity scale to keep the mesh's true proportions instead of
+        # stretching it to an independently sampled scale.
         mesh = Mesh.from_ply_file(
             ply_file_path=str(ply_file),
             texture_file_path=str(texture_file),
             origin=HomogeneousTransformationMatrix.from_xyz_rpy(reference_frame=body),
-            scale=self._scale_to_match_extents(native_extents),
+            scale=Scale(1.0, 1.0, 1.0),
         )
 
         geometry = ShapeCollection([mesh], reference_frame=body)
@@ -1272,6 +1280,14 @@ class MeshCandidate:
     The generalized category of the object this mesh was captured from.
     """
 
+    native_extents: tuple[float, float, float] | None = None
+    """
+    The mesh's own real-world size as ``(width, length, height)``, used to decide
+    whether it fits a target space. ``None`` when the size is unknown, in which
+    case the candidate is treated as always fitting. A tuple (not an
+    :class:`EGScale`) keeps :class:`MeshCandidate` hashable.
+    """
+
 
 @dataclass
 class _MeshTypeMatcher:
@@ -1297,22 +1313,59 @@ class _MeshTypeMatcher:
     Pool of meshes to choose from.
     """
 
-    def random_match(self, object_type: ObjectType) -> MeshCandidate:
+    def random_match(
+        self, object_type: ObjectType, max_extents: EGScale | None = None
+    ) -> MeshCandidate | None:
         """
         Return a random candidate whose :attr:`MeshCandidate.object_type`
         equals *object_type*, falling back to the full pool when no candidate
         of that type is available.
 
+        When *max_extents* is given, only candidates whose own real-world size
+        fits within it are eligible; if none of the requested type fit, ``None``
+        is returned so the caller can drop an object that is simply too big for
+        the space rather than force an overflowing mesh into it.
+
         :param object_type: The category of the object a mesh is being
             selected for.
-        :return: The selected candidate.
+        :param max_extents: Upper bound on the mesh's width/length/height. When
+            omitted, size is not considered.
+        :return: The selected candidate, or ``None`` when the pool is empty or
+            nothing fits *max_extents*.
         """
         matching_candidates = [
             candidate
             for candidate in self.candidates
             if candidate.object_type == object_type
         ]
-        return random.choice(matching_candidates or self.candidates)
+        pool = matching_candidates or self.candidates
+        if max_extents is not None:
+            pool = [
+                candidate for candidate in pool if self._fits(candidate, max_extents)
+            ]
+        if not pool:
+            return None
+        return random.choice(pool)
+
+    @staticmethod
+    def _fits(candidate: MeshCandidate, max_extents: EGScale) -> bool:
+        """
+        Whether *candidate*'s real-world size stays within *max_extents* on
+        every axis. Candidates of unknown size are treated as fitting.
+
+        :param candidate: The mesh candidate to test.
+        :param max_extents: Per-axis upper bound.
+        :return: ``True`` if the candidate fits or its size is unknown.
+        """
+        native = candidate.native_extents
+        if native is None:
+            return True
+        native_width, native_length, native_height = native
+        return (
+            native_width <= max_extents.width
+            and native_length <= max_extents.length
+            and native_height <= max_extents.height
+        )
 
 
 @dataclass
@@ -1431,6 +1484,33 @@ class EGShelf(EGBase):
     intrudes into the region objects were trained to occupy.
     """
 
+    CONTENT_FRAME_YAW_OFFSET_DEGREES: ClassVar[float] = 90.0
+    """
+    Yaw offset, in degrees, between a shelf's stored orientation and the frame
+    its contents are expressed in.
+
+    In the dataset a shelf's contents spread along its wide face, which lies
+    along the shelf's local x-axis -- but the spawned :class:`Cabinet` corpus
+    keeps its depth on x (its opening is fixed to -x) and its face on y. This
+    offset rotates the content frame so the face spread lands on the corpus's
+    wide (width) axis instead of overflowing its shallow depth. Extraction and
+    :meth:`spawn_in_world` must apply the *same* offset so the two stay inverses.
+
+    ..note:: The sign decides whether the shelf's open face points toward or
+        away from the viewer; it is chosen by inspecting the render, not derived.
+    """
+
+    _LAYER_SLAB_THICKNESS: ClassVar[float] = 0.02
+    """
+    Thickness, in metres, of each spawned layer slab.
+    """
+
+    _OBJECT_VERTICAL_MARGIN: ClassVar[float] = 0.01
+    """
+    Slack, in metres, kept between the tallest object a layer accepts and the
+    surface above it, so a fitting object never grazes the next slab or ceiling.
+    """
+
     position: EGPoint2D
     """
     Position of the Shelf, relative to its parent frame.
@@ -1486,11 +1566,12 @@ class EGShelf(EGBase):
         Objects are children of the corpus, so their pose is expressed relative
         to it: the corpus already carries the shelf's world position and yaw, and
         moving the corpus moves every object with it. The pose is therefore just
-        the object's on-shelf offset (``position.y``/``x`` map to the corpus
-        x/y axes) at height *origin_z*, with its own orientation. Used both when
-        first seating an object and when moving it to a resampled pose, so the
-        two placements can never drift apart -- and it stays correct after the
-        whole shelf is repositioned.
+        the object's on-shelf offset (``position.x``/``y`` map straight onto the
+        corpus x/y axes, which span the layer's length/width) at height
+        *origin_z*, with its own orientation. Used both when first seating an
+        object and when moving it to a resampled pose, so the two placements can
+        never drift apart -- and it stays correct after the whole shelf is
+        repositioned.
 
         :param obj: The object whose pose is computed.
         :param origin_z: Height of the object body's origin in the corpus frame.
@@ -1499,8 +1580,8 @@ class EGShelf(EGBase):
         """
         roll, pitch, yaw = obj.orientation.as_roll_pitch_yaw_in_radians()
         return HomogeneousTransformationMatrix.from_xyz_rpy(
-            obj.position.y,
             obj.position.x,
+            obj.position.y,
             origin_z,
             roll,
             pitch,
@@ -1573,7 +1654,12 @@ class EGShelf(EGBase):
         corpus_face = max(layer.scale.width for layer in self.layers) + wall_margin
         corpus_depth = max(layer.scale.length for layer in self.layers) + wall_margin
         corpus_height = self.scale.height
-        yaw_radians = math.radians(self.orientation.z)
+        # Contents are stored in the shelf's content frame (see
+        # CONTENT_FRAME_YAW_OFFSET_DEGREES), so the corpus and its slabs are
+        # built in that same frame -- the offset must match extraction's.
+        yaw_radians = math.radians(
+            self.orientation.z + self.CONTENT_FRAME_YAW_OFFSET_DEGREES
+        )
 
         corpus_pose = HomogeneousTransformationMatrix.from_xyz_rpy(
             x=self.position.x,
@@ -1602,7 +1688,9 @@ class EGShelf(EGBase):
 
         spawned_layers: list[SpawnedShelfLayer] = []
         for i, (layer, z_height) in enumerate(zip(self.layers, layer_z_heights)):
-            layer_scale = Scale(x=layer.scale.length, y=layer.scale.width, z=0.02)
+            layer_scale = Scale(
+                x=layer.scale.length, y=layer.scale.width, z=self._LAYER_SLAB_THICKNESS
+            )
             layer_pose = HomogeneousTransformationMatrix.from_xyz_rpy(
                 x=self.position.x,
                 y=self.position.y,
@@ -1624,14 +1712,36 @@ class EGShelf(EGBase):
 
             # Slab top expressed in the corpus frame (corpus centre is at
             # z = corpus_height / 2 in the parent frame).
-            slab_top_z = (z_height - corpus_height / 2) + 0.02 / 2
+            slab_top_z = (z_height - corpus_height / 2) + self._LAYER_SLAB_THICKNESS / 2
+            # Vertical room above this slab: up to the next slab's underside, or
+            # the corpus interior ceiling for the topmost layer. Objects taller
+            # than this would pierce the shelf above, which the resolver (it only
+            # moves objects in the plane) can never repair -- so they are dropped
+            # rather than placed.
+            if i + 1 < len(self.layers):
+                surface_above_z = (
+                    layer_z_heights[i + 1] - corpus_height / 2
+                ) - self._LAYER_SLAB_THICKNESS / 2
+            else:
+                surface_above_z = corpus_height / 2 - self._CORPUS_WALL_THICKNESS
+            max_object_extents = EGScale(
+                width=layer.scale.width,
+                length=layer.scale.length,
+                height=surface_above_z - slab_top_z - self._OBJECT_VERTICAL_MARGIN,
+            )
             object_bodies: dict[int, Body] = {}
             for object_index, obj in enumerate(layer.objects):
                 if not isinstance(obj.position.x, (int, float)):
                     continue
                 if not self.source_ids:
                     continue
-                candidate = mesh_matcher.random_match(obj.object_type)
+                candidate = mesh_matcher.random_match(
+                    obj.object_type, max_extents=max_object_extents
+                )
+                # No mesh of this type is small enough for the layer; the object
+                # is simply too big for the shelf, so leave it out.
+                if candidate is None:
+                    continue
                 obj.source_id = candidate.source_id
                 body = obj.create_in_world(
                     _world,
@@ -1753,19 +1863,14 @@ class EGRelativePolarPose(EGBase):
         :param table_yaw_degrees: Absolute yaw of the table, in degrees.
         :return: The chair's pose relative to the table.
         """
-        delta_x = chair_x - table_x
-        delta_y = chair_y - table_y
-        table_yaw_radians = math.radians(table_yaw_degrees)
+        local_offset = EGPoint2D(
+            x=chair_x - table_x, y=chair_y - table_y
+        ).rotated_into_frame(table_yaw_degrees)
 
-        local_x = delta_x * math.cos(table_yaw_radians) + delta_y * math.sin(
-            table_yaw_radians
+        distance_from_table_center = math.hypot(local_offset.x, local_offset.y)
+        angle_from_table_center = math.degrees(
+            math.atan2(local_offset.y, local_offset.x)
         )
-        local_y = -delta_x * math.sin(table_yaw_radians) + delta_y * math.cos(
-            table_yaw_radians
-        )
-
-        distance_from_table_center = math.hypot(local_x, local_y)
-        angle_from_table_center = math.degrees(math.atan2(local_y, local_x))
 
         bearing_to_table = wrap_angle_degrees(angle_from_table_center + 180)
         chair_yaw_relative_to_table = wrap_angle_degrees(
@@ -1936,19 +2041,14 @@ class EGChair(EGWithID):
                 child_frame=body,
             )
 
-        native_extents = trimesh.load(str(ply_file), process=False).extents
-        target_extents = (self.scale.width, self.scale.length, self.scale.height)
-        mesh_scale = Scale(
-            *(
-                target / native if native > 0 else 1.0
-                for target, native in zip(target_extents, native_extents)
-            )
-        )
+        # sage10k meshes already carry their real-world size, so spawn at
+        # identity scale to keep the mesh's true proportions instead of
+        # stretching it to an independently sampled scale.
         mesh = Mesh.from_ply_file(
             ply_file_path=str(ply_file),
             texture_file_path=str(texture_file),
             origin=HomogeneousTransformationMatrix.from_xyz_rpy(reference_frame=body),
-            scale=mesh_scale,
+            scale=Scale(1.0, 1.0, 1.0),
         )
 
         geometry = ShapeCollection([mesh], reference_frame=body)
@@ -2144,6 +2244,8 @@ class EGTableWithChairs(EGBase):
             if not self.source_ids:
                 continue
             candidate = mesh_matcher.random_match(chair.object_type)
+            if candidate is None:
+                continue
             chair.source_id = candidate.source_id
             chair_bodies[i] = chair.create_in_world(
                 _world,

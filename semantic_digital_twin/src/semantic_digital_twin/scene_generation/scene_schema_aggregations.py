@@ -122,6 +122,31 @@ class EGRoomFloorLayoutAggregations(AggregationStatistic[EGRoomFloorLayout]):
         ).tolist()
         return piece_count
 
+    @aggregation_statistic("pieces")
+    def floor_area(self) -> float:
+        """
+        Area of the room floor the pieces are arranged on.
+
+        An aggregation is the only channel carrying room-level context into the
+        per-piece distribution, so a piece conditioned solely on
+        :meth:`total_count` cannot tell a cramped room from a hall. Reads the
+        layout's own scale rather than the pieces, so it stays determinable from
+        a query whose pieces are still free.
+        """
+        return float(self.instance.scale.width * self.instance.scale.length)
+
+    @aggregation_statistic("pieces")
+    def aspect_ratio(self) -> float:
+        """
+        Ratio of the floor's width to its length.
+
+        Complements :meth:`floor_area`: together they are an invertible
+        reparametrisation of the footprint, and expressing piece positions as
+        fractions of each room axis removes shape from the coordinates
+        themselves, leaving this statistic as the only carrier of it.
+        """
+        return float(self.instance.scale.width / self.instance.scale.length)
+
 
 @dataclass
 class EGShelfLayerAggregations(AggregationStatistic[EGShelfLayer]):
