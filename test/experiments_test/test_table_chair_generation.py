@@ -34,6 +34,7 @@ from semantic_digital_twin.scene_generation.scene_schema import (
     EGTableWithChairs,
     MeshCandidate,
     ObjectType,
+    PlaceId,
 )
 from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.world_entity import Body
@@ -58,11 +59,12 @@ def _make_object(
     width: float = 0.8,
     length: float = 1.2,
     height: float = 0.75,
+    place_id: str = PlaceId.FLOOR,
 ) -> EGObjectDAO:
     return EGObjectDAO(
         id=object_id,
         room_id=room_id,
-        place_id="floor",
+        place_id=place_id,
         source_id=f"{object_id}_src",
         object_type=object_type,
         scale=EGScaleDAO(height=height, length=length, width=width),
@@ -150,6 +152,73 @@ def test_table_with_no_assigned_chairs_is_dropped(session: Session) -> None:
     groups, _ = _extract_table_chair_groups_from_spatial_proximity(session)
 
     assert groups == []
+
+
+def test_object_resting_on_a_table_is_not_itself_a_table_candidate(
+    session: Session,
+) -> None:
+    """
+    A small item lying on a table -- e.g. a tablecloth, which the object-type
+    classifier generalizes to :attr:`ObjectType.TABLE` -- must never compete as
+    a table candidate.
+
+    It sits at almost the same position as the table it rests on, so the
+    nearest-table assignment would hand it the real table's chairs and fit the
+    RSPN's table scale to a decimetre-sized box.
+    """
+    table = _make_object(
+        "table_1", "room_1", ObjectType.TABLE, x=0.0, y=0.0, width=1.2, length=0.8
+    )
+    tablecloth = _make_object(
+        "tablecloth_1",
+        "room_1",
+        ObjectType.TABLE,
+        x=0.05,
+        y=0.0,
+        width=0.2,
+        length=0.2,
+        height=0.02,
+        place_id="table_1",
+    )
+    chair = _make_object("chair_1", "room_1", ObjectType.CHAIR, x=0.9, y=0.0)
+    session.add_all([table, tablecloth, chair])
+    session.commit()
+
+    groups, _ = _extract_table_chair_groups_from_spatial_proximity(session)
+
+    assert len(groups) == 1
+    assert groups[0].scale == EGScale(width=1.2, length=0.8, height=0.75)
+    assert len(groups[0].chairs) == 1
+
+
+def test_object_resting_on_a_table_is_not_grouped_as_a_chair(
+    session: Session,
+) -> None:
+    """
+    A small item lying on a table whose raw name makes the classifier call it a
+    :attr:`ObjectType.CHAIR` -- e.g. ``"bookchair..."`` -- must not be grouped
+    as one of the table's chairs, or the group learns book-sized chairs.
+    """
+    table = _make_object("table_1", "room_1", ObjectType.TABLE, x=0.0, y=0.0)
+    book_on_table = _make_object(
+        "bookchair_1",
+        "room_1",
+        ObjectType.CHAIR,
+        x=0.1,
+        y=0.0,
+        width=0.2,
+        length=0.15,
+        height=0.05,
+        place_id="table_1",
+    )
+    real_chair = _make_object("chair_1", "room_1", ObjectType.CHAIR, x=0.9, y=0.0)
+    session.add_all([table, book_on_table, real_chair])
+    session.commit()
+
+    groups, _ = _extract_table_chair_groups_from_spatial_proximity(session)
+
+    assert len(groups) == 1
+    assert [chair.id for chair in groups[0].chairs] == ["chair_1"]
 
 
 # ---------------------------------------------------------------------------

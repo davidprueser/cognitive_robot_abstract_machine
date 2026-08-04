@@ -334,6 +334,23 @@ class ObjectType(StrEnum):
     WORKBENCH = "workbench"
 
 
+class PlaceId(StrEnum):
+    """
+    The reserved :attr:`EGObject.place_id` values that name a room's structure
+    rather than another object.
+
+    Any other ``place_id`` is the id of the piece of furniture an object rests
+    on, so ``place_id == PlaceId.FLOOR`` is what distinguishes a real piece of
+    furniture from a small item that merely carries a furniture word in its raw
+    name (e.g. a ``"tablecloth"`` lying on a table, which the
+    :class:`~semantic_digital_twin.scene_generation.object_type_classifier.ObjectTypeClassifier`
+    generalizes to :attr:`ObjectType.TABLE`).
+    """
+
+    FLOOR = "floor"
+    WALL = "wall"
+
+
 # %%
 @dataclass
 class EGObject(EGWithID):
@@ -345,7 +362,7 @@ class EGObject(EGWithID):
     place_id: str
     """
     The id of the object where the object is located/placed on/at, e.g. wall,
-    floor, table.
+    floor, table. The room-structure values are enumerated by :class:`PlaceId`.
     """
 
     object_type: ObjectType

@@ -51,6 +51,7 @@ from semantic_digital_twin.scene_generation.scene_schema import (
     EGShelfLayer,
     EGTableWithChairs,
     ObjectType,
+    PlaceId,
 )
 
 if TYPE_CHECKING:
@@ -239,7 +240,9 @@ def generate_room(node, downloader: Sage10kSceneDownloader | None = None) -> Non
         probabilistic_backend(table_rspn),
         [len(group.chairs) for group in table_chair_groups],
         all_object_source_ids,
-        _get_source_ids_for_objects(mesh_pool_objects, object_type=ObjectType.CHAIR),
+        _get_source_ids_for_objects(
+            mesh_pool_objects, object_type=ObjectType.CHAIR, place_id=PlaceId.FLOOR
+        ),
         all_object_source_ids,
     )
 

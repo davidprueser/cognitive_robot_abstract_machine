@@ -48,6 +48,7 @@ from semantic_digital_twin.scene_generation.scene_schema import (
     EGScale,
     MeshCandidate,
     ObjectType,
+    PlaceId,
     _MeshTypeMatcher,
 )
 from semantic_digital_twin.semantic_annotations.semantic_annotations import ShelfLayer
@@ -70,6 +71,7 @@ class _MockShelfObject:
     object_type: ObjectType
     source_id: str
     scale: EGScale = field(default_factory=lambda: EGScale(width=0.1, length=0.1, height=0.1))
+    place_id: str = PlaceId.FLOOR
 
 
 @pytest.fixture
@@ -125,6 +127,55 @@ def test_no_object_type_filter_includes_every_type(
     assert "book_src" in source_ids
     assert "cup_src" in source_ids
     assert "shelf_src" not in source_ids
+
+
+def test_place_id_filter_keeps_only_floor_resting_candidates() -> None:
+    """
+    Restricting the pool to floor-resting objects must drop candidates that lie
+    on a piece of furniture.
+
+    A mesh pool for a furniture type is otherwise dominated by small items whose
+    raw name merely contains a furniture word -- a ``"bookchair..."`` book lying
+    on a table is generalized to :attr:`ObjectType.CHAIR` and would be spawned
+    as a chair.
+    """
+    objects = [
+        _MockShelfObject(object_type=ObjectType.CHAIR, source_id="chair_src"),
+        _MockShelfObject(
+            object_type=ObjectType.CHAIR,
+            source_id="bookchair_src",
+            place_id="room_1_table_1",
+        ),
+    ]
+    with patch(
+        "experiments.scene_generation_experiments.utils.build_source_id_to_path",
+        return_value={"chair_src": _FAKE_PATH, "bookchair_src": _FAKE_PATH},
+    ):
+        result = _get_source_ids_for_objects(
+            objects, object_type=ObjectType.CHAIR, place_id=PlaceId.FLOOR
+        )
+    assert [candidate.source_id for candidate in result] == ["chair_src"]
+
+
+def test_omitting_the_place_id_filter_keeps_objects_on_furniture(
+    source_path_map: dict[str, Path],
+) -> None:
+    """
+    Without a ``place_id`` filter the pool must still contain objects resting on
+    furniture, since shelf and table contents are exactly the objects a shelf
+    demo needs meshes for.
+    """
+    objects = [
+        _MockShelfObject(
+            object_type=ObjectType.BOOK, source_id="book_src", place_id=_SHELF_ID
+        )
+    ]
+    with patch(
+        "experiments.scene_generation_experiments.utils.build_source_id_to_path",
+        return_value=source_path_map,
+    ):
+        result = _get_source_ids_for_objects(objects)
+    assert [candidate.source_id for candidate in result] == ["book_src"]
 
 
 def test_missing_source_id_is_excluded(source_path_map: dict[str, Path]) -> None:

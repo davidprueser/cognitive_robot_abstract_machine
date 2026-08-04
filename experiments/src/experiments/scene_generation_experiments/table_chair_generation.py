@@ -9,10 +9,11 @@ from typing import TYPE_CHECKING
 from sqlalchemy.orm import Session
 
 from experiments.scene_generation_experiments.utils import (
+    DEFAULT_MINIMUM_CANDIDATES_PER_TYPE,
     DEFAULT_TRAINING_ROOM_COUNT,
     _get_source_ids_for_objects,
-    load_all_objects,
     objects_for_rooms,
+    objects_of_type,
     rclpy_node,
     sampled_room_ids,
 )
@@ -42,6 +43,7 @@ from semantic_digital_twin.scene_generation.scene_schema import (
     EGScale,
     EGTableWithChairs,
     ObjectType,
+    PlaceId,
 )
 
 if TYPE_CHECKING:
@@ -116,6 +118,13 @@ def _extract_table_chair_groups_from_spatial_proximity(
     training instance's collection, so a bare table as the first instance
     would silently suppress chair modelling entirely.
 
+    Only floor-resting objects take part. Two thirds of the dataset's
+    :attr:`ObjectType.TABLE` rows are decimetre-sized items lying *on* a table
+    -- a ``"tablecloth"`` is generalized to :attr:`ObjectType.TABLE` by keyword
+    -- and they sit at practically the same position as the table they rest on,
+    so they would both steal that table's chairs and drag the learned table
+    scale down to a small box.
+
     Rooms are sampled first, then loaded in full, so a room's tables and
     chairs are never truncated by a row-count limit on the underlying object
     query.
@@ -129,14 +138,15 @@ def _extract_table_chair_groups_from_spatial_proximity(
     :return: Extracted table-with-chairs groups and all loaded object DAOs.
     """
     objects = objects_for_rooms(session, sampled_room_ids(session, room_count))
+    floor_objects = [obj for obj in objects if obj.place_id == PlaceId.FLOOR]
 
     tables_by_room: defaultdict[str, list[EGObjectDAO]] = defaultdict(list)
-    for obj in objects:
+    for obj in floor_objects:
         if obj.object_type == ObjectType.TABLE:
             tables_by_room[obj.room_id].append(obj)
 
     chairs_by_table_id: defaultdict[str, list[EGObjectDAO]] = defaultdict(list)
-    for obj in objects:
+    for obj in floor_objects:
         if obj.object_type != object_type:
             continue
         candidate_tables = tables_by_room.get(obj.room_id, [])
@@ -186,9 +196,10 @@ def generate_table_with_chairs(
     :param node: An active rclpy node used to publish visualisation
         markers.
     :param downloader: When given, chair meshes are downloaded on demand until
-        the candidate pool is filled. Left as ``None`` the pool is whatever is
-        already cached, which keeps the demo fast for iterative testing; pass a
-        downloader for a final demo that needs a broad mesh pool.
+        :data:`DEFAULT_MINIMUM_CANDIDATES_PER_TYPE` of them are cached. Left as
+        ``None`` the pool is whatever is already cached, which keeps the demo
+        fast for iterative testing; pass a downloader for a final demo that
+        needs a broad mesh pool.
     """
     start = time.time()
     uri = os.environ.get("SEMANTIC_DIGITAL_TWIN_DATABASE_URI")
@@ -210,7 +221,10 @@ def generate_table_with_chairs(
     sample = next(iter(probability_backend.evaluate(build_free_table_query(chair_count))))
 
     source_ids_for_sampled_objects = _get_source_ids_for_objects(
-        load_all_objects(session), object_type=ObjectType.CHAIR, downloader=downloader
+        objects_of_type(session, ObjectType.CHAIR),
+        object_type=ObjectType.CHAIR,
+        downloader=downloader,
+        minimum_candidates=DEFAULT_MINIMUM_CANDIDATES_PER_TYPE,
     )
     sample.position = EGPoint2D(x=0.0, y=0.0)
     sample.orientation = EGRotation(x=0.0, y=0.0, z=0.0)

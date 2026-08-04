@@ -17,6 +17,7 @@ from experiments.scene_generation_experiments.data_preprocessing import (
 from semantic_digital_twin.scene_generation.scene_schema import (
     MeshCandidate,
     ObjectType,
+    PlaceId,
 )
 
 from semantic_digital_twin.utils import rclpy_installed
@@ -137,7 +138,7 @@ def objects_of_type(session: Session, object_type: ObjectType) -> list[EGObjectD
     return session.scalars(
         select(EGObjectDAO)
         .where(EGObjectDAO.object_type == object_type)
-        .where(EGObjectDAO.place_id == "floor")
+        .where(EGObjectDAO.place_id == PlaceId.FLOOR)
         .distinct()
     ).all()
 
@@ -197,6 +198,7 @@ def _get_source_ids_for_objects(
     object_type: ObjectType | None = ObjectType.BOOK,
     downloader: Sage10kSceneDownloader | None = None,
     minimum_candidates: int = 5,
+    place_id: PlaceId | None = None,
 ) -> list[MeshCandidate]:
     """
     Build the pool of mesh candidates for objects of *object_type* that have a
@@ -214,12 +216,22 @@ def _get_source_ids_for_objects(
         the pool is whatever is already cached.
     :param minimum_candidates: Target number of distinct meshes to have
         available; only consulted when *downloader* is given.
+    :param place_id: When given, only objects resting on this place are
+        included. Pass :attr:`PlaceId.FLOOR` when building a pool for a
+        furniture type, so small items that merely carry a furniture word in
+        their raw name -- a ``"bookchair..."`` book lying on a table is
+        generalized to :attr:`ObjectType.CHAIR` -- cannot supply the mesh.
+        ``None`` includes objects wherever they rest, which is what a pool for
+        shelf or table contents needs.
     :return: Pool of mesh candidates, one per matching object with a
         resolvable PLY mesh.
     """
     source_id_to_path = build_source_id_to_path()
     matching_objects = [
-        obj for obj in objects if object_type is None or obj.object_type == object_type
+        obj
+        for obj in objects
+        if (object_type is None or obj.object_type == object_type)
+        and (place_id is None or obj.place_id == place_id)
     ]
     if downloader is not None:
         _ensure_minimum_mesh_pool(
