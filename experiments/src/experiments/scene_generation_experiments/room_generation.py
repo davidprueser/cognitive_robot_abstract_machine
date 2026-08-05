@@ -16,22 +16,28 @@ from experiments.scene_generation_experiments.in_world_resolver import (
 )
 from experiments.scene_generation_experiments.room_floor_sampling import (
     build_room_from_floor_layout,
-    sample_room_shape,
+    sample_room_composition,
+)
+from experiments.scene_generation_experiments.book_shelf_generation import (
+    shelf_layers_by_shelf,
+)
+from experiments.scene_generation_experiments.shelf_generation import (
+    _coarsen_mesh_candidate_types,
+    _coarsen_rare_object_types,
+    _frequent_object_types,
 )
 from experiments.scene_generation_experiments.rspn_sampling import probabilistic_backend
-from experiments.scene_generation_experiments.shelf_generation import (
-    _extract_shelf_layers_from_place_id,
-)
 from experiments.scene_generation_experiments.table_chair_generation import (
-    _extract_table_chair_groups_from_spatial_proximity,
+    table_chair_groups_from_objects,
 )
 from experiments.scene_generation_experiments.utils import (
     DEFAULT_TRAINING_ROOM_COUNT,
+    min_samples_per_leaf_for,
     _get_source_ids_for_objects,
     build_cached_mesh_pool,
     objects_for_rooms,
     rclpy_node,
-    sampled_room_ids,
+    sampled_rooms_of_type,
 )
 from krrood.ormatic.data_access_objects.helper import to_dao
 from krrood.ormatic.utils import create_engine
@@ -43,15 +49,16 @@ from semantic_digital_twin.adapters.ros.visualization.viz_marker import (
     VizMarkerPublisher,
 )
 from semantic_digital_twin.scene_generation.scene_schema import (
-    EGObject2D,
-    EGPoint2D,
+    EGFloorPiece,
+    EGRoom,
     EGRoomFloorLayout,
-    EGRotation,
     EGScale,
     EGShelfLayer,
     EGTableWithChairs,
+    EGWallRelativePose,
     ObjectType,
     PlaceId,
+    RoomType,
 )
 
 if TYPE_CHECKING:
@@ -59,144 +66,120 @@ if TYPE_CHECKING:
         Sage10kSceneDownloader,
     )
 
-_ROOM_MARGIN = 1.0
-"""
-Extra floor extent, in metres, added around the training pieces' bounding box so
-the learned room is not sized flush to its furniture.
-"""
-
-_ROOM_HEIGHT = 2.7
-"""
-Ceiling height, in metres, used for every trained and sampled room.
-
-Room height is a fixed generation parameter rather than something to learn:
-the dataset's authoritative room records (``EGRoomDAO``) carry this exact
-height on every row. Sampling it as a free variable let the RSPN draw
-implausible values (walls shorter than the furniture standing in them), and
-nothing downstream ever checked a piece's height against its room -- fixing
-this constant is paired with clamping each sampled piece's height to it in
-:func:`~experiments.scene_generation_experiments.room_floor_sampling.build_room_from_floor_layout`.
-"""
-
-_MIN_SAMPLES_PER_LEAF_FRACTION = 0.05
-"""
-Fraction of the training set required to create another split node when fitting
-an RSPN, passed as ``min_samples_per_leaf`` to
-:class:`~probabilistic_model.probabilistic_circuit.relational.rspn.RelationalProbabilisticCircuit`.
-
-Each floor piece carries near-unique identifiers (``id``, ``source_id``), so with
-the library default of one sample per leaf, the piece-level circuit grows one
-leaf per training piece -- tens of thousands of nodes for this dataset's floor
-pieces. Grounding deep-copies that circuit once per sampled piece, so an
-unbounded circuit exhausts memory well before a room can be sampled.
-
-Re-measured at ``0.05`` (up from ``0.01``) after fixing the extraction query
-(see :func:`_extract_room_floor_layouts`): completing the training rooms
-instead of truncating them raised both the piece count per room (median
-2 -> 23) and the number of distinct training pieces by roughly an order of
-magnitude, so the previous fraction no longer bounded the piece-level
-circuit enough -- grounding a realistic ~20-piece room reliably exceeded a
-10GB cap. ``0.05`` roughly halves peak grounding memory at the same piece
-count; re-measure again if the training data's scale changes materially.
-"""
-
 
 def _extract_room_floor_layouts(
     session: Session,
-    floor_place_id: str = "floor",
+    room_type: RoomType,
     room_count: int = DEFAULT_TRAINING_ROOM_COUNT,
 ) -> tuple[list[EGRoomFloorLayout], list[EGObjectDAO]]:  # noqa: F405
     """
-    Load a random sample of rooms and group each one's floor-resting pieces
-    into one :class:`EGRoomFloorLayout`, so the RSPN can learn which pieces a
-    room holds and where they sit relative to the room centre.
+    Load a random sample of stored rooms of *room_type* and group each one's
+    floor-resting pieces into one :class:`EGRoomFloorLayout`, so the circuit can
+    learn which pieces that kind of room holds and where they sit relative to
+    its centre.
 
-    An object rests on the floor when its ``place_id`` equals *floor_place_id*.
-    Pieces that instead reference another piece -- e.g. a table placed on
-    another table -- carry that piece's id as their ``place_id`` and are skipped
-    here.
+    An object rests on the floor when its ``place_id`` is
+    :attr:`PlaceId.FLOOR`. Pieces that instead reference another piece -- e.g. a
+    lamp standing on a table -- carry that piece's id as their ``place_id`` and
+    are skipped here.
 
-    Rooms are sampled first, then loaded in full, so each returned layout
-    reflects a room's true piece count rather than a row-count-limited
-    fragment of it.
+    Every layout takes its footprint from the room's own stored dimensions.
+    Deriving it from the pieces instead, as this used to, made the room a
+    function of whatever furniture happened to be loaded, so a truncated or
+    tightly clustered room collapsed to a couple of metres across.
 
-    :param session: Database session to query objects from.
-    :param floor_place_id: The ``place_id`` value marking an object as resting
-        directly on the room floor.
+    :param session: Database session to query rooms and objects from.
+    :param room_type: The generalized category of room to train on.
     :param room_count: Maximum number of distinct rooms to sample.
     :return: Extracted room floor layouts and all loaded object DAOs.
     """
-    objects = objects_for_rooms(session, sampled_room_ids(session, room_count))
+    rooms = sampled_rooms_of_type(session, room_type, room_count)
+    rooms_by_id = {room.from_dao().id: room for room in rooms}
+    objects = objects_for_rooms(session, list(rooms_by_id))
 
-    floor_pieces_by_room: defaultdict[str, list[EGObjectDAO]] = defaultdict(list)  # noqa: F405
+    floor_pieces_by_room: defaultdict[str, list[EGObjectDAO]] = defaultdict(
+        list
+    )  # noqa: F405
     for obj in objects:
-        if obj.place_id == floor_place_id:
+        if obj.place_id == PlaceId.FLOOR:
             floor_pieces_by_room[obj.room_id].append(obj)
 
     floor_layouts = [
-        _room_floor_layout(room_pieces)
-        for room_pieces in floor_pieces_by_room.values()
+        _room_floor_layout(rooms_by_id[room_id].from_dao(), room_pieces)
+        for room_id, room_pieces in floor_pieces_by_room.items()
         if room_pieces
     ]
     return floor_layouts, objects
 
 
-def _room_floor_layout(room_pieces: list[EGObjectDAO]) -> EGRoomFloorLayout:  # noqa: F405
+def _room_floor_layout(
+    room: EGRoom, room_pieces: list[EGObjectDAO]  # noqa: F405
+) -> EGRoomFloorLayout:
     """
-    Build one :class:`EGRoomFloorLayout` from a room's floor-piece DAOs, sizing
-    the floor to the pieces' bounding box (widened by :data:`_ROOM_MARGIN`) and
-    re-expressing their positions relative to that box's centre, so the layout
-    is learnable independent of where the room sits in world coordinates.
+    Build one :class:`EGRoomFloorLayout` from a room and its floor-piece DAOs,
+    taking the footprint from the room itself and re-expressing each piece's
+    position relative to the footprint centre, so the layout is learnable
+    independent of where the room sits in world coordinates.
 
-    :param room_pieces: The floor-resting object DAOs of a single room.
+    Stored piece positions are already room-local, with the room's lower-left
+    corner at the origin, so the centre is simply half its extent. Each
+    re-centred pose is then expressed relative to the wall the piece stands
+    nearest, which is what makes "shelves stand against a wall" learnable at all
+    -- see :class:`EGWallRelativePose`.
+
+    :param room: The room the pieces stand in.
+    :param room_pieces: The floor-resting object DAOs of that room.
     :return: The room's floor layout.
     """
-    x_values = [piece.position.x for piece in room_pieces]
-    y_values = [piece.position.y for piece in room_pieces]
-    center_x = (min(x_values) + max(x_values)) / 2
-    center_y = (min(y_values) + max(y_values)) / 2
+    room_scale = EGScale(
+        width=room.scale.width,
+        length=room.scale.length,
+        height=room.scale.height,
+    )
+    center_x = room_scale.width / 2
+    center_y = room_scale.length / 2
 
     return EGRoomFloorLayout(
-        scale=EGScale(
-            width=(max(x_values) - min(x_values)) + _ROOM_MARGIN,
-            length=(max(y_values) - min(y_values)) + _ROOM_MARGIN,
-            height=_ROOM_HEIGHT,
-        ),
+        scale=room_scale,
         pieces=[
-            EGObject2D(
-                id=piece.id,
-                room_id=piece.room_id,
-                place_id=piece.place_id,
+            EGFloorPiece(
                 object_type=piece.object_type,
                 scale=EGScale(
                     width=piece.scale.width,
                     length=piece.scale.length,
                     height=piece.scale.height,
                 ),
-                position=EGPoint2D(
-                    x=piece.position.x - center_x,
-                    y=piece.position.y - center_y,
+                pose=EGWallRelativePose.from_absolute_pose(
+                    piece.position.x - center_x,
+                    piece.position.y - center_y,
+                    piece.orientation.z,
+                    room_scale,
                 ),
-                orientation=EGRotation(
-                    x=piece.orientation.x,
-                    y=piece.orientation.y,
-                    z=piece.orientation.z,
-                ),
-                source_id=piece.source_id,
             )
             for piece in room_pieces
         ],
     )
 
 
-def generate_room(node, downloader: Sage10kSceneDownloader | None = None) -> None:
+def generate_room(
+    node,
+    room_type: RoomType = RoomType.LIVING_ROOM,
+    downloader: Sage10kSceneDownloader | None = None,
+) -> None:
     """
-    Train an RSPN on room floor layouts from the database, sample a room, let
+    Train circuits on rooms of *room_type* from the database, sample a room, let
     each shelf and table sample its own contents, spawn the whole room into a
     world, repair floor placement and per-furniture contents directly in that
     world, and visualise the result via RViz markers.
 
+    All three circuits are fitted from a single loaded room sample. Loading
+    once per circuit, as this used to, trained each of them on a different
+    random population of rooms and scanned the object table three times.
+
     :param node: An active rclpy node used to publish visualisation markers.
+    :param room_type: The kind of room to generate. Circuits are fitted on this
+        category alone, so the sampled room describes one real setting rather
+        than an average over every setting in the dataset.
     :param downloader: When given, floor-object meshes are downloaded on demand
         to broaden the mesh pool. Left as ``None`` the pool is whatever is
         already cached, which keeps the demo fast for iterative testing; pass a
@@ -208,50 +191,77 @@ def generate_room(node, downloader: Sage10kSceneDownloader | None = None) -> Non
     Base.metadata.create_all(bind=engine)  # noqa: F405
     session = Session(engine)
 
-    floor_layouts, _ = _extract_room_floor_layouts(session)
+    floor_layouts, training_objects = _extract_room_floor_layouts(session, room_type)
     room_rspn = RelationalProbabilisticCircuit(
-        EGRoomFloorLayout, min_samples_per_leaf=_MIN_SAMPLES_PER_LEAF_FRACTION
+        EGRoomFloorLayout,
+        min_samples_per_leaf=min_samples_per_leaf_for(
+            sum(len(layout.pieces) for layout in floor_layouts)
+        ),
     ).fit([to_dao(layout) for layout in floor_layouts])
 
-    shelf_layers, _ = _extract_shelf_layers_from_place_id(session)
+    layers_by_shelf = shelf_layers_by_shelf(training_objects, object_type=None)
+    shelf_layers = [layer for layers in layers_by_shelf for layer in layers]
+    frequent_object_types = _frequent_object_types(shelf_layers, keep_count=20)
+    shelf_layers = _coarsen_rare_object_types(shelf_layers)
     shelf_rspn = RelationalProbabilisticCircuit(
-        EGShelfLayer, min_samples_per_leaf=_MIN_SAMPLES_PER_LEAF_FRACTION
+        EGShelfLayer,
+        min_samples_per_leaf=min_samples_per_leaf_for(
+            sum(len(layer.objects) for layer in shelf_layers)
+        ),
     ).fit([to_dao(layer) for layer in shelf_layers])
 
-    table_chair_groups, _ = _extract_table_chair_groups_from_spatial_proximity(session)
+    table_chair_groups = table_chair_groups_from_objects(training_objects)
     table_rspn = RelationalProbabilisticCircuit(
-        EGTableWithChairs, min_samples_per_leaf=_MIN_SAMPLES_PER_LEAF_FRACTION
+        EGTableWithChairs,
+        min_samples_per_leaf=min_samples_per_leaf_for(
+            sum(len(group.chairs) for group in table_chair_groups)
+        ),
     ).fit([to_dao(group) for group in table_chair_groups])
 
-    room_shape = sample_room_shape(floor_layouts)
+    room_composition = sample_room_composition(floor_layouts)
     sampled_layout = next(
         iter(
             probabilistic_backend(room_rspn).evaluate(
-                build_free_room_floor_query(room_shape)
+                build_free_room_floor_query(room_composition)
             )
         )
     )
 
     mesh_pool_objects = build_cached_mesh_pool(session, downloader)
-    all_object_source_ids = _get_source_ids_for_objects(mesh_pool_objects, object_type=None)
-    room, object_id_to_mesh_path = build_room_from_floor_layout(
+    all_object_source_ids = _get_source_ids_for_objects(
+        mesh_pool_objects, object_type=None
+    )
+    # The shelf circuit is fitted on coarsened types, so its contents are matched
+    # against a pool relabelled the same way. Floor pieces keep their real types,
+    # so their pool must not be coarsened -- relabelling it would leave every
+    # piece of a rare type unable to find its own mesh.
+    shelf_content_source_ids = _coarsen_mesh_candidate_types(
+        all_object_source_ids, frequent_object_types
+    )
+    built = build_room_from_floor_layout(
         sampled_layout,
         probabilistic_backend(shelf_rspn),
         probabilistic_backend(table_rspn),
         [len(group.chairs) for group in table_chair_groups],
-        all_object_source_ids,
+        shelf_content_source_ids,
         _get_source_ids_for_objects(
             mesh_pool_objects, object_type=ObjectType.CHAIR, place_id=PlaceId.FLOOR
         ),
         all_object_source_ids,
+        room_type=room_type,
+        training_layer_counts=[len(layers) for layers in layers_by_shelf],
+        training_objects_per_layer=[len(layer.objects) for layer in shelf_layers],
     )
 
-    spawned_room = InWorldLayoutResolver.for_scene(
-        room,
+    resolver = InWorldLayoutResolver.for_scene(
+        built.room,
         shelf_rspn,
         table_rspn,
-        object_id_to_mesh_path=object_id_to_mesh_path,
-    ).resolve()
+        object_id_to_mesh_path=built.object_id_to_mesh_path,
+    )
+    spawned_room = resolver.resolve()
+    print(built.report.summary())
+    print(f"resolver dropped {resolver.dropped_body_count} bodies it could not place")
 
     viz_marker = VizMarkerPublisher(_world=spawned_room.world, node=node)
     viz_marker.with_tf_publisher()

@@ -33,6 +33,7 @@ from semantic_digital_twin.scene_generation.scene_schema import (
     SpawnedShelf,
     SpawnedTableWithChairs,
 )
+from semantic_digital_twin.semantic_annotations.mixins import HasRootBody
 from semantic_digital_twin.semantic_annotations.semantic_annotations import Floor
 from semantic_digital_twin.spatial_types import (
     HomogeneousTransformationMatrix,
@@ -219,19 +220,9 @@ class ChairGroup(SpawnedCollisionGroup):
         new_sample = _evaluate_with_relaxed_fallback(
             self.backend,
             build_chair_pose_resample_query(
-                fixed_chairs,
-                resampled_chairs,
-                self.group.position,
-                self.group.scale,
-                self.group.orientation,
+                fixed_chairs, resampled_chairs, self.group.scale
             ),
-            build_chair_pose_resample_query(
-                [],
-                resampled_chairs,
-                self.group.position,
-                self.group.scale,
-                self.group.orientation,
-            ),
+            build_chair_pose_resample_query([], resampled_chairs, self.group.scale),
         )
         redrawn_chairs = new_sample.chairs[-len(resampled_chairs) :]
 
@@ -267,19 +258,41 @@ class FloorObjectGroup(SpawnedCollisionGroup):
     How many candidate floor points to draw per offending piece, so several
     pieces redrawn in one pass land spread across the surface rather than
     clustered at its most likely centre.
+
+    Points are drawn per piece rather than once for the whole group, so each
+    draw can pass the piece itself as ``body_to_sample_for`` and get clearance
+    matched to its real size. Sampling once for the group left every piece with
+    a hard-coded 0.1 m margin, which treats a two-metre sofa like a mug.
     """
 
     def resample_and_move(self, indices: set[int]) -> None:
-        ordered_indices = sorted(indices)
-        free_points = self.floor.sample_points_from_surface(
-            amount=len(ordered_indices) * self._FREE_POINT_POOL_FACTOR
-        )
-        if not free_points:
-            return
-        stride = max(len(free_points) // len(ordered_indices), 1)
-        spread_points = free_points[::stride][: len(ordered_indices)]
-        for index, free_point in zip(ordered_indices, spread_points):
-            self._move_piece_to_floor_point(self.bodies[index], free_point)
+        for position, index in enumerate(sorted(indices)):
+            body = self.bodies[index]
+            free_points = self.floor.sample_points_from_surface(
+                body_to_sample_for=self._annotation_of(body),
+                amount=self._FREE_POINT_POOL_FACTOR,
+            )
+            if not free_points:
+                continue
+            self._move_piece_to_floor_point(
+                body, free_points[position % len(free_points)]
+            )
+
+    @staticmethod
+    def _annotation_of(body: Body) -> HasRootBody | None:
+        """
+        Return the annotation the floor surface can measure *body* through.
+
+        ``sample_points_from_surface`` takes a :class:`HasRootBody` rather than
+        a body, and falls back to a hard-coded 0.1 m clearance without one --
+        which treats a two-metre sofa like a mug. Every piece spawned by this
+        pipeline carries such an annotation, so the real footprint is available.
+
+        :param body: The floor piece's root body.
+        :return: Its annotation, or ``None`` when it carries none.
+        """
+        annotations = body.get_semantic_annotations_by_type(HasRootBody)
+        return annotations[0] if annotations else None
 
     def _move_piece_to_floor_point(self, body: Body, free_point: Point3) -> None:
         """
@@ -325,6 +338,15 @@ class InWorldLayoutResolver:
     spawned: SpawnedLayout
     """
     The already-spawned layout to repair and return.
+    """
+
+    dropped_body_count: int = field(default=0, init=False)
+    """
+    Bodies removed because no repair pass could place them.
+
+    A generated room comes out sparser than the layout it was built from, and
+    without this count an empty-looking room cannot be told apart from a model
+    that simply sampled few pieces.
     """
 
     groups: list[SpawnedCollisionGroup]
@@ -564,4 +586,5 @@ class InWorldLayoutResolver:
                 bodies = self.groups[group_index].bodies
                 for index in indices:
                     world.remove_kinematic_structure_entity(bodies.pop(index))
+                    self.dropped_body_count += 1
             world.delete_orphaned_dofs()

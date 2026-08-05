@@ -11,6 +11,7 @@ from experiments.orm.ormatic_interface import (
     Base,
     EGObjectDAO,
     EGPositionDAO,
+    EGRoomDAO,
     EGRotationDAO,
     EGScaleDAO,
 )
@@ -18,13 +19,16 @@ from experiments.scene_generation_experiments.collision_resolution import (
     build_free_room_floor_query,
 )
 from experiments.scene_generation_experiments.room_floor_sampling import (
-    SampledRoomShape,
+    SampledRoomComposition,
 )
+from experiments.scene_generation_experiments.utils import min_samples_per_leaf_for
 from experiments.scene_generation_experiments.room_generation import (
-    _MIN_SAMPLES_PER_LEAF_FRACTION,
     _extract_room_floor_layouts,
 )
-from experiments.scene_generation_experiments.utils import build_cached_mesh_pool
+from experiments.scene_generation_experiments.utils import (
+    build_cached_mesh_pool,
+    objects_for_rooms,
+)
 from krrood.ormatic.data_access_objects.helper import to_dao
 from krrood.parametrization.feature_extraction.aggregations import (
     compute_aggregation_statistics,
@@ -34,12 +38,14 @@ from probabilistic_model.probabilistic_circuit.relational.rspn import (
     RelationalProbabilisticCircuit,
 )
 from semantic_digital_twin.scene_generation.scene_schema import (
-    EGObject2D,
-    EGPoint2D,
+    EGFloorPiece,
+    EGWallRelativePose,
     EGRoomFloorLayout,
     EGRotation,
     EGScale,
     ObjectType,
+    PlaceId,
+    RoomType,
 )
 
 
@@ -73,6 +79,20 @@ def _make_object(
     )
 
 
+def _make_room(
+    room_id: str,
+    room_type: RoomType = RoomType.KITCHEN,
+    width: float = 6.0,
+    length: float = 8.0,
+) -> EGRoomDAO:
+    return EGRoomDAO(
+        id=room_id,
+        room_type=room_type,
+        scale=EGScaleDAO(height=2.7, length=length, width=width),
+        position=EGPositionDAO(x=0.0, y=0.0, z=0.0),
+    )
+
+
 def test_floor_pieces_are_grouped_per_room(session: Session) -> None:
     """
     Floor-resting pieces must be grouped into one layout per room, so each
@@ -80,6 +100,8 @@ def test_floor_pieces_are_grouped_per_room(session: Session) -> None:
     """
     session.add_all(
         [
+            _make_room("room_1"),
+            _make_room("room_2"),
             _make_object("shelf_1", "room_1", ObjectType.SHELF, x=0.0, y=0.0),
             _make_object("table_1", "room_1", ObjectType.TABLE, x=2.0, y=0.0),
             _make_object("shelf_2", "room_2", ObjectType.SHELF, x=0.0, y=0.0),
@@ -87,7 +109,7 @@ def test_floor_pieces_are_grouped_per_room(session: Session) -> None:
     )
     session.commit()
 
-    layouts, _ = _extract_room_floor_layouts(session)
+    layouts, _ = _extract_room_floor_layouts(session, RoomType.KITCHEN)
 
     assert len(layouts) == 2
     piece_counts = sorted(len(layout.pieces) for layout in layouts)
@@ -101,60 +123,95 @@ def test_pieces_placed_on_other_pieces_are_skipped(session: Session) -> None:
     """
     session.add_all(
         [
+            _make_room("room_1"),
             _make_object("table_1", "room_1", ObjectType.TABLE, x=0.0, y=0.0),
             _make_object(
-                "table_2", "room_1", ObjectType.TABLE, x=0.1, y=0.0, place_id="table_1"
+                "lamp_1", "room_1", ObjectType.LAMP, x=0.1, y=0.0, place_id="table_1"
             ),
         ]
     )
     session.commit()
 
-    layouts, _ = _extract_room_floor_layouts(session)
+    layouts, _ = _extract_room_floor_layouts(session, RoomType.KITCHEN)
 
     assert len(layouts) == 1
-    assert len(layouts[0].pieces) == 1
-    assert layouts[0].pieces[0].id == "table_1"
+    assert [piece.object_type for piece in layouts[0].pieces] == [ObjectType.TABLE]
 
 
-def test_piece_positions_are_centred_on_the_room_footprint(session: Session) -> None:
-    """
-    Piece positions must be re-expressed relative to the footprint centre, so the
-    layout is learnable independent of where the room sits in world coordinates.
-    """
-    session.add_all(
-        [
-            _make_object("shelf_1", "room_1", ObjectType.SHELF, x=2.0, y=4.0),
-            _make_object("shelf_2", "room_1", ObjectType.SHELF, x=4.0, y=8.0),
-        ]
-    )
-    session.commit()
-
-    layouts, _ = _extract_room_floor_layouts(session)
-
-    positions = {piece.id: piece.position for piece in layouts[0].pieces}
-    assert positions["shelf_1"] == EGPoint2D(x=-1.0, y=-2.0)
-    assert positions["shelf_2"] == EGPoint2D(x=1.0, y=2.0)
-
-
-def test_room_footprint_spans_the_pieces_bounding_box_with_margin(
+def test_room_footprint_comes_from_the_stored_room_not_from_its_pieces(
     session: Session,
 ) -> None:
     """
-    The learned room footprint must cover the pieces' bounding box plus a margin,
-    so the room is not sized flush to its furniture.
+    The footprint must be the room's own recorded size. Deriving it from the
+    pieces made the room a function of whichever furniture happened to load, so
+    a sparsely populated room collapsed to a couple of metres across even when
+    the real room was large.
     """
     session.add_all(
         [
-            _make_object("shelf_1", "room_1", ObjectType.SHELF, x=0.0, y=0.0),
-            _make_object("shelf_2", "room_1", ObjectType.SHELF, x=3.0, y=5.0),
+            _make_room("room_1", width=6.0, length=8.0),
+            _make_object("shelf_1", "room_1", ObjectType.SHELF, x=2.9, y=3.9),
+            _make_object("shelf_2", "room_1", ObjectType.SHELF, x=3.1, y=4.1),
         ]
     )
     session.commit()
 
-    layouts, _ = _extract_room_floor_layouts(session)
+    layouts, _ = _extract_room_floor_layouts(session, RoomType.KITCHEN)
 
-    assert layouts[0].scale.width == pytest.approx(4.0)
-    assert layouts[0].scale.length == pytest.approx(6.0)
+    assert layouts[0].scale.width == pytest.approx(6.0)
+    assert layouts[0].scale.length == pytest.approx(8.0)
+    assert layouts[0].scale.height == pytest.approx(2.7)
+
+
+def test_piece_positions_are_centred_on_the_stored_room_footprint(
+    session: Session,
+) -> None:
+    """
+    Stored piece positions are room-local with the room's lower-left corner at
+    the origin, so re-centring must subtract half the room's own extent -- not
+    the centre of the pieces' bounding box.
+
+    Checked through the wall-relative pose the layout actually stores, so this
+    also covers the conversion round-tripping back to the original coordinates.
+    """
+    session.add_all(
+        [
+            _make_room("room_1", width=6.0, length=8.0),
+            _make_object("centre", "room_1", ObjectType.SHELF, x=3.0, y=4.0),
+            _make_object("corner", "room_1", ObjectType.LAMP, x=0.0, y=0.0),
+        ]
+    )
+    session.commit()
+
+    layouts, _ = _extract_room_floor_layouts(session, RoomType.KITCHEN)
+
+    recovered = {
+        piece.object_type: piece.pose.to_absolute_pose(layouts[0].scale)[:2]
+        for piece in layouts[0].pieces
+    }
+    assert recovered[ObjectType.SHELF] == pytest.approx((0.0, 0.0))
+    assert recovered[ObjectType.LAMP] == pytest.approx((-3.0, -4.0))
+
+
+def test_only_rooms_of_the_requested_type_are_extracted(session: Session) -> None:
+    """
+    Circuits are fitted per room type, so pooling every category back together
+    at extraction time would defeat the whole point.
+    """
+    session.add_all(
+        [
+            _make_room("kitchen_1", room_type=RoomType.KITCHEN),
+            _make_room("warehouse_1", room_type=RoomType.WAREHOUSE),
+            _make_object("piece_1", "kitchen_1", ObjectType.SHELF, x=1.0, y=1.0),
+            _make_object("piece_2", "warehouse_1", ObjectType.CABINET, x=1.0, y=1.0),
+        ]
+    )
+    session.commit()
+
+    layouts, _ = _extract_room_floor_layouts(session, RoomType.KITCHEN)
+
+    assert len(layouts) == 1
+    assert [piece.object_type for piece in layouts[0].pieces] == [ObjectType.SHELF]
 
 
 def test_room_cap_selects_whole_rooms_without_truncating_their_pieces(
@@ -168,6 +225,7 @@ def test_room_cap_selects_whole_rooms_without_truncating_their_pieces(
     """
     piece_count_per_room = 30
     for room_index in range(3):
+        session.add(_make_room(f"room_{room_index}"))
         session.add_all(
             [
                 _make_object(
@@ -182,11 +240,60 @@ def test_room_cap_selects_whole_rooms_without_truncating_their_pieces(
         )
     session.commit()
 
-    layouts, _ = _extract_room_floor_layouts(session, room_count=2)
+    layouts, _ = _extract_room_floor_layouts(session, RoomType.KITCHEN, room_count=2)
 
     assert len(layouts) == 2
     for layout in layouts:
         assert len(layout.pieces) == piece_count_per_room
+
+
+def test_objects_for_rooms_returns_every_row_without_a_cap(session: Session) -> None:
+    """
+    A 50000-row cap on this query silently truncated training rooms, cutting the
+    median floor-piece count from 22 to 9 and making generated rooms both tiny
+    and nearly empty.
+    """
+    room_count = 200
+    pieces_per_room = 30
+    for room_index in range(room_count):
+        session.add_all(
+            [
+                _make_object(
+                    f"room{room_index}_piece{piece_index}",
+                    f"room_{room_index}",
+                    ObjectType.SHELF,
+                    x=float(piece_index),
+                    y=0.0,
+                )
+                for piece_index in range(pieces_per_room)
+            ]
+        )
+    session.commit()
+
+    loaded = objects_for_rooms(session, [f"room_{i}" for i in range(room_count)])
+
+    assert len(loaded) == room_count * pieces_per_room
+
+
+def test_objects_for_rooms_can_restrict_to_one_place_id(session: Session) -> None:
+    """
+    The room pipeline only needs floor pieces, but the shelf and table
+    extractors need the rest, so the filter has to be opt-in rather than
+    baked into the query.
+    """
+    session.add_all(
+        [
+            _make_object("floor_piece", "room_1", ObjectType.SHELF, x=0.0, y=0.0),
+            _make_object(
+                "on_shelf", "room_1", ObjectType.BOOK, x=0.0, y=0.0, place_id="floor_piece"
+            ),
+        ]
+    )
+    session.commit()
+
+    assert len(objects_for_rooms(session, ["room_1"])) == 2
+    floor_only = objects_for_rooms(session, ["room_1"], place_id=PlaceId.FLOOR)
+    assert [obj.id for obj in floor_only] == ["floor_piece"]
 
 
 def _synthetic_floor_layout(
@@ -197,10 +304,7 @@ def _synthetic_floor_layout(
 ) -> EGRoomFloorLayout:
     room_scale = scale or EGScale(width=10.0, length=10.0, height=2.5)
     pieces = [
-        EGObject2D(
-            id=f"room{room_index}_piece{piece_index}",
-            room_id=f"room{room_index}",
-            place_id="floor",
+        EGFloorPiece(
             object_type=rng.choice(
                 [ObjectType.TABLE, ObjectType.CHAIR, ObjectType.SHELF]
             ),
@@ -209,14 +313,14 @@ def _synthetic_floor_layout(
                 length=rng.uniform(0.3, 1.5),
                 height=rng.uniform(0.3, 2.0),
             ),
-            position=EGPoint2D(
-                x=rng.uniform(-room_scale.width / 2, room_scale.width / 2),
-                y=rng.uniform(-room_scale.length / 2, room_scale.length / 2),
+            pose=EGWallRelativePose.from_absolute_pose(
+                rng.uniform(-room_scale.width / 2, room_scale.width / 2),
+                rng.uniform(-room_scale.length / 2, room_scale.length / 2),
+                rng.uniform(0.0, 360.0),
+                room_scale,
             ),
-            orientation=EGRotation(x=0.0, y=0.0, z=rng.uniform(0.0, 360.0)),
-            source_id=f"mesh_{rng.randint(0, 40)}",
         )
-        for piece_index in range(piece_count)
+        for _ in range(piece_count)
     ]
     return EGRoomFloorLayout(scale=room_scale, pieces=pieces)
 
@@ -228,7 +332,7 @@ def test_min_samples_per_leaf_fraction_bounds_the_pieces_circuit_size() -> None:
     of one lets its circuit grow roughly one leaf per training piece --
     thousands of nodes even for a modest training set. Grounding deep-copies
     that circuit once per sampled piece, which exhausted memory before a room
-    could be sampled. ``_MIN_SAMPLES_PER_LEAF_FRACTION`` must keep the fitted
+    could be sampled. ``min_samples_per_leaf_for(sum(len(l.pieces) for l in layouts))`` must keep the fitted
     circuit small enough that grounding stays cheap.
     """
     rng = random.Random(0)
@@ -237,7 +341,7 @@ def test_min_samples_per_leaf_fraction_bounds_the_pieces_circuit_size() -> None:
 
     default_model = RelationalProbabilisticCircuit(EGRoomFloorLayout).fit(daos)
     bounded_model = RelationalProbabilisticCircuit(
-        EGRoomFloorLayout, min_samples_per_leaf=_MIN_SAMPLES_PER_LEAF_FRACTION
+        EGRoomFloorLayout, min_samples_per_leaf=min_samples_per_leaf_for(sum(len(l.pieces) for l in layouts))
     ).fit(daos)
 
     default_piece_nodes = len(
@@ -273,7 +377,7 @@ def _fitted_layout_model() -> RelationalProbabilisticCircuit:
         for room_index in range(60)
     ]
     return RelationalProbabilisticCircuit(
-        EGRoomFloorLayout, min_samples_per_leaf=_MIN_SAMPLES_PER_LEAF_FRACTION
+        EGRoomFloorLayout, min_samples_per_leaf=min_samples_per_leaf_for(sum(len(l.pieces) for l in layouts))
     ).fit([to_dao(layout) for layout in layouts])
 
 
@@ -303,7 +407,10 @@ def test_room_geometry_aggregations_are_determined_by_a_footprint_fixed_query() 
     model = _fitted_layout_model()
     template = model.exchangeable_distribution_templates["pieces"]
     query = build_free_room_floor_query(
-        SampledRoomShape(piece_count=4, scale=EGScale(width=6.0, length=3.0, height=2.7))
+        SampledRoomComposition(
+            object_types=[ObjectType.SHELF] * 4,
+            scale=EGScale(width=6.0, length=3.0, height=2.7),
+        )
     )
     query.resolve()
 

@@ -16,6 +16,7 @@ from semantic_digital_twin.scene_generation.scene_schema import (
     EGPosition,
     EGRelativePolarPose,
     EGRoom,
+    RoomType,
     EGRotation,
     EGShelf,
     EGShelfLayer,
@@ -94,7 +95,7 @@ def _make_table_with_chairs() -> EGTableWithChairs:
 def _make_room(shelf_orientation_z: float = 0.0) -> EGRoom:
     return EGRoom(
         id="room_1",
-        room_type="living_room",
+        room_type=RoomType.LIVING_ROOM,
         scale=EGScale(height=2.7, length=5.0, width=5.5),
         position=EGPosition(x=0.0, y=0.0, z=0.0),
         shelves=[_make_shelf(shelf_orientation_z)],

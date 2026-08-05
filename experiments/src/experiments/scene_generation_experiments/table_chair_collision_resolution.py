@@ -132,9 +132,7 @@ def _build_conditioned_table_query(
 def build_chair_pose_resample_query(
     fixed_chairs: list[EGChair],
     resampled_chairs: list[EGChair],
-    table_position: EGPoint2D,
     table_scale: EGScale,
-    table_orientation: EGRotation,
 ):
     """
     Build an EGTableWithChairs query that keeps every non-resampled chair fixed
@@ -150,19 +148,27 @@ def build_chair_pose_resample_query(
     after the fixed ones, so the caller reads the redrawn chairs off the tail
     of the result in the order of *resampled_chairs*.
 
+    Only the table's scale is held as evidence. A chair's pose is polar and
+    relative to its table, with the table's yaw already subtracted by
+    :meth:`EGRelativePolarPose.from_absolute_poses`, so the table's absolute
+    position and orientation carry no information about it and pinning them
+    only shrinks the circuit's support. Pinning the position was in fact fatal:
+    repair passes supply the table's room-centred position while the circuit is
+    fitted on raw room coordinates, so any table left of the room centre
+    conditioned on a negative coordinate of zero probability mass and aborted
+    the layout with ``NoSolutionFound``.
+
     :param fixed_chairs: Chairs whose full pose is held as evidence.
     :param resampled_chairs: Chairs whose relative pose is redrawn; only used
         to determine how many free slots to add.
-    :param table_position: The table position to condition on.
     :param table_scale: The table scale to condition on.
-    :param table_orientation: The table orientation to condition on.
     :return: An underspecified EGTableWithChairs query ready for
         :class:`ProbabilisticBackend` evaluation.
     """
     return underspecified(EGTableWithChairs)(
-        position=table_position,
+        position=underspecified(EGPoint2D)(x=..., y=...),
         scale=table_scale,
-        orientation=table_orientation,
+        orientation=underspecified(EGRotation)(x=..., y=..., z=...),
         chairs=[_fixed_chair_slot(chair) for chair in fixed_chairs]
         + [_build_free_chair_query() for _ in resampled_chairs],
     )

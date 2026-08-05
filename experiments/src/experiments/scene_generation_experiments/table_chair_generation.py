@@ -51,18 +51,6 @@ if TYPE_CHECKING:
         Sage10kSceneDownloader,
     )
 
-_MIN_SAMPLES_PER_LEAF_FRACTION = 0.05
-"""
-Fraction of the training set required to create another split node when fitting
-the table-with-chairs RSPN, passed as ``min_samples_per_leaf`` to
-:class:`~probabilistic_model.probabilistic_circuit.relational.rspn.RelationalProbabilisticCircuit`.
-
-Each chair carries near-unique identifiers (``id``, ``source_id``), so with the
-library default of one sample per leaf the chair-level circuit grows one leaf
-per training chair; grounding then deep-copies that circuit once per sampled
-chair, which makes sampling run for minutes. A fraction bounds the circuit's
-size instead.
-"""
 
 
 def _distance_between(first: EGObjectDAO, second: EGObjectDAO) -> float:
@@ -138,6 +126,29 @@ def _extract_table_chair_groups_from_spatial_proximity(
     :return: Extracted table-with-chairs groups and all loaded object DAOs.
     """
     objects = objects_for_rooms(session, sampled_room_ids(session, room_count))
+    return (
+        table_chair_groups_from_objects(objects, max_distance_from_table, object_type),
+        objects,
+    )
+
+
+def table_chair_groups_from_objects(
+    objects: list[EGObjectDAO],
+    max_distance_from_table: float = 1.5,
+    object_type: ObjectType = ObjectType.CHAIR,
+) -> list[EGTableWithChairs]:
+    """
+    Group already-loaded *objects* into table-with-chairs groups, so a caller
+    that has loaded a room sample once can fit several circuits from it instead
+    of re-querying the database per circuit.
+
+    :param objects: Object DAOs of the rooms to extract tables from.
+    :param max_distance_from_table: Maximum Euclidean distance, in metres,
+        between a chair and a table for the chair to be assigned to it.
+    :param object_type: Only objects whose type equals this value are considered
+        chairs.
+    :return: The extracted table-with-chairs groups.
+    """
     floor_objects = [obj for obj in objects if obj.place_id == PlaceId.FLOOR]
 
     tables_by_room: defaultdict[str, list[EGObjectDAO]] = defaultdict(list)
@@ -182,7 +193,7 @@ def _extract_table_chair_groups_from_spatial_proximity(
                 )
             )
 
-    return table_chair_groups, objects
+    return table_chair_groups
 
 
 def generate_table_with_chairs(
@@ -211,7 +222,7 @@ def generate_table_with_chairs(
     data_access_objects = [to_dao(group) for group in table_chair_groups]
 
     rspn = RelationalProbabilisticCircuit(
-        EGTableWithChairs, min_samples_per_leaf=_MIN_SAMPLES_PER_LEAF_FRACTION
+        EGTableWithChairs, min_samples_per_leaf=min_samples_per_leaf_for(sum(len(group.chairs) for group in table_chair_groups))
     )
     rspn = rspn.fit(data_access_objects)
 

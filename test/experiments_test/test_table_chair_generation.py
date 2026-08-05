@@ -489,9 +489,7 @@ def test_build_chair_pose_resample_query_frees_resampled_scale_and_pose() -> Non
     query = build_chair_pose_resample_query(
         [_chair("fixed", distance=1.0, angle=0.0)],
         [_chair("resampled", distance=1.0, angle=0.0)],
-        EGPoint2D(x=0.0, y=0.0),
         EGScale(height=0.75, length=1.2, width=0.8),
-        EGRotation(x=0.0, y=0.0, z=0.0),
     )
     params = UnderspecifiedParameters(query)
     conditioned_names = {
@@ -510,3 +508,38 @@ def test_build_chair_pose_resample_query_frees_resampled_scale_and_pose() -> Non
     # resampled chair's are left entirely free.
     assert len(conditioned_distances) == 1
     assert len(conditioned_scales) == 1
+
+
+def test_build_chair_pose_resample_query_does_not_pin_the_table_pose() -> None:
+    """
+    Chair poses are polar and relative to their table, with the table's yaw
+    already subtracted, so neither the table's absolute position nor its
+    orientation carries information about them -- conditioning on either only
+    shrinks the circuit's support.
+
+    Repair passes hand this query the table's room-centred position, while the
+    circuit is fitted on raw room coordinates. Pinning the position therefore
+    conditioned on a coordinate the circuit assigns zero mass (a negative x for
+    any table left of the room centre), so both the primary and the relaxed
+    query raised NoSolutionFound and the whole layout aborted.
+    """
+    query = build_chair_pose_resample_query(
+        [_chair("fixed", distance=1.0, angle=0.0)],
+        [_chair("resampled", distance=1.0, angle=0.0)],
+        EGScale(height=0.75, length=1.2, width=0.8),
+    )
+    params = UnderspecifiedParameters(query)
+    conditioned_names = {
+        variable.name
+        for variable in params.conditioning_assignments_from_literal_values
+    }
+
+    assert not [name for name in conditioned_names if "position" in name]
+    assert not [name for name in conditioned_names if "orientation" in name]
+    # The table's own scale stays as evidence: a wider table seats its chairs
+    # further out, so it genuinely informs the redrawn poses.
+    assert [
+        name
+        for name in conditioned_names
+        if "scale" in name and "chairs[" not in name
+    ]

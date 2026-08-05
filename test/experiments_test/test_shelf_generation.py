@@ -747,29 +747,24 @@ def test_mesh_type_matcher_only_returns_candidates_of_the_requested_type() -> No
     assert results == {book_candidate}
 
 
-def test_mesh_type_matcher_falls_back_to_full_pool_when_type_absent() -> None:
+def test_mesh_type_matcher_returns_nothing_when_the_type_is_absent() -> None:
     """
     When the pool holds no candidate of the requested type, random_match must
-    still return a candidate from the full pool instead of raising, so
-    sampling can never fail outright.
+    return ``None`` so the caller can drop the piece.
+
+    Replaces two earlier tests that asserted the opposite -- that a candidate
+    was returned from the full pool regardless of type, so sampling could never
+    fail outright. That fallback is precisely what strewed generated rooms with
+    arbitrary objects: the mesh cache covers only a few dozen of the hundred-odd
+    object types, so a sampled sofa or bed routinely spawned as whatever was
+    drawn, commonly a book or a piece of wall art. Dropping the piece is honest
+    and is now counted in :class:`RoomGenerationReport`.
     """
     cup_candidate = MeshCandidate(_FAKE_PATH, "cup_src", ObjectType.CUP)
     plant_candidate = MeshCandidate(_FAKE_PATH, "plant_src", ObjectType.PLANT)
     matcher = _MeshTypeMatcher(candidates=[cup_candidate, plant_candidate])
 
-    result = matcher.random_match(ObjectType.BOOK)
-    assert result in {cup_candidate, plant_candidate}
-
-
-def test_mesh_type_matcher_returns_the_only_candidate_regardless_of_type() -> None:
-    """
-    With only one candidate in the pool, random_match must return it
-    regardless of whether its type matches the request.
-    """
-    only_candidate = MeshCandidate(_FAKE_PATH, "book_src", ObjectType.BOOK)
-    matcher = _MeshTypeMatcher(candidates=[only_candidate])
-
-    assert matcher.random_match(ObjectType.CUP) == only_candidate
+    assert matcher.random_match(ObjectType.BOOK) is None
 
 
 def test_mesh_type_matcher_excludes_candidates_larger_than_the_budget() -> None:

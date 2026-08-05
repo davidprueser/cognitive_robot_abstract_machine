@@ -7,6 +7,7 @@ from semantic_digital_twin.scene_generation.scene_schema import (
     EGWall,
     EGPoint2D,
     EGDoor,
+    RoomType,
 )
 from semantic_digital_twin.world import World
 
@@ -35,7 +36,7 @@ def create_environment(scene_to_shelf_object: dict) -> tuple[SceneGenerator, Wor
         object_id_to_mesh_path=object_id_to_mesh_path,
         room=EGRoom(
             id="room_1",
-            room_type="living_room",
+            room_type=RoomType.LIVING_ROOM,
             scale=EGScale(0, 1, 2),
             position=EGPosition(0, 0, 0),
             objects=list(scene_directory_to_object.values()),

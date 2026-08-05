@@ -27,6 +27,7 @@ from semantic_digital_twin.scene_generation.scene_schema import (
     EGRoom,
     EGScale,
     EGWall,
+    RoomType,
 )
 from ..dataset.ormatic_interface import *  # type: ignore
 from ..dataset.example_classes import (
@@ -382,7 +383,7 @@ def _eg_room(room_id: str, wall_lengths: List[float]) -> EGRoom:
     ]
     return EGRoom(
         id=room_id,
-        room_type="living_room",
+        room_type=RoomType.LIVING_ROOM,
         scale=EGScale(height=2.5, length=5.0, width=5.0),
         position=EGPosition(x=0.0, y=0.0, z=0.0),
         walls=walls,

@@ -20,6 +20,7 @@ from semantic_digital_twin.scene_generation.scene_schema import (
     EGPosition,
     EGRotation,
     EGRoom,
+    RoomType,
     EGScale,
     EGShelf,
     EGShelfLayer,
@@ -65,7 +66,7 @@ def _empty_shelf(x: float, y: float) -> EGShelf:
 def _room(shelves: list[EGShelf]) -> EGRoom:
     return EGRoom(
         id="room_1",
-        room_type="living_room",
+        room_type=RoomType.LIVING_ROOM,
         scale=EGScale(height=2.5, length=5.0, width=5.0),
         position=EGPosition(x=0.0, y=0.0, z=0.0),
         walls=_rectangular_walls(),

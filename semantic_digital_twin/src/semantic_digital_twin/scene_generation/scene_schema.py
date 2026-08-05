@@ -4,7 +4,7 @@ import enum
 import math
 import random
 from dataclasses import dataclass, field
-from enum import StrEnum
+from enum import IntEnum, StrEnum
 from pathlib import Path
 from typing import Any, ClassVar, Self, assert_never
 
@@ -332,6 +332,67 @@ class ObjectType(StrEnum):
     WASHING_MACHINE = "washing_machine"
     WINDOW = "window"
     WORKBENCH = "workbench"
+
+
+class RoomType(StrEnum):
+    """
+    Generalized room categories that unify the 227 distinct, inconsistently
+    spelled ``room_type`` strings found in the raw sage10k dataset (for example
+    ``"grocery store"``, ``"grocery_store"`` and ``"grocery store floor"`` all
+    name the same real-world category of room).
+
+    Room type is the strongest available predictor of which pieces a room holds
+    and where they stand, so generation fits one circuit per category rather
+    than pooling patient rooms, warehouses and kitchens into a single
+    distribution.
+
+    .. note::
+        Assigned by
+        :class:`~semantic_digital_twin.scene_generation.room_type_classifier.RoomTypeClassifier`,
+        which is a best-effort heuristic rather than a guaranteed-correct
+        classification.
+    """
+
+    BAKERY = "bakery"
+    BAR = "bar"
+    BATHROOM = "bathroom"
+    BEDROOM = "bedroom"
+    CASINO = "casino"
+    CLASSROOM = "classroom"
+    CLOSET = "closet"
+    CLOTHING_STORE = "clothing_store"
+    COMPUTER_LAB = "computer_lab"
+    CONFERENCE_ROOM = "conference_room"
+    CORRIDOR = "corridor"
+    DINING_ROOM = "dining_room"
+    EXAMINATION_ROOM = "examination_room"
+    GAME_ROOM = "game_room"
+    GARAGE = "garage"
+    GREENHOUSE = "greenhouse"
+    GROCERY_STORE = "grocery_store"
+    GYM = "gym"
+    HAIR_SALON = "hair_salon"
+    KITCHEN = "kitchen"
+    LAUNDRY_ROOM = "laundry_room"
+    LIBRARY = "library"
+    LIVING_ROOM = "living_room"
+    LOBBY = "lobby"
+    LOCKER_ROOM = "locker_room"
+    MEDITATION_ROOM = "meditation_room"
+    MUSEUM = "museum"
+    NURSERY = "nursery"
+    OFFICE = "office"
+    OPERATING_ROOM = "operating_room"
+    OTHER = "other"
+    PANTRY = "pantry"
+    PATIENT_ROOM = "patient_room"
+    PRISON_CELL = "prison_cell"
+    RESTAURANT = "restaurant"
+    STORE = "store"
+    STUDIO = "studio"
+    WAREHOUSE = "warehouse"
+    WINE_CELLAR = "wine_cellar"
+    WORKSHOP = "workshop"
 
 
 class PlaceId(StrEnum):
@@ -1003,9 +1064,9 @@ class EGDoor(EGWithID):
 
 @dataclass
 class EGRoom(EGWithID):
-    room_type: str
+    room_type: RoomType
     """
-    The type of the room.
+    The generalized category of the room.
     """
 
     # Currently only rectangular rooms, could use footprint: list[tuple[float, float]] for L-Shaped rooms
@@ -1063,7 +1124,9 @@ class EGRoom(EGWithID):
     def _from_json(cls, data: dict[str, Any], **kwargs) -> Self:
         return cls(
             id=data["id"],
-            room_type=data["room_type"],
+            room_type=RoomType._value2member_map_.get(
+                data["room_type"], RoomType.OTHER
+            ),
             scale=EGScale._from_json(data["scale"], **kwargs),
             position=EGPosition._from_json(data["position"], **kwargs),
             objects=[EGObject._from_json(o, **kwargs) for o in data["objects"]],
@@ -1237,15 +1300,285 @@ class EGShelfLayer(EGBase):
         )
 
 
+class RoomWall(IntEnum):
+    """
+    The four walls of a rectangular room, indexed in the order
+    :func:`~experiments.scene_generation_experiments.room_floor_sampling._rectangular_walls`
+    builds them, so a wall index round-trips between a layout and a spawned room.
+    """
+
+    SOUTH = 0
+    """
+    The wall at the room's minimum y, running along the x-axis.
+    """
+
+    EAST = 1
+    """
+    The wall at the room's maximum x, running along the y-axis.
+    """
+
+    NORTH = 2
+    """
+    The wall at the room's maximum y, running along the x-axis.
+    """
+
+    WEST = 3
+    """
+    The wall at the room's minimum x, running along the y-axis.
+    """
+
+    @classmethod
+    def nearest(cls, value: float) -> RoomWall:
+        """
+        Coerce a numeric wall index onto an actual wall.
+
+        A fitted circuit models the wall index as a continuous variable, so a
+        sampled pose carries a float rather than a member. Values are rounded to
+        the nearest wall and clamped into range.
+
+        :param value: The sampled wall index.
+        :return: The wall it denotes.
+        """
+        walls = list(cls)
+        return walls[min(max(int(round(value)), 0), len(walls) - 1)]
+
+    @property
+    def inward_normal_bearing_degrees(self) -> float:
+        """
+        Bearing, in degrees, of the direction pointing from this wall into the
+        room. Measuring a piece's yaw against it puts the common case -- a
+        shelf standing flat against the wall, facing the room -- at zero.
+        """
+        return {
+            RoomWall.SOUTH: 90.0,
+            RoomWall.EAST: 180.0,
+            RoomWall.NORTH: -90.0,
+            RoomWall.WEST: 0.0,
+        }[self]
+
+    @property
+    def runs_along_x(self) -> bool:
+        """
+        Whether this wall extends along the room's x-axis, which decides which
+        room extent measures along it and which measures away from it.
+        """
+        return self in (RoomWall.SOUTH, RoomWall.NORTH)
+
+
+@dataclass
+class EGWallRelativePose(EGBase):
+    """
+    Pose of a floor piece relative to the room wall it stands nearest, so that
+    "shelves stand against a wall" is learnable as a single distance rather
+    than as a relationship between two coordinates.
+
+    A probability tree's leaf models every variable independently, so in
+    Cartesian coordinates "against a wall" is the disjunction *x near an edge or
+    y near an edge*, which a product of univariate marginals cannot express. As
+    a perpendicular distance it collapses to one marginal concentrated near
+    zero: measured over the dataset, shelves sit 0.25 m from a wall and
+    cabinets 0.27 m, against 1.15 m for chairs and 1.25 m for tables.
+
+    Together the three spatial fields re-parametrise the room rectangle
+    completely -- every interior point has a nearest wall -- so a piece needs no
+    "free-standing" special case: a table in the middle of the room simply has a
+    large :attr:`distance_from_wall`.
+    """
+
+    wall: RoomWall
+    """
+    The room wall this piece stands nearest.
+    """
+
+    distance_from_wall: float
+    """
+    Perpendicular distance, in metres, from that wall to the piece centre.
+
+    Kept in absolute metres rather than as a fraction because a shelf stands the
+    same distance from a wall whatever the room's size. Nothing in a fitted
+    circuit bounds it by the room, so :meth:`to_absolute_pose` clamps it.
+    """
+
+    position_along_wall: float
+    """
+    Position of the piece along that wall, as a fraction of the wall's length
+    running from its minimum-coordinate end.
+
+    A fraction rather than metres, so a position two thirds along a wall stays
+    two thirds along it in a room of any size.
+    """
+
+    yaw_relative_to_wall: float
+    """
+    Yaw of the piece, in degrees, relative to the wall's inward normal.
+
+    Zero means the piece faces straight into the room.
+    """
+
+    def to_json(self) -> dict[str, Any]:
+        return {
+            **super().to_json(),
+            "wall": int(self.wall),
+            "distance_from_wall": self.distance_from_wall,
+            "position_along_wall": self.position_along_wall,
+            "yaw_relative_to_wall": self.yaw_relative_to_wall,
+        }
+
+    @classmethod
+    def _from_json(cls, data: dict[str, Any], **kwargs) -> Self:
+        return cls(
+            wall=RoomWall(data["wall"]),
+            distance_from_wall=data["distance_from_wall"],
+            position_along_wall=data["position_along_wall"],
+            yaw_relative_to_wall=data["yaw_relative_to_wall"],
+        )
+
+    @classmethod
+    def from_absolute_pose(
+        cls, x: float, y: float, yaw_degrees: float, room_scale: EGScale
+    ) -> Self:
+        """
+        Compute a piece's pose relative to its nearest wall, from a pose given
+        in the room-centred frame.
+
+        :param x: Position of the piece along the room's x-axis, measured from
+            the room centre.
+        :param y: Position of the piece along the room's y-axis, measured from
+            the room centre.
+        :param yaw_degrees: Absolute yaw of the piece, in degrees.
+        :param room_scale: Footprint of the room the piece stands in.
+        :return: The piece's pose relative to its nearest wall.
+        """
+        half_width = room_scale.width / 2
+        half_length = room_scale.length / 2
+        distance_to_wall = {
+            RoomWall.SOUTH: y + half_length,
+            RoomWall.EAST: half_width - x,
+            RoomWall.NORTH: half_length - y,
+            RoomWall.WEST: x + half_width,
+        }
+        wall = min(distance_to_wall, key=distance_to_wall.get)
+
+        if wall.runs_along_x:
+            position_along_wall = (x + half_width) / room_scale.width
+        else:
+            position_along_wall = (y + half_length) / room_scale.length
+
+        return cls(
+            wall=wall,
+            distance_from_wall=distance_to_wall[wall],
+            position_along_wall=position_along_wall,
+            yaw_relative_to_wall=wrap_angle_degrees(
+                yaw_degrees - wall.inward_normal_bearing_degrees
+            ),
+        )
+
+    def to_absolute_pose(self, room_scale: EGScale) -> tuple[float, float, float]:
+        """
+        Convert this wall-relative pose back into a room-centred pose.
+
+        The wall index is coerced with :meth:`RoomWall.nearest`, since a
+        circuit samples it as a continuous value. The distance is clamped to
+        ``min(half_width, half_length)``, so a
+        distance drawn from a large room's marginal cannot place a piece outside
+        a small one. That bound is the variable's true support:
+        :meth:`from_absolute_pose` reports the distance to the *nearest* wall,
+        which can never exceed the smaller half-extent, so clamping to it also
+        keeps :attr:`wall` the nearest wall of the pose it produces.
+
+        :param room_scale: Footprint of the room the piece stands in.
+        :return: ``(x, y, yaw_degrees)`` of the piece in the room-centred frame.
+        """
+        wall = RoomWall.nearest(self.wall)
+        half_width = room_scale.width / 2
+        half_length = room_scale.length / 2
+        distance = min(
+            max(self.distance_from_wall, 0.0), min(half_width, half_length)
+        )
+        fraction = min(max(self.position_along_wall, 0.0), 1.0)
+
+        if wall.runs_along_x:
+            x = -half_width + fraction * room_scale.width
+            y = (
+                -half_length + distance
+                if wall is RoomWall.SOUTH
+                else half_length - distance
+            )
+        else:
+            y = -half_length + fraction * room_scale.length
+            x = (
+                half_width - distance
+                if wall is RoomWall.EAST
+                else -half_width + distance
+            )
+
+        return (
+            x,
+            y,
+            wrap_angle_degrees(
+                self.yaw_relative_to_wall + wall.inward_normal_bearing_degrees
+            ),
+        )
+
+
+@dataclass
+class EGFloorPiece(EGBase):
+    """
+    One placeable resting on a room's floor, posed relative to the wall it
+    stands nearest.
+
+    Deliberately narrower than :class:`EGObject2D`, which describes an object on
+    a shelf layer and carries the identifiers that come with a dataset row. A
+    floor piece models only what generation actually learns -- what kind of
+    thing it is, how big it is, and where it stands -- because the identifiers
+    are near-unique per row and would otherwise grow the fitted circuit one leaf
+    per training piece. Its mesh and identity are resolved after sampling, from
+    the candidate pool.
+    """
+
+    object_type: ObjectType
+    """
+    The category of the piece.
+    """
+
+    scale: EGScale
+    """
+    Physical dimensions of the piece.
+    """
+
+    pose: EGWallRelativePose
+    """
+    Pose of the piece relative to its nearest wall.
+    """
+
+    def to_json(self) -> dict[str, Any]:
+        return {
+            **super().to_json(),
+            "object_type": self.object_type,
+            "scale": to_json(self.scale),
+            "pose": to_json(self.pose),
+        }
+
+    @classmethod
+    def _from_json(cls, data: dict[str, Any], **kwargs) -> Self:
+        return cls(
+            object_type=ObjectType._value2member_map_.get(
+                data["object_type"], ObjectType.OTHER
+            ),
+            scale=EGScale._from_json(data["scale"], **kwargs),
+            pose=EGWallRelativePose._from_json(data["pose"], **kwargs),
+        )
+
+
 @dataclass
 class EGRoomFloorLayout(EGBase):
     """
     A room's floor arrangement for environment generation: the placeables
-    resting directly on its floor, each with a 2-D pose in the room frame.
+    resting directly on its floor, each posed relative to its nearest wall.
 
     Mirrors :class:`EGShelfLayer` -- it carries the room's own footprint so the
-    RSPN can learn floor dimensions alongside which pieces a room holds and
-    where, rather than inheriting a fixed size.
+    circuit can condition on floor dimensions alongside which pieces a room
+    holds and where, rather than inheriting a fixed size.
     """
 
     scale: EGScale
@@ -1253,7 +1586,7 @@ class EGRoomFloorLayout(EGBase):
     Footprint of the room floor (width × length × height).
     """
 
-    pieces: list[EGObject2D]
+    pieces: list[EGFloorPiece]
     """
     Placeables resting on the floor, with positions relative to the room centre.
     """
@@ -1269,7 +1602,7 @@ class EGRoomFloorLayout(EGBase):
     def _from_json(cls, data: dict[str, Any], **kwargs) -> Self:
         return cls(
             scale=EGScale._from_json(data["scale"], **kwargs),
-            pieces=[EGObject2D._from_json(o, **kwargs) for o in data["pieces"]],
+            pieces=[EGFloorPiece._from_json(p, **kwargs) for p in data["pieces"]],
         )
 
 
@@ -1319,10 +1652,21 @@ class _MeshTypeMatcher:
     plausible for the category an object was sampled as.
 
     .. note::
-        If the pool holds no mesh of the requested type, a random mesh is
-        drawn from the whole pool instead of raising, so sampling never
-        fails outright. This can still yield a mesh that mismatches the
-        requested type when the pool has no candidates of that type.
+        If the pool holds no mesh of the requested type, ``None`` is returned
+        rather than a mesh of some other type. Substituting was what strewed
+        generated rooms with arbitrary objects: the cache holds only a few
+        hundred floor-capable meshes across dozens of types, so a sampled bed or
+        sofa routinely became whichever mesh happened to be drawn.
+    """
+
+    MAXIMUM_SIZE_RATIO: ClassVar[float] = 2.0
+    """
+    How far a candidate's real size may differ from a requested target size, as
+    a factor on each axis, before it is rejected.
+
+    A mesh of the right category but the wrong size still looks wrong -- a
+    sampled 0.45 m stool spawning as a 1.2 m armchair -- so category alone is
+    not enough once the circuit has sampled a size to aim for.
     """
 
     candidates: list[MeshCandidate]
@@ -1331,38 +1675,75 @@ class _MeshTypeMatcher:
     """
 
     def random_match(
-        self, object_type: ObjectType, max_extents: EGScale | None = None
+        self,
+        object_type: ObjectType,
+        max_extents: EGScale | None = None,
+        target_extents: EGScale | None = None,
     ) -> MeshCandidate | None:
         """
-        Return a random candidate whose :attr:`MeshCandidate.object_type`
-        equals *object_type*, falling back to the full pool when no candidate
-        of that type is available.
+        Return a candidate whose :attr:`MeshCandidate.object_type` equals
+        *object_type*, or ``None`` when the pool holds none.
 
-        When *max_extents* is given, only candidates whose own real-world size
-        fits within it are eligible; if none of the requested type fit, ``None``
-        is returned so the caller can drop an object that is simply too big for
-        the space rather than force an overflowing mesh into it.
+        *max_extents* is an upper bound: candidates larger than it on any axis
+        are ineligible, which is how shelf contents are kept from piercing the
+        layer above. *target_extents* is a size to aim for: candidates further
+        than :attr:`MAXIMUM_SIZE_RATIO` from it on any axis are ineligible, and
+        the closest remaining one is returned rather than a random one.
 
-        :param object_type: The category of the object a mesh is being
-            selected for.
-        :param max_extents: Upper bound on the mesh's width/length/height. When
-            omitted, size is not considered.
-        :return: The selected candidate, or ``None`` when the pool is empty or
-            nothing fits *max_extents*.
+        :param object_type: The category of the object a mesh is selected for.
+        :param max_extents: Upper bound on the mesh's width/length/height.
+        :param target_extents: Size the mesh should match as closely as possible.
+        :return: The selected candidate, or ``None`` when nothing is eligible.
         """
-        matching_candidates = [
+        pool = [
             candidate
             for candidate in self.candidates
             if candidate.object_type == object_type
         ]
-        pool = matching_candidates or self.candidates
         if max_extents is not None:
             pool = [
                 candidate for candidate in pool if self._fits(candidate, max_extents)
             ]
-        if not pool:
+        if target_extents is None:
+            return random.choice(pool) if pool else None
+
+        scored = [
+            (self._size_mismatch(candidate, target_extents), candidate)
+            for candidate in pool
+        ]
+        eligible = [
+            (mismatch, candidate)
+            for mismatch, candidate in scored
+            if mismatch <= math.log(self.MAXIMUM_SIZE_RATIO)
+        ]
+        if not eligible:
             return None
-        return random.choice(pool)
+        return min(eligible, key=lambda scored_candidate: scored_candidate[0])[1]
+
+    @staticmethod
+    def _size_mismatch(candidate: MeshCandidate, target_extents: EGScale) -> float:
+        """
+        How far *candidate*'s real size is from *target_extents*, as the largest
+        absolute log-ratio across the three axes.
+
+        A log-ratio is used so that being twice too large and half too large
+        count equally. Candidates of unknown size score as a perfect match,
+        since there is nothing to judge them on and dropping them would thin an
+        already sparse pool.
+
+        :param candidate: The mesh candidate to score.
+        :param target_extents: The size the mesh should match.
+        :return: The mismatch, zero being an exact match.
+        """
+        native = candidate.native_extents
+        if native is None:
+            return 0.0
+        targets = (target_extents.width, target_extents.length, target_extents.height)
+        return max(
+            abs(math.log(measured / target))
+            for measured, target in zip(native, targets)
+            if measured > 0 and target > 0
+        )
 
     @staticmethod
     def _fits(candidate: MeshCandidate, max_extents: EGScale) -> bool:

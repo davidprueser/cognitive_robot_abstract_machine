@@ -9,7 +9,7 @@ from pathlib import Path
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, joinedload
 
-from experiments.orm.ormatic_interface import EGObjectDAO
+from experiments.orm.ormatic_interface import EGObjectDAO, EGRoomDAO
 from experiments.scene_generation_experiments.data_preprocessing import (
     Sage10kSceneDownloader,
     SourceIdNotFoundError,
@@ -18,9 +18,52 @@ from semantic_digital_twin.scene_generation.scene_schema import (
     MeshCandidate,
     ObjectType,
     PlaceId,
+    RoomType,
 )
 
 from semantic_digital_twin.utils import rclpy_installed
+
+MINIMUM_ROWS_PER_LEAF = 50
+"""
+Fewest training rows a fitted leaf may describe.
+
+Below this a leaf describes its handful of rows rather than the distribution
+they were drawn from, so the fraction has to grow as the training set shrinks.
+"""
+
+MAXIMUM_LEAF_COUNT = 20
+"""
+Most leaves a fitted circuit may have.
+
+Grounding deep-copies a circuit once per sampled part, so peak memory is circuit
+size times part count -- not training-set size. This bound is what keeps a
+room of twenty-odd pieces groundable.
+
+.. note::
+    Lowering this to 10 was measured to make no difference to grounding memory,
+    so it is not the dial for out-of-memory failures. Peak memory tracks the
+    number of pieces in the sampled room, not the size of the circuit.
+"""
+
+
+def min_samples_per_leaf_for(training_row_count: int) -> float:
+    """
+    Return the ``min_samples_per_leaf`` fraction to fit a circuit with.
+
+    Two constraints bind from opposite ends and the tighter one wins. Below
+    :data:`MINIMUM_ROWS_PER_LEAF` rows a leaf overfits, so small training sets
+    need a *larger* fraction. Above :data:`MAXIMUM_LEAF_COUNT` leaves the
+    circuit becomes too large to ground once per sampled part, so large training
+    sets are held at that floor rather than being allowed to grow finer.
+
+    :param training_row_count: Rows the circuit will be fitted on.
+    :return: The fraction to pass as ``min_samples_per_leaf``.
+    """
+    leaf_budget_fraction = 1 / MAXIMUM_LEAF_COUNT
+    if training_row_count <= 0:
+        return 1.0
+    overfitting_fraction = MINIMUM_ROWS_PER_LEAF / training_row_count
+    return min(max(overfitting_fraction, leaf_budget_fraction), 1.0)
 
 DEFAULT_TRAINING_ROOM_COUNT = 1500
 """
@@ -168,29 +211,76 @@ def sampled_room_ids(
     )
 
 
-def objects_for_rooms(session: Session, room_ids: Sequence[str]) -> list[EGObjectDAO]:
+def objects_for_rooms(
+    session: Session,
+    room_ids: Sequence[str],
+    place_id: PlaceId | None = None,
+) -> list[EGObjectDAO]:
     """
     Load every object DAO belonging to any of *room_ids*, eagerly joining
     scale/position/orientation, with no cap on row count.
 
-    A room's full piece membership must not be truncated, or an RSPN trained
-    on the result learns an artificially sparse room composition.
+    A room's full piece membership must not be truncated, or an RSPN trained on
+    the result learns an artificially sparse room composition. A former
+    50000-row cap did exactly that: across 1500 rooms averaging 85 objects each
+    it cut the median floor-piece count from 22 to 9, which is what made
+    generated rooms come out both tiny and nearly empty.
+
+    .. warning::
+        Leave *place_id* unset when the loaded objects feed more than one
+        extractor. Shelf contents carry their shelf's id as ``place_id``, so
+        restricting to :attr:`PlaceId.FLOOR` yields no shelf layers at all.
 
     :param session: Database session to query objects from.
     :param room_ids: Room ids whose member objects should be loaded.
+    :param place_id: When given, only objects resting on this room structure are
+        loaded; otherwise every object of the rooms is returned.
     :return: All matching object DAOs.
     """
+    statement = select(EGObjectDAO).where(EGObjectDAO.room_id.in_(room_ids))
+    if place_id is not None:
+        statement = statement.where(EGObjectDAO.place_id == place_id)
     return session.scalars(
-        select(EGObjectDAO)
-        .where(EGObjectDAO.room_id.in_(room_ids))
-        .options(
+        statement.options(
             joinedload(EGObjectDAO.scale),
             joinedload(EGObjectDAO.position),
             joinedload(EGObjectDAO.orientation),
-        )
-        .limit(50000)
-        .distinct()
+        ).distinct()
     ).all()
+
+
+def sampled_rooms_of_type(
+    session: Session,
+    room_type: RoomType,
+    room_count: int = DEFAULT_TRAINING_ROOM_COUNT,
+) -> list[EGRoomDAO]:
+    """
+    Return a random sample of up to *room_count* stored rooms of *room_type*,
+    eagerly joining the scale and walls that define their footprint.
+
+    Restricting the training set to a single room type is what lets a fitted
+    circuit describe one kind of room: pooling patient rooms, warehouses and
+    kitchens into one distribution produces a room that matches none of them.
+
+    :param session: Database session to query rooms from.
+    :param room_type: The generalized category of room to sample.
+    :param room_count: Maximum number of distinct rooms to return.
+    :return: The sampled room DAOs.
+    """
+    return list(
+        session.scalars(
+            select(EGRoomDAO)
+            .where(EGRoomDAO.room_type == room_type)
+            .options(
+                joinedload(EGRoomDAO.scale),
+                joinedload(EGRoomDAO.walls),
+            )
+            .order_by(func.random())
+            .limit(room_count)
+        )
+        .unique()
+        .all()
+    )
 
 
 def _get_source_ids_for_objects(
@@ -314,28 +404,42 @@ def build_source_id_to_path(
     return mapping
 
 
-FLOOR_OBJECT_TYPES: tuple[ObjectType, ...] = (
-    ObjectType.PLANT,
-    ObjectType.CHAIR,
-    ObjectType.LAMP,
-    ObjectType.SHELF,
-    ObjectType.TABLE,
-    ObjectType.OTHER,
-    ObjectType.CABINET,
-    ObjectType.DESK,
-    ObjectType.VASE,
-    ObjectType.BASKET,
-    ObjectType.BENCH,
-    ObjectType.SOFA,
-    ObjectType.COUNTER,
-    ObjectType.SIDEBOARD,
-    ObjectType.STAND,
-    ObjectType.BIN,
-)
+DEFAULT_FLOOR_OBJECT_TYPE_COUNT = 40
 """
-Object types to ensure mesh coverage for, ordered by how often they rest on a
-floor in the dataset.
+How many of the most common floor object types meshes are cached for by default.
+
+The dataset's floor objects span far more categories than any hand-written list
+kept up with, and every type without a cached mesh is a piece that gets dropped
+at generation time. Forty covers the long tail down to roughly a thousand
+occurrences.
 """
+
+
+def most_common_floor_object_types(
+    session: Session, type_count: int = DEFAULT_FLOOR_OBJECT_TYPE_COUNT
+) -> list[ObjectType]:
+    """
+    Return the object types that most often rest directly on a floor.
+
+    Derived from the stored objects rather than hard-coded, so the cache is
+    filled for the categories the data actually contains. A hand-maintained list
+    silently omitted common types -- beds, sofas, nightstands, refrigerators --
+    and a sampled piece of an omitted type can never be spawned.
+
+    :param session: Database session to read floor objects from.
+    :param type_count: How many of the most common types to return.
+    :return: The most common floor object types, most frequent first.
+    """
+    return list(
+        session.scalars(
+            select(EGObjectDAO.object_type)
+            .where(EGObjectDAO.place_id == PlaceId.FLOOR)
+            .group_by(EGObjectDAO.object_type)
+            .order_by(func.count().desc())
+            .limit(type_count)
+        ).all()
+    )
+
 
 DEFAULT_MINIMUM_CANDIDATES_PER_TYPE = 50
 """
@@ -354,7 +458,7 @@ def download_meshes_for_floor_object_types(
 ) -> dict[ObjectType, int]:
     """
     Ensure at least *minimum_candidates* distinct meshes are cached for each of
-    :data:`FLOOR_OBJECT_TYPES`.
+    the most common floor object types.
 
     .. note::
         This performs network downloads from HuggingFace and is intended for
@@ -367,7 +471,7 @@ def download_meshes_for_floor_object_types(
     """
     source_id_to_path = build_source_id_to_path()
     achieved: dict[ObjectType, int] = {}
-    for object_type in FLOOR_OBJECT_TYPES:
+    for object_type in most_common_floor_object_types(session):
         objects = objects_of_type(session, object_type)
         _ensure_minimum_mesh_pool(
             objects, source_id_to_path, downloader, minimum_candidates

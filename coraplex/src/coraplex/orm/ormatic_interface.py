@@ -188,6 +188,7 @@ import semantic_digital_twin.robots.tiago
 import semantic_digital_twin.robots.tracy
 import semantic_digital_twin.robots.unitree_g1
 import semantic_digital_twin.scene_generation.object_type_classifier
+import semantic_digital_twin.scene_generation.room_type_classifier
 import semantic_digital_twin.scene_generation.sage10k_processing
 import semantic_digital_twin.scene_generation.scene_schema
 import semantic_digital_twin.scene_generation.scene_schema_aggregations
@@ -1170,12 +1171,12 @@ class EGRoomFloorLayoutDAO_pieces_association(Base, AssociationDataAccessObject)
     source_egroomfloorlayoutdao_id: Mapped[int] = mapped_column(
         ForeignKey("EGRoomFloorLayoutDAO.database_id")
     )
-    target_egobject2ddao_id: Mapped[int] = mapped_column(
-        ForeignKey("EGObject2DDAO.database_id")
+    target_egfloorpiecedao_id: Mapped[int] = mapped_column(
+        ForeignKey("EGFloorPieceDAO.database_id")
     )
 
-    target: Mapped[EGObject2DDAO] = relationship(
-        "EGObject2DDAO", foreign_keys=[target_egobject2ddao_id], lazy="selectin"
+    target: Mapped[EGFloorPieceDAO] = relationship(
+        "EGFloorPieceDAO", foreign_keys=[target_egfloorpiecedao_id], lazy="selectin"
     )
 
 
@@ -18700,6 +18701,19 @@ class ObjectTypeClassifierDAO(
     )
 
 
+class RoomTypeClassifierDAO(
+    Base,
+    DataAccessObject[
+        semantic_digital_twin.scene_generation.room_type_classifier.RoomTypeClassifier
+    ],
+):
+    __tablename__ = "RoomTypeClassifierDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        Integer, primary_key=True, use_existing_column=True
+    )
+
+
 class EGDataProcessingDAO(
     Base,
     DataAccessObject[
@@ -18733,6 +18747,49 @@ class EGBaseDAO(
     __mapper_args__ = {
         "polymorphic_on": "polymorphic_type",
         "polymorphic_identity": "EGBaseDAO",
+    }
+
+
+class EGFloorPieceDAO(
+    EGBaseDAO,
+    DataAccessObject[semantic_digital_twin.scene_generation.scene_schema.EGFloorPiece],
+):
+    __tablename__ = "EGFloorPieceDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        ForeignKey(EGBaseDAO.database_id), primary_key=True, use_existing_column=True
+    )
+
+    object_type: Mapped[
+        semantic_digital_twin.scene_generation.scene_schema.ObjectType
+    ] = mapped_column(
+        krrood.ormatic.custom_types.PolymorphicEnumType,
+        nullable=False,
+        use_existing_column=True,
+    )
+
+    scale_id: Mapped[int] = mapped_column(
+        ForeignKey("EGScaleDAO.database_id", use_alter=True),
+        nullable=True,
+        use_existing_column=True,
+    )
+    pose_id: Mapped[int] = mapped_column(
+        ForeignKey("EGWallRelativePoseDAO.database_id", use_alter=True),
+        nullable=True,
+        use_existing_column=True,
+    )
+
+    scale: Mapped[EGScaleDAO] = relationship(
+        "EGScaleDAO", uselist=False, foreign_keys=[scale_id], post_update=True
+    )
+    pose: Mapped[EGWallRelativePoseDAO] = relationship(
+        "EGWallRelativePoseDAO", uselist=False, foreign_keys=[pose_id], post_update=True
+    )
+
+    __mapper_args__ = {
+        "polymorphic_identity": "EGFloorPieceDAO",
+        "inherit_condition": database_id == EGBaseDAO.database_id,
+        "polymorphic_load": "selectin",
     }
 
 
@@ -19020,6 +19077,41 @@ class EGTableWithChairsDAO(
     }
 
 
+class EGWallRelativePoseDAO(
+    EGBaseDAO,
+    DataAccessObject[
+        semantic_digital_twin.scene_generation.scene_schema.EGWallRelativePose
+    ],
+):
+    __tablename__ = "EGWallRelativePoseDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        ForeignKey(EGBaseDAO.database_id), primary_key=True, use_existing_column=True
+    )
+
+    distance_from_wall: Mapped[builtins.float] = mapped_column(use_existing_column=True)
+    position_along_wall: Mapped[builtins.float] = mapped_column(
+        use_existing_column=True
+    )
+    yaw_relative_to_wall: Mapped[builtins.float] = mapped_column(
+        use_existing_column=True
+    )
+
+    wall: Mapped[semantic_digital_twin.scene_generation.scene_schema.RoomWall] = (
+        mapped_column(
+            krrood.ormatic.custom_types.PolymorphicEnumType,
+            nullable=False,
+            use_existing_column=True,
+        )
+    )
+
+    __mapper_args__ = {
+        "polymorphic_identity": "EGWallRelativePoseDAO",
+        "inherit_condition": database_id == EGBaseDAO.database_id,
+        "polymorphic_load": "selectin",
+    }
+
+
 class EGWithIDDAO(
     EGBaseDAO,
     DataAccessObject[semantic_digital_twin.scene_generation.scene_schema.EGWithID],
@@ -19251,8 +19343,12 @@ class EGRoomDAO(
         ForeignKey(EGWithIDDAO.database_id), primary_key=True, use_existing_column=True
     )
 
-    room_type: Mapped[builtins.str] = mapped_column(
-        sqlalchemy.sql.sqltypes.Text, use_existing_column=True
+    room_type: Mapped[semantic_digital_twin.scene_generation.scene_schema.RoomType] = (
+        mapped_column(
+            krrood.ormatic.custom_types.PolymorphicEnumType,
+            nullable=False,
+            use_existing_column=True,
+        )
     )
 
     scale_id: Mapped[int] = mapped_column(

@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from experiments.scene_generation_experiments.utils import (
     DEFAULT_TRAINING_ROOM_COUNT,
+    min_samples_per_leaf_for,
     _get_source_ids_for_objects,
     load_all_objects,
     objects_for_rooms,
@@ -51,18 +52,6 @@ if TYPE_CHECKING:
         Sage10kSceneDownloader,
     )
 
-_MIN_SAMPLES_PER_LEAF_FRACTION = 0.05
-"""
-Fraction of the training set required to create another split node when fitting
-the shelf-layer RSPN, passed as ``min_samples_per_leaf`` to
-:class:`~probabilistic_model.probabilistic_circuit.relational.rspn.RelationalProbabilisticCircuit`.
-
-Each shelf object carries near-unique identifiers (``id``, ``source_id``), so
-with the library default of one sample per leaf the object-level circuit grows
-one leaf per training object; grounding then deep-copies that circuit once per
-sampled object, which makes sampling run for minutes. A fraction bounds the
-circuit's size instead.
-"""
 
 _SHELF_HEIGHT = 2.0
 """
@@ -107,7 +96,52 @@ def _extract_shelf_layers_from_place_id(
     :return: Extracted shelf layers and all loaded object DAOs.
     """
     objects = objects_for_rooms(session, sampled_room_ids(session, room_count))
+    return shelf_layers_from_objects(objects, edge_margin_fraction, object_type), objects
 
+
+def shelf_layers_from_objects(
+    objects: list[EGObjectDAO],
+    edge_margin_fraction: float = 0.10,
+    object_type: ObjectType | None = ObjectType.BOOK,
+) -> list[EGShelfLayer]:
+    """
+    Group already-loaded *objects* into shelf layers, flattened across shelves.
+
+    :param objects: Object DAOs of the rooms to extract shelves from.
+    :param edge_margin_fraction: Fraction of each shelf dimension to use as an
+        inset margin on X and Y when filtering out-of-bounds objects.
+    :param object_type: Only objects whose type equals this value are included;
+        pass ``None`` to include every type.
+    :return: The extracted shelf layers.
+    """
+    return [
+        layer
+        for shelf_layers in shelf_layers_by_shelf(
+            objects, edge_margin_fraction, object_type
+        )
+        for layer in shelf_layers
+    ]
+
+
+def shelf_layers_by_shelf(
+    objects: list[EGObjectDAO],
+    edge_margin_fraction: float = 0.10,
+    object_type: ObjectType | None = ObjectType.BOOK,
+) -> list[list[EGShelfLayer]]:
+    """
+    Group already-loaded *objects* into shelf layers, one list per shelf, so a
+    caller that has loaded a room sample once can fit several circuits from it
+    instead of re-querying the database per circuit.
+
+    :param objects: Object DAOs of the rooms to extract shelves from.
+    :param edge_margin_fraction: Fraction of each shelf dimension to use as an
+        inset margin on X and Y when filtering out-of-bounds objects.
+    :param object_type: Only objects whose type equals this value are included;
+        pass ``None`` to include every type.
+    :return: The extracted layers, grouped per shelf, so a caller can draw how
+        many layers a generated shelf should have from the real distribution
+        rather than fixing it.
+    """
     shelves: list[EGObjectDAO] = [
         obj for obj in objects if obj.object_type == ObjectType.SHELF
     ]
@@ -116,7 +150,7 @@ def _extract_shelf_layers_from_place_id(
     for obj in objects:
         objects_by_place_id[obj.place_id].append(obj)
 
-    shelf_layers = []
+    shelf_layers: list[list[EGShelfLayer]] = []
     for shelf in shelves:
         members = objects_by_place_id[shelf.id]
         if not members:
@@ -172,17 +206,19 @@ def _extract_shelf_layers_from_place_id(
             )
             objects_per_layer[label].append(relative_object)
 
-        for _, layer_objects in objects_per_layer.items():
-            shelf_layers.append(
+        shelf_layers.append(
+            [
                 EGShelfLayer(
                     scale=EGScale(
                         width=shelf.scale.width, length=shelf.scale.length, height=0.02
                     ),
                     objects=layer_objects,
                 )
-            )
+                for layer_objects in objects_per_layer.values()
+            ]
+        )
 
-    return shelf_layers, objects
+    return shelf_layers
 
 
 def generate_book_shelf(node, downloader: Sage10kSceneDownloader | None = None) -> None:
@@ -208,7 +244,7 @@ def generate_book_shelf(node, downloader: Sage10kSceneDownloader | None = None) 
     shelf_layer_data_access_objects = [to_dao(layer) for layer in shelf_layers]
 
     rspn = RelationalProbabilisticCircuit(
-        EGShelfLayer, min_samples_per_leaf=_MIN_SAMPLES_PER_LEAF_FRACTION
+        EGShelfLayer, min_samples_per_leaf=min_samples_per_leaf_for(sum(len(layer.objects) for layer in shelf_layers))
     )
     rspn = rspn.fit(shelf_layer_data_access_objects)
 
