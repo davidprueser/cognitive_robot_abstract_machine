@@ -168,7 +168,7 @@ def test_room_create_in_world_mounts_shelf_and_table_under_given_parent(
     with world.modify_world():
         world.add_body(root)
 
-    room.create_in_world(world, mesh_to_object_mapping=None, parent=root)
+    room.create_in_world(world, object_id_to_mesh_path=None, parent=root)
 
     shelf_corpus_bodies = [
         body for body in world.bodies if body.name.name == "shelf_corpus"
@@ -238,7 +238,7 @@ def test_room_create_in_world_adds_door_aperture_to_its_wall() -> None:
     with world.modify_world():
         world.add_body(root)
 
-    room.create_in_world(world, mesh_to_object_mapping=None, parent=root)
+    room.create_in_world(world, object_id_to_mesh_path=None, parent=root)
 
     [wall_annotation] = [
         annotation

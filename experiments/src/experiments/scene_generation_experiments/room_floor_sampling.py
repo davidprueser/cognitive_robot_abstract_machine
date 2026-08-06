@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import dataclasses
-import math
 import random
 from typing import TYPE_CHECKING
 
@@ -32,6 +31,7 @@ from semantic_digital_twin.scene_generation.scene_schema import (
     MeshCandidate,
     ObjectType,
     PlaceId,
+    RoomInterior,
     RoomType,
     _MeshTypeMatcher,
 )
@@ -367,39 +367,47 @@ def _resized_to_mesh(
 
 
 def _pushed_inside_room(
-    piece: PlacedFloorPiece, room_scale: EGScale
+    piece: PlacedFloorPiece, interior: RoomInterior
 ) -> PlacedFloorPiece:
     """
-    Return *piece* moved just far enough that its yaw-rotated footprint stays
-    inside the room.
+    Return *piece* moved just far enough that its yaw-rotated footprint clears
+    the room's walls.
 
-    A wall-relative pose bounds a piece's *centre*, not its extent, and a piece
-    adopts the real extents of the mesh chosen for it only after that pose was
-    drawn -- so a mesh wider than the sampled size reaches through the wall its
-    centre was placed against.
+    A wall-relative pose bounds a piece's *centre*, not its extent, so a piece
+    standing the measured 0.25 m from a wall still cuts into it once it is
+    deeper than that -- and a free object adopts the real extents of the mesh
+    chosen for it only after its pose was drawn, so a mesh wider than the
+    sampled size reaches further still.
 
     :param piece: The placed floor piece.
-    :param room_scale: Footprint of the room the piece stands in.
+    :param interior: The region of the room its centre may occupy.
     :return: *piece* unchanged when it already fits, otherwise a copy pushed in.
     """
-    yaw_radians = math.radians(piece.orientation.z)
-    half_width = piece.scale.width / 2
-    half_length = piece.scale.length / 2
-    overhang_x = abs(half_width * math.cos(yaw_radians)) + abs(
-        half_length * math.sin(yaw_radians)
+    x, y = interior.contained_position(
+        piece.position.x, piece.position.y, piece.scale, piece.orientation.z
     )
-    overhang_y = abs(half_width * math.sin(yaw_radians)) + abs(
-        half_length * math.cos(yaw_radians)
+    return dataclasses.replace(piece, position=EGPoint2D(x=x, y=y))
+
+
+def _shelf_pushed_inside_room(shelf: EGShelf, interior: RoomInterior) -> EGShelf:
+    """
+    Return *shelf* moved just far enough that its spawned corpus clears the
+    room's walls.
+
+    A shelf's corpus is padded beyond the piece footprint the room layout was
+    contained against, so containing the piece alone still leaves the corpus
+    reaching through the wall by that pad -- enough for the collision check to
+    flag the shelf every repair pass.
+
+    :param shelf: The assembled shelf.
+    :param interior: The region of the room its centre may occupy.
+    :return: *shelf*, repositioned in place when it did not already fit.
+    """
+    x, y = interior.contained_position(
+        shelf.position.x, shelf.position.y, shelf.corpus_footprint, shelf.orientation.z
     )
-    limit_x = max(room_scale.width / 2 - overhang_x, 0.0)
-    limit_y = max(room_scale.length / 2 - overhang_y, 0.0)
-    return dataclasses.replace(
-        piece,
-        position=EGPoint2D(
-            x=min(max(piece.position.x, -limit_x), limit_x),
-            y=min(max(piece.position.y, -limit_y), limit_y),
-        ),
-    )
+    shelf.position = EGPoint2D(x=x, y=y)
+    return shelf
 
 
 def _free_object(
@@ -559,19 +567,26 @@ def build_room_from_floor_layout(
     object_id_to_mesh_path: dict[str, Path] = {}
     room_id = "room_1"
     dropped_without_matching_mesh = 0
+    interior = RoomInterior(scale=layout.scale, wall_thickness=_WALL_THICKNESS)
     for sampled_piece in layout.pieces:
-        piece = _height_clamped(
-            PlacedFloorPiece.from_floor_piece(sampled_piece, layout.scale),
-            layout.scale.height,
+        piece = _pushed_inside_room(
+            _height_clamped(
+                PlacedFloorPiece.from_floor_piece(sampled_piece, layout.scale),
+                layout.scale.height,
+            ),
+            interior,
         )
         if piece.object_type == ObjectType.SHELF:
             shelves.append(
-                _sampled_shelf(
-                    piece,
-                    shelf_backend,
-                    shelf_source_ids,
-                    training_layer_counts,
-                    training_objects_per_layer,
+                _shelf_pushed_inside_room(
+                    _sampled_shelf(
+                        piece,
+                        shelf_backend,
+                        shelf_source_ids,
+                        training_layer_counts,
+                        training_objects_per_layer,
+                    ),
+                    interior,
                 )
             )
         elif piece.object_type == ObjectType.TABLE:
@@ -590,9 +605,7 @@ def build_room_from_floor_layout(
             if candidate is None:
                 dropped_without_matching_mesh += 1
                 continue
-            piece = _pushed_inside_room(
-                _resized_to_mesh(piece, candidate), layout.scale
-            )
+            piece = _pushed_inside_room(_resized_to_mesh(piece, candidate), interior)
             free_object = _free_object(
                 piece, len(free_objects), candidate, room_id
             )

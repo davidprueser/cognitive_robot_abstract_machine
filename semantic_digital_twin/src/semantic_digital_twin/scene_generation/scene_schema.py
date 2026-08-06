@@ -1570,6 +1570,112 @@ class EGFloorPiece(EGBase):
         )
 
 
+@dataclass(frozen=True)
+class RoomInterior:
+    """
+    The rectangle a floor piece's centre may occupy for the piece to stay clear
+    of the room's walls.
+
+    :class:`EGWallRelativePose` bounds a piece's *centre* only, and each wall is
+    built centred on the room's boundary, so it reaches half its thickness back
+    into the room. A piece standing the measured 0.25 m from a wall therefore
+    cuts into that wall as soon as it is deeper than 0.4 m, which most furniture
+    is. Nothing downstream recovers from that: the collision resolver keeps a
+    piece on the wall the circuit chose for it, so sliding it along that wall
+    never clears the overlap and the piece is eventually dropped.
+    """
+
+    scale: EGScale
+    """
+    Footprint of the room.
+
+    .. warning::
+        Taken to be centred on the origin, as
+        :func:`~experiments.scene_generation_experiments.room_floor_sampling._rectangular_walls`
+        builds a generated room. Stored sage10k rooms put their lower-left
+        corner at the origin instead, so their positions must be re-centred --
+        as extraction already does -- before being measured against this.
+    """
+
+    wall_thickness: float
+    """
+    Thickness of the room's walls, each centred on the room's boundary.
+    """
+
+    WALL_CLEARANCE: ClassVar[float] = 0.001
+    """
+    Gap, in metres, kept between a contained footprint and a wall's inner face.
+
+    Containing a piece exactly flush leaves the two surfaces at zero distance,
+    which a collision check at ``distance=0.0`` reports as contact -- so a piece
+    pushed precisely to its limit is flagged against the very wall it was just
+    cleared of, and the repair loop cannot win.
+    """
+
+    @classmethod
+    def of_room(cls, room: EGRoom) -> Self:
+        """
+        Read the interior off a room's own footprint and walls.
+
+        :param room: The room to measure. Its footprint must be centred on the
+            origin, see :attr:`scale`.
+        :return: The interior its pieces must stay within.
+        """
+        return cls(
+            scale=room.scale,
+            wall_thickness=max((wall.thickness for wall in room.walls), default=0.0),
+        )
+
+    def centre_limits(
+        self, footprint: EGScale, yaw_degrees: float
+    ) -> tuple[float, float]:
+        """
+        Return how far from the room centre, along x and along y, the centre of a
+        *footprint*-sized piece turned by *yaw_degrees* may sit.
+
+        The footprint is bounded by the axis-aligned span its rotation makes it
+        occupy, so a piece turned diagonally is held further from the walls than
+        one standing square to them.
+
+        :param footprint: Size of the piece.
+        :param yaw_degrees: Yaw of the piece, in degrees.
+        :return: The largest ``abs(x)`` and ``abs(y)`` its centre may have.
+        """
+        yaw_radians = math.radians(yaw_degrees)
+        half_width = footprint.width / 2
+        half_length = footprint.length / 2
+        overhang_x = abs(half_width * math.cos(yaw_radians)) + abs(
+            half_length * math.sin(yaw_radians)
+        )
+        overhang_y = abs(half_width * math.sin(yaw_radians)) + abs(
+            half_length * math.cos(yaw_radians)
+        )
+        inner_face = self.wall_thickness / 2 + self.WALL_CLEARANCE
+        return (
+            max(self.scale.width / 2 - inner_face - overhang_x, 0.0),
+            max(self.scale.length / 2 - inner_face - overhang_y, 0.0),
+        )
+
+    def contained_position(
+        self, x: float, y: float, footprint: EGScale, yaw_degrees: float
+    ) -> tuple[float, float]:
+        """
+        Return ``(x, y)`` moved the shortest distance that keeps a
+        *footprint*-sized piece turned by *yaw_degrees* clear of every wall.
+
+        :param x: Position of the piece centre along the room's x-axis.
+        :param y: Position of the piece centre along the room's y-axis.
+        :param footprint: Size of the piece.
+        :param yaw_degrees: Yaw of the piece, in degrees.
+        :return: The contained position, unchanged when the piece already fits.
+        """
+        limit_x, limit_y = self.centre_limits(footprint, yaw_degrees)
+        return (
+            min(max(x, -limit_x), limit_x),
+            min(max(y, -limit_y), limit_y),
+        )
+
+
 @dataclass
 class EGRoomFloorLayout(EGBase):
     """
@@ -1934,6 +2040,32 @@ class EGShelf(EGBase):
     Pool of candidate meshes used when placing objects on shelf layers.
     """
 
+    @property
+    def corpus_footprint(self) -> EGScale:
+        """
+        The footprint the spawned corpus occupies, in the shelf's own frame.
+
+        Padded by twice the corpus wall thickness so the carved-out interior is
+        at least as large as the layers' own footprint -- otherwise a wall
+        intrudes into the region objects were trained to occupy, and an object
+        placed near the training data's edge margin collides with it (most
+        visible on small shelves, where that margin is thinner than the wall).
+        A caller placing a shelf against a room wall has to reserve this, not
+        the layers' bare footprint, or the corpus reaches through by the pad.
+
+        .. note::
+            :attr:`CONTENT_FRAME_YAW_OFFSET_DEGREES` and the corpus's own
+            depth-on-x convention cancel, so the span this footprint covers when
+            turned by :attr:`orientation` is the span the corpus really
+            occupies.
+        """
+        wall_margin = 2 * self._CORPUS_WALL_THICKNESS
+        return EGScale(
+            width=max(layer.scale.width for layer in self.layers) + wall_margin,
+            length=max(layer.scale.length for layer in self.layers) + wall_margin,
+            height=self.scale.height,
+        )
+
     def to_json(self) -> dict[str, Any]:
         return {
             **super().to_json(),
@@ -2042,16 +2174,10 @@ class EGShelf(EGBase):
 
         _parent = parent if parent is not None else _world.root
 
-        # Padded by twice the wall thickness so the carved-out interior is at
-        # least as large as the layers' own footprint -- otherwise a wall
-        # intrudes into the region objects were trained to occupy, and an
-        # object placed near the training data's edge margin collides with
-        # it (most visible on small shelves, where that margin is thinner
-        # than the wall).
-        wall_margin = 2 * self._CORPUS_WALL_THICKNESS
-        corpus_face = max(layer.scale.width for layer in self.layers) + wall_margin
-        corpus_depth = max(layer.scale.length for layer in self.layers) + wall_margin
-        corpus_height = self.scale.height
+        footprint = self.corpus_footprint
+        corpus_face = footprint.width
+        corpus_depth = footprint.length
+        corpus_height = footprint.height
         # Contents are stored in the shelf's content frame (see
         # CONTENT_FRAME_YAW_OFFSET_DEGREES), so the corpus and its slabs are
         # built in that same frame -- the offset must match extraction's.

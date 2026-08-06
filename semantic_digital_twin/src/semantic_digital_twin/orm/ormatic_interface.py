@@ -9828,6 +9828,29 @@ class MeshCandidateDAO(
     )
 
 
+class RoomInteriorDAO(
+    Base,
+    DataAccessObject[semantic_digital_twin.scene_generation.scene_schema.RoomInterior],
+):
+    __tablename__ = "RoomInteriorDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        Integer, primary_key=True, use_existing_column=True
+    )
+
+    wall_thickness: Mapped[builtins.float] = mapped_column(use_existing_column=True)
+
+    scale_id: Mapped[int] = mapped_column(
+        ForeignKey("EGScaleDAO.database_id", use_alter=True),
+        nullable=True,
+        use_existing_column=True,
+    )
+
+    scale: Mapped[EGScaleDAO] = relationship(
+        "EGScaleDAO", uselist=False, foreign_keys=[scale_id], post_update=True
+    )
+
+
 class SceneGeneratorDAO(
     EGWithIDDAO,
     DataAccessObject[

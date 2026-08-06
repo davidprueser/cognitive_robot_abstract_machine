@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import dataclasses
+import math
+import random
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import ClassVar
 
 from experiments.scene_generation_experiments.collision_resolution import (
+    build_free_layer_query,
     build_pose_resample_query,
     in_world_colliding_indices,
 )
@@ -13,6 +17,7 @@ from experiments.scene_generation_experiments.exceptions import LayoutResolution
 from experiments.scene_generation_experiments.rspn_sampling import probabilistic_backend
 from experiments.scene_generation_experiments.table_chair_collision_resolution import (
     build_chair_pose_resample_query,
+    build_free_table_query,
 )
 from krrood.entity_query_language.backends import ProbabilisticBackend
 from krrood.entity_query_language.exceptions import NoSolutionFound
@@ -26,19 +31,18 @@ from semantic_digital_twin.reasoning.predicates import is_supported_by
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.scene_generation.scene_schema import (
     EGRoom,
+    EGScale,
+    EGWallRelativePose,
     EGShelf,
+    RoomInterior,
     EGTableWithChairs,
     SpawnedLayout,
     SpawnedRoom,
     SpawnedShelf,
     SpawnedTableWithChairs,
 )
-from semantic_digital_twin.semantic_annotations.mixins import HasRootBody
 from semantic_digital_twin.semantic_annotations.semantic_annotations import Floor
-from semantic_digital_twin.spatial_types import (
-    HomogeneousTransformationMatrix,
-    Point3,
-)
+from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
 from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.world_entity import (
     Body,
@@ -46,29 +50,36 @@ from semantic_digital_twin.world_description.world_entity import (
 )
 
 
-def _evaluate_with_relaxed_fallback(
-    backend: ProbabilisticBackend, query, relaxed_query
-):
+def _evaluate_first_supported(backend: ProbabilisticBackend, *queries):
     """
-    Evaluate *query*, falling back to *relaxed_query* if the RSPN has no
-    support for it.
+    Evaluate *queries* in order, returning the first sample the RSPN has
+    support for.
 
-    Conditioning a resample on every already-placed neighbour's exact pose can
-    pin the query to a region the fitted circuit assigns zero probability
-    mass -- the neighbours' poses drift further from the training
-    distribution with each repair pass, so this becomes more likely deeper
-    into a repair. Retrying once without that neighbour evidence keeps the
-    repair loop making progress instead of aborting the whole layout.
+    Each query is expected to hold strictly less evidence than the one before
+    it, so the search walks outwards from the most informative conditioning to
+    the least. Two kinds of evidence go unsupported in practice, and both abort
+    the whole layout if the search stops early:
 
-    :param backend: The backend to evaluate both queries against.
-    :param query: The primary, neighbour-conditioned query.
-    :param relaxed_query: The same query with neighbour evidence dropped.
+    - **Neighbour poses.** Conditioning a resample on every already-placed
+      neighbour's exact pose pins the query to a region of zero probability
+      mass, and the neighbours drift further from the training distribution
+      with each repair pass.
+    - **The collection's own scale.** A shelf assembled from a room layout has
+      its layers' scales overwritten with the sampled piece's footprint *after*
+      they were drawn, so a layer routinely carries dimensions the circuit never
+      saw. Relaxing only the neighbours keeps that scale pinned and fails again.
+
+    :param backend: The backend to evaluate the queries against.
+    :param queries: Progressively less-conditioned forms of the same query.
+    :raises NoSolutionFound: If the circuit supports none of them.
     :return: The first sample from whichever query found a solution.
     """
-    try:
-        return next(iter(backend.evaluate(query)))
-    except NoSolutionFound:
-        return next(iter(backend.evaluate(relaxed_query)))
+    for query in queries[:-1]:
+        try:
+            return next(iter(backend.evaluate(query)))
+        except NoSolutionFound:
+            continue
+    return next(iter(backend.evaluate(queries[-1])))
 
 
 @dataclass
@@ -162,12 +173,13 @@ class ShelfLayerGroup(SpawnedCollisionGroup):
         resampled_indices = sorted(indices)
         resampled_objects = [layer.objects[index] for index in resampled_indices]
 
-        new_layer = _evaluate_with_relaxed_fallback(
+        new_layer = _evaluate_first_supported(
             self.backend,
             build_pose_resample_query(
                 fixed_objects, len(resampled_objects), layer.scale
             ),
             build_pose_resample_query([], len(resampled_objects), layer.scale),
+            build_free_layer_query(len(resampled_objects)),
         )
         redrawn_objects = new_layer.objects[-len(resampled_objects) :]
 
@@ -217,12 +229,13 @@ class ChairGroup(SpawnedCollisionGroup):
         resampled_indices = sorted(indices)
         resampled_chairs = [chairs[index] for index in resampled_indices]
 
-        new_sample = _evaluate_with_relaxed_fallback(
+        new_sample = _evaluate_first_supported(
             self.backend,
             build_chair_pose_resample_query(
                 fixed_chairs, resampled_chairs, self.group.scale
             ),
             build_chair_pose_resample_query([], resampled_chairs, self.group.scale),
+            build_free_table_query(len(resampled_chairs)),
         )
         redrawn_chairs = new_sample.chairs[-len(resampled_chairs) :]
 
@@ -240,84 +253,179 @@ class FloorObjectGroup(SpawnedCollisionGroup):
     """
     A room's floor pieces -- free objects and furniture roots -- kept from
     colliding with each other and the walls, each resting on the floor and, when
-    it offends, redrawn onto a free point of the floor's surface.
+    it offends, slid along the wall it stands against.
 
-    A piece keeps its resting height and yaw across a move: only its footprint on
-    the floor is redrawn, so a shelf stays upright at its corpus height and a
-    table keeps standing on its legs after being repositioned.
+    A piece keeps its resting height and yaw across a move: only its position
+    along its wall is redrawn, so a shelf stays upright at its corpus height, a
+    table keeps standing on its legs, and a cabinet stays against the wall the
+    circuit put it on.
     """
 
     floor: Floor
     """
-    The room floor annotation whose supporting surface offending pieces are
-    redrawn onto, and against which they are support-checked.
+    The room floor annotation the pieces are support-checked against.
     """
 
-    _FREE_POINT_POOL_FACTOR: ClassVar[int] = 8
+    interior: RoomInterior = field(kw_only=True)
     """
-    How many candidate floor points to draw per offending piece, so several
-    pieces redrawn in one pass land spread across the surface rather than
-    clustered at its most likely centre.
+    The region of the room a piece's centre may occupy, so an offending piece
+    can be repaired in the same wall-relative frame it was sampled in without
+    being slid into a wall.
+    """
 
-    Points are drawn per piece rather than once for the whole group, so each
-    draw can pass the piece itself as ``body_to_sample_for`` and get clearance
-    matched to its real size. Sampling once for the group left every piece with
-    a hard-coded 0.1 m margin, which treats a two-metre sofa like a mug.
+    _SLIDE_CANDIDATE_COUNT: ClassVar[int] = 24
+    """
+    How many positions along its wall a piece tries before settling.
+
+    The wall-relative slide is not occupancy-aware by itself, unlike the floor
+    sampler it replaced, whose sample space excluded the objects already placed.
+    Without trying several candidates two pieces on the same wall land on each
+    other over and over and the repair loop degenerates into a random search.
     """
 
     def resample_and_move(self, indices: set[int]) -> None:
-        for position, index in enumerate(sorted(indices)):
-            body = self.bodies[index]
-            free_points = self.floor.sample_points_from_surface(
-                body_to_sample_for=self._annotation_of(body),
-                amount=self._FREE_POINT_POOL_FACTOR,
+        for index in sorted(indices):
+            self._slide_along_its_wall(index)
+
+    def _slide_along_its_wall(self, index: int) -> None:
+        """
+        Move the piece at *index* to a fresh position along the wall it already
+        stands against, keeping which wall it uses, how far from it, and its yaw.
+
+        Repairing in the wall-relative frame is what keeps a repaired room
+        looking like the one the circuit sampled. Drawing a fresh point from the
+        floor surface instead -- as this used to -- discards the sampled pose
+        entirely, which is how fridges and sinks ended up standing in open
+        floor: every piece caught in a collision was teleported somewhere
+        uniformly random, undoing the placement the circuit had learned. Only
+        ``position_along_wall`` is redrawn, being the degree of freedom that
+        carries the least of what was learned.
+
+        Several positions are tried and the one overlapping the other pieces
+        least is kept, so the slide is occupancy-aware the way the floor sampler
+        it replaced was.
+
+        Each candidate is then contained within :attr:`interior`. Without that
+        the repair could never clear a wall: a piece standing the measured
+        0.25 m from a wall already cuts into it once it is deeper than that, and
+        sliding *along* the same wall leaves the overlap untouched, so the piece
+        offended every pass until the resolver gave up and dropped it. Sliding
+        towards a corner walks into the perpendicular wall the same way.
+        Containment moves the piece off its wall only by the amount its own
+        footprint demands, so a piece that already fits keeps the distance the
+        circuit drew for it.
+
+        :param index: Key of the floor piece to reposition.
+        """
+        body = self.bodies[index]
+        connection = body.parent_connection
+        origin = connection.origin.to_np().copy()
+        yaw_degrees = math.degrees(
+            math.atan2(float(origin[1, 0]), float(origin[0, 0]))
+        )
+        pose = EGWallRelativePose.from_absolute_pose(
+            float(origin[0, 3]),
+            float(origin[1, 3]),
+            yaw_degrees,
+            self.interior.scale,
+        )
+        half_width, half_length = self._footprint_half_extents(body)
+        # Already widened for the piece's yaw, so it is contained as-is.
+        rotated_footprint = EGScale(
+            width=2 * half_width, length=2 * half_length, height=0.0
+        )
+        obstacles = [
+            self._footprint(other)
+            for other_index, other in self.bodies.items()
+            if other_index != index
+        ]
+
+        slid_x, slid_y = self.interior.contained_position(
+            float(origin[0, 3]), float(origin[1, 3]), rotated_footprint, 0.0
+        )
+        least_overlap = None
+        for _ in range(self._SLIDE_CANDIDATE_COUNT):
+            candidate_x, candidate_y, _unused = dataclasses.replace(
+                pose, position_along_wall=random.random()
+            ).to_absolute_pose(self.interior.scale)
+            candidate_x, candidate_y = self.interior.contained_position(
+                candidate_x, candidate_y, rotated_footprint, 0.0
             )
-            if not free_points:
-                continue
-            self._move_piece_to_floor_point(
-                body, free_points[position % len(free_points)]
+            overlap = sum(
+                self._overlap_area(
+                    (candidate_x, candidate_y, half_width, half_length), obstacle
+                )
+                for obstacle in obstacles
             )
+            if least_overlap is None or overlap < least_overlap:
+                slid_x, slid_y, least_overlap = candidate_x, candidate_y, overlap
+            if overlap == 0.0:
+                break
+
+        origin[0, 3] = slid_x
+        origin[1, 3] = slid_y
+        connection.origin = HomogeneousTransformationMatrix(
+            origin, reference_frame=connection.parent
+        )
 
     @staticmethod
-    def _annotation_of(body: Body) -> HasRootBody | None:
+    def _footprint_half_extents(body: Body) -> tuple[float, float]:
         """
-        Return the annotation the floor surface can measure *body* through.
-
-        ``sample_points_from_surface`` takes a :class:`HasRootBody` rather than
-        a body, and falls back to a hard-coded 0.1 m clearance without one --
-        which treats a two-metre sofa like a mug. Every piece spawned by this
-        pipeline carries such an annotation, so the real footprint is available.
+        Return *body*'s footprint half-extents along the room axes, widened for
+        its yaw so a rotated piece is bounded by the span it really occupies.
 
         :param body: The floor piece's root body.
-        :return: Its annotation, or ``None`` when it carries none.
+        :return: Half-extent along x and along y, in metres.
         """
-        annotations = body.get_semantic_annotations_by_type(HasRootBody)
-        return annotations[0] if annotations else None
-
-    def _move_piece_to_floor_point(self, body: Body, free_point: Point3) -> None:
-        """
-        Move *body* so its footprint sits over *free_point*, keeping its current
-        resting height and yaw, so the piece stays upright and on the floor.
-
-        :param body: The floor piece's root body to reposition.
-        :param free_point: A point on the floor surface, in the surface frame.
-        """
-        connection = body.parent_connection
-        parent = connection.parent
-        world = self.floor._world
-        world.update_forward_kinematics()
-        parent_T_surface = world.compute_forward_kinematics_np(
-            parent, free_point.reference_frame
-        )
-        point_in_parent = parent_T_surface @ free_point.to_np()
-
-        new_origin = connection.origin.to_np().copy()
-        new_origin[0, 3] = point_in_parent[0]
-        new_origin[1, 3] = point_in_parent[1]
-        connection.origin = HomogeneousTransformationMatrix(
-            new_origin, reference_frame=parent
+        mesh = body.collision.combined_mesh if body.collision else None
+        if mesh is None:
+            return 0.0, 0.0
+        origin = body.parent_connection.origin.to_np()
+        yaw = math.atan2(float(origin[1, 0]), float(origin[0, 0]))
+        half_x, half_y = float(mesh.extents[0]) / 2, float(mesh.extents[1]) / 2
+        return (
+            abs(half_x * math.cos(yaw)) + abs(half_y * math.sin(yaw)),
+            abs(half_x * math.sin(yaw)) + abs(half_y * math.cos(yaw)),
         )
 
+    @classmethod
+    def _footprint(cls, body: Body) -> tuple[float, float, float, float]:
+        """
+        Return *body*'s footprint as ``(x, y, half_x, half_y)`` in its parent
+        frame.
+
+        :param body: The floor piece's root body.
+        :return: Centre and half-extents of the footprint.
+        """
+        origin = body.parent_connection.origin.to_np()
+        half_x, half_y = cls._footprint_half_extents(body)
+        return float(origin[0, 3]), float(origin[1, 3]), half_x, half_y
+
+    @staticmethod
+    def _overlap_area(
+        first: tuple[float, float, float, float],
+        second: tuple[float, float, float, float],
+    ) -> float:
+        """
+        Return the overlapping area of two axis-aligned footprints.
+
+        An axis-aligned box around each rotated footprint over-estimates the
+        real overlap, which errs towards moving a piece that might just have
+        fitted -- the safe direction.
+
+        :param first: Centre and half-extents of one footprint.
+        :param second: Centre and half-extents of the other.
+        :return: Overlapping area in square metres, zero when they are clear.
+        """
+        first_x, first_y, first_half_x, first_half_y = first
+        second_x, second_y, second_half_x, second_half_y = second
+        shared_x = min(first_x + first_half_x, second_x + second_half_x) - max(
+            first_x - first_half_x, second_x - second_half_x
+        )
+        shared_y = min(first_y + first_half_y, second_y + second_half_y) - max(
+            first_y - first_half_y, second_y - second_half_y
+        )
+        return max(shared_x, 0.0) * max(shared_y, 0.0)
 
 @dataclass
 class InWorldLayoutResolver:
@@ -346,7 +454,10 @@ class InWorldLayoutResolver:
 
     A generated room comes out sparser than the layout it was built from, and
     without this count an empty-looking room cannot be told apart from a model
-    that simply sampled few pieces.
+    that simply sampled few pieces. Counts offending pieces only: a dropped
+    shelf or table takes its contents out of the world with it, and those were
+    placeable, so counting them would charge the pipeline for chairs it had no
+    trouble with.
     """
 
     groups: list[SpawnedCollisionGroup]
@@ -446,6 +557,7 @@ class InWorldLayoutResolver:
                 supporting_body=None,
                 static_obstacles=spawned.wall_bodies,
                 floor=spawned.floor,
+                interior=RoomInterior.of_room(room),
             )
         ]
         shelf_backend = probabilistic_backend(shelf_rspn)
@@ -530,19 +642,10 @@ class InWorldLayoutResolver:
             the offending objects -- a state that should not occur.
         :return: The spawned, repaired layout.
         """
-        for _ in range(self.max_passes):
-            remaining = self._remaining_violations()
-            if not remaining:
-                return self.spawned
-            for group_index, violations in remaining.items():
-                self.groups[group_index].resample_and_move(violations)
+        detector = FCLCollisionDetector(_world=self.spawned.world)
+        remaining = self._repaired(detector)
+        detector.stop()
 
-        remaining = self._remaining_violations()
-        if not remaining:
-            return self.spawned
-        self._drop_objects(remaining)
-
-        remaining = self._remaining_violations()
         if remaining:
             raise LayoutResolutionError(
                 remaining_groups=frozenset(remaining),
@@ -550,17 +653,45 @@ class InWorldLayoutResolver:
             )
         return self.spawned
 
-    def _remaining_violations(self) -> dict[int, set[int]]:
+    def _repaired(self, detector: FCLCollisionDetector) -> dict[int, set[int]]:
+        """
+        Run the repair passes and report whatever still offends once they, and
+        the final drop, are done.
+
+        :param detector: The detector to check the world through.
+        :return: Offending member indices per group index; empty when the layout
+            came out clean.
+        """
+        for _ in range(self.max_passes):
+            remaining = self._remaining_violations(detector)
+            if not remaining:
+                return {}
+            for group_index, violations in remaining.items():
+                self.groups[group_index].resample_and_move(violations)
+
+        remaining = self._remaining_violations(detector)
+        if not remaining:
+            return {}
+        self._drop_objects(remaining)
+        return self._remaining_violations(detector)
+
+    def _remaining_violations(
+        self, detector: FCLCollisionDetector
+    ) -> dict[int, set[int]]:
         """
         Map each group index to its members that collide or are unsupported.
 
-        A fresh detector is built each call so it reflects the current world,
-        including any bodies moved or dropped since the last check.
+        One detector serves every pass: it registers world callbacks that
+        re-sync it on the model and state changes that moving or dropping a body
+        emits, so it always reflects the current world. Building a fresh one per
+        pass left every previous detector registered on the world and alive,
+        which cost about 230 MB a pass on a 29-piece room and ran the process
+        out of memory before the fiftieth.
 
+        :param detector: The detector to check the world through.
         :return: Offending member indices per group; groups with none are
             omitted.
         """
-        detector = FCLCollisionDetector(_world=self.spawned.world)
         return {
             group_index: violations
             for group_index, group in enumerate(self.groups)
@@ -578,6 +709,12 @@ class InWorldLayoutResolver:
         arrangement that cannot be packed is rendered without the objects that
         do not fit rather than not at all.
 
+        A dropped piece takes its whole branch with it. The floor group holds
+        shelf corpuses and table bodies, whose layers, chairs and contents hang
+        beneath them, so removing the piece's own body alone left every child
+        parentless and the world with as many roots as the piece had
+        descendants -- which the next model change refuses.
+
         :param offenders: Offending member indices per group index.
         """
         world = self.spawned.world
@@ -585,6 +722,43 @@ class InWorldLayoutResolver:
             for group_index, indices in offenders.items():
                 bodies = self.groups[group_index].bodies
                 for index in indices:
-                    world.remove_kinematic_structure_entity(bodies.pop(index))
+                    self._remove_branch(bodies.pop(index))
                     self.dropped_body_count += 1
             world.delete_orphaned_dofs()
+        self._forget_bodies_no_longer_in_the_world()
+
+    def _remove_branch(self, branch_root: KinematicStructureEntity) -> None:
+        """
+        Remove *branch_root* and everything hanging beneath it from the world.
+
+        :param branch_root: The entity whose branch is dropped.
+        """
+        world = self.spawned.world
+        for entity in world.compute_descendent_child_kinematic_structure_entities(
+            branch_root
+        ) + [branch_root]:
+            world.remove_kinematic_structure_entity(entity)
+
+    def _forget_bodies_no_longer_in_the_world(self) -> None:
+        """
+        Drop from every group the members whose bodies have left the world.
+
+        A dropped floor piece takes its contents with it, and each of those
+        contents is a member of its own group -- a table's chairs, a shelf
+        layer's objects. A group that was not itself offending is never visited
+        by the drop, so it keeps referring to bodies the world no longer holds
+        and the next collision check raises instead of reporting collisions.
+
+        Entries are popped rather than the dict rebuilt: a group's ``bodies`` is
+        the same object as the spawned layer's own body map, so popping is what
+        keeps the returned layout in step with the world.
+        """
+        remaining_bodies = set(self.spawned.world.bodies)
+        for group in self.groups:
+            departed = [
+                index
+                for index, body in group.bodies.items()
+                if body not in remaining_bodies
+            ]
+            for index in departed:
+                group.bodies.pop(index)

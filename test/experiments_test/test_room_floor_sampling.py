@@ -35,6 +35,7 @@ from semantic_digital_twin.scene_generation.scene_schema import (
     EGTableWithChairs,
     EGWallRelativePose,
     MeshCandidate,
+    RoomInterior,
     RoomWall,
 )
 from semantic_digital_twin.scene_generation.scene_schema import ObjectType
@@ -68,6 +69,24 @@ def _shelf_backend() -> MagicMock:
     )
     backend = MagicMock()
     backend.evaluate.return_value = [layer]
+    return backend
+
+
+def _shelf_backend_sized(piece_scale: EGScale) -> MagicMock:
+    """
+    A shelf backend whose layer carries the piece's own footprint, as
+    ``_sampled_layer`` conditions it to, so the spawned corpus is sized from the
+    piece rather than from the stand-in layer.
+    """
+    backend = MagicMock()
+    backend.evaluate.return_value = [
+        EGShelfLayer(
+            scale=EGScale(
+                width=piece_scale.width, length=piece_scale.length, height=0.02
+            ),
+            objects=[],
+        )
+    ]
     return backend
 
 
@@ -476,6 +495,57 @@ def test_a_wide_piece_is_pushed_clear_of_the_wall_it_stands_against() -> None:
     assert placed.position.y >= -room_scale.length / 2 + 0.3 - 1e-9
 
 
+def test_a_piece_is_kept_clear_of_the_walls_thickness_not_just_the_room_boundary() -> (
+    None
+):
+    """
+    Each wall is built centred on the room's boundary, so it reaches half its
+    thickness back into the room. Containing a piece against the bare boundary
+    therefore still leaves it cutting into the wall -- which the collision
+    resolver can never repair, since it keeps a piece on the wall the circuit
+    chose and no position along that wall clears the overlap.
+    """
+    room_scale = EGScale(width=6.0, length=6.0, height=2.7)
+    layout = EGRoomFloorLayout(
+        scale=room_scale,
+        pieces=[
+            EGFloorPiece(
+                object_type=ObjectType.CABINET,
+                scale=EGScale(width=0.4, length=0.4, height=1.0),
+                pose=EGWallRelativePose(
+                    wall=RoomWall.SOUTH,
+                    distance_from_wall=0.1,
+                    position_along_wall=0.5,
+                    yaw_relative_to_wall=0.0,
+                ),
+            )
+        ],
+    )
+    candidate = MeshCandidate(
+        scene_dir=Path("/scenes/cabinets"),
+        source_id="cabinet",
+        object_type=ObjectType.CABINET,
+        native_extents=(0.4, 0.4, 1.0),
+    )
+
+    built = build_room_from_floor_layout(
+        layout,
+        shelf_backend=_shelf_backend(),
+        table_backend=_table_backend(),
+        training_chair_counts=[1],
+        shelf_source_ids=[],
+        chair_source_ids=[],
+        free_object_source_ids=[candidate],
+    )
+
+    # The south wall spans y in [-3.05, -2.95], and half the 0.4 m footprint is
+    # 0.2, so the centre cannot sit south of -2.75 less the clearance kept off
+    # the wall face.
+    assert built.room.objects[0].position.y == pytest.approx(
+        -2.75 + RoomInterior.WALL_CLEARANCE
+    )
+
+
 def test_a_shelf_takes_its_footprint_from_the_piece_not_the_layer_circuit() -> None:
     """
     A shelf must stand at the size the room layout drew for it. Taking the
@@ -516,3 +586,53 @@ def test_a_shelf_takes_its_footprint_from_the_piece_not_the_layer_circuit() -> N
     assert shelf.scale.width == pytest.approx(piece_scale.width)
     assert shelf.scale.length == pytest.approx(piece_scale.length)
     assert shelf.scale.height == pytest.approx(piece_scale.height)
+
+
+def test_a_spawned_shelfs_corpus_clears_the_wall_it_stands_against() -> None:
+    """
+    Containing the sampled *piece* is not enough for a shelf: its corpus is
+    padded beyond the piece footprint, and it spawns rotated by
+    :attr:`EGShelf.CONTENT_FRAME_YAW_OFFSET_DEGREES` with its depth on the
+    corpus's local x. A square test piece cannot see either, so this one is
+    deliberately oblong and is checked against the body that actually spawns.
+    """
+    room_scale = EGScale(width=6.0, length=6.0, height=2.7)
+    piece_scale = EGScale(width=1.2, length=0.3, height=1.8)
+    layout = EGRoomFloorLayout(
+        scale=room_scale,
+        pieces=[
+            EGFloorPiece(
+                object_type=ObjectType.SHELF,
+                scale=piece_scale,
+                pose=EGWallRelativePose(
+                    wall=RoomWall.SOUTH,
+                    distance_from_wall=0.05,
+                    position_along_wall=0.5,
+                    yaw_relative_to_wall=0.0,
+                ),
+            )
+        ],
+    )
+
+    built = build_room_from_floor_layout(
+        layout,
+        shelf_backend=_shelf_backend_sized(piece_scale),
+        table_backend=_table_backend(),
+        training_chair_counts=[1],
+        shelf_source_ids=[],
+        chair_source_ids=[],
+        free_object_source_ids=[],
+    )
+
+    world = World()
+    root = Body(name=PrefixedName(name="map"))
+    with world.modify_world():
+        world.add_body(root)
+    built.room.shelves[0].spawn_in_world(world, parent=root)
+
+    [corpus] = [body for body in world.bodies if body.name.name == "shelf_corpus"]
+    corpus_pose = corpus.parent_connection.origin.to_np()
+    corpus_extents = corpus.collision.combined_mesh.bounds
+    southern_edge = corpus_pose[1, 3] + float(corpus_extents[0][1])
+    # The south wall spans y in [-3.05, -2.95].
+    assert southern_edge >= -2.95

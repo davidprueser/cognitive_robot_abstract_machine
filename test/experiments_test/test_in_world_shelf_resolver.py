@@ -508,3 +508,39 @@ def test_resolver_drops_objects_it_cannot_separate(
 
     assert not _colliding_bodies(spawned)
     assert len(spawned.layers[0].object_bodies) < 2
+
+
+def test_resolver_falls_back_past_the_layer_scale_when_it_has_no_solution(
+    mesh_candidate: MeshCandidate,
+) -> None:
+    """
+    Dropping the neighbour evidence is not enough when it is the *layer scale*
+    that carries no probability mass. A shelf built from a room layout has its
+    layers' scales overwritten with the sampled piece's footprint after they
+    were drawn, so a layer routinely carries dimensions the circuit never saw --
+    and the relaxed query pins that same scale, so it fails too and the
+    unhandled ``NoSolutionFound`` aborts the whole room.
+
+    Observed end to end on a 31-piece living room holding three shelves.
+    """
+    shelf = _shelf(
+        [_object("book_0", 0.0, 0.0), _object("book_1", 0.0, 0.0)], mesh_candidate
+    )
+    free_layer = EGShelfLayer(
+        scale=shelf.layers[0].scale, objects=[_object("moved", 0.0, 1.5)]
+    )
+
+    with patch(
+        "experiments.scene_generation_experiments.in_world_resolver.probabilistic_backend"
+    ) as backend_factory:
+        backend_factory.return_value.evaluate.side_effect = [
+            NoSolutionFound(expression=MagicMock(), found_number=0),
+            NoSolutionFound(expression=MagicMock(), found_number=0),
+            [free_layer],
+        ]
+        resolver = InWorldLayoutResolver.for_shelf(shelf, rspn=MagicMock())
+        spawned = resolver.resolve()
+
+    assert backend_factory.return_value.evaluate.call_count == 3
+    assert shelf.layers[0].objects[1].position == EGPoint2D(x=0.0, y=1.5)
+    assert not _colliding_bodies(spawned)
