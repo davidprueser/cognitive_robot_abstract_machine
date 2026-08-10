@@ -27,8 +27,11 @@ from experiments.scene_generation_experiments.shelf_generation import (
     _frequent_object_types,
 )
 from experiments.scene_generation_experiments.rspn_sampling import probabilistic_backend
-from experiments.scene_generation_experiments.table_chair_generation import (
-    table_chair_groups_from_objects,
+from experiments.scene_generation_experiments.proximity_group_generation import (
+    anchors_by_room,
+    groups_for_circuit_training,
+    member_counts_by_anchor_type,
+    proximity_groups_from_objects,
 )
 from experiments.scene_generation_experiments.utils import (
     DEFAULT_TRAINING_ROOM_COUNT,
@@ -54,7 +57,7 @@ from semantic_digital_twin.scene_generation.scene_schema import (
     EGRoomFloorLayout,
     EGScale,
     EGShelfLayer,
-    EGTableWithChairs,
+    EGProximityGroup,
     EGWallRelativePose,
     ObjectType,
     PlaceId,
@@ -80,7 +83,7 @@ def _extract_room_floor_layouts(
 
     An object rests on the floor when its ``place_id`` is
     :attr:`PlaceId.FLOOR`. Pieces that instead reference another piece -- e.g. a
-    lamp standing on a table -- carry that piece's id as their ``place_id`` and
+    lamp standing on an anchor -- carry that piece's id as their ``place_id`` and
     are skipped here.
 
     Every layout takes its footprint from the room's own stored dimensions.
@@ -97,17 +100,10 @@ def _extract_room_floor_layouts(
     rooms_by_id = {room.from_dao().id: room for room in rooms}
     objects = objects_for_rooms(session, list(rooms_by_id))
 
-    floor_pieces_by_room: defaultdict[str, list[EGObjectDAO]] = defaultdict(
-        list
-    )  # noqa: F405
-    for obj in objects:
-        if obj.place_id == PlaceId.FLOOR:
-            floor_pieces_by_room[obj.room_id].append(obj)
-
     floor_layouts = [
-        _room_floor_layout(rooms_by_id[room_id].from_dao(), room_pieces)
-        for room_id, room_pieces in floor_pieces_by_room.items()
-        if room_pieces
+        _room_floor_layout(rooms_by_id[room_id].from_dao(), room_anchors)
+        for room_id, room_anchors in anchors_by_room(objects).items()
+        if room_anchors and room_id in rooms_by_id
     ]
     return floor_layouts, objects
 
@@ -168,13 +164,13 @@ def generate_room(
 ) -> None:
     """
     Train circuits on rooms of *room_type* from the database, sample a room, let
-    each shelf and table sample its own contents, spawn the whole room into a
+    each shelf and anchor sample its own contents, spawn the whole room into a
     world, repair floor placement and per-furniture contents directly in that
     world, and visualise the result via RViz markers.
 
     All three circuits are fitted from a single loaded room sample. Loading
     once per circuit, as this used to, trained each of them on a different
-    random population of rooms and scanned the object table three times.
+    random population of rooms and scanned the object anchor three times.
 
     :param node: An active rclpy node used to publish visualisation markers.
     :param room_type: The kind of room to generate. Circuits are fitted on this
@@ -210,13 +206,19 @@ def generate_room(
         ),
     ).fit([to_dao(layer) for layer in shelf_layers])
 
-    table_chair_groups = table_chair_groups_from_objects(training_objects)
-    table_rspn = RelationalProbabilisticCircuit(
-        EGTableWithChairs,
+    # Clustered over every floor object, so the arrangements a room type holds
+    # are discovered rather than authored. Singleton clusters still carry their
+    # zero into the member counts, but are kept out of the fitted circuit -- see
+    # groups_for_circuit_training.
+    proximity_groups = proximity_groups_from_objects(training_objects)
+    grouped_member_counts = member_counts_by_anchor_type(proximity_groups)
+    training_groups = groups_for_circuit_training(proximity_groups)
+    group_rspn = RelationalProbabilisticCircuit(
+        EGProximityGroup,
         min_samples_per_leaf=min_samples_per_leaf_for(
-            sum(len(group.chairs) for group in table_chair_groups)
+            sum(len(group.members) for group in training_groups)
         ),
-    ).fit([to_dao(group) for group in table_chair_groups])
+    ).fit([to_dao(group) for group in training_groups])
 
     room_composition = sample_room_composition(floor_layouts)
     sampled_layout = next(
@@ -241,12 +243,13 @@ def generate_room(
     built = build_room_from_floor_layout(
         sampled_layout,
         probabilistic_backend(shelf_rspn),
-        probabilistic_backend(table_rspn),
-        [len(group.chairs) for group in table_chair_groups],
+        probabilistic_backend(group_rspn),
+        grouped_member_counts,
         shelf_content_source_ids,
-        _get_source_ids_for_objects(
-            mesh_pool_objects, object_type=ObjectType.CHAIR, place_id=PlaceId.FLOOR
-        ),
+        # Members can be any kind of floor object now that groups are
+        # discovered rather than authored as table-and-chairs, so they draw
+        # from the same pool as loose pieces and are matched by their own type.
+        all_object_source_ids,
         all_object_source_ids,
         room_type=room_type,
         training_layer_counts=[len(layers) for layers in layers_by_shelf],
@@ -256,7 +259,7 @@ def generate_room(
     resolver = InWorldLayoutResolver.for_scene(
         built.room,
         shelf_rspn,
-        table_rspn,
+        group_rspn,
         object_id_to_mesh_path=built.object_id_to_mesh_path,
     )
     spawned_room = resolver.resolve()

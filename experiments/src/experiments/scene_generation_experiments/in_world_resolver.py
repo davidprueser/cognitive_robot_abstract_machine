@@ -15,9 +15,9 @@ from experiments.scene_generation_experiments.collision_resolution import (
 )
 from experiments.scene_generation_experiments.exceptions import LayoutResolutionError
 from experiments.scene_generation_experiments.rspn_sampling import probabilistic_backend
-from experiments.scene_generation_experiments.table_chair_collision_resolution import (
-    build_chair_pose_resample_query,
-    build_free_table_query,
+from experiments.scene_generation_experiments.proximity_group_collision_resolution import (
+    build_member_pose_resample_query,
+    build_free_group_query,
 )
 from krrood.entity_query_language.backends import ProbabilisticBackend
 from krrood.entity_query_language.exceptions import NoSolutionFound
@@ -32,14 +32,15 @@ from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.scene_generation.scene_schema import (
     EGRoom,
     EGScale,
+    EGRelativePolarPose,
     EGWallRelativePose,
     EGShelf,
     RoomInterior,
-    EGTableWithChairs,
+    EGProximityGroup,
     SpawnedLayout,
     SpawnedRoom,
     SpawnedShelf,
-    SpawnedTableWithChairs,
+    SpawnedProximityGroup,
 )
 from semantic_digital_twin.semantic_annotations.semantic_annotations import Floor
 from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
@@ -102,7 +103,7 @@ class SpawnedCollisionGroup(ABC):
     supporting_body: Body | None
     """
     The body the members must rest on, or ``None`` when the members are not
-    checked for support (e.g. chairs standing on the floor).
+    checked for support (e.g. members standing on the floor).
     """
 
     static_obstacles: list[Body] = field(default_factory=list, kw_only=True)
@@ -195,57 +196,101 @@ class ShelfLayerGroup(SpawnedCollisionGroup):
 
 
 @dataclass
-class ChairGroup(SpawnedCollisionGroup):
+class ProximityMemberGroup(SpawnedCollisionGroup):
     """
-    The chairs around one table, resampled against that table's learned
-    distribution; chairs stand on the floor, so the group has no supporting body.
+    The members around one anchor, resampled against that anchor's learned
+    distribution; members stand on the floor, so the group has no supporting body.
     """
 
-    group: EGTableWithChairs
+    group: EGProximityGroup
     """
-    The table-with-chairs group; its chairs are mutated in place as they are
+    The proximity group; its members are mutated in place as they are
     resampled.
     """
 
-    table: KinematicStructureEntity
+    anchor: KinematicStructureEntity
     """
-    The table body the chair bodies hang under; their poses are expressed
+    The anchor body the member bodies hang under; their poses are expressed
     relative to it, so they stay correct after the whole group is repositioned.
     """
 
     backend: ProbabilisticBackend = field(kw_only=True)
     """
-    The single-sample backend over this table's fitted circuit, from which
-    offending chair poses are redrawn.
+    The single-sample backend over this anchor's fitted circuit, from which
+    offending member poses are redrawn.
+    """
+
+    interior: RoomInterior | None = field(default=None, kw_only=True)
+    """
+    The region of the room a member's centre may occupy, or ``None`` for a
+    standalone group with no room around it.
+
+    A redrawn polar pose is bounded by nothing but the circuit, so without this
+    a repair undoes the containment the member was built with and puts it back
+    through a wall.
     """
 
     def resample_and_move(self, indices: set[int]) -> None:
-        chairs = self.group.chairs
-        fixed_chairs = [
-            chair
-            for chair_index, chair in enumerate(chairs)
-            if chair_index not in indices and chair_index in self.bodies
+        members = self.group.members
+        fixed_members = [
+            member
+            for member_index, member in enumerate(members)
+            if member_index not in indices and member_index in self.bodies
         ]
         resampled_indices = sorted(indices)
-        resampled_chairs = [chairs[index] for index in resampled_indices]
+        resampled_members = [members[index] for index in resampled_indices]
 
         new_sample = _evaluate_first_supported(
             self.backend,
-            build_chair_pose_resample_query(
-                fixed_chairs, resampled_chairs, self.group.scale
+            build_member_pose_resample_query(
+                fixed_members, resampled_members, self.group.scale
             ),
-            build_chair_pose_resample_query([], resampled_chairs, self.group.scale),
-            build_free_table_query(len(resampled_chairs)),
+            build_member_pose_resample_query([], resampled_members, self.group.scale),
+            build_free_group_query(len(resampled_members)),
         )
-        redrawn_chairs = new_sample.chairs[-len(resampled_chairs) :]
+        redrawn_members = new_sample.members[-len(resampled_members) :]
 
-        for chair_index, redrawn in zip(resampled_indices, redrawn_chairs):
-            chair = chairs[chair_index]
-            chair.relative_pose = redrawn.relative_pose
-            body = self.bodies[chair_index]
-            body.parent_connection.origin = self.group.chair_local_pose(
-                chair, self.table
+        for member_index, redrawn in zip(resampled_indices, redrawn_members):
+            member = members[member_index]
+            member.relative_pose = self._contained(redrawn.relative_pose, member.scale)
+            body = self.bodies[member_index]
+            body.parent_connection.origin = self.group.member_local_pose(
+                member, self.anchor
             )
+
+    def _contained(
+        self, relative_pose: EGRelativePolarPose, footprint: EGScale
+    ) -> EGRelativePolarPose:
+        """
+        Return *relative_pose* moved the shortest distance that keeps the member
+        inside the room.
+
+        Measured against the anchor body's *current* pose rather than the pose
+        the group was assembled with, since the floor repair may since have slid
+        the whole group along a wall.
+
+        :param relative_pose: The redrawn pose, relative to the anchor.
+        :param footprint: Size of the member being placed.
+        :return: The pose, corrected when it fell outside the room.
+        """
+        if self.interior is None:
+            return relative_pose
+        origin = self.anchor.parent_connection.origin.to_np()
+        anchor_x, anchor_y = float(origin[0, 3]), float(origin[1, 3])
+        anchor_yaw = math.degrees(
+            math.atan2(float(origin[1, 0]), float(origin[0, 0]))
+        )
+        member_x, member_y, member_yaw = relative_pose.to_absolute_pose(
+            anchor_x, anchor_y, anchor_yaw
+        )
+        contained_x, contained_y = self.interior.contained_position(
+            member_x, member_y, footprint, member_yaw
+        )
+        if (contained_x, contained_y) == (member_x, member_y):
+            return relative_pose
+        return EGRelativePolarPose.from_absolute_poses(
+            contained_x, contained_y, member_yaw, anchor_x, anchor_y, anchor_yaw
+        )
 
 
 @dataclass
@@ -257,7 +302,7 @@ class FloorObjectGroup(SpawnedCollisionGroup):
 
     A piece keeps its resting height and yaw across a move: only its position
     along its wall is redrawn, so a shelf stays upright at its corpus height, a
-    table keeps standing on its legs, and a cabinet stays against the wall the
+    anchor keeps standing on its legs, and a cabinet stays against the wall the
     circuit put it on.
     """
 
@@ -455,8 +500,8 @@ class InWorldLayoutResolver:
     A generated room comes out sparser than the layout it was built from, and
     without this count an empty-looking room cannot be told apart from a model
     that simply sampled few pieces. Counts offending pieces only: a dropped
-    shelf or table takes its contents out of the world with it, and those were
-    placeable, so counting them would charge the pipeline for chairs it had no
+    shelf or anchor takes its contents out of the world with it, and those were
+    placeable, so counting them would charge the pipeline for members it had no
     trouble with.
     """
 
@@ -493,24 +538,24 @@ class InWorldLayoutResolver:
         return cls(spawned=spawned, groups=groups, max_passes=max_passes)
 
     @classmethod
-    def for_table_with_chairs(
+    def for_proximity_group(
         cls,
-        group: EGTableWithChairs,
+        group: EGProximityGroup,
         rspn: RelationalProbabilisticCircuit,
         max_passes: int = 50,
     ) -> InWorldLayoutResolver:
         """
-        Spawn *group* and build a single collision group of its chairs, which
+        Spawn *group* and build a single collision group of its members, which
         stand on the floor and so are not support-checked.
 
-        :param group: The sampled table-with-chairs group to spawn and repair.
-        :param rspn: The fitted circuit used to redraw offending chair poses.
+        :param group: The sampled proximity group to spawn and repair.
+        :param rspn: The fitted circuit used to redraw offending member poses.
         :param max_passes: Upper bound on repair passes.
         :return: A resolver ready to repair the spawned group.
         """
         spawned = group.spawn_in_world()
         groups: list[SpawnedCollisionGroup] = [
-            cls._chair_group(group, spawned, probabilistic_backend(rspn))
+            cls._member_group(group, spawned, probabilistic_backend(rspn))
         ]
         return cls(spawned=spawned, groups=groups, max_passes=max_passes)
 
@@ -519,18 +564,18 @@ class InWorldLayoutResolver:
         cls,
         room: EGRoom,
         shelf_rspn: RelationalProbabilisticCircuit,
-        table_rspn: RelationalProbabilisticCircuit,
+        group_rspn: RelationalProbabilisticCircuit,
         object_id_to_mesh_path: dict[str, Path] | None = None,
         max_passes: int = 50,
     ) -> InWorldLayoutResolver:
         """
         Spawn a whole *room* and build one floor-placement group plus a content
-        group per shelf layer and per table.
+        group per shelf layer and per anchor.
 
         The floor-placement group holds every floor piece -- free objects and the
-        movable roots of shelves and tables -- so their mutual collisions and
+        movable roots of shelves and groups -- so their mutual collisions and
         collisions with the room's walls are all resolved together, without a
-        separate cross-furniture check. Each shelf layer and table then keeps its
+        separate cross-furniture check. Each shelf layer and anchor then keeps its
         own contents collision-free from its own fitted circuit; because a piece's
         contents are children of its movable root, they follow it rigidly and stay
         arranged as the piece is repositioned on the floor.
@@ -538,8 +583,8 @@ class InWorldLayoutResolver:
         :param room: The sampled room to spawn and repair.
         :param shelf_rspn: The fitted circuit used to redraw offending objects on
             shelf layers.
-        :param table_rspn: The fitted circuit used to redraw offending chairs
-            around tables.
+        :param group_rspn: The fitted circuit used to redraw offending members
+            around groups.
         :param object_id_to_mesh_path: Mapping from a free floor object's id to
             its mesh directory, used to resolve per-object mesh paths.
         :param max_passes: Upper bound on repair passes.
@@ -551,37 +596,84 @@ class InWorldLayoutResolver:
             world.add_body(root)
         spawned = room.spawn_in_world(world, object_id_to_mesh_path, root)
 
-        groups: list[SpawnedCollisionGroup] = [
-            FloorObjectGroup(
-                bodies=cls._floor_pieces(spawned),
-                supporting_body=None,
-                static_obstacles=spawned.wall_bodies,
-                floor=spawned.floor,
-                interior=RoomInterior.of_room(room),
-            )
-        ]
+        floor_group = FloorObjectGroup(
+            bodies=cls._floor_pieces(spawned),
+            supporting_body=None,
+            static_obstacles=list(spawned.wall_bodies),
+            floor=spawned.floor,
+            interior=RoomInterior.of_room(room),
+        )
+        groups: list[SpawnedCollisionGroup] = [floor_group]
         shelf_backend = probabilistic_backend(shelf_rspn)
         for shelf, spawned_shelf in zip(room.shelves, spawned.spawned_shelves):
             groups.extend(
                 cls._shelf_layer_groups(shelf, spawned_shelf, shelf_backend)
             )
-        table_backend = probabilistic_backend(table_rspn)
-        for table, spawned_table in zip(room.tables, spawned.spawned_tables):
-            groups.append(cls._chair_group(table, spawned_table, table_backend))
+        group_backend = probabilistic_backend(group_rspn)
+        interior = RoomInterior.of_room(room)
+        member_groups = [
+            cls._member_group(anchor, spawned_group, group_backend, interior)
+            for anchor, spawned_group in zip(room.groups, spawned.spawned_groups)
+        ]
+        groups.extend(member_groups)
+        cls._share_floor_obstacles(floor_group, member_groups, spawned.wall_bodies)
 
         return cls(spawned=spawned, groups=groups, max_passes=max_passes)
+
+    @staticmethod
+    def _share_floor_obstacles(
+        floor_group: FloorObjectGroup,
+        member_groups: list[ProximityMemberGroup],
+        wall_bodies: list[Body],
+    ) -> None:
+        """
+        Let every group member see the rest of the room floor.
+
+        A group is only ever checked within itself and against its own static
+        obstacles, so without this a member is checked against its siblings and
+        nothing else -- not the walls, not the free objects, not another group's
+        members. That was tolerable while only tables formed groups and members
+        were a handful of chairs. Once groups are discovered rather than
+        authored, most of a room's objects are members, and leaving them out is
+        why they overlapped each other and stood through walls.
+
+        A member is *not* checked against its own anchor. The two are meant to
+        be adjacent -- that is what the group asserts -- and the anchor cannot
+        move away from its own children in any case, so pairing them reports a
+        collision that no repair can ever clear.
+
+        Only the members carry these obstacles. Every member-to-floor pair is
+        already covered from the member's side, so repeating it on the floor
+        group would double the work and pair each anchor with its own members.
+
+        :param floor_group: The group holding the free objects, shelf corpuses
+            and group anchors.
+        :param member_groups: One group per spawned proximity group.
+        :param wall_bodies: The room's walls.
+        """
+        every_member = [
+            body for group in member_groups for body in group.bodies.values()
+        ]
+        floor_bodies = list(floor_group.bodies.values())
+        for group in member_groups:
+            owned = set(group.bodies.values())
+            group.static_obstacles = [
+                *wall_bodies,
+                *(body for body in floor_bodies if body is not group.anchor),
+                *(body for body in every_member if body not in owned),
+            ]
 
     @staticmethod
     def _floor_pieces(spawned: SpawnedRoom) -> dict[int, Body]:
         """
         Collect every movable floor piece of *spawned* -- free objects first,
-        then shelf corpuses, then table bodies -- keyed by a running index, so
+        then shelf corpuses, then anchor bodies -- keyed by a running index, so
         they form a single mutually-collision-checked group.
         """
         pieces: list[Body] = [
             *spawned.object_bodies.values(),
             *(spawned_shelf.corpus for spawned_shelf in spawned.spawned_shelves),
-            *(spawned_table.table for spawned_table in spawned.spawned_tables),
+            *(spawned_group.anchor for spawned_group in spawned.spawned_groups),
         ]
         return dict(enumerate(pieces))
 
@@ -610,21 +702,23 @@ class InWorldLayoutResolver:
         ]
 
     @staticmethod
-    def _chair_group(
-        group: EGTableWithChairs,
-        spawned: SpawnedTableWithChairs,
+    def _member_group(
+        group: EGProximityGroup,
+        spawned: SpawnedProximityGroup,
         backend: ProbabilisticBackend,
+        interior: RoomInterior | None = None,
     ) -> SpawnedCollisionGroup:
         """
-        Build the :class:`ChairGroup` for *spawned*'s chairs, which stand on the
+        Build the :class:`ProximityMemberGroup` for *spawned*'s members, which stand on the
         floor and so are not support-checked, resampled from *backend*.
         """
-        return ChairGroup(
-            bodies=spawned.chair_bodies,
+        return ProximityMemberGroup(
+            bodies=spawned.member_bodies,
             supporting_body=None,
             backend=backend,
             group=group,
-            table=spawned.table,
+            anchor=spawned.anchor,
+            interior=interior,
         )
 
     def resolve(self) -> SpawnedLayout:
@@ -710,7 +804,7 @@ class InWorldLayoutResolver:
         do not fit rather than not at all.
 
         A dropped piece takes its whole branch with it. The floor group holds
-        shelf corpuses and table bodies, whose layers, chairs and contents hang
+        shelf corpuses and anchor bodies, whose layers, members and contents hang
         beneath them, so removing the piece's own body alone left every child
         parentless and the world with as many roots as the piece had
         descendants -- which the next model change refuses.
@@ -744,7 +838,7 @@ class InWorldLayoutResolver:
         Drop from every group the members whose bodies have left the world.
 
         A dropped floor piece takes its contents with it, and each of those
-        contents is a member of its own group -- a table's chairs, a shelf
+        contents is a member of its own group -- a group's members, a shelf
         layer's objects. A group that was not itself offending is never visited
         by the drop, so it keeps referring to bodies the world no longer holds
         and the next collision check raises instead of reporting collisions.
@@ -762,3 +856,9 @@ class InWorldLayoutResolver:
             ]
             for index in departed:
                 group.bodies.pop(index)
+            # Obstacles are floor-tier bodies too now, and a dropped one left in
+            # place makes the next check ask the detector about a body the world
+            # no longer holds.
+            group.static_obstacles[:] = [
+                body for body in group.static_obstacles if body in remaining_bodies
+            ]

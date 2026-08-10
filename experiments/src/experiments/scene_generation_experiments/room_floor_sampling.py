@@ -8,9 +8,9 @@ from experiments.scene_generation_experiments.collision_resolution import (
     build_free_layer_query,
     build_layer_query_with_fixed_scale,
 )
-from experiments.scene_generation_experiments.table_chair_collision_resolution import (
-    build_free_table_query,
-    sample_chair_count,
+from experiments.scene_generation_experiments.proximity_group_collision_resolution import (
+    build_free_group_query,
+    sample_member_count,
 )
 from krrood.entity_query_language.backends import ProbabilisticBackend
 from krrood.entity_query_language.exceptions import NoSolutionFound
@@ -20,13 +20,14 @@ from semantic_digital_twin.scene_generation.scene_schema import (
     EGObject,
     EGPoint2D,
     EGPosition,
+    EGRelativePolarPose,
     EGRoom,
     EGRoomFloorLayout,
     EGRotation,
     EGScale,
     EGShelf,
     EGShelfLayer,
-    EGTableWithChairs,
+    EGProximityGroup,
     EGWall,
     MeshCandidate,
     ObjectType,
@@ -49,7 +50,7 @@ def sample_shelf_layer_count(training_layer_counts: list[int]) -> int:
     """
     Draw how many layers a shelf has from the empirical distribution.
 
-    Mirrors :func:`sample_chair_count`: a collection's length is a structural
+    Mirrors :func:`sample_member_count`: a collection's length is a structural
     property of the sampling query, so it is drawn before the query is built.
     Fixing it made every generated shelf identical.
 
@@ -83,8 +84,8 @@ class SampledRoomComposition:
     Drawing the composition rather than only a piece count is what makes a
     generated room hold the furniture its kind of room actually holds. Left to
     the circuit alone, each piece's type is drawn independently from the pooled
-    marginal, so how many shelves or tables a room ends up with swings widely
-    between samples -- one draw yields four tables, the next none at all.
+    marginal, so how many shelves or groups a room ends up with swings widely
+    between samples -- one draw yields four groups, the next none at all.
     """
 
     scale: EGScale
@@ -112,7 +113,7 @@ def sample_room_composition(
     Draw a room's footprint and piece composition together from the empirical
     distribution observed in the training rooms.
 
-    Mirrors :func:`sample_chair_count`: an exchangeable relation's list length is
+    Mirrors :func:`sample_member_count`: an exchangeable relation's list length is
     a structural property of the sampling query, so it is drawn before the query
     is built. The footprint and the composition are drawn from the *same*
     training layout because they are correlated in the data; drawing them
@@ -135,7 +136,7 @@ class PlacedFloorPiece:
     A sampled floor piece resolved back into the room-centred frame.
 
     The circuit samples an :class:`EGFloorPiece`, whose pose is relative to a
-    wall. Everything downstream -- shelf and table assembly, mesh placement,
+    wall. Everything downstream -- shelf and anchor assembly, mesh placement,
     collision repair -- works in absolute room coordinates, so the conversion
     happens once here rather than at each use.
     """
@@ -291,24 +292,32 @@ def _sampled_shelf(
     )
 
 
-def _sampled_table(
+def _sampled_group(
     piece: PlacedFloorPiece,
-    table_backend: ProbabilisticBackend,
-    chair_count: int,
+    group_backend: ProbabilisticBackend,
+    member_count: int,
     source_ids: list[MeshCandidate],
-) -> EGTableWithChairs:
+    anchor_mesh: MeshCandidate,
+) -> EGProximityGroup:
     """
-    Build an :class:`EGTableWithChairs` for a sampled table *piece*, surrounding
-    it with chairs drawn from the table circuit.
+    Build an :class:`EGProximityGroup` around a sampled anchor *piece*, drawing
+    its members from the group circuit.
 
-    :param piece: The sampled floor piece standing for a table.
-    :param table_backend: The single-sample backend over the table circuit.
-    :param chair_count: Number of chairs to sample around the table.
-    :param source_ids: Mesh candidates for the table's sampled chairs.
-    :return: The populated table-with-chairs group, placed at the piece's pose.
+    This is what puts one object in relation to another: the members are posed
+    relative to the anchor, so they land beside the thing they belong with
+    rather than wherever the room's own piece marginal happens to put them.
+    Their poses come from the circuit fitted over clusters found in the training
+    rooms, so the arrangements are the ones that setting actually holds.
+
+    :param piece: The sampled floor piece standing for the anchor.
+    :param group_backend: The single-sample backend over the group circuit.
+    :param member_count: Number of members to draw, at least one.
+    :param source_ids: Mesh candidates for the sampled members.
+    :param anchor_mesh: The mesh matched to the anchor itself.
+    :return: The populated proximity group, placed at the piece's pose.
     """
-    sampled = next(iter(table_backend.evaluate(build_free_table_query(chair_count))))
-    return EGTableWithChairs(
+    sampled = next(iter(group_backend.evaluate(build_free_group_query(member_count))))
+    return EGProximityGroup(
         position=EGPoint2D(x=piece.position.x, y=piece.position.y),
         scale=EGScale(
             width=piece.scale.width,
@@ -316,8 +325,10 @@ def _sampled_table(
             height=piece.scale.height,
         ),
         orientation=piece.orientation,
-        chairs=sampled.chairs,
+        object_type=piece.object_type,
+        members=sampled.members,
         source_ids=source_ids,
+        anchor_mesh=anchor_mesh,
     )
 
 
@@ -410,6 +421,43 @@ def _shelf_pushed_inside_room(shelf: EGShelf, interior: RoomInterior) -> EGShelf
     return shelf
 
 
+def _group_members_pushed_inside_room(
+    group: EGProximityGroup, interior: RoomInterior
+) -> EGProximityGroup:
+    """
+    Return *group* with every member moved just far enough to stay inside the
+    room.
+
+    A member's pose is polar and relative to its anchor, so nothing about it is
+    bounded by the room the anchor stands in -- an anchor near a wall throws its
+    members straight through it. Each member is contained in absolute
+    coordinates and its relative pose rebuilt from the result, so the group
+    keeps describing itself in the frame the circuit learned.
+
+    :param group: The assembled group, already placed at its anchor's pose.
+    :param interior: The region of the room a piece's centre may occupy.
+    :return: *group*, with its members' relative poses corrected in place.
+    """
+    for member in group.members:
+        member_x, member_y, member_yaw = member.relative_pose.to_absolute_pose(
+            group.position.x, group.position.y, group.orientation.z
+        )
+        contained_x, contained_y = interior.contained_position(
+            member_x, member_y, member.scale, member_yaw
+        )
+        if (contained_x, contained_y) == (member_x, member_y):
+            continue
+        member.relative_pose = EGRelativePolarPose.from_absolute_poses(
+            contained_x,
+            contained_y,
+            member_yaw,
+            group.position.x,
+            group.position.y,
+            group.orientation.z,
+        )
+    return group
+
+
 def _free_object(
     piece: PlacedFloorPiece,
     object_index: int,
@@ -418,12 +466,12 @@ def _free_object(
 ) -> EGObject:
     """
     Build a free-standing floor :class:`EGObject` for a sampled *piece* that is
-    neither a shelf nor a table, resolving its mesh from *candidate*.
+    neither a shelf nor a group anchor, resolving its mesh from *candidate*.
 
     The RSPN never samples a usable ``id``/``source_id`` for a piece -- both
     are fixed to ``None`` in the free-object query, since the circuit only
     models the spatial fields -- so both are drawn fresh here instead, the
-    same way shelf and table contents get their mesh from a candidate pool
+    same way shelf and anchor contents get their mesh from a candidate pool
     rather than from the piece itself.
 
     :param piece: The sampled floor piece.
@@ -470,9 +518,9 @@ class RoomGenerationReport:
     Shelves assembled from the sampled pieces.
     """
 
-    tables: int
+    groups: int
     """
-    Table-with-chairs groups assembled from the sampled pieces.
+    Table-with-members groups assembled from the sampled pieces.
     """
 
     free_objects: int
@@ -485,7 +533,7 @@ class RoomGenerationReport:
         """
         Pieces that made it into the room.
         """
-        return self.shelves + self.tables + self.free_objects
+        return self.shelves + self.groups + self.free_objects
 
     def summary(self) -> str:
         """
@@ -493,7 +541,7 @@ class RoomGenerationReport:
         """
         return (
             f"{self.sampled_pieces} pieces sampled -> {self.built_pieces} built "
-            f"({self.shelves} shelves, {self.tables} tables, "
+            f"({self.shelves} shelves, {self.groups} groups, "
             f"{self.free_objects} free objects); "
             f"{self.dropped_without_matching_mesh} dropped for want of a mesh"
         )
@@ -525,10 +573,10 @@ class BuiltRoom:
 def build_room_from_floor_layout(
     layout: EGRoomFloorLayout,
     shelf_backend: ProbabilisticBackend,
-    table_backend: ProbabilisticBackend,
-    training_chair_counts: list[int],
+    group_backend: ProbabilisticBackend,
+    member_counts_by_anchor_type: dict[ObjectType, list[int]],
     shelf_source_ids: list[MeshCandidate],
-    chair_source_ids: list[MeshCandidate],
+    member_source_ids: list[MeshCandidate],
     free_object_source_ids: list[MeshCandidate],
     room_type: RoomType = RoomType.LIVING_ROOM,
     training_layer_counts: list[int] | None = None,
@@ -536,16 +584,18 @@ def build_room_from_floor_layout(
 ) -> BuiltRoom:
     """
     Turn a sampled floor *layout* into a spawnable :class:`EGRoom`: each shelf
-    and table piece samples its own contents, and every other piece becomes a
+    and anchor piece samples its own contents, and every other piece becomes a
     free floor object.
 
     :param layout: The sampled room floor layout.
     :param shelf_backend: Backend over the shelf circuit, for shelf contents.
-    :param table_backend: Backend over the table circuit, for table chairs.
-    :param training_chair_counts: Observed chair counts, for sampling how many
-        chairs each table gets.
+    :param group_backend: Backend over the anchor circuit, for anchor members.
+    :param member_counts_by_anchor_type: Observed member counts per anchor type,
+        for drawing how many members each anchor gathers. Conditioning on the
+        type is what keeps a refrigerator standing alone while a dining table
+        gathers chairs.
     :param shelf_source_ids: Mesh candidates for shelf contents.
-    :param chair_source_ids: Mesh candidates for chairs.
+    :param member_source_ids: Mesh candidates for members.
     :param free_object_source_ids: Mesh candidates for free floor objects,
         matched to each piece by its sampled object type. A piece is dropped
         when this pool is empty, since it could otherwise never be spawned.
@@ -562,7 +612,7 @@ def build_room_from_floor_layout(
     training_objects_per_layer = training_objects_per_layer or [3]
     mesh_matcher = _MeshTypeMatcher(candidates=free_object_source_ids)
     shelves: list[EGShelf] = []
-    tables: list[EGTableWithChairs] = []
+    groups: list[EGProximityGroup] = []
     free_objects: list[EGObject] = []
     object_id_to_mesh_path: dict[str, Path] = {}
     room_id = "room_1"
@@ -589,28 +639,32 @@ def build_room_from_floor_layout(
                     interior,
                 )
             )
-        elif piece.object_type == ObjectType.TABLE:
-            tables.append(
-                _sampled_table(
-                    piece,
-                    table_backend,
-                    sample_chair_count(training_chair_counts),
-                    chair_source_ids,
-                )
-            )
-        elif free_object_source_ids:
-            candidate = mesh_matcher.random_match(
-                piece.object_type, target_extents=piece.scale
-            )
-            if candidate is None:
-                dropped_without_matching_mesh += 1
-                continue
-            piece = _pushed_inside_room(_resized_to_mesh(piece, candidate), interior)
-            free_object = _free_object(
-                piece, len(free_objects), candidate, room_id
-            )
+            continue
+        if not free_object_source_ids:
+            continue
+        candidate = mesh_matcher.random_match(
+            piece.object_type, target_extents=piece.scale
+        )
+        if candidate is None:
+            dropped_without_matching_mesh += 1
+            continue
+        piece = _pushed_inside_room(_resized_to_mesh(piece, candidate), interior)
+        member_count = sample_member_count(
+            member_counts_by_anchor_type, piece.object_type
+        )
+        if member_count == 0:
+            free_object = _free_object(piece, len(free_objects), candidate, room_id)
             free_objects.append(free_object)
             object_id_to_mesh_path[free_object.id] = candidate.scene_dir
+            continue
+        groups.append(
+            _group_members_pushed_inside_room(
+                _sampled_group(
+                    piece, group_backend, member_count, member_source_ids, candidate
+                ),
+                interior,
+            )
+        )
 
     room = EGRoom(
         id=room_id,
@@ -624,7 +678,7 @@ def build_room_from_floor_layout(
         objects=free_objects,
         walls=_rectangular_walls(layout.scale),
         shelves=shelves,
-        tables=tables,
+        groups=groups,
     )
     return BuiltRoom(
         room=room,
@@ -633,7 +687,7 @@ def build_room_from_floor_layout(
             sampled_pieces=len(layout.pieces),
             dropped_without_matching_mesh=dropped_without_matching_mesh,
             shelves=len(shelves),
-            tables=len(tables),
+            groups=len(groups),
             free_objects=len(free_objects),
         ),
     )

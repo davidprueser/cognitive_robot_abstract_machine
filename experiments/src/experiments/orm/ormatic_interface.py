@@ -675,6 +675,23 @@ class PipelineDAO_steps_association(Base, AssociationDataAccessObject):
     )
 
 
+class EGProximityGroupDAO_members_association(Base, AssociationDataAccessObject):
+    __tablename__ = "_95267847178748023256687339283118105396106525674009726839553711"
+
+    database_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+
+    source_egproximitygroupdao_id: Mapped[int] = mapped_column(
+        ForeignKey("EGProximityGroupDAO.database_id")
+    )
+    target_eggroupmemberdao_id: Mapped[int] = mapped_column(
+        ForeignKey("EGGroupMemberDAO.database_id")
+    )
+
+    target: Mapped[EGGroupMemberDAO] = relationship(
+        "EGGroupMemberDAO", foreign_keys=[target_eggroupmemberdao_id], lazy="selectin"
+    )
+
+
 class EGRoomFloorLayoutDAO_pieces_association(Base, AssociationDataAccessObject):
     __tablename__ = "_58063516363443293235305289063830194456273151504855193717014013"
 
@@ -723,23 +740,6 @@ class EGShelfLayerDAO_objects_association(Base, AssociationDataAccessObject):
 
     target: Mapped[EGObject2DDAO] = relationship(
         "EGObject2DDAO", foreign_keys=[target_egobject2ddao_id], lazy="selectin"
-    )
-
-
-class EGTableWithChairsDAO_chairs_association(Base, AssociationDataAccessObject):
-    __tablename__ = "_56680026504772475356479436661848315534261021476793334471192902"
-
-    database_id: Mapped[int] = mapped_column(Integer, primary_key=True)
-
-    source_egtablewithchairsdao_id: Mapped[int] = mapped_column(
-        ForeignKey("EGTableWithChairsDAO.database_id")
-    )
-    target_egchairdao_id: Mapped[int] = mapped_column(
-        ForeignKey("EGChairDAO.database_id")
-    )
-
-    target: Mapped[EGChairDAO] = relationship(
-        "EGChairDAO", foreign_keys=[target_egchairdao_id], lazy="selectin"
     )
 
 
@@ -811,21 +811,21 @@ class EGRoomDAO_shelves_association(Base, AssociationDataAccessObject):
     )
 
 
-class EGRoomDAO_tables_association(Base, AssociationDataAccessObject):
-    __tablename__ = "_11038543973419261089188993622312761229794676660361552037206829"
+class EGRoomDAO_groups_association(Base, AssociationDataAccessObject):
+    __tablename__ = "_20619526735915202503677310054047802467998147303909325738393602"
 
     database_id: Mapped[int] = mapped_column(Integer, primary_key=True)
 
     source_egroomdao_id: Mapped[int] = mapped_column(
         ForeignKey("EGRoomDAO.database_id")
     )
-    target_egtablewithchairsdao_id: Mapped[int] = mapped_column(
-        ForeignKey("EGTableWithChairsDAO.database_id")
+    target_egproximitygroupdao_id: Mapped[int] = mapped_column(
+        ForeignKey("EGProximityGroupDAO.database_id")
     )
 
-    target: Mapped[EGTableWithChairsDAO] = relationship(
-        "EGTableWithChairsDAO",
-        foreign_keys=[target_egtablewithchairsdao_id],
+    target: Mapped[EGProximityGroupDAO] = relationship(
+        "EGProximityGroupDAO",
+        foreign_keys=[target_egproximitygroupdao_id],
         lazy="selectin",
     )
 
@@ -862,21 +862,21 @@ class SpawnedRoomDAO_spawned_shelves_association(Base, AssociationDataAccessObje
     )
 
 
-class SpawnedRoomDAO_spawned_tables_association(Base, AssociationDataAccessObject):
-    __tablename__ = "_84320862220109934648657556909318905900422162621682007649552585"
+class SpawnedRoomDAO_spawned_groups_association(Base, AssociationDataAccessObject):
+    __tablename__ = "_21460374812188506595733944153688639127401491763063917082598010"
 
     database_id: Mapped[int] = mapped_column(Integer, primary_key=True)
 
     source_spawnedroomdao_id: Mapped[int] = mapped_column(
         ForeignKey("SpawnedRoomDAO.database_id")
     )
-    target_spawnedtablewithchairsdao_id: Mapped[int] = mapped_column(
-        ForeignKey("SpawnedTableWithChairsDAO.database_id")
+    target_spawnedproximitygroupdao_id: Mapped[int] = mapped_column(
+        ForeignKey("SpawnedProximityGroupDAO.database_id")
     )
 
-    target: Mapped[SpawnedTableWithChairsDAO] = relationship(
-        "SpawnedTableWithChairsDAO",
-        foreign_keys=[target_spawnedtablewithchairsdao_id],
+    target: Mapped[SpawnedProximityGroupDAO] = relationship(
+        "SpawnedProximityGroupDAO",
+        foreign_keys=[target_spawnedproximitygroupdao_id],
         lazy="selectin",
     )
 
@@ -3119,48 +3119,6 @@ class SpawnedCollisionGroupDAO(
     }
 
 
-class ChairGroupDAO(
-    SpawnedCollisionGroupDAO,
-    DataAccessObject[
-        experiments.scene_generation_experiments.in_world_resolver.ChairGroup
-    ],
-):
-    __tablename__ = "ChairGroupDAO"
-
-    database_id: Mapped[builtins.int] = mapped_column(
-        ForeignKey(SpawnedCollisionGroupDAO.database_id),
-        primary_key=True,
-        use_existing_column=True,
-    )
-
-    group_id: Mapped[int] = mapped_column(
-        ForeignKey("EGTableWithChairsDAO.database_id", use_alter=True),
-        nullable=True,
-        use_existing_column=True,
-    )
-    table_id: Mapped[int] = mapped_column(
-        ForeignKey("KinematicStructureEntityDAO.database_id", use_alter=True),
-        nullable=True,
-        use_existing_column=True,
-    )
-
-    group: Mapped[EGTableWithChairsDAO] = relationship(
-        "EGTableWithChairsDAO", uselist=False, foreign_keys=[group_id], post_update=True
-    )
-    table: Mapped[KinematicStructureEntityDAO] = relationship(
-        "KinematicStructureEntityDAO",
-        uselist=False,
-        foreign_keys=[table_id],
-        post_update=True,
-    )
-
-    __mapper_args__ = {
-        "polymorphic_identity": "ChairGroupDAO",
-        "inherit_condition": database_id == SpawnedCollisionGroupDAO.database_id,
-        "polymorphic_load": "selectin",
-    }
-
-
 class FloorObjectGroupDAO(
     SpawnedCollisionGroupDAO,
     DataAccessObject[
@@ -3180,13 +3138,63 @@ class FloorObjectGroupDAO(
         nullable=True,
         use_existing_column=True,
     )
+    interior_id: Mapped[int] = mapped_column(
+        ForeignKey("RoomInteriorDAO.database_id", use_alter=True),
+        nullable=True,
+        use_existing_column=True,
+    )
 
     floor: Mapped[FloorDAO] = relationship(
         "FloorDAO", uselist=False, foreign_keys=[floor_id], post_update=True
     )
+    interior: Mapped[RoomInteriorDAO] = relationship(
+        "RoomInteriorDAO", uselist=False, foreign_keys=[interior_id], post_update=True
+    )
 
     __mapper_args__ = {
         "polymorphic_identity": "FloorObjectGroupDAO",
+        "inherit_condition": database_id == SpawnedCollisionGroupDAO.database_id,
+        "polymorphic_load": "selectin",
+    }
+
+
+class ProximityMemberGroupDAO(
+    SpawnedCollisionGroupDAO,
+    DataAccessObject[
+        experiments.scene_generation_experiments.in_world_resolver.ProximityMemberGroup
+    ],
+):
+    __tablename__ = "ProximityMemberGroupDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        ForeignKey(SpawnedCollisionGroupDAO.database_id),
+        primary_key=True,
+        use_existing_column=True,
+    )
+
+    group_id: Mapped[int] = mapped_column(
+        ForeignKey("EGProximityGroupDAO.database_id", use_alter=True),
+        nullable=True,
+        use_existing_column=True,
+    )
+    anchor_id: Mapped[int] = mapped_column(
+        ForeignKey("KinematicStructureEntityDAO.database_id", use_alter=True),
+        nullable=True,
+        use_existing_column=True,
+    )
+
+    group: Mapped[EGProximityGroupDAO] = relationship(
+        "EGProximityGroupDAO", uselist=False, foreign_keys=[group_id], post_update=True
+    )
+    anchor: Mapped[KinematicStructureEntityDAO] = relationship(
+        "KinematicStructureEntityDAO",
+        uselist=False,
+        foreign_keys=[anchor_id],
+        post_update=True,
+    )
+
+    __mapper_args__ = {
+        "polymorphic_identity": "ProximityMemberGroupDAO",
         "inherit_condition": database_id == SpawnedCollisionGroupDAO.database_id,
         "polymorphic_load": "selectin",
     }
@@ -3236,6 +3244,40 @@ class ShelfLayerGroupDAO(
     }
 
 
+class BuiltRoomDAO(
+    Base,
+    DataAccessObject[
+        experiments.scene_generation_experiments.room_floor_sampling.BuiltRoom
+    ],
+):
+    __tablename__ = "BuiltRoomDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        Integer, primary_key=True, use_existing_column=True
+    )
+
+    room_id: Mapped[int] = mapped_column(
+        ForeignKey("EGRoomDAO.database_id", use_alter=True),
+        nullable=True,
+        use_existing_column=True,
+    )
+    report_id: Mapped[int] = mapped_column(
+        ForeignKey("RoomGenerationReportDAO.database_id", use_alter=True),
+        nullable=True,
+        use_existing_column=True,
+    )
+
+    room: Mapped[EGRoomDAO] = relationship(
+        "EGRoomDAO", uselist=False, foreign_keys=[room_id], post_update=True
+    )
+    report: Mapped[RoomGenerationReportDAO] = relationship(
+        "RoomGenerationReportDAO",
+        uselist=False,
+        foreign_keys=[report_id],
+        post_update=True,
+    )
+
+
 class PlacedFloorPieceDAO(
     Base,
     DataAccessObject[
@@ -3281,6 +3323,27 @@ class PlacedFloorPieceDAO(
     orientation: Mapped[EGRotationDAO] = relationship(
         "EGRotationDAO", uselist=False, foreign_keys=[orientation_id], post_update=True
     )
+
+
+class RoomGenerationReportDAO(
+    Base,
+    DataAccessObject[
+        experiments.scene_generation_experiments.room_floor_sampling.RoomGenerationReport
+    ],
+):
+    __tablename__ = "RoomGenerationReportDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        Integer, primary_key=True, use_existing_column=True
+    )
+
+    sampled_pieces: Mapped[builtins.int] = mapped_column(use_existing_column=True)
+    dropped_without_matching_mesh: Mapped[builtins.int] = mapped_column(
+        use_existing_column=True
+    )
+    shelves: Mapped[builtins.int] = mapped_column(use_existing_column=True)
+    groups: Mapped[builtins.int] = mapped_column(use_existing_column=True)
+    free_objects: Mapped[builtins.int] = mapped_column(use_existing_column=True)
 
 
 class SampledRoomCompositionDAO(
@@ -10323,6 +10386,68 @@ class EGPositionDAO(
     }
 
 
+class EGProximityGroupDAO(
+    EGBaseDAO,
+    DataAccessObject[
+        semantic_digital_twin.scene_generation.scene_schema.EGProximityGroup
+    ],
+):
+    __tablename__ = "EGProximityGroupDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        ForeignKey(EGBaseDAO.database_id), primary_key=True, use_existing_column=True
+    )
+
+    object_type: Mapped[
+        semantic_digital_twin.scene_generation.scene_schema.ObjectType
+    ] = mapped_column(
+        krrood.ormatic.custom_types.PolymorphicEnumType,
+        nullable=False,
+        use_existing_column=True,
+    )
+
+    position_id: Mapped[int] = mapped_column(
+        ForeignKey("EGPoint2DDAO.database_id", use_alter=True),
+        nullable=True,
+        use_existing_column=True,
+    )
+    scale_id: Mapped[int] = mapped_column(
+        ForeignKey("EGScaleDAO.database_id", use_alter=True),
+        nullable=True,
+        use_existing_column=True,
+    )
+    orientation_id: Mapped[int] = mapped_column(
+        ForeignKey("EGRotationDAO.database_id", use_alter=True),
+        nullable=True,
+        use_existing_column=True,
+    )
+
+    position: Mapped[EGPoint2DDAO] = relationship(
+        "EGPoint2DDAO", uselist=False, foreign_keys=[position_id], post_update=True
+    )
+    scale: Mapped[EGScaleDAO] = relationship(
+        "EGScaleDAO", uselist=False, foreign_keys=[scale_id], post_update=True
+    )
+    orientation: Mapped[EGRotationDAO] = relationship(
+        "EGRotationDAO", uselist=False, foreign_keys=[orientation_id], post_update=True
+    )
+    members: Mapped[builtins.list[EGProximityGroupDAO_members_association]] = (
+        relationship(
+            "EGProximityGroupDAO_members_association",
+            collection_class=builtins.list,
+            cascade="all, delete-orphan",
+            foreign_keys="[EGProximityGroupDAO_members_association.source_egproximitygroupdao_id]",
+            lazy="selectin",
+        )
+    )
+
+    __mapper_args__ = {
+        "polymorphic_identity": "EGProximityGroupDAO",
+        "inherit_condition": database_id == EGBaseDAO.database_id,
+        "polymorphic_load": "selectin",
+    }
+
+
 class EGRelativePolarPoseDAO(
     EGBaseDAO,
     DataAccessObject[
@@ -10335,13 +10460,11 @@ class EGRelativePolarPoseDAO(
         ForeignKey(EGBaseDAO.database_id), primary_key=True, use_existing_column=True
     )
 
-    distance_from_table_center: Mapped[builtins.float] = mapped_column(
+    distance_from_anchor: Mapped[builtins.float] = mapped_column(
         use_existing_column=True
     )
-    angle_from_table_center: Mapped[builtins.float] = mapped_column(
-        use_existing_column=True
-    )
-    facing_angle_relative_to_table: Mapped[builtins.float] = mapped_column(
+    angle_from_anchor: Mapped[builtins.float] = mapped_column(use_existing_column=True)
+    facing_angle_relative_to_anchor: Mapped[builtins.float] = mapped_column(
         use_existing_column=True
     )
 
@@ -10514,60 +10637,6 @@ class EGShelfLayerDAO(
     }
 
 
-class EGTableWithChairsDAO(
-    EGBaseDAO,
-    DataAccessObject[
-        semantic_digital_twin.scene_generation.scene_schema.EGTableWithChairs
-    ],
-):
-    __tablename__ = "EGTableWithChairsDAO"
-
-    database_id: Mapped[builtins.int] = mapped_column(
-        ForeignKey(EGBaseDAO.database_id), primary_key=True, use_existing_column=True
-    )
-
-    position_id: Mapped[int] = mapped_column(
-        ForeignKey("EGPoint2DDAO.database_id", use_alter=True),
-        nullable=True,
-        use_existing_column=True,
-    )
-    scale_id: Mapped[int] = mapped_column(
-        ForeignKey("EGScaleDAO.database_id", use_alter=True),
-        nullable=True,
-        use_existing_column=True,
-    )
-    orientation_id: Mapped[int] = mapped_column(
-        ForeignKey("EGRotationDAO.database_id", use_alter=True),
-        nullable=True,
-        use_existing_column=True,
-    )
-
-    position: Mapped[EGPoint2DDAO] = relationship(
-        "EGPoint2DDAO", uselist=False, foreign_keys=[position_id], post_update=True
-    )
-    scale: Mapped[EGScaleDAO] = relationship(
-        "EGScaleDAO", uselist=False, foreign_keys=[scale_id], post_update=True
-    )
-    orientation: Mapped[EGRotationDAO] = relationship(
-        "EGRotationDAO", uselist=False, foreign_keys=[orientation_id], post_update=True
-    )
-    chairs: Mapped[builtins.list[EGTableWithChairsDAO_chairs_association]] = (
-        relationship(
-            "EGTableWithChairsDAO_chairs_association",
-            collection_class=builtins.list,
-            cascade="all, delete-orphan",
-            foreign_keys="[EGTableWithChairsDAO_chairs_association.source_egtablewithchairsdao_id]",
-            lazy="selectin",
-        )
-    )
-
-    __mapper_args__ = {
-        "polymorphic_identity": "EGTableWithChairsDAO",
-        "inherit_condition": database_id == EGBaseDAO.database_id,
-        "polymorphic_load": "selectin",
-    }
-
-
 class EGWallRelativePoseDAO(
     EGBaseDAO,
     DataAccessObject[
@@ -10624,11 +10693,36 @@ class EGWithIDDAO(
     }
 
 
-class EGChairDAO(
+class EGDoorDAO(
     EGWithIDDAO,
-    DataAccessObject[semantic_digital_twin.scene_generation.scene_schema.EGChair],
+    DataAccessObject[semantic_digital_twin.scene_generation.scene_schema.EGDoor],
 ):
-    __tablename__ = "EGChairDAO"
+    __tablename__ = "EGDoorDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        ForeignKey(EGWithIDDAO.database_id), primary_key=True, use_existing_column=True
+    )
+
+    wall_id: Mapped[builtins.str] = mapped_column(
+        sqlalchemy.sql.sqltypes.Text, use_existing_column=True
+    )
+    position_on_wall: Mapped[builtins.float] = mapped_column(use_existing_column=True)
+    width: Mapped[builtins.float] = mapped_column(use_existing_column=True)
+    height: Mapped[builtins.float] = mapped_column(use_existing_column=True)
+    opens_inward: Mapped[builtins.bool] = mapped_column(use_existing_column=True)
+
+    __mapper_args__ = {
+        "polymorphic_identity": "EGDoorDAO",
+        "inherit_condition": database_id == EGWithIDDAO.database_id,
+        "polymorphic_load": "selectin",
+    }
+
+
+class EGGroupMemberDAO(
+    EGWithIDDAO,
+    DataAccessObject[semantic_digital_twin.scene_generation.scene_schema.EGGroupMember],
+):
+    __tablename__ = "EGGroupMemberDAO"
 
     database_id: Mapped[builtins.int] = mapped_column(
         ForeignKey(EGWithIDDAO.database_id), primary_key=True, use_existing_column=True
@@ -10671,32 +10765,7 @@ class EGChairDAO(
     )
 
     __mapper_args__ = {
-        "polymorphic_identity": "EGChairDAO",
-        "inherit_condition": database_id == EGWithIDDAO.database_id,
-        "polymorphic_load": "selectin",
-    }
-
-
-class EGDoorDAO(
-    EGWithIDDAO,
-    DataAccessObject[semantic_digital_twin.scene_generation.scene_schema.EGDoor],
-):
-    __tablename__ = "EGDoorDAO"
-
-    database_id: Mapped[builtins.int] = mapped_column(
-        ForeignKey(EGWithIDDAO.database_id), primary_key=True, use_existing_column=True
-    )
-
-    wall_id: Mapped[builtins.str] = mapped_column(
-        sqlalchemy.sql.sqltypes.Text, use_existing_column=True
-    )
-    position_on_wall: Mapped[builtins.float] = mapped_column(use_existing_column=True)
-    width: Mapped[builtins.float] = mapped_column(use_existing_column=True)
-    height: Mapped[builtins.float] = mapped_column(use_existing_column=True)
-    opens_inward: Mapped[builtins.bool] = mapped_column(use_existing_column=True)
-
-    __mapper_args__ = {
-        "polymorphic_identity": "EGDoorDAO",
+        "polymorphic_identity": "EGGroupMemberDAO",
         "inherit_condition": database_id == EGWithIDDAO.database_id,
         "polymorphic_load": "selectin",
     }
@@ -10887,11 +10956,11 @@ class EGRoomDAO(
         foreign_keys="[EGRoomDAO_shelves_association.source_egroomdao_id]",
         lazy="selectin",
     )
-    tables: Mapped[builtins.list[EGRoomDAO_tables_association]] = relationship(
-        "EGRoomDAO_tables_association",
+    groups: Mapped[builtins.list[EGRoomDAO_groups_association]] = relationship(
+        "EGRoomDAO_groups_association",
         collection_class=builtins.list,
         cascade="all, delete-orphan",
-        foreign_keys="[EGRoomDAO_tables_association.source_egroomdao_id]",
+        foreign_keys="[EGRoomDAO_groups_association.source_egroomdao_id]",
         lazy="selectin",
     )
 
@@ -10966,6 +11035,29 @@ class MeshCandidateDAO(
     )
 
 
+class RoomInteriorDAO(
+    Base,
+    DataAccessObject[semantic_digital_twin.scene_generation.scene_schema.RoomInterior],
+):
+    __tablename__ = "RoomInteriorDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        Integer, primary_key=True, use_existing_column=True
+    )
+
+    wall_thickness: Mapped[builtins.float] = mapped_column(use_existing_column=True)
+
+    scale_id: Mapped[int] = mapped_column(
+        ForeignKey("EGScaleDAO.database_id", use_alter=True),
+        nullable=True,
+        use_existing_column=True,
+    )
+
+    scale: Mapped[EGScaleDAO] = relationship(
+        "EGScaleDAO", uselist=False, foreign_keys=[scale_id], post_update=True
+    )
+
+
 class SceneGeneratorDAO(
     EGWithIDDAO,
     DataAccessObject[
@@ -11025,6 +11117,48 @@ class SpawnedLayoutDAO(
     }
 
 
+class SpawnedProximityGroupDAO(
+    SpawnedLayoutDAO,
+    DataAccessObject[
+        semantic_digital_twin.scene_generation.scene_schema.SpawnedProximityGroup
+    ],
+):
+    __tablename__ = "SpawnedProximityGroupDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        ForeignKey(SpawnedLayoutDAO.database_id),
+        primary_key=True,
+        use_existing_column=True,
+    )
+
+    parent_id: Mapped[int] = mapped_column(
+        ForeignKey("KinematicStructureEntityDAO.database_id", use_alter=True),
+        nullable=True,
+        use_existing_column=True,
+    )
+    anchor_id: Mapped[int] = mapped_column(
+        ForeignKey("BodyDAO.database_id", use_alter=True),
+        nullable=True,
+        use_existing_column=True,
+    )
+
+    parent: Mapped[KinematicStructureEntityDAO] = relationship(
+        "KinematicStructureEntityDAO",
+        uselist=False,
+        foreign_keys=[parent_id],
+        post_update=True,
+    )
+    anchor: Mapped[BodyDAO] = relationship(
+        "BodyDAO", uselist=False, foreign_keys=[anchor_id], post_update=True
+    )
+
+    __mapper_args__ = {
+        "polymorphic_identity": "SpawnedProximityGroupDAO",
+        "inherit_condition": database_id == SpawnedLayoutDAO.database_id,
+        "polymorphic_load": "selectin",
+    }
+
+
 class SpawnedRoomDAO(
     SpawnedLayoutDAO,
     DataAccessObject[semantic_digital_twin.scene_generation.scene_schema.SpawnedRoom],
@@ -11075,12 +11209,12 @@ class SpawnedRoomDAO(
         foreign_keys="[SpawnedRoomDAO_spawned_shelves_association.source_spawnedroomdao_id]",
         lazy="selectin",
     )
-    spawned_tables: Mapped[builtins.list[SpawnedRoomDAO_spawned_tables_association]] = (
+    spawned_groups: Mapped[builtins.list[SpawnedRoomDAO_spawned_groups_association]] = (
         relationship(
-            "SpawnedRoomDAO_spawned_tables_association",
+            "SpawnedRoomDAO_spawned_groups_association",
             collection_class=builtins.list,
             cascade="all, delete-orphan",
-            foreign_keys="[SpawnedRoomDAO_spawned_tables_association.source_spawnedroomdao_id]",
+            foreign_keys="[SpawnedRoomDAO_spawned_groups_association.source_spawnedroomdao_id]",
             lazy="selectin",
         )
     )
@@ -11160,48 +11294,6 @@ class SpawnedShelfLayerDAO(
     surface: Mapped[ShelfLayerDAO] = relationship(
         "ShelfLayerDAO", uselist=False, foreign_keys=[surface_id], post_update=True
     )
-
-
-class SpawnedTableWithChairsDAO(
-    SpawnedLayoutDAO,
-    DataAccessObject[
-        semantic_digital_twin.scene_generation.scene_schema.SpawnedTableWithChairs
-    ],
-):
-    __tablename__ = "SpawnedTableWithChairsDAO"
-
-    database_id: Mapped[builtins.int] = mapped_column(
-        ForeignKey(SpawnedLayoutDAO.database_id),
-        primary_key=True,
-        use_existing_column=True,
-    )
-
-    parent_id: Mapped[int] = mapped_column(
-        ForeignKey("KinematicStructureEntityDAO.database_id", use_alter=True),
-        nullable=True,
-        use_existing_column=True,
-    )
-    table_id: Mapped[int] = mapped_column(
-        ForeignKey("BodyDAO.database_id", use_alter=True),
-        nullable=True,
-        use_existing_column=True,
-    )
-
-    parent: Mapped[KinematicStructureEntityDAO] = relationship(
-        "KinematicStructureEntityDAO",
-        uselist=False,
-        foreign_keys=[parent_id],
-        post_update=True,
-    )
-    table: Mapped[BodyDAO] = relationship(
-        "BodyDAO", uselist=False, foreign_keys=[table_id], post_update=True
-    )
-
-    __mapper_args__ = {
-        "polymorphic_identity": "SpawnedTableWithChairsDAO",
-        "inherit_condition": database_id == SpawnedLayoutDAO.database_id,
-        "polymorphic_load": "selectin",
-    }
 
 
 class _MeshTypeMatcherDAO(
@@ -11328,13 +11420,13 @@ class EGTableWithChairsAggregationsDAO(
     )
 
     instance_id: Mapped[int] = mapped_column(
-        ForeignKey("EGTableWithChairsDAO.database_id", use_alter=True),
+        ForeignKey("EGProximityGroupDAO.database_id", use_alter=True),
         nullable=True,
         use_existing_column=True,
     )
 
-    instance: Mapped[EGTableWithChairsDAO] = relationship(
-        "EGTableWithChairsDAO",
+    instance: Mapped[EGProximityGroupDAO] = relationship(
+        "EGProximityGroupDAO",
         uselist=False,
         foreign_keys=[instance_id],
         post_update=True,

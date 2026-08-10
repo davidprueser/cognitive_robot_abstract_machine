@@ -22,7 +22,7 @@ from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.world_entity import Body
 from semantic_digital_twin.scene_generation.scene_schema import (
-    EGChair,
+    EGGroupMember,
     EGFloorPiece,
     EGObject,
     EGPosition,
@@ -32,7 +32,7 @@ from semantic_digital_twin.scene_generation.scene_schema import (
     EGRotation,
     EGScale,
     EGShelfLayer,
-    EGTableWithChairs,
+    EGProximityGroup,
     EGWallRelativePose,
     MeshCandidate,
     RoomInterior,
@@ -90,21 +90,52 @@ def _shelf_backend_sized(piece_scale: EGScale) -> MagicMock:
     return backend
 
 
+def _group_backend_at(distance: float, angle: float) -> MagicMock:
+    """
+    A group backend whose single member sits *distance* metres from the anchor
+    at *angle* degrees, for testing what happens to members aimed off the floor.
+    """
+    backend = MagicMock()
+    backend.evaluate.return_value = [
+        EGProximityGroup(
+            position=EGPoint2D(x=0.0, y=0.0),
+            scale=EGScale(width=1.0, length=1.0, height=0.75),
+            orientation=EGRotation(x=0.0, y=0.0, z=0.0),
+            object_type=ObjectType.TABLE,
+            members=[
+                EGGroupMember(
+                    id="member_0",
+                    room_id="room_1",
+                    object_type=ObjectType.TABLE,
+                    scale=EGScale(width=0.4, length=0.4, height=0.75),
+                    relative_pose=EGRelativePolarPose(
+                        distance_from_anchor=distance,
+                        angle_from_anchor=angle,
+                        facing_angle_relative_to_anchor=0.0,
+                    ),
+                    source_id="member_src",
+                )
+            ],
+        )
+    ]
+    return backend
+
+
 def _table_backend() -> MagicMock:
-    sampled = EGTableWithChairs(
+    sampled = EGProximityGroup(
         position=EGPoint2D(x=0.0, y=0.0),
         scale=EGScale(width=1.0, length=1.0, height=0.75),
         orientation=EGRotation(x=0.0, y=0.0, z=0.0),
-        chairs=[
-            EGChair(
+        members=[
+            EGGroupMember(
                 id="chair_0",
                 room_id="room_1",
                 object_type=ObjectType.CHAIR,
                 scale=EGScale(width=0.5, length=0.5, height=0.9),
                 relative_pose=EGRelativePolarPose(
-                    distance_from_table_center=1.0,
-                    angle_from_table_center=0.0,
-                    facing_angle_relative_to_table=180.0,
+                    distance_from_anchor=1.0,
+                    angle_from_anchor=0.0,
+                    facing_angle_relative_to_anchor=180.0,
                 ),
                 source_id="chair_src",
             )
@@ -202,7 +233,7 @@ def test_rectangular_walls_enclose_the_footprint_with_positive_lengths() -> None
 
 def test_build_room_maps_pieces_to_furniture_and_free_objects() -> None:
     """
-    Each shelf and table piece must become furniture that has sampled its own
+    Each shelf and anchor piece must become furniture that has sampled its own
     contents, and every other piece a free floor object with a resolved mesh, so
     the assembled room is ready for in-world placement and content resolution.
     """
@@ -217,23 +248,30 @@ def test_build_room_maps_pieces_to_furniture_and_free_objects() -> None:
     vase_candidate = MeshCandidate(
         scene_dir=Path("/scenes/vase"), source_id="vase_mesh", object_type=ObjectType.VASE
     )
+    # A group anchor is an ordinary floor piece, so it needs its own mesh just
+    # like a free object does; without one it is dropped rather than spawned.
+    table_candidate = MeshCandidate(
+        scene_dir=Path("/scenes/table"),
+        source_id="table_mesh",
+        object_type=ObjectType.TABLE,
+    )
 
     built = build_room_from_floor_layout(
         layout,
         shelf_backend=_shelf_backend(),
-        table_backend=_table_backend(),
-        training_chair_counts=[1],
+        group_backend=_table_backend(),
+        member_counts_by_anchor_type={ObjectType.TABLE: [1]},
         shelf_source_ids=[],
-        chair_source_ids=[],
-        free_object_source_ids=[vase_candidate],
+        member_source_ids=[],
+        free_object_source_ids=[vase_candidate, table_candidate],
     )
     room = built.room
     mesh_to_object_mapping = built.object_id_to_mesh_path
 
     assert len(room.shelves) == 1
     assert len(room.shelves[0].layers) == 4
-    assert len(room.tables) == 1
-    assert len(room.tables[0].chairs) == 1
+    assert len(room.groups) == 1
+    assert len(room.groups[0].members) == 1
     assert len(room.objects) == 1
     assert room.objects[0].object_type == ObjectType.VASE
     assert room.objects[0].source_id == vase_candidate.source_id
@@ -262,10 +300,10 @@ def test_build_room_keeps_a_mesh_path_per_object_when_objects_share_a_scene_dir(
     built = build_room_from_floor_layout(
         layout,
         shelf_backend=_shelf_backend(),
-        table_backend=_table_backend(),
-        training_chair_counts=[1],
+        group_backend=_table_backend(),
+        member_counts_by_anchor_type={ObjectType.TABLE: [1]},
         shelf_source_ids=[],
-        chair_source_ids=[],
+        member_source_ids=[],
         free_object_source_ids=[shared_candidate],
     )
     room = built.room
@@ -292,10 +330,10 @@ def test_build_room_drops_free_pieces_when_no_mesh_candidate_is_available() -> N
     built = build_room_from_floor_layout(
         layout,
         shelf_backend=_shelf_backend(),
-        table_backend=_table_backend(),
-        training_chair_counts=[1],
+        group_backend=_table_backend(),
+        member_counts_by_anchor_type={ObjectType.TABLE: [1]},
         shelf_source_ids=[],
-        chair_source_ids=[],
+        member_source_ids=[],
         free_object_source_ids=[],
     )
     room = built.room
@@ -324,10 +362,10 @@ def test_build_room_clamps_a_piece_taller_than_the_room_to_the_ceiling_height() 
     built = build_room_from_floor_layout(
         layout,
         shelf_backend=_shelf_backend(),
-        table_backend=_table_backend(),
-        training_chair_counts=[1],
+        group_backend=_table_backend(),
+        member_counts_by_anchor_type={ObjectType.TABLE: [1]},
         shelf_source_ids=[],
-        chair_source_ids=[],
+        member_source_ids=[],
         free_object_source_ids=[candidate],
     )
     room = built.room
@@ -339,7 +377,7 @@ def test_build_room_clamps_a_piece_taller_than_the_room_to_the_ceiling_height() 
 def test_build_room_places_furniture_at_the_pieces_floor_pose() -> None:
     """
     A furniture piece must be placed at its sampled floor pose, so a shelf or
-    table lands where the room layout put it rather than at the origin.
+    anchor lands where the room layout put it rather than at the origin.
     """
     # Posed against the same footprint the helper uses, and clear of the
     # diagonal where two walls are equidistant.
@@ -351,10 +389,10 @@ def test_build_room_places_furniture_at_the_pieces_floor_pose() -> None:
     built = build_room_from_floor_layout(
         layout,
         shelf_backend=_shelf_backend(),
-        table_backend=_table_backend(),
-        training_chair_counts=[1],
+        group_backend=_table_backend(),
+        member_counts_by_anchor_type={ObjectType.TABLE: [1]},
         shelf_source_ids=[],
-        chair_source_ids=[],
+        member_source_ids=[],
         free_object_source_ids=[],
     )
     room = built.room
@@ -425,7 +463,7 @@ def test_a_free_object_adopts_the_real_size_of_the_mesh_chosen_for_it() -> None:
         pieces=[_piece(ObjectType.CHAIR, 1.0, -2.2, "chair_src")],
     )
     candidate = MeshCandidate(
-        scene_dir=Path("/scenes/chairs"),
+        scene_dir=Path("/scenes/members"),
         source_id="real_chair",
         object_type=ObjectType.CHAIR,
         native_extents=(0.62, 0.58, 0.94),
@@ -434,10 +472,10 @@ def test_a_free_object_adopts_the_real_size_of_the_mesh_chosen_for_it() -> None:
     built = build_room_from_floor_layout(
         layout,
         shelf_backend=_shelf_backend(),
-        table_backend=_table_backend(),
-        training_chair_counts=[1],
+        group_backend=_table_backend(),
+        member_counts_by_anchor_type={ObjectType.TABLE: [1]},
         shelf_source_ids=[],
-        chair_source_ids=[],
+        member_source_ids=[],
         free_object_source_ids=[candidate],
     )
     room = built.room
@@ -481,10 +519,10 @@ def test_a_wide_piece_is_pushed_clear_of_the_wall_it_stands_against() -> None:
     built = build_room_from_floor_layout(
         layout,
         shelf_backend=_shelf_backend(),
-        table_backend=_table_backend(),
-        training_chair_counts=[1],
+        group_backend=_table_backend(),
+        member_counts_by_anchor_type={ObjectType.TABLE: [1]},
         shelf_source_ids=[],
-        chair_source_ids=[],
+        member_source_ids=[],
         free_object_source_ids=[wide_mesh],
     )
 
@@ -531,10 +569,10 @@ def test_a_piece_is_kept_clear_of_the_walls_thickness_not_just_the_room_boundary
     built = build_room_from_floor_layout(
         layout,
         shelf_backend=_shelf_backend(),
-        table_backend=_table_backend(),
-        training_chair_counts=[1],
+        group_backend=_table_backend(),
+        member_counts_by_anchor_type={ObjectType.TABLE: [1]},
         shelf_source_ids=[],
-        chair_source_ids=[],
+        member_source_ids=[],
         free_object_source_ids=[candidate],
     )
 
@@ -575,10 +613,10 @@ def test_a_shelf_takes_its_footprint_from_the_piece_not_the_layer_circuit() -> N
     built = build_room_from_floor_layout(
         layout,
         shelf_backend=_shelf_backend(),
-        table_backend=_table_backend(),
-        training_chair_counts=[1],
+        group_backend=_table_backend(),
+        member_counts_by_anchor_type={ObjectType.TABLE: [1]},
         shelf_source_ids=[],
-        chair_source_ids=[],
+        member_source_ids=[],
         free_object_source_ids=[],
     )
 
@@ -617,10 +655,10 @@ def test_a_spawned_shelfs_corpus_clears_the_wall_it_stands_against() -> None:
     built = build_room_from_floor_layout(
         layout,
         shelf_backend=_shelf_backend_sized(piece_scale),
-        table_backend=_table_backend(),
-        training_chair_counts=[1],
+        group_backend=_table_backend(),
+        member_counts_by_anchor_type={ObjectType.TABLE: [1]},
         shelf_source_ids=[],
-        chair_source_ids=[],
+        member_source_ids=[],
         free_object_source_ids=[],
     )
 
@@ -636,3 +674,56 @@ def test_a_spawned_shelfs_corpus_clears_the_wall_it_stands_against() -> None:
     southern_edge = corpus_pose[1, 3] + float(corpus_extents[0][1])
     # The south wall spans y in [-3.05, -2.95].
     assert southern_edge >= -2.95
+
+
+def test_group_members_are_kept_inside_the_room() -> None:
+    """
+    A member's pose is polar and relative to its anchor, so nothing in it is
+    bounded by the room. An anchor standing near a wall therefore throws its
+    members straight through it -- and since groups are discovered rather than
+    authored, most of a room's objects are members.
+    """
+    room_scale = EGScale(width=6.0, length=6.0, height=2.7)
+    layout = EGRoomFloorLayout(
+        scale=room_scale,
+        pieces=[
+            EGFloorPiece(
+                object_type=ObjectType.TABLE,
+                scale=EGScale(width=0.4, length=0.4, height=0.75),
+                pose=EGWallRelativePose(
+                    wall=RoomWall.SOUTH,
+                    distance_from_wall=0.3,
+                    position_along_wall=0.5,
+                    yaw_relative_to_wall=0.0,
+                ),
+            )
+        ],
+    )
+    table_candidate = MeshCandidate(
+        scene_dir=Path("/scenes/table"),
+        source_id="table_mesh",
+        object_type=ObjectType.TABLE,
+        native_extents=(0.4, 0.4, 0.75),
+    )
+    # The anchor faces into the room (yaw 90 on the south wall), so a local
+    # bearing of 180 degrees aims the member straight back through that wall.
+    far_member_backend = _group_backend_at(distance=2.5, angle=180.0)
+
+    built = build_room_from_floor_layout(
+        layout,
+        shelf_backend=_shelf_backend(),
+        group_backend=far_member_backend,
+        member_counts_by_anchor_type={ObjectType.TABLE: [1]},
+        shelf_source_ids=[],
+        member_source_ids=[table_candidate],
+        free_object_source_ids=[table_candidate],
+    )
+
+    [group] = built.room.groups
+    member_x, member_y, _ = group.members[0].relative_pose.to_absolute_pose(
+        group.position.x, group.position.y, group.orientation.z
+    )
+    # The south wall's inner face is at y = -2.95, and half the member's own
+    # footprint is 0.2.
+    assert member_y >= -2.75 - 1e-6
+    assert abs(member_x) <= 2.75 + 1e-6

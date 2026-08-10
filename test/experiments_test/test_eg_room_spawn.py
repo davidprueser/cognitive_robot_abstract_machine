@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from semantic_digital_twin.scene_generation.scene_schema import (
-    EGChair,
+    EGGroupMember,
     EGObject,
     EGPoint2D,
     EGPosition,
@@ -19,7 +19,7 @@ from semantic_digital_twin.scene_generation.scene_schema import (
     EGShelf,
     EGShelfLayer,
     EGObject2D,
-    EGTableWithChairs,
+    EGProximityGroup,
     EGWall,
     MeshCandidate,
     ObjectType,
@@ -32,7 +32,7 @@ from semantic_digital_twin.world_description.world_entity import Body
 
 def _scene_dir_with_mesh(root: Path) -> Path:
     """
-    Populate *root* with an ``objects/`` folder holding the bundled chair PLY,
+    Populate *root* with an ``objects/`` folder holding the bundled member PLY,
     so a piece pointed at it spawns with real geometry.
     """
     resources_root = Path(files("semantic_digital_twin")).parent.parent / "resources" / "ply"
@@ -48,7 +48,7 @@ def _scene_dir_with_mesh(root: Path) -> Path:
 @pytest.fixture
 def scene_dir(tmp_path: Path) -> Path:
     """
-    A scene directory holding the bundled chair PLY under ``objects/``, so every
+    A scene directory holding the bundled member PLY under ``objects/``, so every
     piece in the room spawns with real geometry.
     """
     return _scene_dir_with_mesh(tmp_path)
@@ -114,24 +114,24 @@ def _shelf(candidate: MeshCandidate) -> EGShelf:
     )
 
 
-def _table(candidate: MeshCandidate) -> EGTableWithChairs:
-    chair = EGChair(
+def _table(candidate: MeshCandidate) -> EGProximityGroup:
+    member = EGGroupMember(
         id="chair_0",
         room_id="room_1",
         object_type=ObjectType.CHAIR,
         scale=EGScale(width=0.5, length=0.5, height=0.9),
         relative_pose=EGRelativePolarPose(
-            distance_from_table_center=1.0,
-            angle_from_table_center=0.0,
-            facing_angle_relative_to_table=180.0,
+            distance_from_anchor=1.0,
+            angle_from_anchor=0.0,
+            facing_angle_relative_to_anchor=180.0,
         ),
         source_id="test_object",
     )
-    return EGTableWithChairs(
+    return EGProximityGroup(
         position=EGPoint2D(x=3.0, y=3.0),
         scale=EGScale(width=1.0, length=1.0, height=0.75),
         orientation=EGRotation(x=0.0, y=0.0, z=0.0),
-        chairs=[chair],
+        members=[member],
         source_ids=[candidate],
     )
 
@@ -204,7 +204,7 @@ def test_spawn_in_world_wires_through_nested_shelves_and_tables(
     scene_dir: Path,
 ) -> None:
     """
-    A room's shelves and tables must be spawned and their handles collected, so
+    A room's shelves and groups must be spawned and their handles collected, so
     each furniture piece can later sample its own contents in place.
     """
     candidate = MeshCandidate(
@@ -212,15 +212,15 @@ def test_spawn_in_world_wires_through_nested_shelves_and_tables(
     )
     room = _room([])
     room.shelves = [_shelf(candidate)]
-    room.tables = [_table(candidate)]
+    room.groups = [_table(candidate)]
     world, root = _world_with_root()
 
     spawned = room.spawn_in_world(world, None, parent=root)
 
     assert len(spawned.spawned_shelves) == 1
-    assert len(spawned.spawned_tables) == 1
+    assert len(spawned.spawned_groups) == 1
     assert spawned.spawned_shelves[0].corpus is not None
-    assert spawned.spawned_tables[0].table is not None
+    assert spawned.spawned_groups[0].anchor is not None
 
 
 def test_create_in_world_still_returns_the_world_root(scene_dir: Path) -> None:

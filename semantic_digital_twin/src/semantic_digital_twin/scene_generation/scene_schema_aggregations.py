@@ -12,7 +12,7 @@ from semantic_digital_twin.scene_generation.scene_schema import (
     EGRoom,
     EGRoomFloorLayout,
     EGShelfLayer,
-    EGTableWithChairs,
+    EGProximityGroup,
 )
 
 
@@ -91,13 +91,13 @@ class RoomAggregations(AggregationStatistic[EGRoom]):
         [shelf_count] = count(variable(EGRoom, self.instance.shelves)).tolist()
         return shelf_count
 
-    @aggregation_statistic("tables")
-    def table_count(self) -> int:
+    @aggregation_statistic("groups")
+    def group_count(self) -> int:
         """
-        Number of table-with-chairs groups in the room.
+        Number of proximity groups in the room.
         """
-        [table_count] = count(variable(EGRoom, self.instance.tables)).tolist()
-        return table_count
+        [group_count] = count(variable(EGRoom, self.instance.groups)).tolist()
+        return group_count
 
 
 @dataclass
@@ -164,17 +164,17 @@ class EGShelfLayerAggregations(AggregationStatistic[EGShelfLayer]):
 
 
 @dataclass
-class EGTableWithChairsAggregations(AggregationStatistic[EGTableWithChairs]):
+class EGTableWithChairsAggregations(AggregationStatistic[EGProximityGroup]):
     """
-    Aggregation statistics over the chairs surrounding a table.
+    Aggregation statistics over the members surrounding an anchor.
     """
 
-    @aggregation_statistic("chairs")
+    @aggregation_statistic("members")
     def total_count(self) -> int:
         """
-        Number of chairs surrounding the table.
+        Number of members surrounding the anchor.
         """
-        [chair_count] = count(
-            variable(EGTableWithChairs, self.instance.chairs)
+        [member_count] = count(
+            variable(EGProximityGroup, self.instance.members)
         ).tolist()
-        return chair_count
+        return member_count

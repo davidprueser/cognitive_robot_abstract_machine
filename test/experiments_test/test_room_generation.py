@@ -118,8 +118,8 @@ def test_floor_pieces_are_grouped_per_room(session: Session) -> None:
 
 def test_pieces_placed_on_other_pieces_are_skipped(session: Session) -> None:
     """
-    A piece that references another piece via its ``place_id`` -- e.g. a table
-    on another table -- does not rest on the floor and must be excluded.
+    A piece that references another piece via its ``place_id`` -- e.g. an anchor
+    on another anchor -- does not rest on the floor and must be excluded.
     """
     session.add_all(
         [
@@ -224,6 +224,8 @@ def test_room_cap_selects_whole_rooms_without_truncating_their_pieces(
     "rooms" with only 1-2 of their true pieces represented.
     """
     piece_count_per_room = 30
+    # Spaced beyond the clustering diameter so each object anchors its own
+    # group, since a layout holds one piece per group rather than per object.
     for room_index in range(3):
         session.add(_make_room(f"room_{room_index}"))
         session.add_all(
@@ -232,7 +234,7 @@ def test_room_cap_selects_whole_rooms_without_truncating_their_pieces(
                     f"room{room_index}_piece{piece_index}",
                     f"room_{room_index}",
                     ObjectType.SHELF,
-                    x=float(piece_index),
+                    x=float(piece_index) * 3.0,
                     y=0.0,
                 )
                 for piece_index in range(piece_count_per_room)
@@ -277,7 +279,7 @@ def test_objects_for_rooms_returns_every_row_without_a_cap(session: Session) -> 
 
 def test_objects_for_rooms_can_restrict_to_one_place_id(session: Session) -> None:
     """
-    The room pipeline only needs floor pieces, but the shelf and table
+    The room pipeline only needs floor pieces, but the shelf and anchor
     extractors need the rest, so the filter has to be opt-in rather than
     baked into the query.
     """
@@ -473,3 +475,37 @@ def test_scene_mesh_pool_tops_up_the_cache_when_given_a_downloader() -> None:
         build_cached_mesh_pool(session, downloader)
 
     download.assert_called_once_with(session, downloader)
+
+
+def test_a_rooms_layout_holds_its_group_anchors_not_every_object(
+    session: Session,
+) -> None:
+    """
+    A room's floor layout must describe where its *groups* stand, not where each
+    individual object stands.
+
+    Every sampled piece anchors a proximity group that then draws its own
+    members, so a layout of all 22 of a room's objects yields 22 anchors plus
+    their members -- measured at 29 pieces sampled becoming 71 objects in a
+    5-metre room, which no repair pass can ever pack. Learning anchors instead
+    keeps the totals honest: the anchors place the arrangements, the group
+    circuit fills them in, and the two together come back to the room's real
+    object count.
+    """
+    session.add(_make_room("room_1"))
+    session.add_all(
+        [
+            _make_object("table_1", "room_1", ObjectType.TABLE, x=0.0, y=0.0),
+            _make_object("chair_1", "room_1", ObjectType.CHAIR, x=0.7, y=0.0),
+            _make_object("chair_2", "room_1", ObjectType.CHAIR, x=-0.7, y=0.0),
+            _make_object("chair_3", "room_1", ObjectType.CHAIR, x=0.0, y=0.7),
+            _make_object("fridge_1", "room_1", ObjectType.REFRIGERATOR, x=2.5, y=3.5),
+        ]
+    )
+    session.commit()
+
+    [layout], _ = _extract_room_floor_layouts(session, RoomType.KITCHEN)
+
+    assert sorted(piece.object_type for piece in layout.pieces) == sorted(
+        [ObjectType.TABLE, ObjectType.REFRIGERATOR]
+    )

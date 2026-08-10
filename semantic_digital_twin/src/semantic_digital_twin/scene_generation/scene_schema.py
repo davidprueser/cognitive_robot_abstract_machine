@@ -423,7 +423,7 @@ class EGObject(EGWithID):
     place_id: str
     """
     The id of the object where the object is located/placed on/at, e.g. wall,
-    floor, table. The room-structure values are enumerated by :class:`PlaceId`.
+    floor, anchor. The room-structure values are enumerated by :class:`PlaceId`.
     """
 
     object_type: ObjectType
@@ -1100,9 +1100,9 @@ class EGRoom(EGWithID):
     List of the shelves in the room, each placed at its own room-frame pose.
     """
 
-    tables: list[EGTableWithChairs] = field(default_factory=list)
+    groups: list[EGProximityGroup] = field(default_factory=list)
     """
-    List of the table-with-chairs groups in the room, each placed at its own
+    List of the proximity groups in the room, each placed at its own
     room-frame pose.
     """
 
@@ -1117,7 +1117,7 @@ class EGRoom(EGWithID):
             "walls": to_json(self.walls),
             "doors": to_json(self.doors),
             "shelves": to_json(self.shelves),
-            "tables": to_json(self.tables),
+            "groups": to_json(self.groups),
         }
 
     @classmethod
@@ -1133,9 +1133,9 @@ class EGRoom(EGWithID):
             walls=[EGWall._from_json(w, **kwargs) for w in data["walls"]],
             doors=[EGDoor._from_json(d, **kwargs) for d in data["doors"]],
             shelves=[EGShelf._from_json(s, **kwargs) for s in data.get("shelves", [])],
-            tables=[
-                EGTableWithChairs._from_json(t, **kwargs)
-                for t in data.get("tables", [])
+            groups=[
+                EGProximityGroup._from_json(t, **kwargs)
+                for t in data.get("groups", [])
             ],
         )
 
@@ -1185,7 +1185,7 @@ class EGRoom(EGWithID):
     ) -> SpawnedRoom:
         """
         Instantiate the room -- floor, walls, doors, free floor objects, and
-        nested shelves and tables -- returning handles for in-world validation
+        nested shelves and groups -- returning handles for in-world validation
         and repositioning of the floor pieces.
 
         :param world: The world to spawn the room into.
@@ -1236,7 +1236,7 @@ class EGRoom(EGWithID):
             )
 
         spawned_shelves = [shelf.spawn_in_world(world, parent) for shelf in self.shelves]
-        spawned_tables = [table.spawn_in_world(world, parent) for table in self.tables]
+        spawned_groups = [anchor.spawn_in_world(world, parent) for anchor in self.groups]
 
         return SpawnedRoom(
             world=world,
@@ -1245,7 +1245,7 @@ class EGRoom(EGWithID):
             wall_bodies=[wall.root for wall in walls_of_room],
             object_bodies=object_bodies,
             spawned_shelves=spawned_shelves,
-            spawned_tables=spawned_tables,
+            spawned_groups=spawned_groups,
         )
 
     def create_in_world(
@@ -1333,7 +1333,7 @@ class RoomWall(IntEnum):
         Coerce a numeric wall index onto an actual wall.
 
         A fitted circuit models the wall index as a continuous variable, so a
-        sampled pose carries a float rather than a member. Values are rounded to
+        sampled pose carries a float rather than a member of the enum. Values are rounded to
         the nearest wall and clamped into range.
 
         :param value: The sampled wall index.
@@ -1377,7 +1377,7 @@ class EGWallRelativePose(EGBase):
     y near an edge*, which a product of univariate marginals cannot express. As
     a perpendicular distance it collapses to one marginal concentrated near
     zero: measured over the dataset, shelves sit 0.25 m from a wall and
-    cabinets 0.27 m, against 1.15 m for chairs and 1.25 m for tables.
+    cabinets 0.27 m, against 1.15 m for members and 1.25 m for groups.
 
     Together the three spatial fields re-parametrise the room rectangle
     completely -- every interior point has a nearest wall -- so a piece needs no
@@ -1923,9 +1923,9 @@ class SpawnedRoom(SpawnedLayout):
     Per-shelf spawn handles, in :attr:`EGRoom.shelves` order.
     """
 
-    spawned_tables: list[SpawnedTableWithChairs]
+    spawned_groups: list[SpawnedProximityGroup]
     """
-    Per-table spawn handles, in :attr:`EGRoom.tables` order.
+    Per-anchor spawn handles, in :attr:`EGRoom.groups` order.
     """
 
 
@@ -2325,136 +2325,141 @@ def wrap_angle_degrees(angle: float) -> float:
 @dataclass
 class EGRelativePolarPose(EGBase):
     """
-    Pose of a chair relative to its table, expressed in the table's own local
-    frame (after subtracting the table's yaw), so that "evenly spaced, facing
-    the table" is learnable independent of a table's absolute position or
-    orientation in the room.
+    Pose of a group member relative to its anchor, expressed in the anchor's own
+    local frame (after subtracting the anchor's yaw), so that "evenly spaced,
+    facing the anchor" is learnable independent of where the group stands in the
+    room or which way it faces.
     """
 
-    distance_from_table_center: float
+    distance_from_anchor: float
     """
-    Radial distance, in metres, from the table centre to the chair centre.
-    """
-
-    angle_from_table_center: float
-    """
-    Angle, in degrees, of the chair's position around the table centre,
-    measured counter-clockwise from the table's own local x-axis.
+    Radial distance, in metres, from the anchor's centre to the member's centre.
     """
 
-    facing_angle_relative_to_table: float
+    angle_from_anchor: float
     """
-    Yaw of the chair, in degrees, relative to the bearing that points from the
-    chair straight at the table centre.
+    Angle, in degrees, of the member's position around the anchor's centre,
+    measured counter-clockwise from the anchor's own local x-axis.
+    """
 
-    Zero means the chair faces the table dead-on.
+    facing_angle_relative_to_anchor: float
+    """
+    Yaw of the member, in degrees, relative to the bearing that points from the
+    member straight at the anchor's centre.
+
+    Zero means the member faces the anchor dead-on.
     """
 
     def to_json(self) -> dict[str, Any]:
         return {
-            "distance_from_table_center": self.distance_from_table_center,
-            "angle_from_table_center": self.angle_from_table_center,
-            "facing_angle_relative_to_table": self.facing_angle_relative_to_table,
+            "distance_from_anchor": self.distance_from_anchor,
+            "angle_from_anchor": self.angle_from_anchor,
+            "facing_angle_relative_to_anchor": self.facing_angle_relative_to_anchor,
         }
 
     @classmethod
     def _from_json(cls, data: dict[str, Any], **kwargs) -> Self:
         return cls(
-            distance_from_table_center=data["distance_from_table_center"],
-            angle_from_table_center=data["angle_from_table_center"],
-            facing_angle_relative_to_table=data["facing_angle_relative_to_table"],
+            distance_from_anchor=data["distance_from_anchor"],
+            angle_from_anchor=data["angle_from_anchor"],
+            facing_angle_relative_to_anchor=data["facing_angle_relative_to_anchor"],
         )
 
     @classmethod
     def from_absolute_poses(
         cls,
-        chair_x: float,
-        chair_y: float,
-        chair_yaw_degrees: float,
-        table_x: float,
-        table_y: float,
-        table_yaw_degrees: float,
+        member_x: float,
+        member_y: float,
+        member_yaw_degrees: float,
+        anchor_x: float,
+        anchor_y: float,
+        anchor_yaw_degrees: float,
     ) -> Self:
         """
-        Compute a chair's pose relative to its table from both poses expressed
+        Compute a member's pose relative to its anchor from both poses expressed
         in a shared absolute frame.
 
-        :param chair_x: Absolute x position of the chair.
-        :param chair_y: Absolute y position of the chair.
-        :param chair_yaw_degrees: Absolute yaw of the chair, in degrees.
-        :param table_x: Absolute x position of the table centre.
-        :param table_y: Absolute y position of the table centre.
-        :param table_yaw_degrees: Absolute yaw of the table, in degrees.
-        :return: The chair's pose relative to the table.
+        :param member_x: Absolute x position of the member.
+        :param member_y: Absolute y position of the member.
+        :param member_yaw_degrees: Absolute yaw of the member, in degrees.
+        :param anchor_x: Absolute x position of the anchor centre.
+        :param anchor_y: Absolute y position of the anchor centre.
+        :param anchor_yaw_degrees: Absolute yaw of the anchor, in degrees.
+        :return: The member's pose relative to the anchor.
         """
         local_offset = EGPoint2D(
-            x=chair_x - table_x, y=chair_y - table_y
-        ).rotated_into_frame(table_yaw_degrees)
+            x=member_x - anchor_x, y=member_y - anchor_y
+        ).rotated_into_frame(anchor_yaw_degrees)
 
-        distance_from_table_center = math.hypot(local_offset.x, local_offset.y)
-        angle_from_table_center = math.degrees(
+        distance_from_anchor = math.hypot(local_offset.x, local_offset.y)
+        angle_from_anchor = math.degrees(
             math.atan2(local_offset.y, local_offset.x)
         )
 
-        bearing_to_table = wrap_angle_degrees(angle_from_table_center + 180)
-        chair_yaw_relative_to_table = wrap_angle_degrees(
-            chair_yaw_degrees - table_yaw_degrees
+        bearing_to_anchor = wrap_angle_degrees(angle_from_anchor + 180)
+        member_yaw_relative_to_anchor = wrap_angle_degrees(
+            member_yaw_degrees - anchor_yaw_degrees
         )
-        facing_angle_relative_to_table = wrap_angle_degrees(
-            chair_yaw_relative_to_table - bearing_to_table
+        facing_angle_relative_to_anchor = wrap_angle_degrees(
+            member_yaw_relative_to_anchor - bearing_to_anchor
         )
 
         return cls(
-            distance_from_table_center=distance_from_table_center,
-            angle_from_table_center=angle_from_table_center,
-            facing_angle_relative_to_table=facing_angle_relative_to_table,
+            distance_from_anchor=distance_from_anchor,
+            angle_from_anchor=angle_from_anchor,
+            facing_angle_relative_to_anchor=facing_angle_relative_to_anchor,
         )
 
     def to_absolute_pose(
-        self, table_x: float, table_y: float, table_yaw_degrees: float
+        self, anchor_x: float, anchor_y: float, anchor_yaw_degrees: float
     ) -> tuple[float, float, float]:
         """
-        Convert this polar pose back into an absolute pose, given the table's
+        Convert this polar pose back into an absolute pose, given the anchor's
         own absolute pose.
 
-        :param table_x: Absolute x position of the table centre.
-        :param table_y: Absolute y position of the table centre.
-        :param table_yaw_degrees: Absolute yaw of the table, in degrees.
-        :return:``(x, y, yaw_degrees)`` of the chair in the table's
+        :param anchor_x: Absolute x position of the anchor centre.
+        :param anchor_y: Absolute y position of the anchor centre.
+        :param anchor_yaw_degrees: Absolute yaw of the anchor, in degrees.
+        :return:``(x, y, yaw_degrees)`` of the member in the anchor's
             absolute frame.
         """
-        table_yaw_radians = math.radians(table_yaw_degrees)
-        angle_radians = math.radians(self.angle_from_table_center)
+        anchor_yaw_radians = math.radians(anchor_yaw_degrees)
+        angle_radians = math.radians(self.angle_from_anchor)
 
-        local_x = self.distance_from_table_center * math.cos(angle_radians)
-        local_y = self.distance_from_table_center * math.sin(angle_radians)
+        local_x = self.distance_from_anchor * math.cos(angle_radians)
+        local_y = self.distance_from_anchor * math.sin(angle_radians)
 
-        world_dx = local_x * math.cos(table_yaw_radians) - local_y * math.sin(
-            table_yaw_radians
+        world_dx = local_x * math.cos(anchor_yaw_radians) - local_y * math.sin(
+            anchor_yaw_radians
         )
-        world_dy = local_x * math.sin(table_yaw_radians) + local_y * math.cos(
-            table_yaw_radians
+        world_dy = local_x * math.sin(anchor_yaw_radians) + local_y * math.cos(
+            anchor_yaw_radians
         )
 
-        bearing_to_table = wrap_angle_degrees(self.angle_from_table_center + 180)
-        chair_yaw_relative_to_table = wrap_angle_degrees(
-            self.facing_angle_relative_to_table + bearing_to_table
+        bearing_to_anchor = wrap_angle_degrees(self.angle_from_anchor + 180)
+        member_yaw_relative_to_anchor = wrap_angle_degrees(
+            self.facing_angle_relative_to_anchor + bearing_to_anchor
         )
-        chair_yaw_world = table_yaw_degrees + chair_yaw_relative_to_table
+        member_yaw_world = anchor_yaw_degrees + member_yaw_relative_to_anchor
 
-        return table_x + world_dx, table_y + world_dy, chair_yaw_world
+        return anchor_x + world_dx, anchor_y + world_dy, member_yaw_world
 
 
 @dataclass
-class EGChair(EGWithID):
+class EGGroupMember(EGWithID):
     """
-    A chair belonging to a table-with-chairs group, positioned relative to the
-    table via a polar pose rather than absolute Cartesian coordinates.
+    A floor object belonging to a proximity group, positioned relative to the
+    group's anchor via a polar pose rather than absolute Cartesian coordinates.
+
+    That relative frame is the whole point of the group: it is what makes
+    "members surround the anchor they belong to" or "a sink sits in the counter
+    beside it" learnable, since a room layout circuit models its pieces as
+    exchangeable and so cannot express any relation between two of them.
     """
 
     room_id: str
     """
-    The id of the room where the chair is located.
+    The id of the room where the member is located.
     """
 
     object_type: ObjectType
@@ -2464,17 +2469,17 @@ class EGChair(EGWithID):
 
     scale: EGScale
     """
-    Physical dimensions of the chair.
+    Physical dimensions of the member.
     """
 
     relative_pose: EGRelativePolarPose
     """
-    Pose of the chair relative to the table centre, in the table's local frame.
+    Pose of the member relative to the anchor centre, in the anchor's local frame.
     """
 
     source_id: str
     """
-    Identifier used to look up the PLY mesh file for this chair in the dataset.
+    Identifier used to look up the PLY mesh file for this member in the dataset.
     """
 
     def to_json(self) -> dict[str, Any]:
@@ -2508,26 +2513,26 @@ class EGChair(EGWithID):
         world: World,
         mesh_path: Path | None,
         parent: KinematicStructureEntity,
-        table_position: EGPoint2D | None = None,
-        table_orientation: EGRotation | None = None,
+        anchor_position: EGPoint2D | None = None,
+        anchor_orientation: EGRotation | None = None,
         world_pose: HomogeneousTransformationMatrix | None = None,
         **kwargs,
     ) -> Body:
         """
-        Instantiate this chair in *world*, converting its table-relative polar
-        pose into an absolute pose using the table's own position and
+        Instantiate this member in *world*, converting its anchor-relative polar
+        pose into an absolute pose using the anchor's own position and
         orientation.
 
-        :param world: The world where the chair is created.
+        :param world: The world where the member is created.
         :param mesh_path: Directory containing the ``objects/`` sub-
-            folder with PLY and texture files for this chair.
+            folder with PLY and texture files for this member.
         :param parent: The parent kinematic structure entity.
-        :param table_position: Absolute position of the table centre; required
+        :param anchor_position: Absolute position of the anchor centre; required
             unless *world_pose* is given.
-        :param table_orientation: Absolute orientation of the table; required
+        :param anchor_orientation: Absolute orientation of the anchor; required
             unless *world_pose* is given.
-        :param world_pose: When given, the chair is placed at this pose and the
-            table pose is ignored, so a caller that already computed the pose
+        :param world_pose: When given, the member is placed at this pose and the
+            anchor pose is ignored, so a caller that already computed the pose
             can reuse it for both spawning and later repositioning.
         :raises ValueError: If *mesh_path* is ``None`` or does not exist.
         :return: The created :class:`Body`.
@@ -2549,9 +2554,9 @@ class EGChair(EGWithID):
             world_pose.child_frame = body
             root_T_body = world_pose
         else:
-            absolute_x, absolute_y, chair_yaw_world = (
+            absolute_x, absolute_y, member_yaw_world = (
                 self.relative_pose.to_absolute_pose(
-                    table_position.x, table_position.y, table_orientation.z
+                    anchor_position.x, anchor_position.y, anchor_orientation.z
                 )
             )
             root_T_body = HomogeneousTransformationMatrix.from_xyz_rpy(
@@ -2560,7 +2565,7 @@ class EGChair(EGWithID):
                 0.0,
                 0.0,
                 0.0,
-                math.radians(chair_yaw_world),
+                math.radians(member_yaw_world),
                 reference_frame=parent,
                 child_frame=body,
             )
@@ -2589,7 +2594,7 @@ class EGChair(EGWithID):
             world.add_connection(root_C_body)
 
         # Placing the pose in the connection's degrees of freedom rather than in
-        # a fixed parent expression keeps the chair movable: the ``.origin``
+        # a fixed parent expression keeps the member movable: the ``.origin``
         # setter can later reposition it in place.
         body.parent_connection.origin = root_T_body
 
@@ -2604,64 +2609,94 @@ class EGChair(EGWithID):
 
 
 @dataclass
-class SpawnedTableWithChairs(SpawnedLayout):
+class SpawnedProximityGroup(SpawnedLayout):
     """
-    A table-with-chairs group instantiated in a :class:`World`, with handles for
-    in-world validation and repositioning of its chairs.
+    A proximity group instantiated in a :class:`World`, with handles for
+    in-world validation and repositioning of its members.
     """
 
     parent: KinematicStructureEntity
     """
-    The frame the table's own pose is expressed relative to.
+    The frame the anchor's own pose is expressed relative to.
     """
 
-    table: Body
+    anchor: Body
     """
-    The table's body; the chairs hang under it, so moving it moves the whole
+    The anchor's body; the members hang under it, so moving it moves the whole
     group as one unit.
     """
 
-    chair_bodies: dict[int, Body]
+    member_bodies: dict[int, Body]
     """
-    Bodies spawned for the chairs, keyed by their index in
-    :attr:`EGTableWithChairs.chairs`; chairs skipped at spawn have no entry.
+    Bodies spawned for the members, keyed by their index in
+    :attr:`EGProximityGroup.members`; members skipped at spawn have no entry.
     """
 
 
 @dataclass
-class EGTableWithChairs(EGBase):
+class EGProximityGroup(EGBase):
     """
-    A table together with the chairs clustered around it via spatial proximity,
-    since chairs do not carry a ``place_id`` link to their table in the source
-    data (unlike shelf contents, which do).
+    Floor objects that stand together, held as an anchor plus members posed
+    relative to it.
+
+    Groups are *discovered* by clustering a room's floor objects on their
+    positions, not authored per room type: kitchens yield counter/sink/oven
+    clusters, living rooms sofa/coffee-anchor clusters, dining areas
+    anchor/member clusters. Membership is spatial because the source data carries
+    no link between them -- unlike shelf contents, which name their shelf in
+    ``place_id``.
+
+    The anchor is the cluster's largest object, so the group is described from
+    the piece a room is arranged around rather than from an arbitrary one.
+
+    .. note::
+        Relations *between* groups -- a sofa facing a television across the
+        room, parallel warehouse shelf rows -- stay unmodelled. Groups are
+        exchangeable with one another exactly as loose pieces used to be; the
+        independence moves up one level rather than disappearing.
     """
 
     position: EGPoint2D
     """
-    Position of the table's centre, relative to its parent frame.
+    Position of the anchor's centre, relative to its parent frame.
     """
 
     scale: EGScale
     """
-    Scale of the table.
+    Scale of the anchor.
     """
 
     orientation: EGRotation
     """
-    Orientation of the table relative to its parent frame; every chair's
-    :attr:`EGChair.relative_pose` is expressed relative to this table's own
-    yaw.
+    Orientation of the anchor relative to its parent frame; every member's
+    :attr:`EGGroupMember.relative_pose` is expressed relative to this anchor's
+    own yaw.
     """
 
-    chairs: list[EGChair]
+    object_type: ObjectType = field(default=ObjectType.OTHER)
     """
-    Chairs clustered around this table, with poses relative to the table centre
-    and yaw.
+    The category of the anchor, so how many members a group holds and how they
+    are arranged can be conditioned on what kind of thing they stand around.
+    """
+
+    members: list[EGGroupMember] = field(default_factory=list)
+    """
+    Objects clustered with the anchor, posed relative to its centre and yaw.
     """
 
     source_ids: list[MeshCandidate] | None = field(default=None)
     """
-    Pool of candidate meshes used when placing chairs around the table.
+    Pool of candidate meshes used when placing the group's members.
+    """
+
+    anchor_mesh: MeshCandidate | None = field(default=None)
+    """
+    The mesh the anchor renders from.
+
+    ``None`` falls back to a plain box the size of the anchor, which is what a
+    standalone demo with no mesh pool gets. A generated room always supplies
+    one, since an anchor is an ordinary floor piece there and would otherwise
+    render as a featureless block.
     """
 
     def to_json(self) -> dict[str, Any]:
@@ -2670,7 +2705,7 @@ class EGTableWithChairs(EGBase):
             "position": to_json(self.position),
             "scale": to_json(self.scale),
             "orientation": to_json(self.orientation),
-            "chairs": to_json(self.chairs),
+            "members": to_json(self.members),
         }
 
     @classmethod
@@ -2679,58 +2714,58 @@ class EGTableWithChairs(EGBase):
             position=EGPoint2D._from_json(data["position"], **kwargs),
             scale=EGScale._from_json(data["scale"], **kwargs),
             orientation=EGRotation._from_json(data["orientation"], **kwargs),
-            chairs=[EGChair._from_json(c, **kwargs) for c in data["chairs"]],
+            members=[EGGroupMember._from_json(c, **kwargs) for c in data["members"]],
         )
 
-    def chair_local_pose(
-        self, chair: EGChair, table: KinematicStructureEntity
+    def member_local_pose(
+        self, member: EGGroupMember, anchor: KinematicStructureEntity
     ) -> HomogeneousTransformationMatrix:
         """
-        Compute a chair's pose in the table's own frame from its table-relative
+        Compute a member's pose in the anchor's own frame from its anchor-relative
         polar pose.
 
-        Chairs are children of the table body, so their pose is expressed
-        relative to it: the table carries the group's world position and yaw, and
-        moving the table moves every chair with it. The chair's polar pose is
-        evaluated in a table-at-origin frame, and lowered by half the table
-        height so the chair still stands on the floor (the table body sits at
-        half its height). Used both when first spawning a chair and when moving
+        Chairs are children of the anchor body, so their pose is expressed
+        relative to it: the anchor carries the group's world position and yaw, and
+        moving the anchor moves every member with it. The member's polar pose is
+        evaluated in an anchor-at-origin frame, and lowered by half the anchor
+        height so the member still stands on the floor (the anchor body sits at
+        half its height). Used both when first spawning a member and when moving
         it to a resampled pose, so the two placements never drift -- and it stays
         correct after the whole group is repositioned.
 
-        :param chair: The chair whose pose is computed.
-        :param table: The table body the pose is expressed relative to.
-        :return: The chair body's pose in the table frame.
+        :param member: The member whose pose is computed.
+        :param anchor: The anchor body the pose is expressed relative to.
+        :return: The member body's pose in the anchor frame.
         """
-        local_x, local_y, chair_yaw = chair.relative_pose.to_absolute_pose(0.0, 0.0, 0.0)
+        local_x, local_y, member_yaw = member.relative_pose.to_absolute_pose(0.0, 0.0, 0.0)
         return HomogeneousTransformationMatrix.from_xyz_rpy(
             local_x,
             local_y,
-            -self.scale.height / 2,
+            -self.anchor_origin_height,
             0.0,
             0.0,
-            math.radians(chair_yaw),
-            reference_frame=table,
+            math.radians(member_yaw),
+            reference_frame=anchor,
         )
 
     def spawn_in_world(
         self,
         world: World | None = None,
         parent: KinematicStructureEntity | None = None,
-    ) -> SpawnedTableWithChairs:
+    ) -> SpawnedProximityGroup:
         """
-        Instantiate the table and its chairs inside a :class:`World`, returning
-        handles to the table annotation and chair bodies.
+        Instantiate the anchor and its members inside a :class:`World`, returning
+        handles to the anchor annotation and member bodies.
 
-        The handles let a caller validate and reposition individual chairs in
+        The handles let a caller validate and reposition individual members in
         the spawned world without rebuilding it.
 
         :param world: Existing world to extend. A fresh world with a ``map``
             root body is created when omitted.
-        :param parent: The parent entity the table's own
+        :param parent: The parent entity the anchor's own
             :attr:`position`/ :attr:`orientation` are expressed relative to.
             Defaults to the world's root when omitted.
-        :return: The spawned group, its world, and per-chair handles.
+        :return: The spawned group, its world, and per-member handles.
         """
         _world: World = world if world is not None else World()
         if world is None:
@@ -2740,49 +2775,101 @@ class EGTableWithChairs(EGBase):
 
         _parent = parent if parent is not None else _world.root
 
-        table_pose = HomogeneousTransformationMatrix.from_xyz_rpy(
+        anchor_pose = HomogeneousTransformationMatrix.from_xyz_rpy(
             x=self.position.x,
             y=self.position.y,
-            z=self.scale.height / 2,
+            z=self.anchor_origin_height,
             yaw=math.radians(self.orientation.z),
             reference_frame=_parent,
         )
-        with _world.modify_world():
-            table_annotation = Table.create_with_new_body_in_world(
-                name=PrefixedName(name="table"),
-                world=_world,
-                world_root_T_self=table_pose,
-                scale=Scale(
-                    x=self.scale.length, y=self.scale.width, z=self.scale.height
-                ),
-            )
-        table_body = table_annotation.root
+        anchor_body = self._spawn_anchor(_world, _parent, anchor_pose)
         # Make the whole group a movable unit: a room-level resolver repositions
-        # it by setting the table origin, and its chairs follow.
-        _world.make_branch_movable(table_body)
+        # it by setting the anchor origin, and its members follow.
+        _world.make_branch_movable(anchor_body)
 
         mesh_matcher = _MeshTypeMatcher(candidates=self.source_ids or [])
 
-        chair_bodies: dict[int, Body] = {}
-        for i, chair in enumerate(self.chairs):
+        member_bodies: dict[int, Body] = {}
+        for i, member in enumerate(self.members):
             if not self.source_ids:
                 continue
-            candidate = mesh_matcher.random_match(chair.object_type)
+            candidate = mesh_matcher.random_match(member.object_type)
             if candidate is None:
                 continue
-            chair.source_id = candidate.source_id
-            chair_bodies[i] = chair.create_in_world(
+            member.source_id = candidate.source_id
+            member_bodies[i] = member.create_in_world(
                 _world,
                 candidate.scene_dir,
-                parent=table_body,
-                world_pose=self.chair_local_pose(chair, table_body),
+                parent=anchor_body,
+                world_pose=self.member_local_pose(member, anchor_body),
             )
 
-        return SpawnedTableWithChairs(
+        return SpawnedProximityGroup(
             world=_world,
             parent=_parent,
-            table=table_body,
-            chair_bodies=chair_bodies,
+            anchor=anchor_body,
+            member_bodies=member_bodies,
+        )
+
+    @property
+    def anchor_origin_height(self) -> float:
+        """
+        Height, in metres, the anchor's own origin sits at above the floor.
+
+        A box primitive is centred on its origin, so it stands on the floor with
+        its origin at half its height. A sage10k mesh instead carries its base at
+        zero, so it stands on the floor with its origin *at* the floor. Members
+        are posed relative to the anchor body, so the two have to agree or the
+        whole group is offset vertically.
+        """
+        if self.anchor_mesh is None:
+            return self.scale.height / 2
+        return 0.0
+
+    def _spawn_anchor(
+        self,
+        world: World,
+        parent: KinematicStructureEntity,
+        anchor_pose: HomogeneousTransformationMatrix,
+    ) -> Body:
+        """
+        Create the group's anchor body at *anchor_pose*.
+
+        The anchor renders from :attr:`anchor_mesh` when one was matched to it,
+        so a group anchored on a sofa looks like a sofa. Without a mesh it falls
+        back to a box the size of the anchor -- correct for a standalone demo,
+        but a featureless block in a generated room.
+
+        :param world: The world to create the body in.
+        :param parent: The frame *anchor_pose* is expressed relative to.
+        :param anchor_pose: Where the anchor stands.
+        :return: The created anchor body.
+        """
+        if self.anchor_mesh is None:
+            with world.modify_world():
+                annotation = Table.create_with_new_body_in_world(
+                    name=PrefixedName(name="anchor"),
+                    world=world,
+                    world_root_T_self=anchor_pose,
+                    scale=Scale(
+                        x=self.scale.length, y=self.scale.width, z=self.scale.height
+                    ),
+                )
+            return annotation.root
+        return EGObject(
+            id=f"anchor_{self.anchor_mesh.source_id}",
+            room_id="",
+            place_id=PlaceId.FLOOR,
+            object_type=self.object_type,
+            scale=self.scale,
+            position=EGPosition(x=self.position.x, y=self.position.y, z=0.0),
+            orientation=self.orientation,
+            source_id=self.anchor_mesh.source_id,
+        ).create_in_world(
+            world,
+            self.anchor_mesh.scene_dir,
+            parent=parent,
+            world_pose=anchor_pose,
         )
 
     def create_in_world(
@@ -2791,18 +2878,18 @@ class EGTableWithChairs(EGBase):
         parent: KinematicStructureEntity | None = None,
     ) -> World:
         """
-        Instantiate the table and its chairs inside a :class:`World`.
+        Instantiate the anchor and its members inside a :class:`World`.
 
         Thin wrapper over :meth:`spawn_in_world` for callers that only need the
-        resulting world and not the per-chair body handles.
+        resulting world and not the per-member body handles.
 
         :param world: Existing world to extend. A fresh world with a ``map``
             root body is created when omitted.
-        :param parent: The parent entity the table's own
+        :param parent: The parent entity the anchor's own
             :attr:`position`/ :attr:`orientation` are expressed relative to.
             Defaults to the world's root when omitted, so standalone callers
             are unaffected.
-        :return: The world containing the table and its chairs.
+        :return: The world containing the anchor and its members.
         """
         return self.spawn_in_world(world, parent).world
 

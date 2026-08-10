@@ -9,7 +9,7 @@ import pytest
 
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.scene_generation.scene_schema import (
-    EGChair,
+    EGGroupMember,
     EGDoor,
     EGObject2D,
     EGPoint2D,
@@ -21,7 +21,7 @@ from semantic_digital_twin.scene_generation.scene_schema import (
     EGShelf,
     EGShelfLayer,
     EGScale,
-    EGTableWithChairs,
+    EGProximityGroup,
     EGWall,
     MeshCandidate,
     ObjectType,
@@ -69,21 +69,21 @@ def _make_shelf(orientation_z: float = 0.0) -> EGShelf:
     )
 
 
-def _make_table_with_chairs() -> EGTableWithChairs:
-    return EGTableWithChairs(
+def _make_table_with_chairs() -> EGProximityGroup:
+    return EGProximityGroup(
         position=EGPoint2D(x=3.0, y=3.0),
         scale=EGScale(height=0.75, length=1.2, width=0.8),
         orientation=EGRotation(x=0.0, y=0.0, z=0.0),
-        chairs=[
-            EGChair(
+        members=[
+            EGGroupMember(
                 id="chair_1",
                 room_id="room_1",
                 object_type=ObjectType.CHAIR,
                 scale=EGScale(height=0.9, length=0.5, width=0.5),
                 relative_pose=EGRelativePolarPose(
-                    distance_from_table_center=1.0,
-                    angle_from_table_center=-90.0,
-                    facing_angle_relative_to_table=0.0,
+                    distance_from_anchor=1.0,
+                    angle_from_anchor=-90.0,
+                    facing_angle_relative_to_anchor=0.0,
                 ),
                 source_id="chair_src",
             )
@@ -99,7 +99,7 @@ def _make_room(shelf_orientation_z: float = 0.0) -> EGRoom:
         scale=EGScale(height=2.7, length=5.0, width=5.5),
         position=EGPosition(x=0.0, y=0.0, z=0.0),
         shelves=[_make_shelf(shelf_orientation_z)],
-        tables=[_make_table_with_chairs()],
+        groups=[_make_table_with_chairs()],
         walls=[
             EGWall(
                 id="wall_1",
@@ -142,15 +142,15 @@ def test_egroom_round_trips_shelves_and_tables_through_json() -> None:
     assert len(reconstructed.shelves) == 1
     assert reconstructed.shelves[0].layers[0].objects[0].id == "book_1"
     assert reconstructed.shelves[0].position.x == pytest.approx(1.0)
-    assert len(reconstructed.tables) == 1
-    assert reconstructed.tables[0].chairs[0].id == "chair_1"
+    assert len(reconstructed.groups) == 1
+    assert reconstructed.groups[0].members[0].id == "chair_1"
 
 
 def test_room_create_in_world_mounts_shelf_and_table_under_given_parent(
     chair_mesh_directory: Path,
 ) -> None:
     """
-    EGRoom.create_in_world must instantiate its shelves' and tables' bodies
+    EGRoom.create_in_world must instantiate its shelves' and groups' bodies
     under the room's own parent entity, not a separate throwaway World, since a
     room-level scene needs every furniture group to share one kinematic tree
     with the room's floor/walls.
@@ -159,7 +159,7 @@ def test_room_create_in_world_mounts_shelf_and_table_under_given_parent(
     room.shelves[0].source_ids = [
         MeshCandidate(chair_mesh_directory, "chair_src", ObjectType.BOOK)
     ]
-    room.tables[0].source_ids = [
+    room.groups[0].source_ids = [
         MeshCandidate(chair_mesh_directory, "chair_src", ObjectType.CHAIR)
     ]
 
@@ -173,7 +173,7 @@ def test_room_create_in_world_mounts_shelf_and_table_under_given_parent(
     shelf_corpus_bodies = [
         body for body in world.bodies if body.name.name == "shelf_corpus"
     ]
-    table_bodies = [body for body in world.bodies if body.name.name == "table"]
+    table_bodies = [body for body in world.bodies if body.name.name == "anchor"]
     assert len(shelf_corpus_bodies) == 1
     assert len(table_bodies) == 1
     # A separate, throwaway World would leave these bodies parented to a
