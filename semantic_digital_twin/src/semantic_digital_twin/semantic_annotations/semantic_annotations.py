@@ -1,14 +1,14 @@
 from __future__ import annotations
 
-from abc import ABC
+from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Iterable, Optional, Self, Tuple, TYPE_CHECKING
+from typing import Iterable, Optional, Self, Tuple, TYPE_CHECKING, Union
 
-from random_events.interval import closed
-from random_events.product_algebra import SimpleEvent
+import numpy as np
 from typing_extensions import List, Type
 
 from krrood.ormatic.utils import classproperty
+from semantic_digital_twin.datastructures.alignment import AlignmentPair
 from krrood.symbolic_math import symbolic_math
 from random_events.interval import closed
 from random_events.product_algebra import SimpleEvent
@@ -33,12 +33,15 @@ from semantic_digital_twin.semantic_annotations.mixins import (
     IsPerceivable,
     HasRootBody,
     IsStorageSpace,
+    HasLegs,
+    HasSink,
 )
 from semantic_digital_twin.spatial_types import (
     Point3,
     HomogeneousTransformationMatrix,
     Vector3,
 )
+from semantic_digital_twin.spatial_types.spatial_types import Pose
 from semantic_digital_twin.world_description.connections import (
     RevoluteConnection,
     PrismaticConnection,
@@ -73,8 +76,7 @@ class Furniture(SemanticAnnotation, ABC):
 @dataclass(eq=False)
 class Handle(HasRootBody):
     """
-    A handle is a physical entity that can be grasped by a hand or a robotic
-    gripper to open or close an object.
+    A handle is a physical entity that can be grasped by a hand or a robotic gripper to open or close an object.
     """
 
     @classmethod
@@ -119,6 +121,7 @@ class Handle(HasRootBody):
         :param scale: The scale of the handle.
         :param thickness: The thickness of the handle walls.
         """
+
         x_interval = closed(-scale.x + thickness, 0)
         y_interval = closed(-scale.y / 2, scale.y / 2)
         z_interval = closed(
@@ -138,11 +141,7 @@ class Handle(HasRootBody):
 @dataclass(eq=False)
 class Dishwasher(HasCaseAsRootBody, HasDoors, HasDrawers):
     """
-    A dishwasher is a kitchen appliance used for cleaning dishes, utensils, and
-    cookware.
-
-    It typically has a front door that opens to reveal racks for loading
-    dirty items and a control panel for selecting wash cycles.
+    A dishwasher is a kitchen appliance used for cleaning dishes, utensils, and cookware. It typically has a front door that opens to reveal racks for loading dirty items and a control panel for selecting wash cycles.
     """
 
     @classproperty
@@ -154,9 +153,7 @@ class Dishwasher(HasCaseAsRootBody, HasDoors, HasDrawers):
 class Aperture(HasRootRegion):
     """
     An opening in a physical entity.
-
-    An example is like a hole in a wall that can be used to enter a
-    room.
+    An example is like a hole in a wall that can be used to enter a room.
     """
 
     @classmethod
@@ -212,12 +209,11 @@ class Aperture(HasRootRegion):
 
     def _remove_aperture_geometry_from_parent(self, parent: HasRootBody):
         """
-        Remove the geometry of the aperture from the parent body's collision
-        and visual geometry.
+        Remove the geometry of the aperture from the parent body's collision and visual geometry.
 
-        :param parent: The parent from which the aperture geometry is
-            removed.
+        :param parent: The parent from which the aperture geometry is removed.
         """
+
         world = parent._world
         world.update_forward_kinematics()
         hole_event = self.root.area.as_bounding_box_collection_in_frame(
@@ -238,19 +234,18 @@ class Aperture(HasRootRegion):
 @dataclass(eq=False)
 class MechanicalJoint(HasRootBody):
     """
-    A mechanical joint is a physical entity that connects two bodies and allows
-    one to move along or around a fixed axis.
+    A mechanical joint is a physical entity that connects two bodies and allows one to move along or around a fixed axis
     """
 
     def _mount_strategy(self, main_has_root_body_annotation: HasRootBody) -> None:
         """
-        Inserts the joint between the whole (``main_has_root_body_annotation``)
-        and the whole's current parent, preserving the whole's ancestry.
-
-        So whole_parent -(fixed)-> whole becomes whole_parent
-        -(active)-> joint -(fixed)-> whole. The joint keeps its active
-        connection (now anchored at the whole's parent); the whole hangs
-        rigidly off the joint.
+        Inserts the joint between the whole (``main_has_root_body_annotation``) and the whole's
+        current parent, preserving the whole's ancestry.
+        So
+        whole_parent -(fixed)-> whole
+        becomes
+        whole_parent -(active)-> joint -(fixed)-> whole. The joint keeps its active connection
+        (now anchored at the whole's parent); the whole hangs rigidly off the joint.
         """
         if (
             main_has_root_body_annotation.root.parent_kinematic_structure_entity
@@ -264,18 +259,16 @@ class MechanicalJoint(HasRootBody):
         self._world.move_branch(
             self.root,
             main_has_root_body_annotation.root.parent_kinematic_structure_entity,
-            enable_unsafe_inside_world_block=True,
         )
         main_has_root_body_annotation._world.move_branch(
-            main_has_root_body_annotation.root, self.root, True
+            main_has_root_body_annotation.root, self.root
         )
 
 
 @dataclass(eq=False)
 class Hinge(MechanicalJoint):
     """
-    A hinge is a physical entity that connects two bodies and allows one to
-    rotate around a fixed axis.
+    A hinge is a physical entity that connects two bodies and allows one to rotate around a fixed axis.
     """
 
     @classproperty
@@ -286,8 +279,7 @@ class Hinge(MechanicalJoint):
 @dataclass(eq=False)
 class Slider(MechanicalJoint):
     """
-    A Slider is a physical entity that connects two bodies and allows one to
-    linearly translate along a fixed axis.
+    A Slider is a physical entity that connects two bodies and allows one to linearly translate along a fixed axis.
     """
 
     @classproperty
@@ -302,8 +294,7 @@ class EntryWay(Aperture): ...
 @dataclass(eq=False)
 class Door(HasHandle, HasMechanicalJoint):
     """
-    A door is a physical entity that has covers an opening, has a movable body
-    and a handle.
+    A door is a physical entity that has covers an opening, has a movable body and a handle.
     """
 
     entry_way: Optional[EntryWay] = field(default=None)
@@ -362,12 +353,9 @@ class Door(HasHandle, HasMechanicalJoint):
         self, opening_axis: Vector3
     ) -> HomogeneousTransformationMatrix:
         """
-        Calculate the door pivot point based on the handle position and the
-        door scale.
-
-        The pivot point is on the opposite side of the handle.
-        :return: The transformation matrix defining the door's pivot
-            point.
+        Calculate the door pivot point based on the handle position and the door scale. The pivot point is on the opposite
+        side of the handle.
+        :return: The transformation matrix defining the door's pivot point.
         """
         if self.handle is None:
             raise MissingSemanticAnnotationError(self.__class__, Handle)
@@ -415,8 +403,7 @@ class Door(HasHandle, HasMechanicalJoint):
 @dataclass(eq=False)
 class DoubleDoor(SemanticAnnotation):
     """
-    A semantic annotation that represents a double door with left and right
-    doors.
+    A semantic annotation that represents a double door with left and right doors.
     """
 
     door_0: Door = field(kw_only=True)
@@ -426,13 +413,11 @@ class DoubleDoor(SemanticAnnotation):
         self, world_T_view_point: HomogeneousTransformationMatrix
     ) -> Tuple[Door, Door]:
         """
-        Calculate which door is the left and which is the right door based on a
-        given view point.
+        Calculate which door is the left and which is the right door based on a given view point.
 
-        :param world_T_view_point: The transformation matrix of the view
-            point.
-        :return: A tuple containing the left and right door. the first
-            door is the left door, the second door is the right door.
+        :param world_T_view_point: The transformation matrix of the view point.
+
+        :return: A tuple containing the left and right door. the first door is the left door, the second door is the right door.
         """
         world_T_door_0 = self.door_0.root.global_transform
         view_point_T_door_0 = world_T_view_point.inverse() @ world_T_door_0
@@ -446,7 +431,6 @@ class DoubleDoor(SemanticAnnotation):
 
 @dataclass(eq=False)
 class Drawer(Furniture, HasCaseAsRootBody, HasHandle, HasMechanicalJoint):
-
     @classproperty
     def hole_direction(self) -> Vector3:
         return Vector3.Z()
@@ -458,8 +442,7 @@ class Drawer(Furniture, HasCaseAsRootBody, HasHandle, HasMechanicalJoint):
 @dataclass(eq=False)
 class ShelfLayer(HasSupportingSurface):
     """
-    A horizontal surface used for storing objects, typically found inside
-    cabinets or on walls.
+    A horizontal surface used for storing objects, typically found inside cabinets or on walls.
     """
 
 
@@ -471,42 +454,41 @@ class Table(Furniture, HasSupportingSurface):
 
 
 @dataclass(eq=False)
-class CounterTop(Furniture, HasSupportingSurface):
+class CounterTop(Furniture, HasSupportingSurface, HasSink):
     """
     A semantic annotation that represents a counter top.
     """
 
 
 @dataclass(eq=False)
-class Cabinet(Furniture, HasCaseAsRootBody, HasHandle):
+class Cabinet(Furniture, HasCaseAsRootBody, HasDoors, HasDrawers):
     @classproperty
     def hole_direction(self) -> Vector3:
         return Vector3.NEGATIVE_X()
 
 
 @dataclass(eq=False)
-class Fridge(Cabinet, HasDoors, HasDrawers): ...
+class Fridge(Cabinet): ...
 
 
 @dataclass(eq=False)
-class Oven(HasRootBody): ...
+class Oven(HasRootBody, HasDoors): ...
 
 
 @dataclass(eq=False)
-class Dresser(Cabinet, HasDrawers, HasDoors): ...
+class Dresser(Cabinet): ...
 
 
 @dataclass(eq=False)
-class Cupboard(Cabinet, HasDoors): ...
+class Cupboard(Cabinet): ...
 
 
 @dataclass(eq=False)
-class Wardrobe(Cabinet, HasDrawers, HasDoors): ...
+class Wardrobe(Cabinet): ...
 
 
 @dataclass(eq=False)
 class Floor(HasSupportingSurface):
-
     @classmethod
     def create_with_new_body_in_world(
         cls,
@@ -521,8 +503,7 @@ class Floor(HasSupportingSurface):
         scale: Scale = Scale(),
     ) -> Self:
         """
-        Create a Floor semantic annotation with a new body defined by the given
-        scale.
+        Create a Floor semantic annotation with a new body defined by the given scale.
 
         :param name: The name of the floor body.
         :param scale: The scale defining the floor polytope.
@@ -544,12 +525,10 @@ class Floor(HasSupportingSurface):
         world_root_T_self: Optional[HomogeneousTransformationMatrix] = None,
     ) -> Self:
         """
-        Create a Floor semantic annotation with a new body defined by the given
-        list of Point3.
+        Create a Floor semantic annotation with a new body defined by the given list of Point3.
 
         :param name: The name of the floor body.
-        :param floor_polytope: A list of 3D points defining the floor
-            poly
+        :param floor_polytope: A list of 3D points defining the floor poly
         """
         room_body = Body.from_3d_points(name=name, points_3d=floor_polytope)
         return cls._create_with_connection_in_world(
@@ -560,13 +539,14 @@ class Floor(HasSupportingSurface):
 @dataclass(eq=False)
 class Room(SemanticAnnotation):
     """
-    A closed area with a specific purpose.
+    A closed area with a specific purpose
     """
 
     floor: Floor = field(kw_only=True)
     """
     The room's floor.
     """
+
 
 @dataclass(eq=False)
 class Kitchen(Room): ...
@@ -587,10 +567,7 @@ class LivingRoom(Room): ...
 @dataclass(eq=False)
 class Wall(HasApertures):
     """
-    A wall is a physical entity that separates two spaces and can contain
-    apertures.
-
-    Doors are a computed property.
+    A wall is a physical entity that separates two spaces and can contain apertures. Doors are a computed property.
     """
 
     @classmethod
@@ -634,12 +611,10 @@ class Wall(HasApertures):
     @classmethod
     def _create_wall_event(cls, scale: Scale) -> SimpleEvent:
         """
-        Return the collision shapes for the wall.
-
-        A wall event is created based on the scale of the wall, and
-        doors are removed from the wall event. The resulting bounding
-        box collection is converted to shapes.
+        Return the collision shapes for the wall. A wall event is created based on the scale of the wall, and
+        doors are removed from the wall event. The resulting bounding box collection is converted to shapes.
         """
+
         x_interval = closed(-scale.x / 2, scale.x / 2)
         y_interval = closed(-scale.y / 2, scale.y / 2)
         z_interval = closed(0, scale.z)
@@ -709,6 +684,8 @@ class CookingContainer(HasRootBody): ...
 
 @dataclass(eq=False)
 class Lid(HasRootBody): ...
+
+
 @dataclass(eq=False)
 class Pan(CookingContainer):
     """
@@ -791,7 +768,7 @@ class CheezeIt(Food):
 @dataclass(eq=False)
 class Pringles(Food):
     """
-    Pringles chips.
+    Pringles chips
     """
 
 
@@ -816,6 +793,8 @@ class Candy(Food, IsPerceivable):
     """
 
     ...
+
+
 @dataclass(eq=False)
 class Noodles(Food, IsPerceivable):
     """
@@ -823,6 +802,8 @@ class Noodles(Food, IsPerceivable):
     """
 
     ...
+
+
 @dataclass(eq=False)
 class Cereal(Food, IsPerceivable):
     """
@@ -830,6 +811,7 @@ class Cereal(Food, IsPerceivable):
     """
 
     ...
+
 
 @dataclass(eq=False)
 class Milk(Food, IsPerceivable):
@@ -843,28 +825,38 @@ class SaltContainer(HasRootBody, IsPerceivable):
     """
     A container of salt.
     """
+
+
 @dataclass(eq=False)
 class Produce(Food):
     """
-    In American English, produce generally refers to fresh fruits and
-    vegetables intended to be eaten by humans.
+    In American English, produce generally refers to fresh fruits and vegetables intended to be eaten by humans.
     """
+
     pass
+
+
 @dataclass(eq=False)
 class Fruit(Produce):
     """
     Fruit.
     """
+
+
 @dataclass(eq=False)
 class Vegetable(Produce):
     """
     Vegetable.
     """
+
+
 @dataclass(eq=False)
 class Tomato(Fruit):
     """
     A tomato.
     """
+
+
 @dataclass(eq=False)
 class Lettuce(Vegetable):
     """
@@ -915,7 +907,7 @@ class CoffeeTable(Table):
 
 
 @dataclass(eq=False)
-class DiningTable(Table):
+class DiningTable(Table, HasLegs):
     """
     A dining table.
     """
@@ -929,7 +921,7 @@ class SideTable(Table):
 
 
 @dataclass(eq=False)
-class Desk(Table):
+class Desk(Table, HasLegs):
     """
     A desk.
     """
@@ -993,6 +985,8 @@ class Sink(HasRootBody):
 
 @dataclass(eq=False)
 class Kettle(CookingContainer): ...
+
+
 @dataclass(eq=False)
 class Decor(HasRootBody): ...
 
@@ -1002,8 +996,12 @@ class WallDecor(Decor):
     """
     Wall decorations.
     """
+
+
 @dataclass(eq=False)
 class Cloth(HasRootBody): ...
+
+
 @dataclass(eq=False)
 class Poster(WallDecor):
     """
@@ -1016,8 +1014,10 @@ class WallPanel(HasRootBody):
     """
     A wall panel.
     """
+
+
 @dataclass(eq=False)
-class Potato(Produce): ...
+class Potato(Vegetable): ...
 
 
 @dataclass(eq=False)
@@ -1029,18 +1029,26 @@ class GarbageBin(HasRootBody):
 
 @dataclass(eq=False)
 class Drone(HasRootBody): ...
+
+
 @dataclass(eq=False)
 class ProcthorBox(HasRootBody): ...
+
+
 @dataclass(eq=False)
 class Houseplant(HasRootBody):
     """
     A houseplant.
     """
+
+
 @dataclass(eq=False)
 class SprayBottle(HasRootBody):
     """
     A spray bottle.
     """
+
+
 @dataclass(eq=False)
 class Vase(HasRootBody):
     """
@@ -1071,6 +1079,7 @@ class SaltPepperShaker(HasRootBody):
 @dataclass(eq=False)
 class Cuttlery(HasRootBody): ...
 
+
 @dataclass(eq=False)
 class Fork(Cuttlery):
     """
@@ -1087,6 +1096,8 @@ class Knife(Cuttlery):
 
 @dataclass(eq=False)
 class Spoon(Cuttlery, IsPerceivable): ...
+
+
 @dataclass(eq=False)
 class Pencil(HasRootBody):
     """
@@ -1120,9 +1131,10 @@ class Agent(HasRootBody):
     """
     Represents an entity in the world that can act, move, or be controlled.
 
-    Agents are dynamic bodies with semantic meaning — they may have
-    intent, behavior, or be controlled by external or internal logic.
-    Examples include robots, humans, or other autonomous actors.
+    Agents are dynamic bodies with semantic meaning — they may have intent,
+    behavior, or be controlled by external or internal logic. Examples include
+    robots, humans, or other autonomous actors.
+
     """
 
 
@@ -1131,12 +1143,11 @@ class Human(Agent):
     """
     Represents a human agent in the environment.
 
-    A Person is an Agent that is not robotically actuated and does not
-    provide kinematic chains, end_effectors, or robot-specific
-    components.
+    A Person is an Agent that is not robotically actuated and does not provide
+    kinematic chains, end_effectors, or robot-specific components.
 
-    This class exists primarily for semantic distinction, so that
-    algorithms can treat human agents differently from robots if needed.
+    This class exists primarily for semantic distinction, so that algorithms
+    can treat human agents differently from robots if needed.
     """
 
 
@@ -1168,10 +1179,224 @@ class RoomWithWallsAndDoors(Room):
     The doors of the room.
     """
 
+
 @dataclass(eq=False)
 class DoorWithType(Door):
     """
-    A Door that has a type description, e.g. "main entrance".
+    A Door that has a type description, e.g. "main entrance"
     """
 
     type_description: Optional[str] = field(kw_only=True, default=None)
+
+
+@dataclass(eq=False)
+class Leg(HasRootBody):
+    """
+    A leg that supports a piece of furniture.
+    """
+
+
+@dataclass(eq=False)
+class Cooktop(HasRootBody):
+    """
+    A cooktop surface for cooking.
+    """
+
+
+@dataclass(eq=False)
+class Tool(HasRootBody, ABC):
+    """
+    A tool that is held by a robot's end effector to act on other bodies.
+    """
+
+    def _end_effector_name(self) -> PrefixedName:
+        """
+        :return: The name of the body that acts as the tool's tip, derived from the
+            tool's root name.
+        """
+        root_name = self.root.name
+        return PrefixedName(f"{root_name.name}_end_effector", root_name.prefix)
+
+    def _find_end_effector_body(self) -> Optional[Body]:
+        if self.root._world is None:
+            return None
+
+        end_effector_name = self._end_effector_name()
+        for body in self.root._world.bodies:
+            if (
+                body.name == end_effector_name
+                or body.name.name == end_effector_name.name
+            ):
+                return body
+        return None
+
+    def get_tool_frame(self) -> Body:
+        """
+        :return: The body acting as the tool's tip, or the tool's root if no dedicated
+            tip body exists.
+        """
+        end_effector = self._find_end_effector_body()
+        if end_effector is None:
+            return self.root
+        return end_effector
+
+    @abstractmethod
+    def tool_alignment(self, target: Union[Body, Pose]) -> List[AlignmentPair]:
+        """
+        :param target: The body or pose the tool acts on.
+        :return: The normal pairs that must stay aligned while the tool acts on the
+            target.
+        """
+
+
+@dataclass(eq=False)
+class ToolWithHandle(Tool, HasHandle, ABC):
+    """
+    A tool held by its handle, acting through a tip body located ahead of its root.
+
+    If the tip body does not exist yet, it is created and rigidly connected to the
+    tool's root.
+    """
+
+    def __post_init__(self):
+        super().__post_init__()
+        if self.root._world is None:
+            return
+        if self._find_end_effector_body() is not None:
+            return
+        self._create_end_effector_body()
+
+    def _create_end_effector_body(self):
+        world = self.root._world
+        tip_body = Body(name=self._end_effector_name())
+        with world.modify_world():
+            world.add_kinematic_structure_entity(tip_body)
+            world.add_connection(
+                FixedConnection(
+                    parent=self.root,
+                    child=tip_body,
+                    parent_T_connection_expression=HomogeneousTransformationMatrix.from_xyz_rpy(
+                        x=0.1,
+                        y=0.0,
+                        z=0.0,
+                        reference_frame=self.root,
+                    ),
+                )
+            )
+
+
+@dataclass(eq=False)
+class Whisk(ToolWithHandle):
+    """
+    A whisk for mixing the contents of containers.
+    """
+
+    def tool_alignment(self, target: Union[Body, Pose]) -> List[AlignmentPair]:
+        return [
+            AlignmentPair(
+                tip_normal=Vector3(-1, 0, 0, reference_frame=self.root),
+                goal_normal=Vector3(0, 0, 1, reference_frame=target),
+            )
+        ]
+
+
+@dataclass(eq=False)
+class CuttingKnife(ToolWithHandle):
+    """
+    A knife for cutting food objects.
+    """
+
+    def tool_alignment(self, target: Union[Body, Pose]) -> List[AlignmentPair]:
+        return [
+            AlignmentPair(
+                tip_normal=Vector3(1, 0, 0, reference_frame=self.root),
+                goal_normal=Vector3(0, 1, 0, reference_frame=target),
+            ),
+            AlignmentPair(
+                tip_normal=Vector3(0, 0, 1, reference_frame=self.root),
+                goal_normal=Vector3(0, 0, 1, reference_frame=target),
+            ),
+        ]
+
+
+@dataclass(eq=False)
+class PouringCup(Tool):
+    """
+    A cup for pouring liquids into containers.
+    """
+
+    def tool_alignment(self, target: Union[Body, Pose]) -> List[AlignmentPair]:
+        return [
+            AlignmentPair(
+                tip_normal=Vector3(0, 0, 1, reference_frame=self.root),
+                goal_normal=Vector3(0, 0, 1, reference_frame=target),
+            )
+        ]
+
+
+@dataclass(eq=False)
+class Sponge(Tool):
+    """
+    A sponge for wiping surfaces.
+
+    .. note:: The sponge is grasped so its local Z axis points away from the gripper,
+        which is why its alignments use negative Z normals unlike the other tools.
+    """
+
+    def tool_alignment(self, target: Union[Body, Pose]) -> List[AlignmentPair]:
+        if isinstance(target, Body):
+            return [
+                AlignmentPair(
+                    tip_normal=Vector3(0, 0, 1, reference_frame=self.root),
+                    goal_normal=Vector3(0, 0, -1, reference_frame=target),
+                )
+            ]
+        return [
+            AlignmentPair(
+                tip_normal=Vector3(0, 0, -1, reference_frame=self.root),
+                goal_normal=self._pose_surface_normal(target),
+            )
+        ]
+
+    def _pose_surface_normal(self, pose: Pose) -> Vector3:
+        """
+        :param pose: The pose whose surface normal is computed.
+        :return: The pose's local Z axis expressed in the pose's reference frame.
+        """
+        reference_frame = (
+            pose.reference_frame if pose.reference_frame is not None else self.root
+        )
+        rotation = pose.to_rotation_matrix().to_np()[:3, :3]
+        return Vector3.from_iterable(
+            rotation @ np.array([0.0, 0.0, 1.0]),
+            reference_frame=reference_frame,
+        )
+
+
+@dataclass(eq=False)
+class Microwave(IsStorageSpace, HasDoors):
+    """
+    A microwave oven, a kitchen appliance with a door that heats food placed inside it using
+    microwave radiation.
+    """
+
+
+@dataclass(eq=False)
+class Hood(HasRootBody):
+    """
+    A range hood mounted above a cooktop that vents cooking fumes.
+    """
+
+
+@dataclass(eq=False)
+class Toaster(HasRootBody):
+    """
+    A countertop appliance for toasting slices of bread.
+    """
+
+
+@dataclass(eq=False)
+class CoffeeMachine(HasRootBody):
+    """
+    A countertop appliance that brews coffee.
+    """

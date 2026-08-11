@@ -55,13 +55,12 @@ def invalidates_topology_cache(method):
     Decorator for :class:`ProbabilisticCircuit` methods that change the graph
     topology.
 
-    After the wrapped method has run, the circuit's cached root and
-    layers are invalidated so that they are recomputed on the next
-    access. Use this only for methods whose effect on the topology is
-    unconditional and complete by the time they return; methods that
-    invalidate conditionally (e.g. only when a new edge is actually
-    created) or that need a valid cache part-way through their own body
-    invalidate the cache explicitly instead.
+    After the wrapped method has run, the circuit's cached root and layers are
+    invalidated so that they are recomputed on the next access. Use this only for
+    methods whose effect on the topology is unconditional and complete by the time they
+    return; methods that invalidate conditionally (e.g. only when a new edge is actually
+    created) or that need a valid cache part-way through their own body invalidate the
+    cache explicitly instead.
 
     :param method: The method to wrap.
     :return: The wrapped method.
@@ -86,8 +85,8 @@ class Unit(SubclassJSONSerializer, ABC):
     """
     Class for all units of a probabilistic circuit.
 
-    This class should not be used by users directly. Use
-    :class:`ProbabilisticCircuit` as interface to users.
+    This class should not be used by users directly. Use :class:`ProbabilisticCircuit`
+    as interface to users.
     """
 
     probabilistic_circuit: Optional[ProbabilisticCircuit] = field(
@@ -160,8 +159,8 @@ class Unit(SubclassJSONSerializer, ABC):
         """
         Update the variables of this unit and its descendants.
 
-        :param new_variables: A map that maps the variables that should
-            be replaced to their new variable.
+        :param new_variables: A map that maps the variables that should be replaced to
+            their new variable.
         """
         for leaf in self.leaves:
             for variable in leaf.variables:
@@ -220,19 +219,19 @@ class Unit(SubclassJSONSerializer, ABC):
         """
         Creat a copy of this circuit without any subcircuits.
 
-        Only the parameters should be copied. This is used whenever a
-        new circuit has to be created during inference.
+        Only the parameters should be copied. This is used whenever a new circuit has to
+        be created during inference.
 
-        :return: A copy of this circuit without any subcircuits that is
-            not in this units graph.
+        :return: A copy of this circuit without any subcircuits that is not in this
+            units graph.
         """
         return self.__class__()
 
     def simplify(self):
         """
-        Simplify the circuit by removing nodes and redirected edges that have
-        no impact in-place. Essentially, this method transforms the circuit
-        into an alternating order of sum and product units.
+        Simplify the circuit by removing nodes and redirected edges that have no impact
+        in-place. Essentially, this method transforms the circuit into an alternating
+        order of sum and product units.
 
         :return: The simplified circuit.
         """
@@ -242,10 +241,9 @@ class Unit(SubclassJSONSerializer, ABC):
         """
         Draw samples from the circuit.
 
-        For sampling, a node gets requested a number of samples from all
-        his parents. The parents write into the
-        `result_of_current_query` attribute a tuple describing the
-        beginning index of the sampling and how many samples are
+        For sampling, a node gets requested a number of samples from all his parents.
+        The parents write into the `result_of_current_query` attribute a tuple
+        describing the beginning index of the sampling and how many samples are
         requested.
         """
         raise NotImplementedError
@@ -334,15 +332,14 @@ class LeafUnit(Unit):
         Sample from the distribution and write the samples into the samples
         array.
 
-        During sampling each node accumulates, in
-        ``result_of_current_query``, the indices of the rows in
-        ``samples`` that are routed to it (as a list of index arrays,
-        one per parent contribution). This leaf draws all of its samples
-        in a single batched call instead of once per request.
+        During sampling each node accumulates, in ``result_of_current_query``, the
+        indices of the rows in ``samples`` that are routed to it (as a list of index
+        arrays, one per parent contribution). This leaf draws all of its samples in a
+        single batched call instead of once per request.
 
         :param samples: The array to write the samples into.
-        :param variable_to_index_map: The map from variables to column
-            indices in the samples array.
+        :param variable_to_index_map: The map from variables to column indices in the
+            samples array.
         """
         # a subcircuit legitimately receives no rows when an ancestor mixture
         # assigns it zero samples; there is then nothing for this leaf to draw
@@ -438,8 +435,7 @@ class SumUnit(InnerUnit):
     """
     The latent variable of this unit.
 
-    This has to be here due to the rvalue/lvalue problem in random
-    events.
+    This has to be here due to the rvalue/lvalue problem in random events.
 
     TODO remove this when RE is fixed
     """
@@ -532,11 +528,10 @@ class SumUnit(InnerUnit):
         Route the sample rows accumulated from this unit's parents to its
         subcircuits.
 
-        Every row routed to a mixture is assigned to exactly one
-        subcircuit, drawn according to the subcircuit weights. The rows
-        are partitioned in a single multinomial draw rather than once
-        per parent request, which keeps the work proportional to the
-        number of samples instead of the number of paths through the
+        Every row routed to a mixture is assigned to exactly one subcircuit, drawn
+        according to the subcircuit weights. The rows are partitioned in a single
+        multinomial draw rather than once per parent request, which keeps the work
+        proportional to the number of samples instead of the number of paths through the
         circuit.
         """
         # a subcircuit legitimately receives no rows when an ancestor mixture
@@ -734,8 +729,8 @@ class SumUnit(InnerUnit):
         """
         Return True iff this SumUnit's log-weights sum to log(1) == 0.
 
-        Uses logsumexp for numerical stability, matching normalize(). An
-        empty SumUnit (no subcircuits) is considered normalized.
+        Uses logsumexp for numerical stability, matching normalize(). An empty SumUnit
+        (no subcircuits) is considered normalized.
 
         :param tolerance: Maximum absolute deviation from 0.0 permitted.
         :returns: True if the weights are normalised within tolerance.
@@ -875,10 +870,9 @@ class ProductUnit(InnerUnit):
         Route the sample rows accumulated from this unit's parents to its
         subcircuits.
 
-        A decomposable product factorizes over disjoint variables, so
-        every sample row is forwarded unchanged to each subcircuit; the
-        subcircuits then fill in their respective columns of the same
-        rows.
+        A decomposable product factorizes over disjoint variables, so every sample row
+        is forwarded unchanged to each subcircuit; the subcircuits then fill in their
+        respective columns of the same rows.
         """
         # a subcircuit legitimately receives no rows when an ancestor mixture
         # assigns it zero samples; there is then nothing to route onward
@@ -895,17 +889,16 @@ class ProductUnit(InnerUnit):
         target_circuit: ProbabilisticCircuit,
     ) -> None:
         """
-        Attach the root of marginal_circuit as a child of this ProductUnit,
-        constructing fresh nodes owned by target_circuit.
+        Attach the root of marginal_circuit as a child of this ProductUnit, constructing
+        fresh nodes owned by target_circuit.
 
-        marginal() and log_truncated_in_place() return flat circuits
-        (SumUnit -> leaves, or a single leaf), so one level of recursion
-        suffices to copy all nodes into target_circuit.
+        marginal() and log_truncated_in_place() return flat circuits (SumUnit -> leaves,
+        or a single leaf), so one level of recursion suffices to copy all nodes into
+        target_circuit.
 
-        :param marginal_circuit: The marginal or truncated circuit whose
-            root to attach as a child of this ProductUnit.
-        :param target_circuit: The owning circuit for all newly created
-            nodes.
+        :param marginal_circuit: The marginal or truncated circuit whose root to attach
+            as a child of this ProductUnit.
+        :param target_circuit: The owning circuit for all newly created nodes.
         """
         root = marginal_circuit.root
         if isinstance(root, SumUnit):
@@ -925,9 +918,9 @@ class ProbabilisticCircuit(ProbabilisticModel, SubclassJSONSerializer):
     """
     Probabilistic Circuits as a directed, rooted, acyclic graph.
 
-    The nodes of the graph are the units of the circuit. The edges of
-    the graph indicate how the units are connected. The outgoing edges
-    of a sum unit contain the log-log_weights of the subcircuits.
+    The nodes of the graph are the units of the circuit. The edges of the graph indicate
+    how the units are connected. The outgoing edges of a sum unit contain the log-
+    log_weights of the subcircuits.
     """
 
     graph: rx.PyDAG[Unit] = field(default_factory=lambda: rx.PyDAG(multigraph=False))
@@ -957,13 +950,11 @@ class ProbabilisticCircuit(ProbabilisticModel, SubclassJSONSerializer):
         """
         Invalidate the cached root and layers.
 
-        This must be called whenever nodes or edges are added to or
-        removed from the graph. Pure edge-weight updates (which do not
-        change the topology) do not require invalidation. The
-        :func:`invalidates_topology_cache` decorator calls this
-        automatically after a mutator; call it directly only from
-        mutators whose invalidation is conditional (:meth:`add_node`,
-        :meth:`add_edge`).
+        This must be called whenever nodes or edges are added to or removed from the
+        graph. Pure edge-weight updates (which do not change the topology) do not
+        require invalidation. The :func:`invalidates_topology_cache` decorator calls
+        this automatically after a mutator; call it directly only from mutators whose
+        invalidation is conditional (:meth:`add_node`, :meth:`add_edge`).
         """
         self._root_cache = None
         self._layers_cache = None
@@ -1101,8 +1092,8 @@ class ProbabilisticCircuit(ProbabilisticModel, SubclassJSONSerializer):
         Add nodes and edges from a subgraph to this circuit.
 
         :param subgraph: The subgraph to add nodes from.
-        :return: A dictionary mapping the node indices in the subgraph
-            to the new units in this circuit.
+        :return: A dictionary mapping the node indices in the subgraph to the new units
+            in this circuit.
         """
         new_nodes = {node.index: node.copy_without_graph() for node in subgraph.nodes()}
         self.add_nodes_from(new_nodes.values())
@@ -1146,8 +1137,7 @@ class ProbabilisticCircuit(ProbabilisticModel, SubclassJSONSerializer):
         """
         The root of the circuit is the node with in-degree 0.
 
-        This is the output node, that will perform the final
-        computation.
+        This is the output node, that will perform the final computation.
 
         :return: The root of the circuit.
         """
@@ -1245,10 +1235,9 @@ class ProbabilisticCircuit(ProbabilisticModel, SubclassJSONSerializer):
         Construct the truncated circuit from a simple event.
 
         :param simple_event: The simple event to condition on.
-        :param singleton_allowed: Whether to allow singletons in the
-            simple sets of the event.
-        :return: The truncated circuit and the log-probability of the
-            event
+        :param singleton_allowed: Whether to allow singletons in the simple sets of the
+            event.
+        :return: The truncated circuit and the log-probability of the event
         """
         for layer in reversed(self.layers):
             for unit in layer:
@@ -1287,16 +1276,14 @@ class ProbabilisticCircuit(ProbabilisticModel, SubclassJSONSerializer):
         """
         Truncate the circuit to an Event in place.
 
-        A composite event is handled by truncating a deep copy of the
-        circuit to each of its (disjoint) simple sets and combining the
-        results into a normalized mixture.
+        A composite event is handled by truncating a deep copy of the circuit to each of
+        its (disjoint) simple sets and combining the results into a normalized mixture.
 
         :param event: The event to condition on.
-        :param singleton_allowed: Whether to allow singletons in the
-            simple sets of the event.
-        :return: The truncated circuit and the log-probability of the
-            event, or ``(None, -inf)`` if the event has zero
-            probability.
+        :param singleton_allowed: Whether to allow singletons in the simple sets of the
+            event.
+        :return: The truncated circuit and the log-probability of the event, or ``(None,
+            -inf)`` if the event has zero probability.
         """
         # skip trivial case
         if event.is_empty():
@@ -1508,11 +1495,11 @@ class ProbabilisticCircuit(ProbabilisticModel, SubclassJSONSerializer):
         """
         Create a copy of this circuit without any nodes.
 
-        Only the parameters should be copied. This is used whenever a
-        new circuit has to be created during inference.
+        Only the parameters should be copied. This is used whenever a new circuit has to
+        be created during inference.
 
-        :return: A copy of this circuit without any subcircuits that is
-            not in this units graph.
+        :return: A copy of this circuit without any subcircuits that is not in this
+            units graph.
         """
         return self.__class__()
 
@@ -1520,8 +1507,8 @@ class ProbabilisticCircuit(ProbabilisticModel, SubclassJSONSerializer):
         """
         Deep copy of the circuit.
 
-        :param memo: A dictionary that is used to keep track of objects
-            that have already been copied.
+        :param memo: A dictionary that is used to keep track of objects that have
+            already been copied.
         :return: A deep copy of the circuit.
         """
         if memo is None:
@@ -1709,18 +1696,14 @@ class ProbabilisticCircuit(ProbabilisticModel, SubclassJSONSerializer):
         """
         Plot the structure of the circuit using matplotlib.
 
-        :param node_colors: Optionally specified colors of the node. If
-            nodes are not specified in the dictionary, they will be
-            black.
+        :param node_colors: Optionally specified colors of the node. If nodes are not
+            specified in the dictionary, they will be black.
         :param node_size: The size of the nodes
-        :param variable_name_offset: The offset to the right of the
-            variable names.
-        :param plot_inference: If the results of the inference should be
-            plotted.
-        :param inference_representation: The representation of the
-            inference results as a function from node to string.
-        :param inference_result_offset: The vertical offset of the
-            inference results.
+        :param variable_name_offset: The offset to the right of the variable names.
+        :param plot_inference: If the results of the inference should be plotted.
+        :param inference_representation: The representation of the inference results as
+            a function from node to string.
+        :param inference_result_offset: The vertical offset of the inference results.
         """
         # fill the colors for the nodes
         node_colors = self.fill_node_colors(node_colors)
@@ -1786,8 +1769,8 @@ class ProbabilisticCircuit(ProbabilisticModel, SubclassJSONSerializer):
 
     def replace_discrete_distribution_with_deterministic_sum(self):
         """
-        Splits the distribution into sum unit with all the discrete
-        possibilities as leaf.
+        Splits the distribution into sum unit with all the discrete possibilities as
+        leaf.
         """
         old_leafs = self.leaves
         for leaf in old_leafs:
@@ -1822,13 +1805,12 @@ class ProbabilisticCircuit(ProbabilisticModel, SubclassJSONSerializer):
         """
         Mount another unit including its descendants.
 
-        There will be no edge from `self` to `other`. This will also
-        remove the nodes in other and their descendants from their
-        circuit.
+        There will be no edge from `self` to `other`. This will also remove the nodes in
+        other and their descendants from their circuit.
 
         :param other: The other unit to mount.
-        :returns: A mapping from the indices of the nodes in `other` to
-            the nodes in `self` that were added.
+        :returns: A mapping from the indices of the nodes in `other` to the nodes in
+            `self` that were added.
         """
         if other.probabilistic_circuit is not None:
             descendants = other.probabilistic_circuit.descendants(other)
@@ -1849,8 +1831,8 @@ class ProbabilisticCircuit(ProbabilisticModel, SubclassJSONSerializer):
 
 class ShallowProbabilisticCircuit(ProbabilisticCircuit):
     """
-    Class for PC in shallow form, sum unit as root followed by product units
-    which only have leafs as children.
+    Class for PC in shallow form, sum unit as root followed by product units which only
+    have leafs as children.
     """
 
     @classmethod
@@ -1870,9 +1852,9 @@ class ShallowProbabilisticCircuit(ProbabilisticCircuit):
         """
         This function transforms the PC into it shallow form, in place.
 
-        This function uses recursion and need to be called on the root
-        of the PC. :node: the Node in focus to be shallowed :presucc:
-        the predecessor of the node of before shallowing.
+        This function uses recursion and need to be called on the root of the PC. :node:
+        the Node in focus to be shallowed :presucc: the predecessor of the node of
+        before shallowing.
         """
         probabilistic_circuit = node.probabilistic_circuit
         succ_list: List = list(probabilistic_circuit.successors(node))
@@ -1961,9 +1943,9 @@ class ShallowProbabilisticCircuit(ProbabilisticCircuit):
         """
         Construct E_p of a product unit in a shallow context.
 
-        :own_pro_unit: product unit which is part of E_p :other: other
-        product unit which is part of E_p :tolerance: float as how close
-        to zero is zero, because of imprecision.
+        :own_pro_unit: product unit which is part of E_p :other: other product unit
+        which is part of E_p :tolerance: float as how close to zero is zero, because of
+        imprecision.
         """
         # supp_own = own_pro_unit.support
         # supp_other = other_pro_unit.support
@@ -1994,9 +1976,8 @@ class ShallowProbabilisticCircuit(ProbabilisticCircuit):
         """
         Construct E_p of a sum unit in a shallow context.
 
-        :other: the other Root shallow PC node to create the E_p
-        :tolerance: float as how close to zero is zero, because of
-        imprecisions
+        :other: the other Root shallow PC node to create the E_p :tolerance: float as
+        how close to zero is zero, because of imprecisions
         """
         progress_bar = tqdm.tqdm(
             total=len(self.root.subcircuits) * len(other.root.subcircuits)
@@ -2027,11 +2008,9 @@ class ShallowProbabilisticCircuit(ProbabilisticCircuit):
 
     def remove_node_and_successor_structure(self, node: Unit):
         """
-        This is an assist function for pruning disconnected subgraphs from the
-        PC.
+        This is an assist function for pruning disconnected subgraphs from the PC.
 
-        :node: the node that needs to be checked if to be pruned and its
-        children.
+        :node: the node that needs to be checked if to be pruned and its children.
         """
         probabilistic_circuit = node.probabilistic_circuit
         succ_list: List = list(probabilistic_circuit.successors(node))
@@ -2066,8 +2045,8 @@ class UnivariateContinuousLeaf(UnivariateLeaf):
         self, event: Interval, singleton_allowed: bool = False
     ):
         """
-        Condition this distribution on a simple event in-place but use sum
-        units to create conditions on composite intervals.
+        Condition this distribution on a simple event in-place but use sum units to
+        create conditions on composite intervals.
 
         :param event: The simple event to condition on.
         """
@@ -2130,13 +2109,11 @@ class UnivariateDiscreteLeaf(UnivariateLeaf):
 
     def as_deterministic_sum(self) -> SumUnit:
         """
-        Convert this distribution to a deterministic sum unit that encodes the
-        same distribution in-place. The result has as many children as the
-        probability dictionary of this distribution. Each child encodes the
-        value of the variable.
+        Convert this distribution to a deterministic sum unit that encodes the same
+        distribution in-place. The result has as many children as the probability
+        dictionary of this distribution. Each child encodes the value of the variable.
 
-        :return: The deterministic sum unit that encodes the same
-            distribution.
+        :return: The deterministic sum unit that encodes the same distribution.
         """
         result = SumUnit(probabilistic_circuit=self.probabilistic_circuit)
 

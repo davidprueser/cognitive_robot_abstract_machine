@@ -25,9 +25,8 @@ class CoordinateAxis(Enum):
     """
     Enum for coordinate axes with direction.
 
-    The value is a tuple of (axis_index, sign), where axis_index is 0
-    for X, 1 for Y, and 2 for Z, and sign is 1 for positive direction
-    and -1 for negative direction.
+    The value is a tuple of (axis_index, sign), where axis_index is 0 for X, 1 for Y,
+    and 2 for Z, and sign is 1 for positive direction and -1 for negative direction.
     """
 
     POSITIVE_X = (0, 1)
@@ -63,9 +62,9 @@ class FBXGlobalSettings:
     """
     Class to handle FBX global settings, particularly the coordinate system.
 
-    This class extracts the up, front, and coordinate axes from the FBX
-    file and provides a method to get the transformation matrix from FBX
-    to Semantic Digital Twin coordinate system.
+    This class extracts the up, front, and coordinate axes from the FBX file and
+    provides a method to get the transformation matrix from FBX to Semantic Digital Twin
+    coordinate system.
     """
 
     fbx_loader: fbxloader.FBXLoader
@@ -108,8 +107,8 @@ class FBXGlobalSettings:
 
     def get_semantic_digital_twin_T_fbx(self) -> np.ndarray:
         """
-        Get the transformation matrix from FBX to Semantic Digital Twin
-        coordinate system.
+        Get the transformation matrix from FBX to Semantic Digital Twin coordinate
+        system.
         """
         sX = self.front_axis.to_vector()
         sY = self.coord_axis.to_vector()
@@ -159,8 +158,8 @@ class FBXParser(MeshParser):
 
     def parse(self) -> World:
         """
-        Parse the FBX file, each object in the FBX file is converted to a body
-        in the world and the meshes are loaded as Mesh objects.
+        Parse the FBX file, each object in the FBX file is converted to a body in the
+        world and the meshes are loaded as Mesh objects.
 
         :return: A World containing content of the FBX file.
         """

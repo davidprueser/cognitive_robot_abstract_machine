@@ -57,9 +57,8 @@ class TfPublisherModelCallback(ModelChangeCallback):
     Maps kinematic structure entity ids which are directly connected to the
     corresponding position and quaternion expressions.
 
-    If either parent or child is in the
-    ignored_kinematic_structure_entities set, the connection is not
-    included in this dictionary.
+    If either parent or child is in the ignored_kinematic_structure_entities set, the
+    connection is not included in this dictionary.
     """
 
     tf_message: TFMessage = field(init=False)
@@ -137,8 +136,8 @@ class TFPublisher(StateChangeCallback):
     """
     On state change, publishes the TF tree of the world.
 
-    Puts a frame in every kinematic structure entity that is not in the
-    ignored_bodies set.
+    Puts a frame in every kinematic structure entity that is not in the ignored_bodies
+    set.
     """
 
     node: Node = field(kw_only=True)
@@ -206,8 +205,8 @@ class TFPublisher(StateChangeCallback):
     @classmethod
     def create_with_ignore_existing_tf(cls, world: World, node: Node) -> Self:
         """
-        Checks if any kinematic structure entity is already published in tf and
-        ignores them.
+        Checks if any kinematic structure entity is already published in tf and ignores
+        them.
 
         :param world: The world for which to create the TF publisher.
         :param node: The ROS2 node used to create the publisher.

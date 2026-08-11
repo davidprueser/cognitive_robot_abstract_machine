@@ -80,13 +80,12 @@ class Sage10kWithID(Sage10kBase):
         **kwargs,
     ) -> WorldEntity:
         """
-        Create the object in the world by getting its geometry from the
-        provided information. Spawn bodies, regions, connections, and semantic
-        annotations.
+        Create the object in the world by getting its geometry from the provided
+        information. Spawn bodies, regions, connections, and semantic annotations.
 
         :param world: The world to create the instances in.
-        :param directory: The directory where the `layout*.json` and all
-            its referenced files are found.
+        :param directory: The directory where the `layout*.json` and all its referenced
+            files are found.
         :param parent: The parent of the newly created entities
         :return: The relevant created body
         """
@@ -120,8 +119,7 @@ class Sage10kRotation(HasXYZ):
     """
     Rotations in the Sage 10k world.
 
-    The format is roll(x), pitch (y), and yaw (z). They are given in
-    degrees.
+    The format is roll(x), pitch (y), and yaw (z). They are given in degrees.
     """
 
     def as_roll_pitch_yaw_in_radians(self) -> Tuple[float, float, float]:
@@ -193,10 +191,9 @@ class Sage10kPhysicallyBasedRendering(SubclassJSONSerializer):
     """
     Parameters for super realistic renderers.
 
-    Currently, we have no use of this in CRAM, but the information is
-    provided by the dataset anyway. This data is ignored when
-    `Sage10kScene.create_world` is called but parsed from the JSON
-    information.
+    Currently, we have no use of this in CRAM, but the information is provided by the
+    dataset anyway. This data is ignored when `Sage10kScene.create_world` is called but
+    parsed from the JSON information.
     """
 
     metallic: float
@@ -375,8 +372,7 @@ class Sage10kObject(Sage10kWithID):
 
     source_id: str
     """
-    The prefix of the filenames in the objects folder that related to this
-    object.
+    The prefix of the filenames in the objects folder that related to this object.
     """
 
     place_id: str
@@ -408,8 +404,7 @@ class Sage10kObject(Sage10kWithID):
     """
     The scale of the object.
 
-    This seems to be already incorporated in the meshes themselves, so
-    dont use it.
+    This seems to be already incorporated in the meshes themselves, so dont use it.
     """
 
     pbr_parameters: Sage10kPhysicallyBasedRendering
@@ -613,10 +608,8 @@ class Sage10kDoor(Sage10kWithID):
         """
         The parent must always be the wall body.
 
-        :param sage_10k_wall: The sage 10k wall that is referenced by
-            `self.wall_id`.
-        :param wall_annotation: The wall annotation created in `world`
-            before this call.
+        :param sage_10k_wall: The sage 10k wall that is referenced by `self.wall_id`.
+        :param wall_annotation: The wall annotation created in `world` before this call.
         """
         name = PrefixedName(name=self.id, prefix=sage_10k_wall.id)
 
@@ -966,8 +959,7 @@ class Sage10kScene(Sage10kWithID):
     """
     I think this is the entire prompt that was used to generate the scene.
 
-    Usually contains just the descriptiom + 'Complete layout with
-    doors/windows:'
+    Usually contains just the descriptiom + 'Complete layout with doors/windows:'
     """
 
     total_area: float

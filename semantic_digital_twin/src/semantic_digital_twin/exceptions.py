@@ -1,6 +1,7 @@
 from __future__ import annotations, absolute_import
 
 from dataclasses import dataclass, field, Field
+from pathlib import Path
 from typing import Dict, Set, Any
 from uuid import UUID
 
@@ -87,8 +88,8 @@ class UnknownWorldModification(DataclassException):
 @dataclass
 class MismatchingIDsInWorldModification(DataclassException):
     """
-    Raised when the UUIDs of a world modification during application are not
-    consistent with the UUIDs assigned during initialization.
+    Raised when the UUIDs of a world modification during application are not consistent
+    with the UUIDs assigned during initialization.
     """
 
     modification_type: Type[WorldModification]
@@ -120,16 +121,15 @@ class MismatchingIDsInWorldModification(DataclassException):
 @dataclass
 class LogicalError(DataclassException):
     """
-    An error that happens due to mistake in the logical operation or usage of
-    the API during runtime.
+    An error that happens due to mistake in the logical operation or usage of the API
+    during runtime.
     """
 
 
 @dataclass
 class NegativeConnectionVelocity(DataclassException):
     """
-    An error that happens when a negative velocity limit is provided for a
-    connection.
+    An error that happens when a negative velocity limit is provided for a connection.
     """
 
     connection_name: Union[str, PrefixedName]
@@ -152,8 +152,8 @@ class NegativeConnectionVelocity(DataclassException):
 @dataclass
 class DofNotInWorldStateError(DataclassException, KeyError):
     """
-    An exception raised when a degree of freedom is not found in the world's
-    state dictionary.
+    An exception raised when a degree of freedom is not found in the world's state
+    dictionary.
     """
 
     dof_id: UUID
@@ -172,8 +172,8 @@ class DofNotInWorldStateError(DataclassException, KeyError):
 @dataclass
 class IncorrectWorldStateValueShapeError(DataclassException, ValueError):
     """
-    An exception raised when the shape of a value in the world's state
-    dictionary is incorrect.
+    An exception raised when the shape of a value in the world's state dictionary is
+    incorrect.
     """
 
     dof_id: UUID
@@ -210,8 +210,8 @@ class WrongWorldModelVersion(LogicalError):
 @dataclass
 class NonMonotonicTimeError(LogicalError):
     """
-    Raised when attempting to append a world state with a time that is not
-    strictly greater than the last time.
+    Raised when attempting to append a world state with a time that is not strictly
+    greater than the last time.
     """
 
     last_time: float
@@ -227,8 +227,7 @@ class NonMonotonicTimeError(LogicalError):
 @dataclass
 class MismatchingCommandLengthError(DataclassException, ValueError):
     """
-    An exception raised when the length of a command does not match the
-    expected length.
+    An exception raised when the length of a command does not match the expected length.
     """
 
     expected_length: int
@@ -251,8 +250,8 @@ class UsageError(LogicalError):
 @dataclass
 class WorldValidationError(LogicalError):
     """
-    Raised when the world fails validation, e.g., when the kinematic structure
-    is not a tree.
+    Raised when the world fails validation, e.g., when the kinematic structure is not a
+    tree.
     """
 
     world: World
@@ -264,8 +263,7 @@ class WorldValidationError(LogicalError):
 @dataclass
 class WorldIsNotATreeError(WorldValidationError):
     """
-    Raised when the kinematic structure of the world is not a tree during
-    validation.
+    Raised when the kinematic structure of the world is not a tree during validation.
     """
 
     def error_message(self) -> str:
@@ -286,8 +284,8 @@ class BrokenWorldModificationHistoryError(WorldValidationError):
 
     potential_cause: Optional[DataclassException] = None
     """
-    The exception that was thrown and caused the world's modification history
-    to be broken.
+    The exception that was thrown and caused the world's modification history to be
+    broken.
     """
 
     def error_message(self) -> str:
@@ -304,8 +302,8 @@ class BrokenWorldModificationHistoryError(WorldValidationError):
 @dataclass
 class WorldContainsOrphanedDegreeOfFreedom(WorldValidationError):
     """
-    Raised when the kinematic structure of the world contains orphaned degrees
-    of freedom during validation.
+    Raised when the kinematic structure of the world contains orphaned degrees of
+    freedom during validation.
     """
 
     actual_dofs: Set[DegreeOfFreedom]
@@ -326,8 +324,8 @@ class WorldContainsOrphanedDegreeOfFreedom(WorldValidationError):
 @dataclass
 class InvalidConnectionLimits(UsageError):
     """
-    Raised when the lower limit is not less than the upper limit for a degree
-    of freedom.
+    Raised when the lower limit is not less than the upper limit for a degree of
+    freedom.
     """
 
     name: PrefixedName
@@ -401,8 +399,8 @@ class MismatchingWorld(UsageError):
 @dataclass
 class CannotBeAPartOf(UsageError):
     """
-    Raised when ``add`` is called with a part that no part-whole relationship
-    field of the annotation accepts.
+    Raised when ``add`` is called with a part that no part-whole relationship field of
+    the annotation accepts.
     """
 
     annotation: SemanticAnnotation
@@ -431,9 +429,8 @@ class CannotBeAPartOf(UsageError):
 @dataclass
 class AmbiguousPart(UsageError):
     """
-    Raised when ``add`` is called with a part whose type matches more than one
-    part-whole relationship field of the annotation, so the target field is
-    ambiguous.
+    Raised when ``add`` is called with a part whose type matches more than one part-
+    whole relationship field of the annotation, so the target field is ambiguous.
     """
 
     annotation: SemanticAnnotation
@@ -448,8 +445,7 @@ class AmbiguousPart(UsageError):
 
     fields: List[Field]
     """
-    The names of the part-whole relationship fields whose element type accepts
-    the part.
+    The names of the part-whole relationship fields whose element type accepts the part.
     """
 
     def error_message(self) -> str:
@@ -469,8 +465,8 @@ class AmbiguousPart(UsageError):
 @dataclass
 class UnknownPartWholeRelationshipField(UsageError):
     """
-    Raised when ``add`` is called with a ``field_name`` that is not a part-
-    whole relationship field of the annotation.
+    Raised when ``add`` is called with a ``field_name`` that is not a part-whole
+    relationship field of the annotation.
     """
 
     annotation: HasRootBody
@@ -480,8 +476,8 @@ class UnknownPartWholeRelationshipField(UsageError):
 
     field_name: str
     """
-    The field name that was requested but does not exist as a part-whole
-    relationship field.
+    The field name that was requested but does not exist as a part-whole relationship
+    field.
     """
 
     available_fields: List[str]
@@ -505,11 +501,11 @@ class UnknownPartWholeRelationshipField(UsageError):
 @dataclass
 class MechanicalJointAlreadyMounted(UsageError):
     """
-    Raised when a mechanical joint that already connects a child is mounted
-    onto a different whole.
+    Raised when a mechanical joint that already connects a child is mounted onto a
+    different whole.
 
-    If you think a single Mechanical Joint should be able to have
-    multiple children, contact @LucaKro.
+    If you think a single Mechanical Joint should be able to have multiple children,
+    contact @LucaKro.
     """
 
     joint: SemanticAnnotation
@@ -540,8 +536,7 @@ class SemanticAnnotationCircularDependencyError(UsageError):
 
     semantic_annotations: List[SemanticAnnotation]
     """
-    The list of semantic annotations that in which a circular dependency is
-    detected.
+    The list of semantic annotations that in which a circular dependency is detected.
     """
 
     def error_message(self) -> str:
@@ -603,9 +598,8 @@ class InvalidPlaneDimensions(UsageError):
 @dataclass
 class UselessConceptError(UsageError):
     """
-    Used to indicate that the operation the user is trying to perform is not
-    useful in the current context, even though it might be technically
-    possible.
+    Used to indicate that the operation the user is trying to perform is not useful in
+    the current context, even though it might be technically possible.
     """
 
     reason: str
@@ -679,8 +673,7 @@ class MissingWorldModificationContextError(UsageError):
 class MismatchingPublishChangesAttribute(UsageError):
     """
     Raised when trying to enter a world modification context with a different
-    publish_changes policy than the currently active world modification
-    context.
+    publish_changes policy than the currently active world modification context.
     """
 
     active_publish_changes: bool
@@ -690,8 +683,7 @@ class MismatchingPublishChangesAttribute(UsageError):
 
     proposed_publish_changes: bool
     """
-    The publish_changes of the world modification context that is being
-    entered.
+    The publish_changes of the world modification context that is being entered.
     """
 
     def error_message(self) -> str:
@@ -722,11 +714,11 @@ class MissingPublishChangesKWARG(UsageError):
 @dataclass
 class StateUpdateContainsUnknownDegreesOfFreedomError(UsageError):
     """
-    Raised when a WorldStateUpdate is received that contains one or more DOF
-    identifiers absent from the world state index.
+    Raised when a WorldStateUpdate is received that contains one or more DOF identifiers
+    absent from the world state index.
 
-    This indicates a severe model/state desynchronization that must be
-    investigated rather than silently ignored.
+    This indicates a severe model/state desynchronization that must be investigated
+    rather than silently ignored.
     """
 
     unknown_identifiers: List[UUID]
@@ -749,12 +741,12 @@ class StateUpdateContainsUnknownDegreesOfFreedomError(UsageError):
 @dataclass
 class ApplyMissedMessagesWhileWorldIsBeingModifiedError(UsageError):
     """
-    Raised when apply_missed_messages is called while a modify_world context is
-    active on the synchronizer's world.
+    Raised when apply_missed_messages is called while a modify_world context is active
+    on the synchronizer's world.
 
-    Applying missed messages requires entering a modify_world context
-    internally, which would conflict with any currently active
-    modify_world context due to mismatching publish_changes policies.
+    Applying missed messages requires entering a modify_world context internally, which
+    would conflict with any currently active modify_world context due to mismatching
+    publish_changes policies.
     """
 
     def error_message(self) -> str:
@@ -783,8 +775,7 @@ class DuplicateWorldEntityError(UsageError):
 @dataclass
 class DuplicateRobotAssignmentsError(UsageError):
     """
-    Raised when a robot part is assigned to multiple robots, which should not
-    happen.
+    Raised when a robot part is assigned to multiple robots, which should not happen.
     """
 
     robot_part: AbstractRobotPart
@@ -869,8 +860,8 @@ class ReferenceFrameMismatchError(SpatialTypesError):
 @dataclass
 class MissingReferenceFrameError(SpatialTypesError):
     """
-    Represents an error that occurs when a spatial type lacks a reference
-    frame, even though its required for the current operation.
+    Represents an error that occurs when a spatial type lacks a reference frame, even
+    though its required for the current operation.
     """
 
     spatial_type: SpatialType
@@ -953,24 +944,6 @@ class PathResolutionError(ParsingError):
 
 
 @dataclass
-class ModelLoadError(DataclassException):
-    """
-    Raised when a machine learning model cannot be loaded.
-    """
-
-    model_name: str
-    """
-    The name or path of the model that failed to load.
-    """
-
-    def error_message(self) -> str:
-        return f"Could not load model {self.model_name!r}."
-
-    def suggest_correction(self) -> str:
-        return ""
-
-
-@dataclass
 class WorldEntityNotFoundError(UsageError):
     name_or_hash: Union[str, PrefixedName, int]
 
@@ -996,8 +969,8 @@ class WorldEntityNotFoundError(UsageError):
 @dataclass
 class MissingDefaultCameraError(UsageError):
     """
-    Raised when trying to access the default camera of a robot that does not
-    have a default camera.
+    Raised when trying to access the default camera of a robot that does not have a
+    default camera.
     """
 
     robot: Type[AbstractRobot]
@@ -1015,8 +988,8 @@ class MissingDefaultCameraError(UsageError):
 @dataclass
 class MissingWorldError(UsageError):
     """
-    Raised when trying to access a world that is None, but a world is required
-    for the operation.
+    Raised when trying to access a world that is None, but a world is required for the
+    operation.
     """
 
     def error_message(self) -> str:
@@ -1059,8 +1032,8 @@ class AlreadyBelongsToAWorldError(UsageError):
 @dataclass
 class DoesNotBelongToAWorldError(UsageError):
     """
-    Raised when trying to use a world entity that does not belong to any world
-    in a context where it must belong to a world.
+    Raised when trying to use a world entity that does not belong to any world in a
+    context where it must belong to a world.
     """
 
     world_entity: WorldEntity
@@ -1112,8 +1085,8 @@ class WorldEntityWithIDNotInKwargs(JSONSerializationError):
 
 class AmbiguousNameError(ValueError):
     """
-    Raised when more than one semantic annotation class matches a given name
-    with the same score.
+    Raised when more than one semantic annotation class matches a given name with the
+    same score.
     """
 
 
@@ -1193,9 +1166,9 @@ class AtomicWorldModificationNotAtomic(DataclassException):
     """
     Exception raised when atomic world modifications are overlapping.
 
-    If this exception is raised, it means that somewhere in the code a
-    function decorated with @atomic_world_modification triggered another
-    function decorated with it. This must not happen ever!
+    If this exception is raised, it means that somewhere in the code a function
+    decorated with @atomic_world_modification triggered another function decorated with
+    it. This must not happen ever!
     """
 
     modification: Callable
@@ -1226,8 +1199,8 @@ class AtomicWorldModificationNotAtomic(DataclassException):
 @dataclass
 class PointOccupiedError(DataclassException):
     """
-    Error that is raised when a pose is occupied or not in the search space of
-    a Connectivity Graphs.
+    Error that is raised when a pose is occupied or not in the search space of a
+    Connectivity Graphs.
     """
 
     point: Point3
@@ -1295,3 +1268,113 @@ class MujocoEntityNotFoundError(MujocoError):
 
     def suggest_correction(self) -> str:
         return ""
+
+
+@dataclass
+class VideoRecordingError(MultiSimError):
+    """
+    Base class for all :class:`~semantic_digital_twin.adapters.mujoco_video_recording.MujocoVideoRecorder`
+    exceptions.
+    """
+
+
+@dataclass
+class VideoRecordingAlreadyStartedError(VideoRecordingError):
+    """
+    Raised when :meth:`~semantic_digital_twin.adapters.mujoco_video_recording.MujocoVideoRecorder.start`
+    is called on a recorder that is already recording.
+    """
+
+    world: World
+    """
+    The world the recorder is already recording.
+    """
+
+    def error_message(self) -> str:
+        return f"Video recording for {self.world} was already started."
+
+    def suggest_correction(self) -> str:
+        return "call stop() before starting a new recording."
+
+
+@dataclass
+class VideoRecordingNotStartedError(VideoRecordingError):
+    """
+    Raised when :meth:`~semantic_digital_twin.adapters.mujoco_video_recording.MujocoVideoRecorder.stop`
+    is called on a recorder that was never started.
+    """
+
+    world: World
+    """
+    The world the recorder was supposed to be recording.
+    """
+
+    def error_message(self) -> str:
+        return f"Video recording for {self.world} was never started."
+
+    def suggest_correction(self) -> str:
+        return "call start() before stop()."
+
+
+@dataclass
+class EmptyWorldVideoRecordingError(VideoRecordingError):
+    """
+    Raised when a default overview camera cannot be computed because the world has no
+    geometry to frame.
+    """
+
+    world: World
+    """
+    The world that has no geometry.
+    """
+
+    def error_message(self) -> str:
+        return (
+            f"Cannot compute an overview camera for {self.world}: it has no geometry."
+        )
+
+    def suggest_correction(self) -> str:
+        return "add at least one body with geometry to the world, or pass an explicit camera."
+
+
+@dataclass
+class EmptyVideoRecordingError(VideoRecordingError):
+    """
+    Raised when :meth:`~semantic_digital_twin.adapters.mujoco_video_recording.RecordedVideo.write`
+    is called on a recording that has no frames.
+    """
+
+    output_path: Path
+    """
+    The path the (empty) video was supposed to be written to.
+    """
+
+    def error_message(self) -> str:
+        return f"Cannot write a video to {self.output_path}: no frames were captured."
+
+    def suggest_correction(self) -> str:
+        return "call start() and let the recorder run for at least one frame period before stop()."
+
+
+@dataclass
+class InvalidVideoRecordingRateError(VideoRecordingError):
+    """
+    Raised when a :class:`~semantic_digital_twin.adapters.mujoco_video_recording.MujocoVideoRecorder`
+    is configured with a non-positive rate.
+    """
+
+    field_name: str
+    """
+    The name of the misconfigured field.
+    """
+
+    value: int
+    """
+    The non-positive value that was given.
+    """
+
+    def error_message(self) -> str:
+        return f"{self.field_name} must be positive, got {self.value}."
+
+    def suggest_correction(self) -> str:
+        return "use a positive integer."

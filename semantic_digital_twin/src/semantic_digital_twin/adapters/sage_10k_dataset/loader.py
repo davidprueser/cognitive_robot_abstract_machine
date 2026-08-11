@@ -38,32 +38,11 @@ class Sage10kDatasetLoader:
     The directory where the scene should be downloaded to.
     """
 
-    def download_specific_scene(self, layout_name: str):
-        """
-        Download a specific scene from the Sage10k dataset by its layout name.
-
-        :param layout_name: The name of the layout to download.
-        :return: The path to the downloaded scene.
-        """
-        from huggingface_hub import list_repo_files
-
-        files = list_repo_files(repo_id="nvidia/SAGE-10k", repo_type="dataset")
-
-        [matching_file] = [
-            f
-            for f in files
-            if f.startswith("scenes/") and f.endswith(f"_{layout_name}.zip")
-        ]
-
-        base_url = f"https://huggingface.co/datasets/nvidia/SAGE-10k/blob/main/"
-        return self._download_scene_if_not_exists(base_url + matching_file)
-
     def _download_scene_if_not_exists(self, scene_url: str) -> Path:
         """
         Download the scene from the Sage10k dataset and unzip it.
 
-        Returns early if a directory with the requested scene already
-        exists.
+        Returns early if a directory with the requested scene already exists.
 
         :param scene_url: The URL of the scene to be downloaded.
         :return: The path to the unzipped scene.
@@ -97,15 +76,14 @@ class Sage10kDatasetLoader:
 
     def _parse_json(self, extracted_dir: Path) -> Sage10kScene:
         """
-        Parses the extracted directory to locate and load a specific JSON file,
-        ensuring there is exactly one valid file matching the naming pattern.
-        Load the JSON into a Sage10kScene object.
+        Parses the extracted directory to locate and load a specific JSON file, ensuring
+        there is exactly one valid file matching the naming pattern. Load the JSON into
+        a Sage10kScene object.
 
-        :param extracted_dir: The directory containing the extracted
-            files to be parsed.
-        :return: A Sage10kScene object created from the parsed JSON
-            content. The object's `directory_path` attribute is also
-            updated to the given `extracted_dir`.
+        :param extracted_dir: The directory containing the extracted files to be parsed.
+        :return: A Sage10kScene object created from the parsed JSON content. The
+            object's `directory_path` attribute is also updated to the given
+            `extracted_dir`.
         """
         json_files = list(extracted_dir.glob("layout_*.json"))
         if not json_files:
@@ -127,8 +105,7 @@ class Sage10kDatasetLoader:
 
         Use this when you only want to fetch all layout JSONS.
 
-        :param extracted_dir: The directory containing the extracted
-            scene.
+        :param extracted_dir: The directory containing the extracted scene.
         """
         objects = extracted_dir / "objects"
         preview = extracted_dir / "preview"
@@ -139,8 +116,8 @@ class Sage10kDatasetLoader:
 
     def create_scene(self, scene_url: str) -> Sage10kScene:
         """
-        Create a scene from the given URL by downloading it and loading it into
-        the memory.
+        Create a scene from the given URL by downloading it and loading it into the
+        memory.
 
         :param scene_url: The URL of the scene to be loaded.
         :return: The Sage10kScene object.
@@ -159,10 +136,9 @@ class Sage10kDatasetLoader:
         Requires the extra requirement huggingface_hu.
 
         :param repository: The repo id of the dataset.
-        :param folder_path: The path to the folder containing the scenes
-            in the repository.
-        :return: A list of all possible URLs to the scenes in the
-            dataset.
+        :param folder_path: The path to the folder containing the scenes in the
+            repository.
+        :return: A list of all possible URLs to the scenes in the dataset.
         """
         fs = huggingface_hub.HfFileSystem()
 
