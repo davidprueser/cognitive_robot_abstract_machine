@@ -2,17 +2,13 @@ from __future__ import annotations
 
 from collections import Counter
 from itertools import combinations
-from typing import TYPE_CHECKING
 
-from krrood.entity_query_language.factories import underspecified
+from krrood.entity_query_language.factories import a
 from semantic_digital_twin.scene_generation.scene_schema import (
-    EGFloorPiece,
     EGObject2D,
     EGPoint2D,
     EGRotation,
-    EGRoomFloorLayout,
     EGShelfLayer,
-    EGWallRelativePose,
     EGScale,
 )
 from semantic_digital_twin.collision_checking.collision_matrix import (
@@ -23,11 +19,6 @@ from semantic_digital_twin.collision_checking.trimesh_collision_detector import 
     FCLCollisionDetector,
 )
 from semantic_digital_twin.world_description.world_entity import Body
-
-if TYPE_CHECKING:
-    from experiments.scene_generation_experiments.room_floor_sampling import (
-        SampledRoomComposition,
-    )
 
 
 def minimal_resample_set(colliding_pairs: set[tuple[int, int]]) -> set[int]:
@@ -129,14 +120,14 @@ def _build_free_object2d_query():
     :return: An underspecified EGObject2D with position, scale, and yaw
         unset.
     """
-    return underspecified(EGObject2D)(
+    return a(EGObject2D)(
         id=None,
         room_id=None,
         place_id=None,
         object_type=...,
-        scale=underspecified(EGScale)(width=..., length=..., height=...),
-        position=underspecified(EGPoint2D)(x=..., y=...),
-        orientation=underspecified(EGRotation)(x=0.0, y=0.0, z=...),
+        scale=a(EGScale)(width=..., length=..., height=...),
+        position=a(EGPoint2D)(x=..., y=...),
+        orientation=a(EGRotation)(x=0.0, y=0.0, z=...),
         source_id=None,
     )
 
@@ -153,7 +144,7 @@ def _fixed_object_slot(object_2d: EGObject2D):
         fixed.
     :return: A partially-underspecified EGObject2D holding *object_2d*'s pose.
     """
-    return underspecified(EGObject2D)(
+    return a(EGObject2D)(
         id=None,
         room_id=None,
         place_id=None,
@@ -189,7 +180,7 @@ def _build_conditioned_layer_query(
     scale_argument = (
         target_scale
         if target_scale is not None
-        else underspecified(EGScale)(width=..., length=..., height=...)
+        else a(EGScale)(width=..., length=..., height=...)
     )
     return build_pose_resample_query(fixed_objects, free_count, scale_argument)
 
@@ -232,66 +223,6 @@ def build_layer_query_with_fixed_scale(object_count: int, scale: EGScale):
     return _build_conditioned_layer_query([], object_count, target_scale=scale)
 
 
-def build_free_room_floor_query(composition: SampledRoomComposition):
-    """
-    Build an :class:`EGRoomFloorLayout` query with the room's footprint fixed as
-    conditioning evidence and ``shape.piece_count`` free floor-piece slots.
-
-    The whole footprint is fixed rather than sampled, so the ``floor_area`` and
-    ``aspect_ratio`` aggregations are *determined* by the query. Leaving width
-    and length free would leave those latents undetermined, and grounding would
-    integrate them out via Monte-Carlo -- which marginalises them out of the
-    class circuit, statistically decoupling the footprint that ends up sampled
-    from the one the piece positions were conditioned on, and multiplying
-    grounding cost by the Monte-Carlo sample count.
-
-    :param composition: The room's drawn footprint and piece composition.
-    :return: An underspecified :class:`EGRoomFloorLayout` query with the
-        footprint as fixed evidence, ready for :class:`ProbabilisticBackend`
-        evaluation.
-    """
-    return underspecified(EGRoomFloorLayout)(
-        scale=composition.scale,
-        pieces=[
-            _build_free_floor_piece_query() for _ in range(composition.piece_count)
-        ],
-    )
-
-
-def _build_free_floor_piece_query():
-    """
-    Build a fully underspecified :class:`EGFloorPiece` query, leaving its type,
-    size and wall-relative pose for the circuit to sample.
-
-    Unlike :func:`_build_free_object2d_query` there is no roll or pitch to pin:
-    a floor piece's orientation is captured entirely by
-    :attr:`EGWallRelativePose.yaw_relative_to_wall`, so no constant dimension is
-    left underspecified for the sampling backend to leak a placeholder through.
-
-    .. note::
-        The slot's category is left free rather than pinned to the drawn
-        composition. Passing an :class:`ObjectType` as conditioning evidence
-        raises ``ValueError: Value plant not in domain of variable`` from the
-        circuit's symbolic variable -- the enum value does not compare equal to
-        the domain element built from the training data, which is the same
-        enum-to-float mismatch :func:`_fixed_object_slot` documents. The drawn
-        composition therefore fixes only how many pieces a room holds, and which
-        kinds they are is left to the circuit's own (faithful) type marginal.
-
-    :return: An underspecified :class:`EGFloorPiece` with every field free.
-    """
-    return underspecified(EGFloorPiece)(
-        object_type=...,
-        scale=underspecified(EGScale)(width=..., length=..., height=...),
-        pose=underspecified(EGWallRelativePose)(
-            wall=...,
-            distance_from_wall=...,
-            position_along_wall=...,
-            yaw_relative_to_wall=...,
-        ),
-    )
-
-
 def build_pose_resample_query(
     fixed_objects: list[EGObject2D],
     free_count: int,
@@ -318,7 +249,7 @@ def build_pose_resample_query(
     :return: An underspecified EGShelfLayer query ready for
         :class:`ProbabilisticBackend` evaluation.
     """
-    return underspecified(EGShelfLayer)(
+    return a(EGShelfLayer)(
         scale=layer_scale,
         objects=[_fixed_object_slot(object_2d) for object_2d in fixed_objects]
         + [_build_free_object2d_query() for _ in range(free_count)],

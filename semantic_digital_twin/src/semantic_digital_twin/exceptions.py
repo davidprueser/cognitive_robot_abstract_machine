@@ -944,6 +944,24 @@ class PathResolutionError(ParsingError):
 
 
 @dataclass
+class ModelLoadError(DataclassException):
+    """
+    Raised when a machine learning model cannot be loaded.
+    """
+
+    model_name: str
+    """
+    The name or path of the model that failed to load.
+    """
+
+    def error_message(self) -> str:
+        return f"Could not load model {self.model_name!r}."
+
+    def suggest_correction(self) -> str:
+        return ""
+
+
+@dataclass
 class WorldEntityNotFoundError(UsageError):
     name_or_hash: Union[str, PrefixedName, int]
 

@@ -1302,9 +1302,8 @@ class EGShelfLayer(EGBase):
 
 class RoomWall(IntEnum):
     """
-    The four walls of a rectangular room, indexed in the order
-    :func:`~experiments.scene_generation_experiments.room_floor_sampling._rectangular_walls`
-    builds them, so a wall index round-trips between a layout and a spawned room.
+    The four walls of a rectangular room, indexed south, east, north, west so
+    a wall index round-trips between a layout and a spawned room.
     """
 
     SOUTH = 0
@@ -1590,11 +1589,10 @@ class RoomInterior:
     Footprint of the room.
 
     .. warning::
-        Taken to be centred on the origin, as
-        :func:`~experiments.scene_generation_experiments.room_floor_sampling._rectangular_walls`
-        builds a generated room. Stored sage10k rooms put their lower-left
-        corner at the origin instead, so their positions must be re-centred --
-        as extraction already does -- before being measured against this.
+        Taken to be centred on the origin, as a generated room's walls are
+        built. Stored sage10k rooms put their lower-left corner at the origin
+        instead, so their positions must be re-centred -- as extraction
+        already does -- before being measured against this.
     """
 
     wall_thickness: float

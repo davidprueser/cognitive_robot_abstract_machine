@@ -9,7 +9,7 @@ from pathlib import Path
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, joinedload
 
-from experiments.orm.ormatic_interface import EGObjectDAO, EGRoomDAO
+from experiments.orm.ormatic_interface import EGObjectDAO
 from experiments.scene_generation_experiments.data_preprocessing import (
     Sage10kSceneDownloader,
     SourceIdNotFoundError,
@@ -18,7 +18,6 @@ from semantic_digital_twin.scene_generation.scene_schema import (
     MeshCandidate,
     ObjectType,
     PlaceId,
-    RoomType,
 )
 
 from semantic_digital_twin.utils import rclpy_installed
@@ -249,40 +248,6 @@ def objects_for_rooms(
     ).all()
 
 
-def sampled_rooms_of_type(
-    session: Session,
-    room_type: RoomType,
-    room_count: int = DEFAULT_TRAINING_ROOM_COUNT,
-) -> list[EGRoomDAO]:
-    """
-    Return a random sample of up to *room_count* stored rooms of *room_type*,
-    eagerly joining the scale and walls that define their footprint.
-
-    Restricting the training set to a single room type is what lets a fitted
-    circuit describe one kind of room: pooling patient rooms, warehouses and
-    kitchens into one distribution produces a room that matches none of them.
-
-    :param session: Database session to query rooms from.
-    :param room_type: The generalized category of room to sample.
-    :param room_count: Maximum number of distinct rooms to return.
-    :return: The sampled room DAOs.
-    """
-    return list(
-        session.scalars(
-            select(EGRoomDAO)
-            .where(EGRoomDAO.room_type == room_type)
-            .options(
-                joinedload(EGRoomDAO.scale),
-                joinedload(EGRoomDAO.walls),
-            )
-            .order_by(func.random())
-            .limit(room_count)
-        )
-        .unique()
-        .all()
-    )
-
-
 def _get_source_ids_for_objects(
     objects: list[EGObjectDAO],
     object_type: ObjectType | None = ObjectType.BOOK,
@@ -403,104 +368,3 @@ def build_source_id_to_path(
                 mapping[ply_file.stem] = scene_dir
     return mapping
 
-
-DEFAULT_FLOOR_OBJECT_TYPE_COUNT = 40
-"""
-How many of the most common floor object types meshes are cached for by default.
-
-The dataset's floor objects span far more categories than any hand-written list
-kept up with, and every type without a cached mesh is a piece that gets dropped
-at generation time. Forty covers the long tail down to roughly a thousand
-occurrences.
-"""
-
-
-def most_common_floor_object_types(
-    session: Session, type_count: int = DEFAULT_FLOOR_OBJECT_TYPE_COUNT
-) -> list[ObjectType]:
-    """
-    Return the object types that most often rest directly on a floor.
-
-    Derived from the stored objects rather than hard-coded, so the cache is
-    filled for the categories the data actually contains. A hand-maintained list
-    silently omitted common types -- beds, sofas, nightstands, refrigerators --
-    and a sampled piece of an omitted type can never be spawned.
-
-    :param session: Database session to read floor objects from.
-    :param type_count: How many of the most common types to return.
-    :return: The most common floor object types, most frequent first.
-    """
-    return list(
-        session.scalars(
-            select(EGObjectDAO.object_type)
-            .where(EGObjectDAO.place_id == PlaceId.FLOOR)
-            .group_by(EGObjectDAO.object_type)
-            .order_by(func.count().desc())
-            .limit(type_count)
-        ).all()
-    )
-
-
-DEFAULT_MINIMUM_CANDIDATES_PER_TYPE = 50
-"""
-Distinct meshes to make available per floor object type.
-
-The library default of five is what left the cache dominated by a single type;
-a per-type target keeps every commonly sampled type able to find a mesh of its
-own kind.
-"""
-
-
-def download_meshes_for_floor_object_types(
-    session: Session,
-    downloader: Sage10kSceneDownloader,
-    minimum_candidates: int = DEFAULT_MINIMUM_CANDIDATES_PER_TYPE,
-) -> dict[ObjectType, int]:
-    """
-    Ensure at least *minimum_candidates* distinct meshes are cached for each of
-    the most common floor object types.
-
-    .. note::
-        This performs network downloads from HuggingFace and is intended for
-        pre-populating the cache ahead of a final demo, not for fast iteration.
-
-    :param session: Database session to read floor objects from.
-    :param downloader: Resolves a source ID to its scene and downloads it.
-    :param minimum_candidates: Distinct meshes to target per type.
-    :return: The number of cached meshes achieved per type.
-    """
-    source_id_to_path = build_source_id_to_path()
-    achieved: dict[ObjectType, int] = {}
-    for object_type in most_common_floor_object_types(session):
-        objects = objects_of_type(session, object_type)
-        _ensure_minimum_mesh_pool(
-            objects, source_id_to_path, downloader, minimum_candidates
-        )
-        achieved[object_type] = len(
-            {obj.source_id for obj in objects if obj.source_id in source_id_to_path}
-        )
-        print(f"{object_type.name}: {achieved[object_type]} meshes cached")
-    return achieved
-
-
-def build_cached_mesh_pool(
-    session: Session,
-    downloader: Sage10kSceneDownloader | None = None,
-) -> list[EGObjectDAO]:
-    """
-    Load the objects whose meshes are cached locally, first topping up the cache
-    via *downloader* when one is given.
-
-    With *downloader* left as ``None`` the pool is whatever is already cached,
-    which keeps demos fast for iterative testing. Passing a downloader turns on
-    adaptive downloading so a final demo can dress every sampled piece with a
-    mesh of its own kind.
-
-    :param session: Database session to query objects from.
-    :param downloader: When given, floor-object meshes are downloaded on demand
-        before the pool is loaded. ``None`` uses only the local cache.
-    :return: All object DAOs whose mesh is available locally.
-    """
-    if downloader is not None:
-        download_meshes_for_floor_object_types(session, downloader)
-    return load_objects_with_cached_meshes(session, build_source_id_to_path())

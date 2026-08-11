@@ -233,6 +233,9 @@ def to_json(obj: Union[SubclassJSONSerializer, Any]) -> JSON_RETURN_TYPE:
         if json_type is not None:
             return obj
 
+    if isinstance(obj, enum.Enum):
+        return EnumJSONSerializer.to_json(obj)
+
     if isinstance(obj, (leaf_types)):
         return obj
 

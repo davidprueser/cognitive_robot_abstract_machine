@@ -542,7 +542,7 @@ class RelationalProbabilisticCircuit:
         """
         aggregation_statistics = compute_aggregation_statistics(
             instance,
-            self.feature_extractor.exchangeable_features[exchangeable_part_name],
+            exchangeable_part_name,
             template.latent_variables,
         )
         determined_statistics = {

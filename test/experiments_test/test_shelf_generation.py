@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import os
 import shutil
+import subprocess
+import sys
 from dataclasses import dataclass, field
 from importlib.resources import files
 from pathlib import Path
@@ -29,15 +32,22 @@ from experiments.scene_generation_experiments.utils import (
     objects_of_type,
 )
 from experiments.scene_generation_experiments.collision_resolution import (
+    build_free_layer_query,
     build_layer_query_with_fixed_scale,
     build_pose_resample_query,
 )
+from experiments.scene_generation_experiments.rspn_sampling import probabilistic_backend
 from experiments.scene_generation_experiments.shelf_generation import (
+    TrainedArbitraryShelfModel,
     _coarsen_mesh_candidate_types,
     _coarsen_rare_object_types,
 )
+from krrood.ormatic.data_access_objects.helper import to_dao
 from krrood.parametrization.parameterizer import UnderspecifiedParameters
 from krrood.ormatic.utils import create_engine
+from probabilistic_model.probabilistic_circuit.relational.rspn import (
+    RelationalProbabilisticCircuit,
+)
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.scene_generation.scene_schema import (
     EGObject2D,
@@ -553,6 +563,152 @@ def test_coarsen_mesh_candidate_types_leaves_frequent_types_unchanged() -> None:
     )
 
     assert result == [cup_candidate, plant_candidate]
+
+
+# ---------------------------------------------------------------------------
+# TrainedArbitraryShelfModel – exporting and reloading a fitted RSPN
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def fitted_arbitrary_shelf_model() -> TrainedArbitraryShelfModel:
+    layers = [
+        EGShelfLayer(
+            scale=EGScale(height=0.02, length=0.3, width=0.4),
+            objects=[
+                _typed_object(ObjectType.CUP, f"cup_{index}"),
+                _typed_object(ObjectType.PLANT, f"plant_{index}"),
+            ],
+        )
+        for index in range(5)
+    ]
+    rspn = RelationalProbabilisticCircuit(
+        EGShelfLayer, min_samples_per_leaf=0.5
+    ).fit([to_dao(layer) for layer in layers])
+    return TrainedArbitraryShelfModel(
+        relational_probabilistic_circuit=rspn,
+        frequent_object_types={ObjectType.CUP, ObjectType.PLANT},
+    )
+
+
+def test_save_writes_a_loadable_file_and_creates_parent_directories(
+    fitted_arbitrary_shelf_model: TrainedArbitraryShelfModel, tmp_path: Path
+) -> None:
+    export_path = tmp_path / "nested" / "arbitrary_shelf_rspn.json"
+
+    fitted_arbitrary_shelf_model.save(export_path)
+
+    assert export_path.is_file()
+
+
+def test_load_restores_the_frequent_object_types(
+    fitted_arbitrary_shelf_model: TrainedArbitraryShelfModel, tmp_path: Path
+) -> None:
+    export_path = tmp_path / "arbitrary_shelf_rspn.json"
+    fitted_arbitrary_shelf_model.save(export_path)
+
+    restored = TrainedArbitraryShelfModel.load(export_path)
+
+    assert restored.frequent_object_types == {ObjectType.CUP, ObjectType.PLANT}
+
+
+def test_load_restores_a_circuit_that_can_still_be_grounded_and_sampled(
+    fitted_arbitrary_shelf_model: TrainedArbitraryShelfModel, tmp_path: Path
+) -> None:
+    """
+    A restored circuit must still answer queries through the same
+    ProbabilisticBackend path :func:`generate_shelf_with_arbitrary_objects`
+    uses, not just round-trip its structure.
+    """
+    export_path = tmp_path / "arbitrary_shelf_rspn.json"
+    fitted_arbitrary_shelf_model.save(export_path)
+
+    restored = TrainedArbitraryShelfModel.load(export_path)
+    backend = probabilistic_backend(restored.relational_probabilistic_circuit)
+
+    sample = next(iter(backend.evaluate(build_free_layer_query(2))))
+
+    assert len(sample.objects) == 2
+
+
+_SAVE_SCRIPT = """
+from krrood.ormatic.data_access_objects.helper import to_dao
+from probabilistic_model.probabilistic_circuit.relational.rspn import RelationalProbabilisticCircuit
+from experiments.orm.ormatic_interface import *  # noqa: F401,F403  registers ORM mappers
+from experiments.scene_generation_experiments.shelf_generation import TrainedArbitraryShelfModel
+from semantic_digital_twin.scene_generation.scene_schema import (
+    EGObject2D, EGPoint2D, EGRotation, EGScale, EGShelfLayer, ObjectType,
+)
+from pathlib import Path
+import sys
+
+def typed_object(object_type, object_id):
+    return EGObject2D(
+        id=object_id, room_id="room_1", place_id="shelf_1", object_type=object_type,
+        scale=EGScale(height=0.1, length=0.1, width=0.1),
+        position=EGPoint2D(x=0.0, y=0.0), orientation=EGRotation(x=0.0, y=0.0, z=0.0),
+        source_id=object_id,
+    )
+
+types = [ObjectType.CUP, ObjectType.PLANT, ObjectType.BOOK, ObjectType.SHELF, ObjectType.CHAIR]
+layers = [
+    EGShelfLayer(
+        scale=EGScale(height=0.02, length=0.3, width=0.4),
+        objects=[typed_object(t, f"{t.value}_{i}") for t in types],
+    )
+    for i in range(10)
+]
+rspn = RelationalProbabilisticCircuit(EGShelfLayer, min_samples_per_leaf=0.5).fit(
+    [to_dao(layer) for layer in layers]
+)
+TrainedArbitraryShelfModel(
+    relational_probabilistic_circuit=rspn, frequent_object_types=set(types)
+).save(Path(sys.argv[1]))
+"""
+
+_LOAD_SCRIPT = """
+from experiments.orm.ormatic_interface import *  # noqa: F401,F403  registers ORM mappers
+from experiments.scene_generation_experiments.shelf_generation import TrainedArbitraryShelfModel
+from experiments.scene_generation_experiments.collision_resolution import build_free_layer_query
+from experiments.scene_generation_experiments.rspn_sampling import probabilistic_backend
+from pathlib import Path
+import sys
+
+model = TrainedArbitraryShelfModel.load(Path(sys.argv[1]))
+backend = probabilistic_backend(model.relational_probabilistic_circuit)
+sample = next(iter(backend.evaluate(build_free_layer_query(2))))
+assert len(sample.objects) == 2
+print("GROUNDED_OK")
+"""
+
+
+def test_load_survives_a_different_hash_seed_process(tmp_path: Path) -> None:
+    """
+    A model exported by one process must still ground and sample correctly
+    when loaded by a different process with a different PYTHONHASHSEED.
+
+    Python randomizes hash() for str-backed types -- including the StrEnum
+    ObjectType -- independently per process, so fitting and loading in the
+    same process (as the other tests in this module do) cannot expose a
+    regression here: only two genuinely separate processes with different
+    seeds can.
+    """
+    export_path = tmp_path / "arbitrary_shelf_rspn.json"
+
+    subprocess.run(
+        [sys.executable, "-c", _SAVE_SCRIPT, str(export_path)],
+        env={**os.environ, "PYTHONHASHSEED": "1"},
+        check=True,
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", _LOAD_SCRIPT, str(export_path)],
+        env={**os.environ, "PYTHONHASHSEED": "2"},
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert "GROUNDED_OK" in result.stdout
 
 
 # ---------------------------------------------------------------------------
