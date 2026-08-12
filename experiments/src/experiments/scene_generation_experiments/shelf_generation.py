@@ -1,36 +1,32 @@
 from __future__ import annotations
 
 import dataclasses
-import enum
-import json
 import os
 import time
-from collections import Counter
+from collections import Counter, defaultdict
 from pathlib import Path
+from typing import Optional
 
+import numpy as np
+from sklearn.cluster import DBSCAN
 from sqlalchemy.orm import Session
 
-from krrood.adapters.json_serializer import from_json, to_json
+from experiments.scene_generation_experiments.rspn_model_storage import (
+    TrainedArbitraryShelfModel,
+)
 from krrood.ormatic.data_access_objects.helper import to_dao
 from krrood.ormatic.utils import create_engine
-from krrood.utils import get_full_class_name
 from probabilistic_model.probabilistic_circuit.relational.rspn import (
     RelationalProbabilisticCircuit,
 )
-from probabilistic_model.probabilistic_circuit.rx.probabilistic_circuit import (
-    UnivariateDiscreteLeaf,
-)
-from probabilistic_model.utils import MissingDict
-
 from experiments.orm.ormatic_interface import *  # type: ignore
-from experiments.scene_generation_experiments.book_shelf_generation import (
-    _extract_shelf_layers_from_place_id,
-)
 from experiments.scene_generation_experiments.utils import (
     _get_source_ids_for_objects,
     load_all_objects,
     rclpy_node,
     min_samples_per_leaf_for,
+    objects_for_rooms,
+    sampled_room_ids,
 )
 from experiments.scene_generation_experiments.collision_resolution import (
     build_free_layer_query,
@@ -51,7 +47,167 @@ from semantic_digital_twin.scene_generation.scene_schema import (
     EGScale,
     MeshCandidate,
     ObjectType,
+    EGObject2D,
+    wrap_angle_degrees,
 )
+
+
+def _extract_shelf_layers_from_place_id(
+    session: Session,
+    edge_margin_fraction: float = 0.10,
+    object_type: ObjectType | None = ObjectType.BOOK,
+) -> tuple[list[EGShelfLayer], list[EGObjectDAO]]:
+    """
+    Load a random sample of rooms and group their objects by the shelf
+    declared in their ``place_id``.
+
+    An object is considered a shelf occupant when ``"shelf"`` appears in its
+    ``place_id`` (e.g. ``room_b12d7278_shelf_51fd4e1e``).  Shelf membership
+    is determined purely from the dataset metadata rather than spatial
+    bounding-box containment.
+
+    After grouping, objects whose centre falls outside the shelf's XY footprint
+    (inset by *edge_margin_fraction*) are discarded so that the learned RSPN
+    does not place objects at positions where they would protrude from the shelf.
+
+    Rooms are sampled first, then loaded in full, so a shelf's contents are
+    never truncated by a row-count limit on the underlying object query.
+
+    :param edge_margin_fraction: Fraction of each shelf dimension to use as
+        an inset margin on X and Y when filtering out-of-bounds objects.
+    :param object_type: Only objects whose type equals this value are
+        included. Defaults to :attr:`ObjectType.BOOK` to reproduce the
+        original book-only behaviour; pass ``None`` to include every type.
+    :return: Extracted shelf layers and all loaded object DAOs.
+    """
+    objects = objects_for_rooms(session, sampled_room_ids(session))
+    return (
+        shelf_layers_from_objects(objects, edge_margin_fraction, object_type),
+        objects,
+    )
+
+
+def shelf_layers_from_objects(
+    objects: list[EGObjectDAO],
+    edge_margin_fraction: float = 0.10,
+    object_type: Optional[ObjectType] = ObjectType.BOOK,
+) -> list[EGShelfLayer]:
+    """
+    Group already-loaded *objects* into shelf layers, flattened across shelves.
+
+    :param objects: Object DAOs of the rooms to extract shelves from.
+    :param edge_margin_fraction: Fraction of each shelf dimension to use as an
+        inset margin on X and Y when filtering out-of-bounds objects.
+    :param object_type: Only objects whose type equals this value are included;
+        pass ``None`` to include every type.
+    :return: The extracted shelf layers.
+    """
+    return [
+        layer
+        for shelf_layers in shelf_layers_by_shelf(
+            objects, edge_margin_fraction, object_type
+        )
+        for layer in shelf_layers
+    ]
+
+
+def shelf_layers_by_shelf(
+    objects: list[EGObjectDAO],
+    edge_margin_fraction: float = 0.10,
+    object_type: ObjectType | None = ObjectType.BOOK,
+) -> list[list[EGShelfLayer]]:
+    """
+    Group already-loaded *objects* into shelf layers, one list per shelf, so a
+    caller that has loaded a room sample once can fit several circuits from it
+    instead of re-querying the database per circuit.
+
+    :param objects: Object DAOs of the rooms to extract shelves from.
+    :param edge_margin_fraction: Fraction of each shelf dimension to use as an
+        inset margin on X and Y when filtering out-of-bounds objects.
+    :param object_type: Only objects whose type equals this value are included;
+        pass ``None`` to include every type.
+    :return: The extracted layers, grouped per shelf, so a caller can draw how
+        many layers a generated shelf should have from the real distribution
+        rather than fixing it.
+    """
+    shelves: list[EGObjectDAO] = [
+        obj for obj in objects if obj.object_type == ObjectType.SHELF
+    ]
+
+    objects_by_place_id: defaultdict[str, list[EGObjectDAO]] = defaultdict(list)
+    for obj in objects:
+        objects_by_place_id[obj.place_id].append(obj)
+
+    shelf_layers: list[list[EGShelfLayer]] = []
+    for shelf in shelves:
+        members = objects_by_place_id[shelf.id]
+        if not members:
+            continue
+        max_relative_x = shelf.scale.width / 2 * (1 - edge_margin_fraction)
+        max_relative_y = shelf.scale.length / 2 * (1 - edge_margin_fraction)
+
+        within_bounds = [
+            obj
+            for obj in members
+            if (object_type is None or obj.object_type == object_type)
+            and abs(obj.position.x - shelf.position.x) <= max_relative_x
+            and abs(obj.position.y - shelf.position.y) <= max_relative_y
+        ]
+        if not within_bounds:
+            continue
+
+        z_positions = np.array([obj.position.z for obj in within_bounds]).reshape(-1, 1)
+        labels = DBSCAN(eps=0.05, min_samples=1).fit_predict(z_positions)
+
+        objects_per_layer: defaultdict[int, list[EGObject2D]] = defaultdict(list)
+        for obj, label in zip(within_bounds, labels):
+            # Store the pose in the shelf's content frame (the shelf yaw plus
+            # EGShelf.CONTENT_FRAME_YAW_OFFSET_DEGREES), the same frame
+            # :meth:`EGShelf.spawn_in_world` builds the corpus in. Rotating the
+            # world offset into that frame puts the contents' wide face spread on
+            # the corpus's wide axis; without it the spread lands on the shelf's
+            # shallow depth axis and contents overflow front and back.
+            content_frame_yaw = (
+                shelf.orientation.z + EGShelf.CONTENT_FRAME_YAW_OFFSET_DEGREES
+            )
+            shelf_local_offset = EGPoint2D(
+                x=obj.position.x - shelf.position.x,
+                y=obj.position.y - shelf.position.y,
+            ).rotated_into_frame(content_frame_yaw)
+            relative_object = EGObject2D(
+                id=obj.id,
+                room_id=obj.room_id,
+                place_id=obj.place_id,
+                object_type=obj.object_type,
+                scale=EGScale(
+                    width=obj.scale.width,
+                    length=obj.scale.length,
+                    height=obj.scale.height,
+                ),
+                position=EGPoint2D(x=shelf_local_offset.x, y=shelf_local_offset.y),
+                orientation=EGRotation(
+                    x=obj.orientation.x,
+                    y=obj.orientation.y,
+                    z=wrap_angle_degrees(obj.orientation.z - content_frame_yaw),
+                ),
+                source_id=obj.source_id,
+            )
+
+            objects_per_layer[label].append(relative_object)
+
+        shelf_layers.append(
+            [
+                EGShelfLayer(
+                    scale=EGScale(
+                        width=shelf.scale.width, length=shelf.scale.length, height=0.02
+                    ),
+                    objects=layer_objects,
+                )
+                for layer_objects in objects_per_layer.values()
+            ]
+        )
+
+    return shelf_layers
 
 
 def _frequent_object_types(
@@ -136,171 +292,12 @@ def _coarsen_mesh_candidate_types(
     ]
 
 
-DEFAULT_ARBITRARY_SHELF_MODEL_PATH = (
-    Path.home() / "Documents" / "sage-10k-models" / "arbitrary_shelf_rspn.json"
-)
-"""
-Where :func:`generate_shelf_with_arbitrary_objects` reads and writes its
-exported :class:`TrainedArbitraryShelfModel`.
-"""
-
-
-def _categorical_leaves(
-    circuit: RelationalProbabilisticCircuit,
-) -> list[UnivariateDiscreteLeaf]:
-    """
-    Collect every enum-valued leaf in *circuit*'s class circuit and,
-    recursively, every nested exchangeable part's circuit.
-
-    A leaf's own :attr:`~UnivariateLeaf.variable` distinguishes an
-    enum-valued (``Symbolic``, backed by a :class:`~random_events.set.Set`)
-    leaf from an integer-valued one (backed by a
-    :class:`~random_events.interval.Interval`, e.g. an aggregation count),
-    which this excludes since it needs no cross-process fix-up.
-
-    :param circuit: The relational circuit to search.
-    :return: Every enum-valued leaf found.
-    """
-    leaves = [
-        node
-        for node in (
-            circuit.class_probabilistic_circuit.nodes()
-            if circuit.class_probabilistic_circuit is not None
-            else []
-        )
-        if isinstance(node, UnivariateDiscreteLeaf)
-        and hasattr(node.variable.domain, "all_elements")
-    ]
-    for template in circuit.exchangeable_distribution_templates.values():
-        leaves.extend(_categorical_leaves(template.template_distribution))
-    return leaves
-
-
-def _categorical_hash_registry(
-    circuit: RelationalProbabilisticCircuit,
-) -> dict[str, int]:
-    """
-    Record ``hash(member)``, as computed in the current process, for every
-    enum member appearing in any of *circuit*'s enum-valued leaves.
-
-    :param circuit: The relational circuit to inspect.
-    :return: Mapping from ``"<enum class>#<member name>"`` to that member's
-        hash in the current process.
-    """
-    return {
-        f"{get_full_class_name(type(member))}#{member.name}": hash(member)
-        for leaf in _categorical_leaves(circuit)
-        for member in leaf.variable.domain.all_elements
-        if isinstance(member, enum.Enum)
-    }
-
-
-def _restore_categorical_hashes(
-    circuit: RelationalProbabilisticCircuit, saved_registry: dict[str, int]
-) -> None:
-    """
-    Rewrite every enum-valued leaf's probability-table keys from the hashes
-    *saved_registry* recorded to this process's own hashes for the same enum
-    members.
-
-    Python randomizes ``hash()`` for ``str``-backed types -- which includes
-    a :class:`~enum.StrEnum` such as :class:`ObjectType` -- independently per
-    process, so a leaf's fitted probabilities, keyed by ``hash(member)`` from
-    whichever process fit *circuit*, would otherwise no longer match any
-    domain element once evaluated in a different process, such as after
-    loading an exported model.
-
-    :param circuit: The relational circuit to fix up, mutated in place.
-    :param saved_registry: The registry :func:`_categorical_hash_registry`
-        produced in the process that fit *circuit*.
-    """
-    for leaf in _categorical_leaves(circuit):
-        translation = {
-            saved_registry[key]: hash(member)
-            for member in leaf.variable.domain.all_elements
-            if isinstance(member, enum.Enum)
-            and (key := f"{get_full_class_name(type(member))}#{member.name}")
-            in saved_registry
-        }
-        if not translation:
-            continue
-        leaf.distribution.probabilities = MissingDict(
-            float,
-            {
-                translation.get(key, key): probability
-                for key, probability in leaf.distribution.probabilities.items()
-            },
-        )
-
-
-@dataclasses.dataclass
-class TrainedArbitraryShelfModel:
-    """
-    A fitted arbitrary-shelf RSPN paired with the frequent object types its
-    training layers were coarsened against.
-
-    The two must always travel together: the circuit's ``ObjectType`` domain
-    is fixed by which types :func:`_coarsen_rare_object_types` kept at fit
-    time, so a mesh pool coarsened against a different ``frequent_object_types``
-    set would relabel types the circuit never saw, raising a domain mismatch
-    when the model is used later.
-    """
-
-    relational_probabilistic_circuit: RelationalProbabilisticCircuit
-    """
-    The fitted RSPN over :class:`EGShelfLayer`.
-    """
-
-    frequent_object_types: set[ObjectType]
-    """
-    The object types left unchanged when the training layers were coarsened;
-    every other type was replaced with ``ObjectType.OTHER``.
-    """
-
-    categorical_hash_registry: dict[str, int] = dataclasses.field(default_factory=dict)
-    """
-    Populated by :meth:`save` from the fitting process's own ``hash()`` of
-    every enum member the circuit's leaves reference, and used by
-    :meth:`load` to keep those leaves' probability tables addressable after
-    a cross-process reload. See :func:`_restore_categorical_hashes`.
-    """
-
-    @classmethod
-    def load(cls, path: Path) -> TrainedArbitraryShelfModel:
-        """
-        Load a model previously exported with :meth:`save`.
-
-        JSON has no set type, so the generic decoder restores
-        ``frequent_object_types`` as a list; it is converted back to a set
-        here to match the field's declared type.
-
-        :param path: File to read the exported model from.
-        :return: The restored model.
-        """
-        restored = from_json(json.loads(path.read_text()))
-        restored.frequent_object_types = set(restored.frequent_object_types)
-        _restore_categorical_hashes(
-            restored.relational_probabilistic_circuit,
-            restored.categorical_hash_registry,
-        )
-        return restored
-
-    def save(self, path: Path) -> None:
-        """
-        Export this model to *path* as JSON, creating parent directories as
-        needed.
-
-        :param path: File to write the exported model to.
-        """
-        self.categorical_hash_registry = _categorical_hash_registry(
-            self.relational_probabilistic_circuit
-        )
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(to_json(self)))
-
-
 def generate_shelf_with_arbitrary_objects(
-    node, model_path: Path = DEFAULT_ARBITRARY_SHELF_MODEL_PATH
+    node,
+    model_path: Path = Path.home()
+    / "Documents"
+    / "sage-10k-models"
+    / "arbitrary_shelf_rspn.json",
 ) -> None:
     """
     Train an RSPN on all object types found on shelves in the dataset and

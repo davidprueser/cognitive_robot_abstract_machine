@@ -38,9 +38,11 @@ from experiments.scene_generation_experiments.collision_resolution import (
 )
 from experiments.scene_generation_experiments.rspn_sampling import probabilistic_backend
 from experiments.scene_generation_experiments.shelf_generation import (
-    TrainedArbitraryShelfModel,
     _coarsen_mesh_candidate_types,
     _coarsen_rare_object_types,
+)
+from experiments.scene_generation_experiments.rspn_model_storage import (
+    TrainedArbitraryShelfModel,
 )
 from krrood.ormatic.data_access_objects.helper import to_dao
 from krrood.parametrization.parameterizer import UnderspecifiedParameters
@@ -80,7 +82,9 @@ class _MockShelfObject:
 
     object_type: ObjectType
     source_id: str
-    scale: EGScale = field(default_factory=lambda: EGScale(width=0.1, length=0.1, height=0.1))
+    scale: EGScale = field(
+        default_factory=lambda: EGScale(width=0.1, length=0.1, height=0.1)
+    )
     place_id: str = PlaceId.FLOOR
 
 
@@ -293,12 +297,15 @@ def test_no_downloader_never_attempts_a_mesh_pool_download(
     """
     books = [_MockShelfObject(object_type=ObjectType.BOOK, source_id="book_src")]
 
-    with patch(
-        "experiments.scene_generation_experiments.utils.build_source_id_to_path",
-        return_value=source_path_map,
-    ), patch(
-        "experiments.scene_generation_experiments.utils._ensure_minimum_mesh_pool"
-    ) as ensure_minimum_mesh_pool:
+    with (
+        patch(
+            "experiments.scene_generation_experiments.utils.build_source_id_to_path",
+            return_value=source_path_map,
+        ),
+        patch(
+            "experiments.scene_generation_experiments.utils._ensure_minimum_mesh_pool"
+        ) as ensure_minimum_mesh_pool,
+    ):
         _get_source_ids_for_objects(books)
 
     ensure_minimum_mesh_pool.assert_not_called()
@@ -582,9 +589,9 @@ def fitted_arbitrary_shelf_model() -> TrainedArbitraryShelfModel:
         )
         for index in range(5)
     ]
-    rspn = RelationalProbabilisticCircuit(
-        EGShelfLayer, min_samples_per_leaf=0.5
-    ).fit([to_dao(layer) for layer in layers])
+    rspn = RelationalProbabilisticCircuit(EGShelfLayer, min_samples_per_leaf=0.5).fit(
+        [to_dao(layer) for layer in layers]
+    )
     return TrainedArbitraryShelfModel(
         relational_probabilistic_circuit=rspn,
         frequent_object_types={ObjectType.CUP, ObjectType.PLANT},
@@ -933,7 +940,9 @@ def test_mesh_type_matcher_excludes_candidates_larger_than_the_budget() -> None:
     matcher = _MeshTypeMatcher(candidates=[fitting, oversized])
     budget = EGScale(width=0.5, length=0.5, height=0.5)
 
-    results = {matcher.random_match(ObjectType.BOOK, max_extents=budget) for _ in range(30)}
+    results = {
+        matcher.random_match(ObjectType.BOOK, max_extents=budget) for _ in range(30)
+    }
     assert results == {fitting}
 
 
@@ -1044,7 +1053,9 @@ def test_shelf_contents_round_trip_from_world_pose_through_extraction_and_spawni
     objects_dir = tmp_path / "objects"
     objects_dir.mkdir()
     shutil.copy(resources_root / "chair.ply", objects_dir / "book_src.ply")
-    shutil.copy(resources_root / "chair_texture.png", objects_dir / "book_src_texture.png")
+    shutil.copy(
+        resources_root / "chair_texture.png", objects_dir / "book_src_texture.png"
+    )
 
     shelf_world_x, shelf_world_y, shelf_yaw = 10.0, 5.0, 90.0
     book_world_x, book_world_y = 10.3, 5.2

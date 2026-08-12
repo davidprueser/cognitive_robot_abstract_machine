@@ -17,7 +17,6 @@ from experiments.scene_generation_experiments.data_preprocessing import (
 from semantic_digital_twin.scene_generation.scene_schema import (
     MeshCandidate,
     ObjectType,
-    PlaceId,
 )
 
 from semantic_digital_twin.utils import rclpy_installed
@@ -63,6 +62,7 @@ def min_samples_per_leaf_for(training_row_count: int) -> float:
         return 1.0
     overfitting_fraction = MINIMUM_ROWS_PER_LEAF / training_row_count
     return min(max(overfitting_fraction, leaf_budget_fraction), 1.0)
+
 
 DEFAULT_TRAINING_ROOM_COUNT = 1500
 """
@@ -178,10 +178,7 @@ def objects_of_type(session: Session, object_type: ObjectType) -> list[EGObjectD
     :return: The matching object DAOs.
     """
     return session.scalars(
-        select(EGObjectDAO)
-        .where(EGObjectDAO.object_type == object_type)
-        .where(EGObjectDAO.place_id == PlaceId.FLOOR)
-        .distinct()
+        select(EGObjectDAO).where(EGObjectDAO.object_type == object_type).distinct()
     ).all()
 
 
@@ -197,23 +194,14 @@ def sampled_room_ids(
     before its true membership is reached.
 
     :param session: Database session to query room ids from.
-    :param room_count: Maximum number of distinct room ids to return.
     :return: Sampled room ids.
     """
-    distinct_room_ids = select(EGObjectDAO.room_id).distinct().subquery()
-    return list(
-        session.scalars(
-            select(distinct_room_ids.c.room_id)
-            .order_by(func.random())
-            .limit(room_count)
-        ).all()
-    )
+    return session.scalars(select(EGObjectDAO.room_id).distinct()).all()
 
 
 def objects_for_rooms(
     session: Session,
     room_ids: Sequence[str],
-    place_id: PlaceId | None = None,
 ) -> list[EGObjectDAO]:
     """
     Load every object DAO belonging to any of *room_ids*, eagerly joining
@@ -237,8 +225,6 @@ def objects_for_rooms(
     :return: All matching object DAOs.
     """
     statement = select(EGObjectDAO).where(EGObjectDAO.room_id.in_(room_ids))
-    if place_id is not None:
-        statement = statement.where(EGObjectDAO.place_id == place_id)
     return session.scalars(
         statement.options(
             joinedload(EGObjectDAO.scale),
@@ -253,7 +239,6 @@ def _get_source_ids_for_objects(
     object_type: ObjectType | None = ObjectType.BOOK,
     downloader: Sage10kSceneDownloader | None = None,
     minimum_candidates: int = 5,
-    place_id: PlaceId | None = None,
 ) -> list[MeshCandidate]:
     """
     Build the pool of mesh candidates for objects of *object_type* that have a
@@ -271,13 +256,6 @@ def _get_source_ids_for_objects(
         the pool is whatever is already cached.
     :param minimum_candidates: Target number of distinct meshes to have
         available; only consulted when *downloader* is given.
-    :param place_id: When given, only objects resting on this place are
-        included. Pass :attr:`PlaceId.FLOOR` when building a pool for a
-        furniture type, so small items that merely carry a furniture word in
-        their raw name -- a ``"bookchair..."`` book lying on a table is
-        generalized to :attr:`ObjectType.CHAIR` -- cannot supply the mesh.
-        ``None`` includes objects wherever they rest, which is what a pool for
-        shelf or table contents needs.
     :return: Pool of mesh candidates, one per matching object with a
         resolvable PLY mesh.
     """
@@ -286,7 +264,6 @@ def _get_source_ids_for_objects(
         obj
         for obj in objects
         if (object_type is None or obj.object_type == object_type)
-        and (place_id is None or obj.place_id == place_id)
     ]
     if downloader is not None:
         _ensure_minimum_mesh_pool(
@@ -367,4 +344,3 @@ def build_source_id_to_path(
             if texture_file.exists():
                 mapping[ply_file.stem] = scene_dir
     return mapping
-

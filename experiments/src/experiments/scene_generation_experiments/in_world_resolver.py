@@ -22,8 +22,8 @@ from semantic_digital_twin.reasoning.predicates import is_supported_by
 from semantic_digital_twin.scene_generation.scene_schema import (
     EGPoint2D,
     EGShelf,
-    SpawnedLayout,
     SpawnedShelf,
+    SpawnedLayout,
 )
 from semantic_digital_twin.world_description.world_entity import (
     Body,
@@ -258,12 +258,26 @@ class InWorldLayoutResolver:
     Upper bound on repair passes before giving up on an unsatisfiable layout.
     """
 
+    stuck_after_passes: int = 3
+    """
+    Consecutive passes a member may remain in violation, unresolved, before
+    it stops being resampled and is left for the final drop instead.
+
+    A redraw is an independent sample from roughly the same conditional
+    distribution each time, so a member whose redrawn pose keeps landing in
+    the same collision pass after pass is not converging -- it is only
+    burning passes' worth of grounding cost on an object that was never
+    going to resolve, at the expense of the budget every other member in the
+    layout shares.
+    """
+
     @classmethod
     def for_shelf(
         cls,
         shelf: EGShelf,
         rspn: RelationalProbabilisticCircuit,
         max_passes: int = 10,
+        stuck_after_passes: int = 3,
     ) -> InWorldLayoutResolver:
         """
         Spawn *shelf* and build one collision group per layer, each supported by
@@ -272,11 +286,18 @@ class InWorldLayoutResolver:
         :param shelf: The sampled shelf to spawn and repair.
         :param rspn: The fitted circuit used to redraw offending object poses.
         :param max_passes: Upper bound on repair passes.
+        :param stuck_after_passes: Consecutive passes a member may remain in
+            violation before it stops being resampled.
         :return: A resolver ready to repair the spawned shelf.
         """
         spawned = shelf.spawn_in_world()
         groups = cls._shelf_layer_groups(shelf, spawned, probabilistic_backend(rspn))
-        return cls(spawned=spawned, groups=groups, max_passes=max_passes)
+        return cls(
+            spawned=spawned,
+            groups=groups,
+            max_passes=max_passes,
+            stuck_after_passes=stuck_after_passes,
+        )
 
     @staticmethod
     def _shelf_layer_groups(
@@ -337,12 +358,16 @@ class InWorldLayoutResolver:
         :return: Offending member indices per group index; empty when the layout
             came out clean.
         """
+        stuck_counts: dict[tuple[int, int], int] = {}
         for _ in range(self.max_passes):
             self._clamp_groups_to_bounds()
             remaining = self._remaining_violations(detector)
             if not remaining:
                 return {}
-            for group_index, violations in remaining.items():
+            to_resample, stuck_counts = self._resamplable(remaining, stuck_counts)
+            if not to_resample:
+                break
+            for group_index, violations in to_resample.items():
                 self.groups[group_index].resample_and_move(violations)
 
         self._clamp_groups_to_bounds()
@@ -351,6 +376,37 @@ class InWorldLayoutResolver:
             return {}
         self._drop_objects(remaining)
         return self._remaining_violations(detector)
+
+    def _resamplable(
+        self,
+        remaining: dict[int, set[int]],
+        stuck_counts: dict[tuple[int, int], int],
+    ) -> tuple[dict[int, set[int]], dict[tuple[int, int], int]]:
+        """
+        Split *remaining* into members still worth resampling and an updated
+        stuck-pass count for each, dropping the count for any member no
+        longer in violation so it gets a fresh budget if it offends again
+        later for an unrelated reason.
+
+        :param remaining: Offending member indices per group index.
+        :param stuck_counts: Consecutive violation-pass counts from the
+            previous pass, keyed by ``(group_index, member_index)``.
+        :return: Members to resample per group index (groups with none are
+            omitted), and the updated stuck counts.
+        """
+        updated_counts: dict[tuple[int, int], int] = {}
+        to_resample: dict[int, set[int]] = {}
+        for group_index, violations in remaining.items():
+            resamplable = set()
+            for member_index in violations:
+                key = (group_index, member_index)
+                count = stuck_counts.get(key, 0) + 1
+                updated_counts[key] = count
+                if count <= self.stuck_after_passes:
+                    resamplable.add(member_index)
+            if resamplable:
+                to_resample[group_index] = resamplable
+        return to_resample, updated_counts
 
     def _clamp_groups_to_bounds(self) -> None:
         """
