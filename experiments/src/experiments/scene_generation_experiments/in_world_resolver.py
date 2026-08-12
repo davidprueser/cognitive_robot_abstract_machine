@@ -1,18 +1,22 @@
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass, field
+from itertools import combinations
 
-from experiments.scene_generation_experiments.collision_resolution import (
-    build_free_layer_query,
-    build_pose_resample_query,
-    in_world_colliding_indices,
-)
 from experiments.scene_generation_experiments.exceptions import LayoutResolutionError
-from experiments.scene_generation_experiments.rspn_sampling import probabilistic_backend
+from experiments.scene_generation_experiments.rspn_sampling import (
+    build_layer_query,
+    probabilistic_backend,
+)
 from krrood.entity_query_language.backends import ProbabilisticBackend
 from krrood.entity_query_language.exceptions import NoSolutionFound
 from probabilistic_model.probabilistic_circuit.relational.rspn import (
     RelationalProbabilisticCircuit,
+)
+from semantic_digital_twin.collision_checking.collision_matrix import (
+    CollisionCheck,
+    CollisionMatrix,
 )
 from semantic_digital_twin.collision_checking.trimesh_collision_detector import (
     FCLCollisionDetector,
@@ -27,6 +31,37 @@ from semantic_digital_twin.world_description.world_entity import (
     Body,
     KinematicStructureEntity,
 )
+
+
+def minimal_resample_set(colliding_pairs: set[tuple[int, int]]) -> set[int]:
+    """
+    Return a minimal set of indices whose removal breaks every colliding pair.
+
+    Greedy minimum vertex cover: repeatedly discard the index involved in the
+    most remaining colliding pairs, breaking ties by the higher index for
+    reproducibility. The result depends only on which indices collide, not on
+    the order the pairs are reported, so callers get the same, stable choice
+    regardless of how the underlying collision detector orders its contacts.
+
+    :param colliding_pairs: Pairs of indices that collide, each a sorted
+        ``(low, high)`` tuple.
+    :return: Indices to resample so that no colliding pair remains.
+    """
+    remaining_pairs = set(colliding_pairs)
+    indices_to_resample: set[int] = set()
+    while remaining_pairs:
+        involvement_counts = Counter(
+            index for pair in remaining_pairs for index in pair
+        )
+        most_colliding_index = min(
+            involvement_counts,
+            key=lambda index: (-involvement_counts[index], -index),
+        )
+        indices_to_resample.add(most_colliding_index)
+        remaining_pairs = {
+            pair for pair in remaining_pairs if most_colliding_index not in pair
+        }
+    return indices_to_resample
 
 
 def _evaluate_first_supported(backend: ProbabilisticBackend, *queries):
@@ -44,7 +79,7 @@ def _evaluate_first_supported(backend: ProbabilisticBackend, *queries):
       mass, and the neighbours drift further from the training distribution
       with each repair pass.
     - **The layer's own scale.** Every layer of a shelf is conditioned on the
-      reference layer's drawn scale (see :func:`build_layer_query_with_fixed_scale`),
+      reference layer's drawn scale (see :func:`build_layer_query`),
       so a later layer's objects are resampled against a scale the circuit only
       ever saw paired with a different layer's contents. Relaxing only the
       neighbours keeps that scale pinned and fails again.
@@ -76,10 +111,9 @@ class ShelfLayerGroup:
     owning layer's objects.
     """
 
-    supporting_body: Body | None
+    supporting_body: Body
     """
-    The body the members must rest on, or ``None`` when the members are not
-    checked for support (e.g. members standing on the floor).
+    The body the members must rest on.
     """
 
     shelf: EGShelf
@@ -113,16 +147,64 @@ class ShelfLayerGroup:
 
     def unsupported_indices(self) -> set[int]:
         """
-        Return the indices of members that their supporting body does not
-        support; empty when the group has no supporting body.
+        Return the indices of members that :attr:`supporting_body` does not
+        support.
         """
-        if self.supporting_body is None:
-            return set()
         return {
             index
             for index, body in self.bodies.items()
             if not is_supported_by(body, self.supporting_body)
         }
+
+    def colliding_indices(self, detector: FCLCollisionDetector) -> set[int]:
+        """
+        Return a minimal set of member indices whose resampling clears every
+        real-mesh collision among this group's members, and against its
+        :attr:`static_obstacles`, in the spawned world.
+
+        A body that hits a static obstacle (e.g. a shelf's corpus wall) is
+        always resampled directly: unlike an inter-body collision, there is
+        no choice of *which* side to move.
+
+        :param detector: A collision detector already synced to the world
+            the members live in; it re-syncs on the state changes body moves
+            emit.
+        :return: Indices whose bodies must be resampled to remove all
+            collisions.
+        """
+        body_to_index = {body: index for index, body in self.bodies.items()}
+        collision_checks = {
+            CollisionCheck(body_a=body_a, body_b=body_b, distance=0.0)
+            for body_a, body_b in combinations(body_to_index, 2)
+        } | {
+            CollisionCheck(body_a=body, body_b=obstacle, distance=0.0)
+            for body in body_to_index
+            for obstacle in self.static_obstacles
+        }
+        if not collision_checks:
+            return set()
+        result = detector.check_collisions(
+            CollisionMatrix(collision_checks=collision_checks)
+        )
+        if not result.any():
+            return set()
+        obstacles = set(self.static_obstacles)
+        colliding_pairs: set[tuple[int, int]] = set()
+        obstacle_hit_indices: set[int] = set()
+        for contact in result.contacts:
+            if contact.body_a in obstacles:
+                obstacle_hit_indices.add(body_to_index[contact.body_b])
+            elif contact.body_b in obstacles:
+                obstacle_hit_indices.add(body_to_index[contact.body_a])
+            else:
+                colliding_pairs.add(
+                    tuple(
+                        sorted(
+                            (body_to_index[contact.body_a], body_to_index[contact.body_b])
+                        )
+                    )
+                )
+        return minimal_resample_set(colliding_pairs) | obstacle_hit_indices
 
     def clamp_to_bounds(self) -> None:
         """
@@ -169,11 +251,9 @@ class ShelfLayerGroup:
 
         new_layer = _evaluate_first_supported(
             self.backend,
-            build_pose_resample_query(
-                fixed_objects, len(resampled_objects), layer.scale
-            ),
-            build_pose_resample_query([], len(resampled_objects), layer.scale),
-            build_free_layer_query(len(resampled_objects)),
+            build_layer_query(fixed_objects, len(resampled_objects), layer.scale),
+            build_layer_query([], len(resampled_objects), layer.scale),
+            build_layer_query(free_count=len(resampled_objects)),
         )
         redrawn_objects = new_layer.objects[-len(resampled_objects) :]
 
@@ -413,9 +493,7 @@ class InWorldLayoutResolver:
             group_index: violations
             for group_index, group in enumerate(self.groups)
             if (
-                violations := in_world_colliding_indices(
-                    detector, group.bodies, group.static_obstacles
-                )
+                violations := group.colliding_indices(detector)
                 | group.unsupported_indices()
             )
         }

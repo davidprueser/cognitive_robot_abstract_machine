@@ -2946,6 +2946,11 @@ class ShelfLayerGroupDAO(
 
     layer_index: Mapped[builtins.int] = mapped_column(use_existing_column=True)
 
+    supporting_body_id: Mapped[int] = mapped_column(
+        ForeignKey("BodyDAO.database_id", use_alter=True),
+        nullable=True,
+        use_existing_column=True,
+    )
     shelf_id: Mapped[int] = mapped_column(
         ForeignKey("EGShelfDAO.database_id", use_alter=True),
         nullable=True,
@@ -2957,6 +2962,9 @@ class ShelfLayerGroupDAO(
         use_existing_column=True,
     )
 
+    supporting_body: Mapped[BodyDAO] = relationship(
+        "BodyDAO", uselist=False, foreign_keys=[supporting_body_id], post_update=True
+    )
     shelf: Mapped[EGShelfDAO] = relationship(
         "EGShelfDAO", uselist=False, foreign_keys=[shelf_id], post_update=True
     )

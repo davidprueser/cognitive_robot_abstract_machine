@@ -25,14 +25,13 @@ from probabilistic_model.probabilistic_circuit.relational.rspn import (
 )
 
 from experiments.orm.ormatic_interface import *  # type: ignore
-from experiments.scene_generation_experiments.collision_resolution import (
-    build_free_layer_query,
-    build_layer_query_with_fixed_scale,
-)
 from experiments.scene_generation_experiments.in_world_resolver import (
     InWorldLayoutResolver,
 )
-from experiments.scene_generation_experiments.rspn_sampling import probabilistic_backend
+from experiments.scene_generation_experiments.rspn_sampling import (
+    build_layer_query,
+    probabilistic_backend,
+)
 from semantic_digital_twin.adapters.ros.visualization.viz_marker import (
     VizMarkerPublisher,
 )
@@ -88,14 +87,14 @@ def generate_book_shelf(node, downloader: Sage10kSceneDownloader | None = None) 
     objects_per_layer = 3
     layer_count = 4
     reference_layer = next(
-        iter(probability_backend.evaluate(build_free_layer_query(objects_per_layer)))
+        iter(probability_backend.evaluate(build_layer_query(free_count=objects_per_layer)))
     )
     target_scale = reference_layer.scale
     remaining_layers = [
         next(
             iter(
                 probability_backend.evaluate(
-                    build_layer_query_with_fixed_scale(objects_per_layer, target_scale)
+                    build_layer_query(free_count=objects_per_layer, scale=target_scale)
                 )
             )
         )

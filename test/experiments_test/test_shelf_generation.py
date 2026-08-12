@@ -29,12 +29,10 @@ from experiments.scene_generation_experiments.utils import (
     load_objects_with_cached_meshes,
     objects_of_type,
 )
-from experiments.scene_generation_experiments.collision_resolution import (
-    build_free_layer_query,
-    build_layer_query_with_fixed_scale,
-    build_pose_resample_query,
+from experiments.scene_generation_experiments.rspn_sampling import (
+    build_layer_query,
+    probabilistic_backend,
 )
-from experiments.scene_generation_experiments.rspn_sampling import probabilistic_backend
 from experiments.scene_generation_experiments.shelf_generation import (
     _coarsen_mesh_candidate_types,
     _coarsen_rare_object_types,
@@ -45,7 +43,6 @@ from experiments.scene_generation_experiments.rspn_model_storage import (
     TrainedArbitraryShelfModel,
 )
 from krrood.ormatic.data_access_objects.helper import to_dao
-from krrood.parametrization.parameterizer import UnderspecifiedParameters
 from krrood.ormatic.utils import create_engine
 from probabilistic_model.probabilistic_circuit.relational.rspn import (
     RelationalProbabilisticCircuit,
@@ -516,6 +513,108 @@ def test_within_bounds_filter_excludes_object_outside_rotated_footprint() -> Non
     assert layers_by_shelf == []
 
 
+def _cache_off_center_mesh(tmp_path: Path, source_id: str) -> Path:
+    """
+    Write a box mesh, cached under *source_id*, whose local origin (0, 0, 0)
+    sits at a corner rather than its bounding-box center: it spans
+    x in [0, 0.4], y in [-0.1, 0.1] -- true bbox center at local (0.2, 0.0).
+
+    :return: The scene directory :func:`build_source_id_to_path` expects.
+    """
+    scene_dir = tmp_path / "scene_1"
+    objects_dir = scene_dir / "objects"
+    objects_dir.mkdir(parents=True)
+    box = trimesh.creation.box(extents=[0.4, 0.2, 0.2])
+    box.apply_translation([0.2, 0.0, 0.1])
+    box.export(str(objects_dir / f"{source_id}.ply"))
+    (objects_dir / f"{source_id}_texture.png").write_bytes(b"")
+    return scene_dir
+
+
+def test_relative_position_is_corrected_by_the_meshs_bounding_box_center(
+    tmp_path: Path,
+) -> None:
+    """
+    The extracted relative position must reflect the mesh's true
+    bounding-box center, not the object's recorded (mesh-local-origin)
+    position -- a sage10k object's position is not guaranteed to sit at its
+    mesh's bbox center, the way a room's position is documented to be its
+    lower-left corner rather than its center.
+    """
+    scene_dir = _cache_off_center_mesh(tmp_path, "book_src")
+    shelf = EGObjectDAO(
+        id=_SHELF_ID,
+        room_id="room_1",
+        place_id="floor",
+        source_id="shelf_src",
+        object_type=ObjectType.SHELF,
+        scale=EGScaleDAO(height=0.02, length=2.0, width=2.0),
+        position=EGPositionDAO(x=0.0, y=0.0, z=1.0),
+        orientation=EGRotationDAO(x=0.0, y=0.0, z=0.0),
+    )
+    book = EGObjectDAO(
+        id="book_1",
+        room_id="room_1",
+        place_id=_SHELF_ID,
+        source_id="book_src",
+        object_type=ObjectType.BOOK,
+        scale=EGScaleDAO(height=0.2, length=0.1, width=0.1),
+        position=EGPositionDAO(x=0.0, y=0.0, z=0.5),
+        orientation=EGRotationDAO(x=0.0, y=0.0, z=0.0),
+    )
+
+    with patch(
+        "experiments.scene_generation_experiments.shelf_generation.build_source_id_to_path",
+        return_value={"book_src": scene_dir},
+    ):
+        layers_by_shelf = shelf_layers_by_shelf([shelf, book], edge_margin_fraction=0.10)
+
+    extracted = layers_by_shelf[0][0].objects[0]
+    # shelf yaw=0 -> content_frame_yaw=90; a true world offset of (0.2, 0.0)
+    # rotates into content-frame (0.0, -0.2).
+    assert extracted.position.x == pytest.approx(0.0, abs=1e-9)
+    assert extracted.position.y == pytest.approx(-0.2, abs=1e-9)
+
+
+def test_relative_position_falls_back_to_recorded_position_without_a_cached_mesh() -> (
+    None
+):
+    """
+    Extraction must not fail when an object's mesh isn't cached locally --
+    it falls back to the recorded (uncorrected) position instead.
+    """
+    shelf = EGObjectDAO(
+        id=_SHELF_ID,
+        room_id="room_1",
+        place_id="floor",
+        source_id="shelf_src",
+        object_type=ObjectType.SHELF,
+        scale=EGScaleDAO(height=0.02, length=2.0, width=2.0),
+        position=EGPositionDAO(x=0.0, y=0.0, z=1.0),
+        orientation=EGRotationDAO(x=0.0, y=0.0, z=0.0),
+    )
+    book = EGObjectDAO(
+        id="book_1",
+        room_id="room_1",
+        place_id=_SHELF_ID,
+        source_id="not_cached_src",
+        object_type=ObjectType.BOOK,
+        scale=EGScaleDAO(height=0.2, length=0.1, width=0.1),
+        position=EGPositionDAO(x=0.3, y=0.1, z=0.5),
+        orientation=EGRotationDAO(x=0.0, y=0.0, z=0.0),
+    )
+
+    with patch(
+        "experiments.scene_generation_experiments.shelf_generation.build_source_id_to_path",
+        return_value={},
+    ):
+        layers_by_shelf = shelf_layers_by_shelf([shelf, book], edge_margin_fraction=0.10)
+
+    extracted = layers_by_shelf[0][0].objects[0]
+    assert extracted.position.x == pytest.approx(0.1, abs=1e-9)
+    assert extracted.position.y == pytest.approx(-0.3, abs=1e-9)
+
+
 # ---------------------------------------------------------------------------
 # Object-type coarsening – keep RSPN training's categorical domain small
 # ---------------------------------------------------------------------------
@@ -699,7 +798,7 @@ def test_load_restores_a_circuit_that_can_still_be_grounded_and_sampled(
     restored = TrainedArbitraryShelfModel.load(export_path)
     backend = probabilistic_backend(restored.relational_probabilistic_circuit)
 
-    sample = next(iter(backend.evaluate(build_free_layer_query(2))))
+    sample = next(iter(backend.evaluate(build_layer_query(free_count=2))))
 
     assert len(sample.objects) == 2
 
@@ -742,14 +841,13 @@ TrainedArbitraryShelfModel(
 _LOAD_SCRIPT = """
 from experiments.orm.ormatic_interface import *  # noqa: F401,F403  registers ORM mappers
 from experiments.scene_generation_experiments.shelf_generation import TrainedArbitraryShelfModel
-from experiments.scene_generation_experiments.collision_resolution import build_free_layer_query
-from experiments.scene_generation_experiments.rspn_sampling import probabilistic_backend
+from experiments.scene_generation_experiments.rspn_sampling import build_layer_query, probabilistic_backend
 from pathlib import Path
 import sys
 
 model = TrainedArbitraryShelfModel.load(Path(sys.argv[1]))
 backend = probabilistic_backend(model.relational_probabilistic_circuit)
-sample = next(iter(backend.evaluate(build_free_layer_query(2))))
+sample = next(iter(backend.evaluate(build_layer_query(free_count=2))))
 assert len(sample.objects) == 2
 print("GROUNDED_OK")
 """
@@ -820,86 +918,6 @@ def test_each_layer_slab_uses_its_own_scale() -> None:
     )
     assert slab_face_widths[0] == pytest.approx(0.4)
     assert slab_face_widths[1] == pytest.approx(0.8)
-
-
-# ---------------------------------------------------------------------------
-# Fixed-scale layer query – conditioning on EGSize during RSPN sampling
-# ---------------------------------------------------------------------------
-
-
-def test_build_layer_query_with_fixed_scale_conditions_scale() -> None:
-    """
-    build_layer_query_with_fixed_scale must register the target scale's width
-    and length as conditioning assignments so the RSPN draws positions that are
-    appropriate for that specific scale.
-    """
-    target_scale = EGScale(width=0.5, length=0.3, height=0.02)
-    query = build_layer_query_with_fixed_scale(2, target_scale)
-    params = UnderspecifiedParameters(query)
-    conditioned_names = {
-        variable.name
-        for variable in params.conditioning_assignments_from_literal_values
-    }
-    assert any("scale.width" in name for name in conditioned_names)
-    assert any("scale.length" in name for name in conditioned_names)
-
-
-def test_build_free_layer_query_does_not_condition_scale() -> None:
-    """
-    build_free_layer_query must leave scale as a free variable so the RSPN
-    samples scale from its marginal — the reference layer for the fixed-scale
-    workflow is obtained this way.
-    """
-    from experiments.scene_generation_experiments.collision_resolution import (
-        build_free_layer_query,
-    )
-
-    query = build_free_layer_query(2)
-    params = UnderspecifiedParameters(query)
-    conditioned_names = {
-        variable.name
-        for variable in params.conditioning_assignments_from_literal_values
-    }
-    assert not any("scale.width" in name for name in conditioned_names)
-    assert not any("scale.length" in name for name in conditioned_names)
-
-
-def test_build_pose_resample_query_frees_resampled_scale_and_pose() -> None:
-    """
-    build_pose_resample_query must condition only the fixed objects' scale and
-    pose, leaving the resampled object's scale, position, and orientation all
-    free to be redrawn.
-
-    Conditioning a resampled slot on its own scale pins the query to the
-    single training example that combination of evidence (its own scale plus
-    every fixed neighbour's exact pose) came from, collapsing the RSPN's
-    posterior for that slot's position back to its original, still-colliding
-    value -- observed as a repair pass that redraws the exact same pose every
-    time and so can never actually resolve a collision. Regression test for
-    that collapse.
-    """
-    query = build_pose_resample_query(
-        [_typed_object(ObjectType.BOOK, "fixed")],
-        len([_typed_object(ObjectType.BOOK, "resampled")]),
-        EGScale(width=0.5, length=0.3, height=0.02),
-    )
-    params = UnderspecifiedParameters(query)
-    conditioned_names = {
-        variable.name
-        for variable in params.conditioning_assignments_from_literal_values
-    }
-    conditioned_positions = [name for name in conditioned_names if "position.x" in name]
-    # "objects[" scopes to per-object scale, excluding the layer's own
-    # (always-fixed) EGShelfLayer.scale.width.
-    conditioned_scales = [
-        name
-        for name in conditioned_names
-        if "objects[" in name and "scale.width" in name
-    ]
-    # Only the one fixed object's position and scale are conditioned; the
-    # resampled one's are left entirely free.
-    assert len(conditioned_positions) == 1
-    assert len(conditioned_scales) == 1
 
 
 # ---------------------------------------------------------------------------
