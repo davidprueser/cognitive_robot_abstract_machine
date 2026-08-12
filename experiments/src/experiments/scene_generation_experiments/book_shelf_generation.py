@@ -96,7 +96,10 @@ def _extract_shelf_layers_from_place_id(
     :return: Extracted shelf layers and all loaded object DAOs.
     """
     objects = objects_for_rooms(session, sampled_room_ids(session, room_count))
-    return shelf_layers_from_objects(objects, edge_margin_fraction, object_type), objects
+    return (
+        shelf_layers_from_objects(objects, edge_margin_fraction, object_type),
+        objects,
+    )
 
 
 def shelf_layers_from_objects(
@@ -204,6 +207,7 @@ def shelf_layers_by_shelf(
                 ),
                 source_id=obj.source_id,
             )
+            print(relative_object)
             objects_per_layer[label].append(relative_object)
 
         shelf_layers.append(
@@ -244,7 +248,10 @@ def generate_book_shelf(node, downloader: Sage10kSceneDownloader | None = None) 
     shelf_layer_data_access_objects = [to_dao(layer) for layer in shelf_layers]
 
     rspn = RelationalProbabilisticCircuit(
-        EGShelfLayer, min_samples_per_leaf=min_samples_per_leaf_for(sum(len(layer.objects) for layer in shelf_layers))
+        EGShelfLayer,
+        min_samples_per_leaf=min_samples_per_leaf_for(
+            sum(len(layer.objects) for layer in shelf_layers)
+        ),
     )
     rspn = rspn.fit(shelf_layer_data_access_objects)
 

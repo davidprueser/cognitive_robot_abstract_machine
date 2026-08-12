@@ -20,6 +20,7 @@ from semantic_digital_twin.collision_checking.trimesh_collision_detector import 
 )
 from semantic_digital_twin.reasoning.predicates import is_supported_by
 from semantic_digital_twin.scene_generation.scene_schema import (
+    EGPoint2D,
     EGShelf,
     SpawnedLayout,
     SpawnedShelf,
@@ -105,6 +106,13 @@ class SpawnedCollisionGroup(ABC):
             if not is_supported_by(body, self.supporting_body)
         }
 
+    def clamp_to_bounds(self) -> None:
+        """
+        Move any member positioned outside this group's own footprint back
+        to its nearest in-bounds position; a no-op when the group does not
+        bound its members' positions.
+        """
+
     @abstractmethod
     def resample_and_move(self, indices: set[int]) -> None:
         """
@@ -143,6 +151,39 @@ class ShelfLayerGroup(SpawnedCollisionGroup):
     The single-sample backend over this layer's fitted circuit, from which
     offending object poses are redrawn.
     """
+
+    def clamp_to_bounds(self) -> None:
+        """
+        Move any object positioned outside this layer's own footprint back
+        to its nearest in-bounds position.
+
+        A resampled object is always re-seated at its previous resting
+        height (see :meth:`resample_and_move`), so nothing else re-checks
+        whether its X/Y position stayed within the layer -- an RSPN sample
+        landing outside the footprint would otherwise keep being treated as
+        a collision-style violation and sent through an expensive resample
+        every pass, which is not conditioned on staying in bounds and can
+        land outside it again just as easily. Moving it back directly is a
+        plain, cheap geometric fix that always succeeds.
+        """
+        layer = self.shelf.layers[self.layer_index]
+        half_width = layer.scale.width / 2
+        half_length = layer.scale.length / 2
+        for index, object_2d in enumerate(layer.objects):
+            if index not in self.bodies:
+                continue
+            max_x = max(half_width - object_2d.scale.width / 2, 0.0)
+            max_y = max(half_length - object_2d.scale.length / 2, 0.0)
+            clamped_x = min(max(object_2d.position.x, -max_x), max_x)
+            clamped_y = min(max(object_2d.position.y, -max_y), max_y)
+            if clamped_x == object_2d.position.x and clamped_y == object_2d.position.y:
+                continue
+            object_2d.position = EGPoint2D(x=clamped_x, y=clamped_y)
+            body = self.bodies[index]
+            resting_z = body.parent_connection.origin.to_position().to_np()[2]
+            body.parent_connection.origin = self.shelf.object_local_pose(
+                object_2d, resting_z, self.corpus
+            )
 
     def resample_and_move(self, indices: set[int]) -> None:
         layer = self.shelf.layers[self.layer_index]
@@ -212,7 +253,7 @@ class InWorldLayoutResolver:
     supporting surface.
     """
 
-    max_passes: int = 50
+    max_passes: int = 10
     """
     Upper bound on repair passes before giving up on an unsatisfiable layout.
     """
@@ -222,7 +263,7 @@ class InWorldLayoutResolver:
         cls,
         shelf: EGShelf,
         rspn: RelationalProbabilisticCircuit,
-        max_passes: int = 50,
+        max_passes: int = 10,
     ) -> InWorldLayoutResolver:
         """
         Spawn *shelf* and build one collision group per layer, each supported by
@@ -297,17 +338,32 @@ class InWorldLayoutResolver:
             came out clean.
         """
         for _ in range(self.max_passes):
+            self._clamp_groups_to_bounds()
             remaining = self._remaining_violations(detector)
             if not remaining:
                 return {}
             for group_index, violations in remaining.items():
                 self.groups[group_index].resample_and_move(violations)
 
+        self._clamp_groups_to_bounds()
         remaining = self._remaining_violations(detector)
         if not remaining:
             return {}
         self._drop_objects(remaining)
         return self._remaining_violations(detector)
+
+    def _clamp_groups_to_bounds(self) -> None:
+        """
+        Move every group's out-of-bounds members back within its footprint.
+
+        Run before each collision check so an RSPN sample that landed outside
+        a group's footprint is fixed by a plain, cheap geometric move rather
+        than being treated as a collision-style violation and sent through
+        an expensive resample that is not conditioned on staying in bounds
+        and so could land outside it again just as easily.
+        """
+        for group in self.groups:
+            group.clamp_to_bounds()
 
     def _remaining_violations(
         self, detector: FCLCollisionDetector

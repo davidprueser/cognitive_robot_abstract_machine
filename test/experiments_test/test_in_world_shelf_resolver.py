@@ -376,6 +376,97 @@ def test_unsupported_indices_flags_object_that_slid_off_the_layer(
     assert group.unsupported_indices() == {0}
 
 
+def test_clamp_to_bounds_leaves_an_in_bounds_object_untouched(
+    mesh_candidate: MeshCandidate,
+) -> None:
+    shelf = _shelf([_object("book_0", 0.0, 0.0)], mesh_candidate)
+    spawned = shelf.spawn_in_world()
+    spawned_layer = spawned.layers[0]
+    group = ShelfLayerGroup(
+        bodies=spawned_layer.object_bodies,
+        supporting_body=spawned_layer.surface.root,
+        backend=MagicMock(),
+        shelf=shelf,
+        layer_index=0,
+        corpus=spawned.corpus,
+    )
+
+    group.clamp_to_bounds()
+
+    assert shelf.layers[0].objects[0].position == EGPoint2D(x=0.0, y=0.0)
+
+
+def test_clamp_to_bounds_moves_an_out_of_bounds_object_back_onto_the_layer(
+    mesh_candidate: MeshCandidate,
+) -> None:
+    """
+    An object whose sampled position lies outside the layer's own footprint
+    must be moved directly back within it, even though it is re-seated at
+    its previous resting height (see :meth:`ShelfLayerGroup.resample_and_move`)
+    and so stays reported as supported regardless of how far off it drifts.
+
+    Observed on real arbitrary-shelf samples, where positions came out
+    several times the layer's half-extent while the object still spawned
+    without complaint -- resting height alone does not catch a piece that
+    has drifted off the side of the slab. Moving it directly, rather than
+    redrawing it from the circuit, is what keeps this cheap: a redraw is not
+    conditioned on staying in bounds and could land outside it again just as
+    easily, burning through repair passes.
+    """
+    shelf = _shelf([_object("book_0", 0.0, 0.0)], mesh_candidate)
+    spawned = shelf.spawn_in_world()
+    spawned_layer = spawned.layers[0]
+    group = ShelfLayerGroup(
+        bodies=spawned_layer.object_bodies,
+        supporting_body=spawned_layer.surface.root,
+        backend=MagicMock(),
+        shelf=shelf,
+        layer_index=0,
+        corpus=spawned.corpus,
+    )
+
+    shelf.layers[0].objects[0].position = EGPoint2D(x=50.0, y=50.0)
+    group.clamp_to_bounds()
+
+    clamped = shelf.layers[0].objects[0].position
+    half_width = shelf.layers[0].scale.width / 2
+    half_length = shelf.layers[0].scale.length / 2
+    object_scale = shelf.layers[0].objects[0].scale
+    assert abs(clamped.x) + object_scale.width / 2 <= half_width + 1e-9
+    assert abs(clamped.y) + object_scale.length / 2 <= half_length + 1e-9
+
+
+def test_clamp_to_bounds_moves_the_spawned_body_to_match(
+    mesh_candidate: MeshCandidate,
+) -> None:
+    """
+    Clamping must move the spawned body along with the object's recorded
+    position, not just update the dataclass, so the repaired world and the
+    returned layout stay consistent with each other.
+    """
+    shelf = _shelf([_object("book_0", 0.0, 0.0)], mesh_candidate)
+    spawned = shelf.spawn_in_world()
+    spawned_layer = spawned.layers[0]
+    group = ShelfLayerGroup(
+        bodies=spawned_layer.object_bodies,
+        supporting_body=spawned_layer.surface.root,
+        backend=MagicMock(),
+        shelf=shelf,
+        layer_index=0,
+        corpus=spawned.corpus,
+    )
+
+    shelf.layers[0].objects[0].position = EGPoint2D(x=50.0, y=50.0)
+    group.clamp_to_bounds()
+
+    origin = spawned_layer.object_bodies[0].parent_connection.origin
+    resting_z = origin.to_position().to_np()[2]
+    expected = shelf.object_local_pose(
+        shelf.layers[0].objects[0], resting_z, spawned.corpus
+    )
+    assert origin.to_np() == pytest.approx(expected.to_np())
+
+
 def test_resolver_moves_colliding_object_until_layer_is_collision_free(
     mesh_candidate: MeshCandidate,
 ) -> None:
@@ -508,6 +599,43 @@ def test_resolver_drops_objects_it_cannot_separate(
 
     assert not _colliding_bodies(spawned)
     assert len(spawned.layers[0].object_bodies) < 2
+
+
+def test_resolver_stops_retrying_a_persistently_stuck_object_before_max_passes(
+    mesh_candidate: MeshCandidate,
+) -> None:
+    """
+    An object whose redrawn pose collides again every single time must stop
+    being resampled once it has shown no progress for stuck_after_passes
+    consecutive passes, rather than being resampled -- an expensive RSPN
+    grounding call each time -- for the full max_passes budget.
+
+    Observed on real arbitrary-shelf samples: a persistently colliding
+    object kept drawing fresh, independent poses that landed in another
+    collision every time, each redraw costing seconds of grounding and
+    burning through dozens of passes on one object that was never going to
+    resolve.
+    """
+    shelf = _shelf(
+        [_object("book_0", 0.0, 0.0), _object("book_1", 0.0, 0.0)], mesh_candidate
+    )
+    still_overlapping = EGShelfLayer(
+        scale=shelf.layers[0].scale,
+        objects=[_object("fixed", 0.0, 0.0), _object("moved", 0.0, 0.0)],
+    )
+
+    with patch(
+        "experiments.scene_generation_experiments.in_world_resolver.probabilistic_backend"
+    ) as backend_factory:
+        backend_factory.return_value.evaluate.return_value = [still_overlapping]
+        resolver = InWorldLayoutResolver.for_shelf(
+            shelf, rspn=MagicMock(), max_passes=10, stuck_after_passes=3
+        )
+        spawned = resolver.resolve()
+
+    assert not _colliding_bodies(spawned)
+    assert len(spawned.layers[0].object_bodies) < 2
+    assert backend_factory.return_value.evaluate.call_count == 3
 
 
 def test_resolver_falls_back_past_the_layer_scale_when_it_has_no_solution(

@@ -335,9 +335,7 @@ def generate_shelf_with_arbitrary_objects(
     if model_path.exists():
         trained_model = TrainedArbitraryShelfModel.load(model_path)
     else:
-        shelf_layers, _ = _extract_shelf_layers_from_place_id(
-            session, object_type=None
-        )
+        shelf_layers, _ = _extract_shelf_layers_from_place_id(session, object_type=None)
         frequent_types = _frequent_object_types(shelf_layers, keep_count=20)
         shelf_layers = _coarsen_rare_object_types(shelf_layers)
         shelf_layer_data_access_objects = [to_dao(layer) for layer in shelf_layers]
