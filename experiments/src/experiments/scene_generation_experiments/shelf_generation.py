@@ -111,6 +111,39 @@ def shelf_layers_from_objects(
     ]
 
 
+def _is_within_shelf_footprint(
+    obj: EGObjectDAO,
+    shelf: EGObjectDAO,
+    max_relative_x: float,
+    max_relative_y: float,
+) -> bool:
+    """
+    Whether *obj*'s position lies within the shelf's own footprint, inset by
+    the caller's edge margin.
+
+    The offset is rotated into the shelf's own frame before comparing to
+    *max_relative_x*/*max_relative_y*, which are expressed along
+    ``shelf.scale.width``/``length``. Comparing the raw world-frame offset
+    instead tests the wrong axes for any shelf whose orientation is not a
+    multiple of 180 degrees -- a legitimately centred object can then read
+    as out of bounds while a genuinely out-of-bounds one passes, depending
+    on how the shelf happens to be rotated in the room.
+
+    :param obj: The candidate object.
+    :param shelf: The shelf the object is being tested against.
+    :param max_relative_x: Half of the shelf's width, inset by the edge
+        margin.
+    :param max_relative_y: Half of the shelf's length, inset by the edge
+        margin.
+    :return: Whether the object's centre falls within the inset footprint.
+    """
+    local_offset = EGPoint2D(
+        x=obj.position.x - shelf.position.x,
+        y=obj.position.y - shelf.position.y,
+    ).rotated_into_frame(shelf.orientation.z)
+    return abs(local_offset.x) <= max_relative_x and abs(local_offset.y) <= max_relative_y
+
+
 def shelf_layers_by_shelf(
     objects: list[EGObjectDAO],
     edge_margin_fraction: float = 0.10,
@@ -150,8 +183,7 @@ def shelf_layers_by_shelf(
             obj
             for obj in members
             if (object_type is None or obj.object_type == object_type)
-            and abs(obj.position.x - shelf.position.x) <= max_relative_x
-            and abs(obj.position.y - shelf.position.y) <= max_relative_y
+            and _is_within_shelf_footprint(obj, shelf, max_relative_x, max_relative_y)
         ]
         if not within_bounds:
             continue

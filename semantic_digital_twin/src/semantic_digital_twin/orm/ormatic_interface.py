@@ -10130,18 +10130,14 @@ class MeshCandidateDAO(
     )
 
 
-class SpawnedLayoutDAO(
+class SpawnedShelfDAO(
     Base,
-    DataAccessObject[semantic_digital_twin.scene_generation.scene_schema.SpawnedLayout],
+    DataAccessObject[semantic_digital_twin.scene_generation.scene_schema.SpawnedShelf],
 ):
-    __tablename__ = "SpawnedLayoutDAO"
+    __tablename__ = "SpawnedShelfDAO"
 
     database_id: Mapped[builtins.int] = mapped_column(
         Integer, primary_key=True, use_existing_column=True
-    )
-
-    polymorphic_type: Mapped[str] = mapped_column(
-        String(255), nullable=False, use_existing_column=True
     )
 
     world_id: Mapped[int] = mapped_column(
@@ -10149,29 +10145,6 @@ class SpawnedLayoutDAO(
         nullable=True,
         use_existing_column=True,
     )
-
-    world: Mapped[WorldMappingDAO] = relationship(
-        "WorldMappingDAO", uselist=False, foreign_keys=[world_id], post_update=True
-    )
-
-    __mapper_args__ = {
-        "polymorphic_on": "polymorphic_type",
-        "polymorphic_identity": "SpawnedLayoutDAO",
-    }
-
-
-class SpawnedShelfDAO(
-    SpawnedLayoutDAO,
-    DataAccessObject[semantic_digital_twin.scene_generation.scene_schema.SpawnedShelf],
-):
-    __tablename__ = "SpawnedShelfDAO"
-
-    database_id: Mapped[builtins.int] = mapped_column(
-        ForeignKey(SpawnedLayoutDAO.database_id),
-        primary_key=True,
-        use_existing_column=True,
-    )
-
     parent_id: Mapped[int] = mapped_column(
         ForeignKey("KinematicStructureEntityDAO.database_id", use_alter=True),
         nullable=True,
@@ -10183,6 +10156,9 @@ class SpawnedShelfDAO(
         use_existing_column=True,
     )
 
+    world: Mapped[WorldMappingDAO] = relationship(
+        "WorldMappingDAO", uselist=False, foreign_keys=[world_id], post_update=True
+    )
     parent: Mapped[KinematicStructureEntityDAO] = relationship(
         "KinematicStructureEntityDAO",
         uselist=False,
@@ -10199,12 +10175,6 @@ class SpawnedShelfDAO(
     corpus: Mapped[BodyDAO] = relationship(
         "BodyDAO", uselist=False, foreign_keys=[corpus_id], post_update=True
     )
-
-    __mapper_args__ = {
-        "polymorphic_identity": "SpawnedShelfDAO",
-        "inherit_condition": database_id == SpawnedLayoutDAO.database_id,
-        "polymorphic_load": "selectin",
-    }
 
 
 class SpawnedShelfLayerDAO(

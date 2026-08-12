@@ -28,6 +28,7 @@ import experiments.sage_10k.demos
 import experiments.sage_10k.sage10k_actions
 import experiments.scene_generation_experiments.exceptions
 import experiments.scene_generation_experiments.in_world_resolver
+import experiments.scene_generation_experiments.rspn_model_storage
 import krrood.adapters.json_serializer
 import krrood.ormatic.custom_types
 import krrood.ormatic.data_access_objects.alternative_mappings
@@ -185,26 +186,26 @@ class InWorldLayoutResolverDAO_groups_association(Base, AssociationDataAccessObj
     source_inworldlayoutresolverdao_id: Mapped[int] = mapped_column(
         ForeignKey("InWorldLayoutResolverDAO.database_id")
     )
-    target_spawnedcollisiongroupdao_id: Mapped[int] = mapped_column(
-        ForeignKey("SpawnedCollisionGroupDAO.database_id")
+    target_shelflayergroupdao_id: Mapped[int] = mapped_column(
+        ForeignKey("ShelfLayerGroupDAO.database_id")
     )
 
-    target: Mapped[SpawnedCollisionGroupDAO] = relationship(
-        "SpawnedCollisionGroupDAO",
-        foreign_keys=[target_spawnedcollisiongroupdao_id],
+    target: Mapped[ShelfLayerGroupDAO] = relationship(
+        "ShelfLayerGroupDAO",
+        foreign_keys=[target_shelflayergroupdao_id],
         lazy="selectin",
     )
 
 
-class SpawnedCollisionGroupDAO_static_obstacles_association(
+class ShelfLayerGroupDAO_static_obstacles_association(
     Base, AssociationDataAccessObject
 ):
-    __tablename__ = "_10067991749856212586754918203330440703283391861653960695154440"
+    __tablename__ = "_24858453748510940560806103552879366443821917953864614707287851"
 
     database_id: Mapped[int] = mapped_column(Integer, primary_key=True)
 
-    source_spawnedcollisiongroupdao_id: Mapped[int] = mapped_column(
-        ForeignKey("SpawnedCollisionGroupDAO.database_id")
+    source_shelflayergroupdao_id: Mapped[int] = mapped_column(
+        ForeignKey("ShelfLayerGroupDAO.database_id")
     )
     target_bodydao_id: Mapped[int] = mapped_column(ForeignKey("BodyDAO.database_id"))
 
@@ -2912,13 +2913,13 @@ class InWorldLayoutResolverDAO(
     stuck_after_passes: Mapped[builtins.int] = mapped_column(use_existing_column=True)
 
     spawned_id: Mapped[int] = mapped_column(
-        ForeignKey("SpawnedLayoutDAO.database_id", use_alter=True),
+        ForeignKey("SpawnedShelfDAO.database_id", use_alter=True),
         nullable=True,
         use_existing_column=True,
     )
 
-    spawned: Mapped[SpawnedLayoutDAO] = relationship(
-        "SpawnedLayoutDAO", uselist=False, foreign_keys=[spawned_id], post_update=True
+    spawned: Mapped[SpawnedShelfDAO] = relationship(
+        "SpawnedShelfDAO", uselist=False, foreign_keys=[spawned_id], post_update=True
     )
     groups: Mapped[builtins.list[InWorldLayoutResolverDAO_groups_association]] = (
         relationship(
@@ -2931,40 +2932,8 @@ class InWorldLayoutResolverDAO(
     )
 
 
-class SpawnedCollisionGroupDAO(
-    Base,
-    DataAccessObject[
-        experiments.scene_generation_experiments.in_world_resolver.SpawnedCollisionGroup
-    ],
-):
-    __tablename__ = "SpawnedCollisionGroupDAO"
-
-    database_id: Mapped[builtins.int] = mapped_column(
-        Integer, primary_key=True, use_existing_column=True
-    )
-
-    polymorphic_type: Mapped[str] = mapped_column(
-        String(255), nullable=False, use_existing_column=True
-    )
-
-    static_obstacles: Mapped[
-        builtins.list[SpawnedCollisionGroupDAO_static_obstacles_association]
-    ] = relationship(
-        "SpawnedCollisionGroupDAO_static_obstacles_association",
-        collection_class=builtins.list,
-        cascade="all, delete-orphan",
-        foreign_keys="[SpawnedCollisionGroupDAO_static_obstacles_association.source_spawnedcollisiongroupdao_id]",
-        lazy="selectin",
-    )
-
-    __mapper_args__ = {
-        "polymorphic_on": "polymorphic_type",
-        "polymorphic_identity": "SpawnedCollisionGroupDAO",
-    }
-
-
 class ShelfLayerGroupDAO(
-    SpawnedCollisionGroupDAO,
+    Base,
     DataAccessObject[
         experiments.scene_generation_experiments.in_world_resolver.ShelfLayerGroup
     ],
@@ -2972,9 +2941,7 @@ class ShelfLayerGroupDAO(
     __tablename__ = "ShelfLayerGroupDAO"
 
     database_id: Mapped[builtins.int] = mapped_column(
-        ForeignKey(SpawnedCollisionGroupDAO.database_id),
-        primary_key=True,
-        use_existing_column=True,
+        Integer, primary_key=True, use_existing_column=True
     )
 
     layer_index: Mapped[builtins.int] = mapped_column(use_existing_column=True)
@@ -2999,12 +2966,32 @@ class ShelfLayerGroupDAO(
         foreign_keys=[corpus_id],
         post_update=True,
     )
+    static_obstacles: Mapped[
+        builtins.list[ShelfLayerGroupDAO_static_obstacles_association]
+    ] = relationship(
+        "ShelfLayerGroupDAO_static_obstacles_association",
+        collection_class=builtins.list,
+        cascade="all, delete-orphan",
+        foreign_keys="[ShelfLayerGroupDAO_static_obstacles_association.source_shelflayergroupdao_id]",
+        lazy="selectin",
+    )
 
-    __mapper_args__ = {
-        "polymorphic_identity": "ShelfLayerGroupDAO",
-        "inherit_condition": database_id == SpawnedCollisionGroupDAO.database_id,
-        "polymorphic_load": "selectin",
-    }
+
+class TrainedArbitraryShelfModelDAO(
+    Base,
+    DataAccessObject[
+        experiments.scene_generation_experiments.rspn_model_storage.TrainedArbitraryShelfModel
+    ],
+):
+    __tablename__ = "TrainedArbitraryShelfModelDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        Integer, primary_key=True, use_existing_column=True
+    )
+
+    frequent_object_types: Mapped[
+        typing.Set[semantic_digital_twin.scene_generation.scene_schema.ObjectType]
+    ] = mapped_column(JSON, nullable=False, use_existing_column=True)
 
 
 class FunctionMappingDAO(
@@ -11121,18 +11108,14 @@ class MeshCandidateDAO(
     )
 
 
-class SpawnedLayoutDAO(
+class SpawnedShelfDAO(
     Base,
-    DataAccessObject[semantic_digital_twin.scene_generation.scene_schema.SpawnedLayout],
+    DataAccessObject[semantic_digital_twin.scene_generation.scene_schema.SpawnedShelf],
 ):
-    __tablename__ = "SpawnedLayoutDAO"
+    __tablename__ = "SpawnedShelfDAO"
 
     database_id: Mapped[builtins.int] = mapped_column(
         Integer, primary_key=True, use_existing_column=True
-    )
-
-    polymorphic_type: Mapped[str] = mapped_column(
-        String(255), nullable=False, use_existing_column=True
     )
 
     world_id: Mapped[int] = mapped_column(
@@ -11140,29 +11123,6 @@ class SpawnedLayoutDAO(
         nullable=True,
         use_existing_column=True,
     )
-
-    world: Mapped[WorldMappingDAO] = relationship(
-        "WorldMappingDAO", uselist=False, foreign_keys=[world_id], post_update=True
-    )
-
-    __mapper_args__ = {
-        "polymorphic_on": "polymorphic_type",
-        "polymorphic_identity": "SpawnedLayoutDAO",
-    }
-
-
-class SpawnedShelfDAO(
-    SpawnedLayoutDAO,
-    DataAccessObject[semantic_digital_twin.scene_generation.scene_schema.SpawnedShelf],
-):
-    __tablename__ = "SpawnedShelfDAO"
-
-    database_id: Mapped[builtins.int] = mapped_column(
-        ForeignKey(SpawnedLayoutDAO.database_id),
-        primary_key=True,
-        use_existing_column=True,
-    )
-
     parent_id: Mapped[int] = mapped_column(
         ForeignKey("KinematicStructureEntityDAO.database_id", use_alter=True),
         nullable=True,
@@ -11174,6 +11134,9 @@ class SpawnedShelfDAO(
         use_existing_column=True,
     )
 
+    world: Mapped[WorldMappingDAO] = relationship(
+        "WorldMappingDAO", uselist=False, foreign_keys=[world_id], post_update=True
+    )
     parent: Mapped[KinematicStructureEntityDAO] = relationship(
         "KinematicStructureEntityDAO",
         uselist=False,
@@ -11190,12 +11153,6 @@ class SpawnedShelfDAO(
     corpus: Mapped[BodyDAO] = relationship(
         "BodyDAO", uselist=False, foreign_keys=[corpus_id], post_update=True
     )
-
-    __mapper_args__ = {
-        "polymorphic_identity": "SpawnedShelfDAO",
-        "inherit_condition": database_id == SpawnedLayoutDAO.database_id,
-        "polymorphic_load": "selectin",
-    }
 
 
 class SpawnedShelfLayerDAO(

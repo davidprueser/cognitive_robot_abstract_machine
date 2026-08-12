@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import os
 import shutil
 import subprocess
@@ -23,9 +24,6 @@ from experiments.orm.ormatic_interface import (
     EGPositionDAO,
     EGScaleDAO,
 )
-from experiments.scene_generation_experiments.book_shelf_generation import (
-    _extract_shelf_layers_from_place_id,
-)
 from experiments.scene_generation_experiments.utils import (
     _get_source_ids_for_objects,
     load_objects_with_cached_meshes,
@@ -40,6 +38,8 @@ from experiments.scene_generation_experiments.rspn_sampling import probabilistic
 from experiments.scene_generation_experiments.shelf_generation import (
     _coarsen_mesh_candidate_types,
     _coarsen_rare_object_types,
+    _extract_shelf_layers_from_place_id,
+    shelf_layers_by_shelf,
 )
 from experiments.scene_generation_experiments.rspn_model_storage import (
     TrainedArbitraryShelfModel,
@@ -448,6 +448,72 @@ def test_no_object_type_filter_includes_cup_and_book_in_layers(
     all_source_ids = {obj.source_id for layer in layers for obj in layer.objects}
     assert "book_src" in all_source_ids
     assert "cup_src" in all_source_ids
+
+
+def _rotated_shelf_and_book(local_x: float, local_y: float) -> list[EGObjectDAO]:
+    """
+    A shelf rotated 45 degrees in the room (wide=1.0, shallow=0.4), with one
+    book placed at ``(local_x, local_y)`` in the *shelf's own* frame.
+    """
+    yaw_degrees = 45.0
+    theta = math.radians(yaw_degrees)
+    world_x = local_x * math.cos(theta) - local_y * math.sin(theta)
+    world_y = local_x * math.sin(theta) + local_y * math.cos(theta)
+    shelf = EGObjectDAO(
+        id=_SHELF_ID,
+        room_id="room_1",
+        place_id="floor",
+        source_id="shelf_src",
+        object_type=ObjectType.SHELF,
+        scale=EGScaleDAO(height=0.02, length=0.4, width=1.0),
+        position=EGPositionDAO(x=0.0, y=0.0, z=1.0),
+        orientation=EGRotationDAO(x=0.0, y=0.0, z=yaw_degrees),
+    )
+    book = EGObjectDAO(
+        id="book_1",
+        room_id="room_1",
+        place_id=_SHELF_ID,
+        source_id="book_src",
+        object_type=ObjectType.BOOK,
+        scale=EGScaleDAO(height=0.3, length=0.1, width=0.05),
+        position=EGPositionDAO(x=world_x, y=world_y, z=0.5),
+        orientation=EGRotationDAO(x=0.0, y=0.0, z=0.0),
+    )
+    return [shelf, book]
+
+
+def test_within_bounds_filter_accounts_for_shelf_rotation() -> None:
+    """
+    A book placed at the legitimate edge of a *rotated* shelf's width axis,
+    centred on its length axis, must be kept.
+
+    The edge-margin filter used to compare the raw world-frame offset
+    against the shelf's width/length without rotating into the shelf's own
+    frame first, so a rotated shelf tested the wrong axes and wrongly
+    dropped objects like this one.
+    """
+    objects = _rotated_shelf_and_book(local_x=0.45, local_y=0.0)
+
+    layers_by_shelf = shelf_layers_by_shelf(objects, edge_margin_fraction=0.10)
+
+    assert len(layers_by_shelf) == 1
+    all_source_ids = {
+        obj.source_id for layer in layers_by_shelf[0] for obj in layer.objects
+    }
+    assert "book_src" in all_source_ids
+
+
+def test_within_bounds_filter_excludes_object_outside_rotated_footprint() -> None:
+    """
+    A book placed outside a rotated shelf's own (shallow) length axis must
+    still be dropped, even though its world-frame offset might look small
+    for some rotations.
+    """
+    objects = _rotated_shelf_and_book(local_x=0.0, local_y=0.35)
+
+    layers_by_shelf = shelf_layers_by_shelf(objects, edge_margin_fraction=0.10)
+
+    assert layers_by_shelf == []
 
 
 # ---------------------------------------------------------------------------

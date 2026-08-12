@@ -874,21 +874,6 @@ class _MeshTypeMatcher:
 
 
 @dataclass
-class SpawnedLayout:
-    """
-    A generated layout instantiated in a :class:`World`.
-
-    Base for the per-generator spawn results, so the in-world resolver can spawn,
-    repair, and return any layout through one type.
-    """
-
-    world: World
-    """
-    The world the layout was spawned into.
-    """
-
-
-@dataclass
 class SpawnedShelfLayer:
     """
     Runtime handles to one shelf layer instantiated in a :class:`World`.
@@ -910,10 +895,15 @@ class SpawnedShelfLayer:
 
 
 @dataclass
-class SpawnedShelf(SpawnedLayout):
+class SpawnedShelf:
     """
     A shelf instantiated in a :class:`World`, with handles for in-world
     validation and repositioning of its objects.
+    """
+
+    world: World
+    """
+    The world the shelf was spawned into.
     """
 
     parent: KinematicStructureEntity

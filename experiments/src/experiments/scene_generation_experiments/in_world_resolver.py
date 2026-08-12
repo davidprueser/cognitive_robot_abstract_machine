@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 
 from experiments.scene_generation_experiments.collision_resolution import (
@@ -23,7 +22,6 @@ from semantic_digital_twin.scene_generation.scene_schema import (
     EGPoint2D,
     EGShelf,
     SpawnedShelf,
-    SpawnedLayout,
 )
 from semantic_digital_twin.world_description.world_entity import (
     Body,
@@ -65,68 +63,23 @@ def _evaluate_first_supported(backend: ProbabilisticBackend, *queries):
 
 
 @dataclass
-class SpawnedCollisionGroup(ABC):
+class ShelfLayerGroup:
     """
-    A set of spawned bodies that must not collide with each other, optionally
-    resting on a shared supporting body.
-
-    Each generator produces its own concrete group that knows how to redraw its
-    offending members' poses from the RSPN and move the corresponding bodies in
-    place; the resolver treats every generator uniformly through this interface.
+    The objects on one shelf layer that must not collide with each other or
+    the shelf's corpus, resampled against that layer's learned distribution
+    and re-seated at their existing resting height.
     """
 
     bodies: dict[int, Body]
     """
     The movable bodies to keep collision-free, keyed by their index in the
-    owning collection.
+    owning layer's objects.
     """
 
     supporting_body: Body | None
     """
     The body the members must rest on, or ``None`` when the members are not
     checked for support (e.g. members standing on the floor).
-    """
-
-    static_obstacles: list[Body] = field(default_factory=list, kw_only=True)
-    """
-    Fixed bodies the members must not collide with, beyond each other (e.g. a
-    shelf's corpus walls). Empty when the group has none.
-    """
-
-    def unsupported_indices(self) -> set[int]:
-        """
-        Return the indices of members that their supporting body does not
-        support; empty when the group has no supporting body.
-        """
-        if self.supporting_body is None:
-            return set()
-        return {
-            index
-            for index, body in self.bodies.items()
-            if not is_supported_by(body, self.supporting_body)
-        }
-
-    def clamp_to_bounds(self) -> None:
-        """
-        Move any member positioned outside this group's own footprint back
-        to its nearest in-bounds position; a no-op when the group does not
-        bound its members' positions.
-        """
-
-    @abstractmethod
-    def resample_and_move(self, indices: set[int]) -> None:
-        """
-        Redraw the poses of the members at *indices* from this group's circuit,
-        holding every other member fixed, then move the corresponding bodies to
-        those poses.
-        """
-
-
-@dataclass
-class ShelfLayerGroup(SpawnedCollisionGroup):
-    """
-    The objects on one shelf layer, resampled against that layer's learned
-    distribution and re-seated at their existing resting height.
     """
 
     shelf: EGShelf
@@ -151,6 +104,25 @@ class ShelfLayerGroup(SpawnedCollisionGroup):
     The single-sample backend over this layer's fitted circuit, from which
     offending object poses are redrawn.
     """
+
+    static_obstacles: list[Body] = field(default_factory=list, kw_only=True)
+    """
+    Fixed bodies the members must not collide with, beyond each other (e.g. a
+    shelf's corpus walls). Empty when the group has none.
+    """
+
+    def unsupported_indices(self) -> set[int]:
+        """
+        Return the indices of members that their supporting body does not
+        support; empty when the group has no supporting body.
+        """
+        if self.supporting_body is None:
+            return set()
+        return {
+            index
+            for index, body in self.bodies.items()
+            if not is_supported_by(body, self.supporting_body)
+        }
 
     def clamp_to_bounds(self) -> None:
         """
@@ -225,16 +197,15 @@ class InWorldLayoutResolver:
 
     The layout is spawned once; each repair pass redraws only the pose of
     offending members -- holding their scale, and therefore their mesh, fixed --
-    and moves the corresponding bodies, so meshes are never reloaded. Every
-    generator plugs in through :class:`SpawnedCollisionGroup`, and each group
-    owns how it redraws its members -- from a fitted circuit or from a supporting
-    surface -- so the resolver is agnostic to what kind of objects it is
-    arranging and can mix groups from different generators in one layout.
+    and moves the corresponding bodies, so meshes are never reloaded. Each
+    :class:`ShelfLayerGroup` owns how it redraws its own members from its
+    layer's fitted circuit, so the resolver just drives the repair loop across
+    every layer of the shelf.
     """
 
-    spawned: SpawnedLayout
+    spawned: SpawnedShelf
     """
-    The already-spawned layout to repair and return.
+    The already-spawned shelf to repair and return.
     """
 
     dropped_body_count: int = field(default=0, init=False)
@@ -246,11 +217,11 @@ class InWorldLayoutResolver:
     that simply sampled few pieces.
     """
 
-    groups: list[SpawnedCollisionGroup]
+    groups: list[ShelfLayerGroup]
     """
-    The collision groups to keep collision-free and supported; each knows how to
-    redraw its own offending members, whether from a fitted circuit or a
-    supporting surface.
+    One collision group per shelf layer, to keep collision-free and
+    supported; each knows how to redraw its own offending members from its
+    layer's fitted circuit.
     """
 
     max_passes: int = 10
@@ -304,7 +275,7 @@ class InWorldLayoutResolver:
         shelf: EGShelf,
         spawned: SpawnedShelf,
         backend: ProbabilisticBackend,
-    ) -> list[SpawnedCollisionGroup]:
+    ) -> list[ShelfLayerGroup]:
         """
         Build one :class:`ShelfLayerGroup` per layer of *spawned*, each supported
         by its own slab, checked against the shelf's corpus walls, and resampled
@@ -323,7 +294,7 @@ class InWorldLayoutResolver:
             for layer_index, spawned_layer in enumerate(spawned.layers)
         ]
 
-    def resolve(self) -> SpawnedLayout:
+    def resolve(self) -> SpawnedShelf:
         """
         Repair every group until all are collision-free and supported, moving
         offending bodies in place.
