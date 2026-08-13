@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import math
 import os
 import shutil
 import subprocess
@@ -8,7 +7,6 @@ import sys
 from dataclasses import dataclass, field
 from importlib.resources import files
 from pathlib import Path
-from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -27,7 +25,7 @@ from experiments.orm.ormatic_interface import (
 from experiments.scene_generation_experiments.utils import (
     _get_source_ids_for_objects,
     load_objects_with_cached_meshes,
-    objects_of_type,
+    load_shelf_layers,
 )
 from experiments.scene_generation_experiments.rspn_sampling import (
     build_layer_query,
@@ -36,14 +34,11 @@ from experiments.scene_generation_experiments.rspn_sampling import (
 from experiments.scene_generation_experiments.shelf_generation import (
     _coarsen_mesh_candidate_types,
     _coarsen_rare_object_types,
-    _extract_shelf_layers_from_place_id,
-    shelf_layers_by_shelf,
 )
 from experiments.scene_generation_experiments.rspn_model_storage import (
     TrainedArbitraryShelfModel,
 )
 from krrood.ormatic.data_access_objects.helper import to_dao
-from krrood.ormatic.utils import create_engine
 from probabilistic_model.probabilistic_circuit.relational.rspn import (
     RelationalProbabilisticCircuit,
 )
@@ -57,15 +52,11 @@ from semantic_digital_twin.scene_generation.scene_schema import (
     EGScale,
     MeshCandidate,
     ObjectType,
-    PlaceId,
     _MeshTypeMatcher,
 )
 from semantic_digital_twin.semantic_annotations.semantic_annotations import ShelfLayer
 from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.world_entity import Body
-
-if TYPE_CHECKING:
-    pass
 
 _FAKE_PATH = Path("/fake/scene")
 _SHELF_ID = "room_1_shelf_1"
@@ -82,7 +73,7 @@ class _MockShelfObject:
     scale: EGScale = field(
         default_factory=lambda: EGScale(width=0.1, length=0.1, height=0.1)
     )
-    place_id: str = PlaceId.FLOOR
+    place_id: str = "floor"
 
 
 @pytest.fixture
@@ -108,8 +99,8 @@ def test_default_object_type_includes_only_books(
     mixed_mock_objects: list[_MockShelfObject], source_path_map: dict[str, Path]
 ) -> None:
     """
-    The default (``ObjectType.BOOK``) filter must include books and exclude
-    cups and shelf-furniture objects.
+    The default (``ObjectType.BOOK``) filter must include books and exclude cups and
+    shelf-furniture objects.
     """
     with patch(
         "experiments.scene_generation_experiments.utils.build_source_id_to_path",
@@ -126,8 +117,8 @@ def test_no_object_type_filter_includes_every_type(
     mixed_mock_objects: list[_MockShelfObject], source_path_map: dict[str, Path]
 ) -> None:
     """
-    Passing ``object_type=None`` must include every type present in the input,
-    subject only to source_id availability.
+    Passing ``object_type=None`` must include every type present in the input, subject
+    only to source_id availability.
     """
     with patch(
         "experiments.scene_generation_experiments.utils.build_source_id_to_path",
@@ -140,41 +131,12 @@ def test_no_object_type_filter_includes_every_type(
     assert "shelf_src" not in source_ids
 
 
-def test_place_id_filter_keeps_only_floor_resting_candidates() -> None:
-    """
-    Restricting the pool to floor-resting objects must drop candidates that lie
-    on a piece of furniture.
-
-    A mesh pool for a furniture type is otherwise dominated by small items whose
-    raw name merely contains a furniture word -- a ``"bookchair..."`` book lying
-    on a table is generalized to :attr:`ObjectType.CHAIR` and would be spawned
-    as a chair.
-    """
-    objects = [
-        _MockShelfObject(object_type=ObjectType.CHAIR, source_id="chair_src"),
-        _MockShelfObject(
-            object_type=ObjectType.CHAIR,
-            source_id="bookchair_src",
-            place_id="room_1_table_1",
-        ),
-    ]
-    with patch(
-        "experiments.scene_generation_experiments.utils.build_source_id_to_path",
-        return_value={"chair_src": _FAKE_PATH, "bookchair_src": _FAKE_PATH},
-    ):
-        result = _get_source_ids_for_objects(
-            objects, object_type=ObjectType.CHAIR, place_id=PlaceId.FLOOR
-        )
-    assert [candidate.source_id for candidate in result] == ["chair_src"]
-
-
-def test_omitting_the_place_id_filter_keeps_objects_on_furniture(
+def test_objects_resting_on_furniture_are_kept(
     source_path_map: dict[str, Path],
 ) -> None:
     """
-    Without a ``place_id`` filter the pool must still contain objects resting on
-    furniture, since shelf and table contents are exactly the objects a shelf
-    demo needs meshes for.
+    The pool must contain objects resting on furniture, since shelf and table contents
+    are exactly the objects a shelf demo needs meshes for.
     """
     objects = [
         _MockShelfObject(
@@ -191,8 +153,8 @@ def test_omitting_the_place_id_filter_keeps_objects_on_furniture(
 
 def test_missing_source_id_is_excluded(source_path_map: dict[str, Path]) -> None:
     """
-    Objects whose source_id has no corresponding PLY path must be silently
-    dropped regardless of the object-type filter.
+    Objects whose source_id has no corresponding PLY path must be silently dropped
+    regardless of the object-type filter.
     """
     objects_without_path = [
         _MockShelfObject(object_type=ObjectType.BOOK, source_id="nonexistent_src"),
@@ -207,8 +169,8 @@ def test_missing_source_id_is_excluded(source_path_map: dict[str, Path]) -> None
 
 def test_downloader_fills_pool_up_to_minimum_candidates() -> None:
     """
-    With no book meshes cached locally, a downloader must be used to fetch
-    scenes for distinct book source_ids until minimum_candidates is reached.
+    With no book meshes cached locally, a downloader must be used to fetch scenes for
+    distinct book source_ids until minimum_candidates is reached.
     """
     books = [
         _MockShelfObject(object_type=ObjectType.BOOK, source_id=f"book_{i}")
@@ -235,8 +197,8 @@ def test_downloader_is_not_used_once_the_pool_already_meets_the_minimum(
     source_path_map: dict[str, Path],
 ) -> None:
     """
-    A downloader must not be consulted at all when enough matching meshes are
-    already cached locally.
+    A downloader must not be consulted at all when enough matching meshes are already
+    cached locally.
     """
     books = [_MockShelfObject(object_type=ObjectType.BOOK, source_id="book_src")]
     downloader = MagicMock()
@@ -252,9 +214,9 @@ def test_downloader_is_not_used_once_the_pool_already_meets_the_minimum(
 
 def test_downloader_skips_source_ids_the_sage10k_database_does_not_know() -> None:
     """
-    A source_id the Sage-10k database has no record of must be skipped rather
-    than aborting the whole pool -- objects can come from a different data
-    source than the one the downloader looks scenes up in.
+    A source_id the Sage-10k database has no record of must be skipped rather than
+    aborting the whole pool -- objects can come from a different data source than the
+    one the downloader looks scenes up in.
     """
     from experiments.scene_generation_experiments.data_preprocessing import (
         SourceIdNotFoundError,
@@ -288,9 +250,9 @@ def test_no_downloader_never_attempts_a_mesh_pool_download(
     source_path_map: dict[str, Path],
 ) -> None:
     """
-    Without a downloader the candidate pool must be built from the local cache
-    alone, never entering the download path -- this is what keeps the demos fast
-    for iterative testing.
+    Without a downloader the candidate pool must be built from the local cache alone,
+    never entering the download path -- this is what keeps the demos fast for iterative
+    testing.
     """
     books = [_MockShelfObject(object_type=ObjectType.BOOK, source_id="book_src")]
 
@@ -309,99 +271,34 @@ def test_no_downloader_never_attempts_a_mesh_pool_download(
 
 
 # ---------------------------------------------------------------------------
-# Group B – _extract_shelf_layers_from_place_id (in-memory SQLite)
+# load_shelf_layers – the one query path every training run takes
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture
-def session() -> Session:
-    engine = create_engine("sqlite:///:memory:")
-    Base.metadata.create_all(bind=engine)
-    database_session = Session(engine)
-    yield database_session
-    database_session.close()
-
-
-@pytest.fixture
-def shelf_with_book_and_cup(session: Session) -> Session:
-    """
-    Populate the session with one shelf, one book, and one cup all sharing the
-    same shelf place_id so every object_type filter variant can be exercised.
-    """
-    shelf = EGObjectDAO(
-        id=_SHELF_ID,
-        room_id="room_1",
-        place_id="floor",
-        source_id="shelf_src",
-        object_type=ObjectType.SHELF,
-        scale=EGScaleDAO(height=2.0, length=1.0, width=0.5),
-        position=EGPositionDAO(x=0.0, y=0.0, z=1.0),
-        orientation=EGRotationDAO(x=0.0, y=0.0, z=0.0),
-    )
-    book = EGObjectDAO(
-        id="book_1",
-        room_id="room_1",
-        place_id=_SHELF_ID,
-        source_id="book_src",
-        object_type=ObjectType.BOOK,
-        scale=EGScaleDAO(height=0.3, length=0.1, width=0.05),
-        position=EGPositionDAO(x=0.0, y=0.0, z=0.5),
-        orientation=EGRotationDAO(x=0.0, y=0.0, z=0.0),
-    )
-    cup = EGObjectDAO(
-        id="cup_1",
-        room_id="room_1",
-        place_id=_SHELF_ID,
-        source_id="cup_src",
-        object_type=ObjectType.CUP,
-        scale=EGScaleDAO(height=0.1, length=0.1, width=0.1),
-        position=EGPositionDAO(x=0.05, y=0.05, z=0.5),
-        orientation=EGRotationDAO(x=0.0, y=0.0, z=0.0),
-    )
-    session.add_all([shelf, book, cup])
-    session.commit()
-    return session
-
-
-def test_extract_shelf_layers_does_not_scale_query_count_with_object_count(
+def test_loading_layers_does_not_scale_query_count_with_object_count(
     session: Session,
 ) -> None:
     """
-    _extract_shelf_layers_from_place_id must not issue a separate SQL
-    statement per object for each of its scale/position/orientation
-    relationships -- the number of executed statements must stay bounded
-    regardless of how many objects are on the shelf.
+    Loading the stored layers must not issue a statement per object for each of its
+    scale, position and orientation relationships.
 
-    Before eager loading was added, each relationship access on each of the
-    20 books below triggered its own lazy-load query once the session
-    expired the loaded instances on commit, so statement count grew
-    linearly with object count.
+    Preprocessing exists to take that cost out of every training run, so leaving those
+    to lazy loading would put it straight back on the read path.
     """
-    shelf = EGObjectDAO(
-        id=_SHELF_ID,
-        room_id="room_1",
-        place_id="floor",
-        source_id="shelf_src",
-        object_type=ObjectType.SHELF,
-        scale=EGScaleDAO(height=2.0, length=1.0, width=0.5),
-        position=EGPositionDAO(x=0.0, y=0.0, z=1.0),
-        orientation=EGRotationDAO(x=0.0, y=0.0, z=0.0),
-    )
-    books = [
-        EGObjectDAO(
-            id=f"book_{i}",
-            room_id="room_1",
-            place_id=_SHELF_ID,
-            source_id=f"book_src_{i}",
-            object_type=ObjectType.BOOK,
-            scale=EGScaleDAO(height=0.3, length=0.1, width=0.05),
-            position=EGPositionDAO(x=0.01 * i, y=0.0, z=0.5),
-            orientation=EGRotationDAO(x=0.0, y=0.0, z=0.0),
+    session.add_all(
+        to_dao(
+            EGShelfLayer(
+                scale=EGScale(height=0.02, length=0.3, width=0.4),
+                objects=[
+                    _typed_object(ObjectType.BOOK, f"book_{layer_index}_{index}")
+                    for index in range(10)
+                ],
+            )
         )
-        for i in range(20)
-    ]
-    session.add_all([shelf, *books])
+        for layer_index in range(5)
+    )
     session.commit()
+    session.expire_all()
 
     statement_count = 0
 
@@ -412,207 +309,12 @@ def test_extract_shelf_layers_does_not_scale_query_count_with_object_count(
     engine = session.get_bind()
     event.listen(engine, "before_cursor_execute", _count_statement)
     try:
-        _extract_shelf_layers_from_place_id(session)
+        layers = load_shelf_layers(session)
     finally:
         event.remove(engine, "before_cursor_execute", _count_statement)
 
+    assert sum(len(layer.objects) for layer in layers) == 50
     assert statement_count <= 5
-
-
-def test_default_object_type_excludes_cups_from_layers(
-    shelf_with_book_and_cup: Session,
-) -> None:
-    """
-    With the default ``ObjectType.BOOK`` filter, only the book must appear in
-    the extracted shelf layers — the cup must be absent.
-    """
-    layers, _ = _extract_shelf_layers_from_place_id(shelf_with_book_and_cup)
-    all_source_ids = {obj.source_id for layer in layers for obj in layer.objects}
-    assert "book_src" in all_source_ids
-    assert "cup_src" not in all_source_ids
-
-
-def test_no_object_type_filter_includes_cup_and_book_in_layers(
-    shelf_with_book_and_cup: Session,
-) -> None:
-    """
-    Passing ``object_type=None`` must include both the book and the cup in the
-    extracted shelf layers.
-    """
-    layers, _ = _extract_shelf_layers_from_place_id(
-        shelf_with_book_and_cup, object_type=None
-    )
-    all_source_ids = {obj.source_id for layer in layers for obj in layer.objects}
-    assert "book_src" in all_source_ids
-    assert "cup_src" in all_source_ids
-
-
-def _rotated_shelf_and_book(local_x: float, local_y: float) -> list[EGObjectDAO]:
-    """
-    A shelf rotated 45 degrees in the room (wide=1.0, shallow=0.4), with one
-    book placed at ``(local_x, local_y)`` in the *shelf's own* frame.
-    """
-    yaw_degrees = 45.0
-    theta = math.radians(yaw_degrees)
-    world_x = local_x * math.cos(theta) - local_y * math.sin(theta)
-    world_y = local_x * math.sin(theta) + local_y * math.cos(theta)
-    shelf = EGObjectDAO(
-        id=_SHELF_ID,
-        room_id="room_1",
-        place_id="floor",
-        source_id="shelf_src",
-        object_type=ObjectType.SHELF,
-        scale=EGScaleDAO(height=0.02, length=0.4, width=1.0),
-        position=EGPositionDAO(x=0.0, y=0.0, z=1.0),
-        orientation=EGRotationDAO(x=0.0, y=0.0, z=yaw_degrees),
-    )
-    book = EGObjectDAO(
-        id="book_1",
-        room_id="room_1",
-        place_id=_SHELF_ID,
-        source_id="book_src",
-        object_type=ObjectType.BOOK,
-        scale=EGScaleDAO(height=0.3, length=0.1, width=0.05),
-        position=EGPositionDAO(x=world_x, y=world_y, z=0.5),
-        orientation=EGRotationDAO(x=0.0, y=0.0, z=0.0),
-    )
-    return [shelf, book]
-
-
-def test_within_bounds_filter_accounts_for_shelf_rotation() -> None:
-    """
-    A book placed at the legitimate edge of a *rotated* shelf's width axis,
-    centred on its length axis, must be kept.
-
-    The edge-margin filter used to compare the raw world-frame offset
-    against the shelf's width/length without rotating into the shelf's own
-    frame first, so a rotated shelf tested the wrong axes and wrongly
-    dropped objects like this one.
-    """
-    objects = _rotated_shelf_and_book(local_x=0.45, local_y=0.0)
-
-    layers_by_shelf = shelf_layers_by_shelf(objects, edge_margin_fraction=0.10)
-
-    assert len(layers_by_shelf) == 1
-    all_source_ids = {
-        obj.source_id for layer in layers_by_shelf[0] for obj in layer.objects
-    }
-    assert "book_src" in all_source_ids
-
-
-def test_within_bounds_filter_excludes_object_outside_rotated_footprint() -> None:
-    """
-    A book placed outside a rotated shelf's own (shallow) length axis must
-    still be dropped, even though its world-frame offset might look small
-    for some rotations.
-    """
-    objects = _rotated_shelf_and_book(local_x=0.0, local_y=0.35)
-
-    layers_by_shelf = shelf_layers_by_shelf(objects, edge_margin_fraction=0.10)
-
-    assert layers_by_shelf == []
-
-
-def _cache_off_center_mesh(tmp_path: Path, source_id: str) -> Path:
-    """
-    Write a box mesh, cached under *source_id*, whose local origin (0, 0, 0)
-    sits at a corner rather than its bounding-box center: it spans
-    x in [0, 0.4], y in [-0.1, 0.1] -- true bbox center at local (0.2, 0.0).
-
-    :return: The scene directory :func:`build_source_id_to_path` expects.
-    """
-    scene_dir = tmp_path / "scene_1"
-    objects_dir = scene_dir / "objects"
-    objects_dir.mkdir(parents=True)
-    box = trimesh.creation.box(extents=[0.4, 0.2, 0.2])
-    box.apply_translation([0.2, 0.0, 0.1])
-    box.export(str(objects_dir / f"{source_id}.ply"))
-    (objects_dir / f"{source_id}_texture.png").write_bytes(b"")
-    return scene_dir
-
-
-def test_relative_position_is_corrected_by_the_meshs_bounding_box_center(
-    tmp_path: Path,
-) -> None:
-    """
-    The extracted relative position must reflect the mesh's true
-    bounding-box center, not the object's recorded (mesh-local-origin)
-    position -- a sage10k object's position is not guaranteed to sit at its
-    mesh's bbox center, the way a room's position is documented to be its
-    lower-left corner rather than its center.
-    """
-    scene_dir = _cache_off_center_mesh(tmp_path, "book_src")
-    shelf = EGObjectDAO(
-        id=_SHELF_ID,
-        room_id="room_1",
-        place_id="floor",
-        source_id="shelf_src",
-        object_type=ObjectType.SHELF,
-        scale=EGScaleDAO(height=0.02, length=2.0, width=2.0),
-        position=EGPositionDAO(x=0.0, y=0.0, z=1.0),
-        orientation=EGRotationDAO(x=0.0, y=0.0, z=0.0),
-    )
-    book = EGObjectDAO(
-        id="book_1",
-        room_id="room_1",
-        place_id=_SHELF_ID,
-        source_id="book_src",
-        object_type=ObjectType.BOOK,
-        scale=EGScaleDAO(height=0.2, length=0.1, width=0.1),
-        position=EGPositionDAO(x=0.0, y=0.0, z=0.5),
-        orientation=EGRotationDAO(x=0.0, y=0.0, z=0.0),
-    )
-
-    with patch(
-        "experiments.scene_generation_experiments.shelf_generation.build_source_id_to_path",
-        return_value={"book_src": scene_dir},
-    ):
-        layers_by_shelf = shelf_layers_by_shelf([shelf, book], edge_margin_fraction=0.10)
-
-    extracted = layers_by_shelf[0][0].objects[0]
-    # shelf yaw=0 -> content_frame_yaw=90; a true world offset of (0.2, 0.0)
-    # rotates into content-frame (0.0, -0.2).
-    assert extracted.position.x == pytest.approx(0.0, abs=1e-9)
-    assert extracted.position.y == pytest.approx(-0.2, abs=1e-9)
-
-
-def test_relative_position_falls_back_to_recorded_position_without_a_cached_mesh() -> (
-    None
-):
-    """
-    Extraction must not fail when an object's mesh isn't cached locally --
-    it falls back to the recorded (uncorrected) position instead.
-    """
-    shelf = EGObjectDAO(
-        id=_SHELF_ID,
-        room_id="room_1",
-        place_id="floor",
-        source_id="shelf_src",
-        object_type=ObjectType.SHELF,
-        scale=EGScaleDAO(height=0.02, length=2.0, width=2.0),
-        position=EGPositionDAO(x=0.0, y=0.0, z=1.0),
-        orientation=EGRotationDAO(x=0.0, y=0.0, z=0.0),
-    )
-    book = EGObjectDAO(
-        id="book_1",
-        room_id="room_1",
-        place_id=_SHELF_ID,
-        source_id="not_cached_src",
-        object_type=ObjectType.BOOK,
-        scale=EGScaleDAO(height=0.2, length=0.1, width=0.1),
-        position=EGPositionDAO(x=0.3, y=0.1, z=0.5),
-        orientation=EGRotationDAO(x=0.0, y=0.0, z=0.0),
-    )
-
-    with patch(
-        "experiments.scene_generation_experiments.shelf_generation.build_source_id_to_path",
-        return_value={},
-    ):
-        layers_by_shelf = shelf_layers_by_shelf([shelf, book], edge_margin_fraction=0.10)
-
-    extracted = layers_by_shelf[0][0].objects[0]
-    assert extracted.position.x == pytest.approx(0.1, abs=1e-9)
-    assert extracted.position.y == pytest.approx(-0.3, abs=1e-9)
 
 
 # ---------------------------------------------------------------------------
@@ -635,17 +337,15 @@ def _typed_object(object_type: ObjectType, object_id: str) -> EGObject2D:
 
 def test_coarsen_rare_object_types_keeps_only_the_most_frequent_types() -> None:
     """
-    Object types outside the keep_count most frequent ones must be replaced
-    with ObjectType.OTHER; every other field must be preserved unchanged.
+    Object types outside the keep_count most frequent ones must be replaced with
+    ObjectType.OTHER; every other field must be preserved unchanged.
 
-    The sage10k dataset's object_type labels are close to per-instance
-    identifiers (128 distinct values observed across ~8k objects, most
-    seen only a handful of times). Training the RSPN on that raw label
-    space made grounding a single query take upwards of ten seconds,
-    since grounding deep-copies every leaf of the categorical domain.
-    Collapsing rare types into ObjectType.OTHER keeps the signal for
-    common categories while cutting that domain -- and therefore
-    grounding cost -- down sharply.
+    The sage10k dataset's object_type labels are close to per-instance identifiers (128
+    distinct values observed across ~8k objects, most seen only a handful of times).
+    Training the RSPN on that raw label space made grounding a single query take upwards
+    of ten seconds, since grounding deep-copies every leaf of the categorical domain.
+    Collapsing rare types into ObjectType.OTHER keeps the signal for common categories
+    while cutting that domain -- and therefore grounding cost -- down sharply.
     """
     layer = EGShelfLayer(
         scale=EGScale(height=0.02, length=0.3, width=0.4),
@@ -676,9 +376,9 @@ def test_coarsen_rare_object_types_keeps_only_the_most_frequent_types() -> None:
 
 def test_coarsen_rare_object_types_leaves_layer_within_keep_count_unchanged() -> None:
     """
-    When every observed type already fits within keep_count, no object's type
-    must be touched -- coarsening must not fall back to ObjectType.OTHER for
-    types that were never actually rare.
+    When every observed type already fits within keep_count, no object's type must be
+    touched -- coarsening must not fall back to ObjectType.OTHER for types that were
+    never actually rare.
     """
     layer = EGShelfLayer(
         scale=EGScale(height=0.02, length=0.3, width=0.4),
@@ -700,15 +400,13 @@ def test_coarsen_mesh_candidate_types_relabels_candidates_outside_frequent_types
     None
 ):
     """
-    _coarsen_mesh_candidate_types must relabel every candidate whose type
-    falls outside frequent_types as ObjectType.OTHER, mirroring
-    _coarsen_rare_object_types.
+    _coarsen_mesh_candidate_types must relabel every candidate whose type falls outside
+    frequent_types as ObjectType.OTHER, mirroring _coarsen_rare_object_types.
 
-    Without this, a sampled ObjectType.OTHER object could never find a
-    same-type mesh candidate in _MeshTypeMatcher.random_match, since every
-    candidate would still carry its original, uncoarsened type -- silently
-    falling back to a random mesh from the whole pool for every object
-    outside the most frequent types.
+    Without this, a sampled ObjectType.OTHER object could never find a same-type mesh
+    candidate in _MeshTypeMatcher.random_match, since every candidate would still carry
+    its original, uncoarsened type -- silently falling back to a random mesh from the
+    whole pool for every object outside the most frequent types.
     """
     cup_candidate = MeshCandidate(_FAKE_PATH, "cup_src", ObjectType.CUP)
     plant_candidate = MeshCandidate(_FAKE_PATH, "plant_src", ObjectType.PLANT)
@@ -723,8 +421,7 @@ def test_coarsen_mesh_candidate_types_relabels_candidates_outside_frequent_types
 
 def test_coarsen_mesh_candidate_types_leaves_frequent_types_unchanged() -> None:
     """
-    Candidates whose type is already within frequent_types must not be
-    touched.
+    Candidates whose type is already within frequent_types must not be touched.
     """
     cup_candidate = MeshCandidate(_FAKE_PATH, "cup_src", ObjectType.CUP)
     plant_candidate = MeshCandidate(_FAKE_PATH, "plant_src", ObjectType.PLANT)
@@ -788,9 +485,9 @@ def test_load_restores_a_circuit_that_can_still_be_grounded_and_sampled(
     fitted_arbitrary_shelf_model: TrainedArbitraryShelfModel, tmp_path: Path
 ) -> None:
     """
-    A restored circuit must still answer queries through the same
-    ProbabilisticBackend path :func:`generate_shelf_with_arbitrary_objects`
-    uses, not just round-trip its structure.
+    A restored circuit must still answer queries through the same ProbabilisticBackend
+    path :func:`generate_shelf_with_arbitrary_objects` uses, not just round-trip its
+    structure.
     """
     export_path = tmp_path / "arbitrary_shelf_rspn.json"
     fitted_arbitrary_shelf_model.save(export_path)
@@ -855,8 +552,8 @@ print("GROUNDED_OK")
 
 def test_load_survives_a_different_hash_seed_process(tmp_path: Path) -> None:
     """
-    A model exported by one process must still ground and sample correctly
-    when loaded by a different process with a different PYTHONHASHSEED.
+    A model exported by one process must still ground and sample correctly when loaded
+    by a different process with a different PYTHONHASHSEED.
 
     Python randomizes hash() for str-backed types -- including the StrEnum
     ObjectType -- independently per process, so fitting and loading in the
@@ -927,12 +624,12 @@ def test_each_layer_slab_uses_its_own_scale() -> None:
 
 def test_object_mesh_keeps_its_native_size(tmp_path: Path) -> None:
     """
-    EGObject2D.create_in_world must render the loaded mesh at its own native PLY
-    size, not stretch it to the object's declared EGSize.
+    EGObject2D.create_in_world must render the loaded mesh at its own native PLY size,
+    not stretch it to the object's declared EGSize.
 
-    sage10k meshes already carry their real-world size, so rescaling a randomly
-    matched mesh to an independently sampled scale distorts its proportions. The
-    declared scale therefore must not drive the rendered geometry.
+    sage10k meshes already carry their real-world size, so rescaling a randomly matched
+    mesh to an independently sampled scale distorts its proportions. The declared scale
+    therefore must not drive the rendered geometry.
     """
     resources_root = (
         Path(files("semantic_digital_twin")).parent.parent / "resources" / "ply"
@@ -976,15 +673,13 @@ def test_object_mesh_keeps_its_native_size(tmp_path: Path) -> None:
 
 def test_mesh_type_matcher_only_returns_candidates_of_the_requested_type() -> None:
     """
-    _MeshTypeMatcher.random_match must only return candidates whose
-    object_type equals the requested type when at least one such candidate
-    exists in the pool.
+    _MeshTypeMatcher.random_match must only return candidates whose object_type equals
+    the requested type when at least one such candidate exists in the pool.
 
-    ObjectType labels in the source dataset are effectively per-instance
-    identifiers (tens of thousands of distinct values), so picking a mesh at
-    random from the same generalized ObjectType -- rather than matching by
-    declared size -- is what keeps an assigned mesh semantically plausible
-    for the category an object was sampled as.
+    ObjectType labels in the source dataset are effectively per-instance identifiers
+    (tens of thousands of distinct values), so picking a mesh at random from the same
+    generalized ObjectType -- rather than matching by declared size -- is what keeps an
+    assigned mesh semantically plausible for the category an object was sampled as.
     """
     book_candidate = MeshCandidate(_FAKE_PATH, "book_src", ObjectType.BOOK)
     cup_candidate = MeshCandidate(_FAKE_PATH, "cup_src", ObjectType.CUP)
@@ -996,8 +691,8 @@ def test_mesh_type_matcher_only_returns_candidates_of_the_requested_type() -> No
 
 def test_mesh_type_matcher_returns_nothing_when_the_type_is_absent() -> None:
     """
-    When the pool holds no candidate of the requested type, random_match must
-    return ``None`` so the caller can drop the piece.
+    When the pool holds no candidate of the requested type, random_match must return
+    ``None`` so the caller can drop the piece.
 
     Replaces two earlier tests that asserted the opposite -- that a candidate
     was returned from the full pool regardless of type, so sampling could never
@@ -1016,8 +711,8 @@ def test_mesh_type_matcher_returns_nothing_when_the_type_is_absent() -> None:
 
 def test_mesh_type_matcher_excludes_candidates_larger_than_the_budget() -> None:
     """
-    With a size budget, only candidates whose own real-world size fits are
-    eligible, so an oversized mesh is never chosen when a fitting one exists.
+    With a size budget, only candidates whose own real-world size fits are eligible, so
+    an oversized mesh is never chosen when a fitting one exists.
     """
     fitting = MeshCandidate(_FAKE_PATH, "small", ObjectType.BOOK, (0.1, 0.1, 0.1))
     oversized = MeshCandidate(_FAKE_PATH, "big", ObjectType.BOOK, (0.1, 0.1, 1.0))
@@ -1032,9 +727,9 @@ def test_mesh_type_matcher_excludes_candidates_larger_than_the_budget() -> None:
 
 def test_mesh_type_matcher_drops_when_no_candidate_of_type_fits() -> None:
     """
-    When every candidate of the requested type is too big for the budget,
-    random_match returns None so the caller can leave the object out rather than
-    force an overflowing mesh into the space.
+    When every candidate of the requested type is too big for the budget, random_match
+    returns None so the caller can leave the object out rather than force an overflowing
+    mesh into the space.
     """
     oversized = MeshCandidate(_FAKE_PATH, "big", ObjectType.BOOK, (0.1, 0.1, 1.0))
     matcher = _MeshTypeMatcher(candidates=[oversized])
@@ -1045,8 +740,8 @@ def test_mesh_type_matcher_drops_when_no_candidate_of_type_fits() -> None:
 
 def test_mesh_type_matcher_ignores_size_without_a_budget() -> None:
     """
-    Without a budget, size is not considered, so callers that do not constrain
-    space (chairs, floor objects) keep the original type-only behaviour.
+    Without a budget, size is not considered, so callers that do not constrain space
+    (chairs, floor objects) keep the original type-only behaviour.
     """
     oversized = MeshCandidate(_FAKE_PATH, "big", ObjectType.BOOK, (1.0, 1.0, 1.0))
     matcher = _MeshTypeMatcher(candidates=[oversized])
@@ -1056,8 +751,8 @@ def test_mesh_type_matcher_ignores_size_without_a_budget() -> None:
 
 def test_mesh_type_matcher_treats_unknown_size_as_fitting() -> None:
     """
-    A candidate whose native size is unknown must be treated as fitting, so
-    manually built pools without size information are not silently emptied.
+    A candidate whose native size is unknown must be treated as fitting, so manually
+    built pools without size information are not silently emptied.
     """
     unknown = MeshCandidate(_FAKE_PATH, "unknown", ObjectType.BOOK)
     matcher = _MeshTypeMatcher(candidates=[unknown])
@@ -1066,207 +761,10 @@ def test_mesh_type_matcher_treats_unknown_size_as_fitting() -> None:
     assert matcher.random_match(ObjectType.BOOK, max_extents=budget) is unknown
 
 
-# ---------------------------------------------------------------------------
-# Shelf-frame normalisation – contents must be stored in the shelf's own frame
-# ---------------------------------------------------------------------------
-
-
-def test_shelf_content_orientation_is_stored_relative_to_the_shelf(
-    session: Session,
-) -> None:
-    """
-    A shelf's contents are consumed at spawn time inside a corpus rotated into
-    the shelf's content frame, so extraction must store each object's yaw
-    relative to that frame rather than the absolute one -- otherwise the
-    rotation is double-counted for the 88% of shelves in the dataset that are
-    rotated.
-
-    The content frame is the shelf yaw plus
-    :attr:`EGShelf.CONTENT_FRAME_YAW_OFFSET_DEGREES`, so a book at absolute yaw
-    110 on a shelf at yaw 90 is stored at ``110 - (90 + 90) = -70``.
-
-    Guards the orientation half of the frame change; the position half is
-    guarded behaviourally by
-    :func:`test_shelf_contents_round_trip_from_world_pose_through_extraction_and_spawning`,
-    since the stored coordinate convention is an internal detail.
-    """
-    shelf = EGObjectDAO(
-        id=_SHELF_ID,
-        room_id="room_1",
-        place_id="floor",
-        source_id="shelf_src",
-        object_type=ObjectType.SHELF,
-        scale=EGScaleDAO(height=2.0, length=1.0, width=1.0),
-        position=EGPositionDAO(x=10.0, y=5.0, z=1.0),
-        orientation=EGRotationDAO(x=0.0, y=0.0, z=90.0),
-    )
-    book = EGObjectDAO(
-        id="book_1",
-        room_id="room_1",
-        place_id=_SHELF_ID,
-        source_id="book_src",
-        object_type=ObjectType.BOOK,
-        scale=EGScaleDAO(height=0.3, length=0.1, width=0.05),
-        position=EGPositionDAO(x=10.3, y=5.0, z=0.5),
-        orientation=EGRotationDAO(x=0.0, y=0.0, z=110.0),
-    )
-    session.add_all([shelf, book])
-    session.commit()
-
-    layers, _ = _extract_shelf_layers_from_place_id(session)
-
-    [stored_book] = layers[0].objects
-    assert stored_book.orientation.z == pytest.approx(-70.0)
-
-
-def test_shelf_contents_round_trip_from_world_pose_through_extraction_and_spawning(
-    session: Session, tmp_path: Path
-) -> None:
-    """
-    Extraction and spawning must be inverses: an object at a known world pose on
-    a rotated shelf has to come back to that same world pose once its extracted,
-    shelf-local pose is spawned again.
-
-    Storing the pose in the shelf's frame is only half the contract -- the spawn
-    side re-applies the shelf's rotation and maps the stored axes onto the corpus
-    frame, so only a full round-trip proves the two agree.
-    """
-    resources_root = (
-        Path(files("semantic_digital_twin")).parent.parent / "resources" / "ply"
-    )
-    objects_dir = tmp_path / "objects"
-    objects_dir.mkdir()
-    shutil.copy(resources_root / "chair.ply", objects_dir / "book_src.ply")
-    shutil.copy(
-        resources_root / "chair_texture.png", objects_dir / "book_src_texture.png"
-    )
-
-    shelf_world_x, shelf_world_y, shelf_yaw = 10.0, 5.0, 90.0
-    book_world_x, book_world_y = 10.3, 5.2
-    shelf = EGObjectDAO(
-        id=_SHELF_ID,
-        room_id="room_1",
-        place_id="floor",
-        source_id="shelf_src",
-        object_type=ObjectType.SHELF,
-        scale=EGScaleDAO(height=2.0, length=1.0, width=1.0),
-        position=EGPositionDAO(x=shelf_world_x, y=shelf_world_y, z=1.0),
-        orientation=EGRotationDAO(x=0.0, y=0.0, z=shelf_yaw),
-    )
-    book = EGObjectDAO(
-        id="book_1",
-        room_id="room_1",
-        place_id=_SHELF_ID,
-        source_id="book_src",
-        object_type=ObjectType.BOOK,
-        scale=EGScaleDAO(height=0.2, length=0.1, width=0.05),
-        position=EGPositionDAO(x=book_world_x, y=book_world_y, z=0.5),
-        orientation=EGRotationDAO(x=0.0, y=0.0, z=110.0),
-    )
-    session.add_all([shelf, book])
-    session.commit()
-
-    layers, _ = _extract_shelf_layers_from_place_id(session)
-    spawned_shelf = EGShelf(
-        position=EGPoint2D(x=shelf_world_x, y=shelf_world_y),
-        scale=EGScale(height=2.0, length=1.0, width=1.0),
-        orientation=EGRotation(x=0.0, y=0.0, z=shelf_yaw),
-        layers=layers,
-        source_ids=[
-            MeshCandidate(
-                scene_dir=tmp_path, source_id="book_src", object_type=ObjectType.BOOK
-            )
-        ],
-    )
-
-    world = World()
-    root = Body(name=PrefixedName(name="map"))
-    with world.modify_world():
-        world.add_body(root)
-    spawned = spawned_shelf.spawn_in_world(world, root)
-
-    [body] = spawned.layers[0].object_bodies.values()
-    position = body.global_pose.to_position().to_np()
-    assert position[0] == pytest.approx(book_world_x, abs=1e-6)
-    assert position[1] == pytest.approx(book_world_y, abs=1e-6)
-
-
-def test_shelf_contents_spawn_within_the_layer_footprint(
-    session: Session, tmp_path: Path
-) -> None:
-    """
-    A content object offset along the shelf's wide face must spawn inside the
-    corpus footprint on both axes, rather than overflowing the shallow depth.
-
-    The shelf here is much wider (face) than it is deep, and the book is offset
-    well along that face. If the face offset were mapped onto the corpus depth
-    axis -- the original defect -- the book would land far outside the shallow
-    depth and protrude front and back.
-    """
-    objects_dir = tmp_path / "objects"
-    objects_dir.mkdir()
-    resources_root = (
-        Path(files("semantic_digital_twin")).parent.parent / "resources" / "ply"
-    )
-    shutil.copy(resources_root / "chair.ply", objects_dir / "book_src.ply")
-    shutil.copy(
-        resources_root / "chair_texture.png", objects_dir / "book_src_texture.png"
-    )
-
-    shelf_depth, shelf_face = 0.3, 1.0
-    shelf = EGObjectDAO(
-        id=_SHELF_ID,
-        room_id="room_1",
-        place_id="floor",
-        source_id="shelf_src",
-        object_type=ObjectType.SHELF,
-        scale=EGScaleDAO(height=2.0, length=shelf_depth, width=shelf_face),
-        position=EGPositionDAO(x=0.0, y=0.0, z=1.0),
-        orientation=EGRotationDAO(x=0.0, y=0.0, z=0.0),
-    )
-    # At the shelf's zero yaw its wide face lies along world x, so a world-x
-    # offset is a face offset -- well within the face but far outside the depth.
-    book = EGObjectDAO(
-        id="book_1",
-        room_id="room_1",
-        place_id=_SHELF_ID,
-        source_id="book_src",
-        object_type=ObjectType.BOOK,
-        scale=EGScaleDAO(height=0.2, length=0.1, width=0.05),
-        position=EGPositionDAO(x=0.4, y=0.0, z=0.5),
-        orientation=EGRotationDAO(x=0.0, y=0.0, z=0.0),
-    )
-    session.add_all([shelf, book])
-    session.commit()
-
-    layers, _ = _extract_shelf_layers_from_place_id(session)
-    spawned_shelf = EGShelf(
-        position=EGPoint2D(x=0.0, y=0.0),
-        scale=EGScale(height=2.0, length=shelf_depth, width=shelf_face),
-        orientation=EGRotation(x=0.0, y=0.0, z=0.0),
-        layers=layers,
-        source_ids=[
-            MeshCandidate(
-                scene_dir=tmp_path, source_id="book_src", object_type=ObjectType.BOOK
-            )
-        ],
-    )
-    world = World()
-    root = Body(name=PrefixedName(name="map"))
-    with world.modify_world():
-        world.add_body(root)
-    spawned = spawned_shelf.spawn_in_world(world, root)
-
-    [body] = spawned.layers[0].object_bodies.values()
-    corpus_x, corpus_y = body.parent_connection.origin.to_position().to_np()[:2]
-    assert abs(corpus_x) <= shelf_depth / 2
-    assert abs(corpus_y) <= shelf_face / 2
-
-
 def test_mesh_pool_loads_every_object_whose_mesh_is_cached(session: Session) -> None:
     """
-    The mesh-candidate pool must be selected by mesh availability, not by an
-    arbitrary row cap.
+    The mesh-candidate pool must be selected by mesh availability, not by an arbitrary
+    row cap.
 
     Capping an unordered query and only then intersecting with the cached
     meshes made the pool an accident of which rows the database happened to
@@ -1286,6 +784,7 @@ def test_mesh_pool_loads_every_object_whose_mesh_is_cached(session: Session) -> 
                 scale=EGScaleDAO(height=1.0, length=0.5, width=0.5),
                 position=EGPositionDAO(x=float(index), y=0.0, z=0.5),
                 orientation=EGRotationDAO(x=0.0, y=0.0, z=0.0),
+                position_is_mesh_corrected=True,
             )
             for index in range(30)
         ]
@@ -1299,6 +798,7 @@ def test_mesh_pool_loads_every_object_whose_mesh_is_cached(session: Session) -> 
                 scale=EGScaleDAO(height=1.0, length=0.5, width=0.5),
                 position=EGPositionDAO(x=99.0, y=0.0, z=0.5),
                 orientation=EGRotationDAO(x=0.0, y=0.0, z=0.0),
+                position_is_mesh_corrected=True,
             )
         ]
     )
@@ -1307,52 +807,3 @@ def test_mesh_pool_loads_every_object_whose_mesh_is_cached(session: Session) -> 
     loaded = load_objects_with_cached_meshes(session, cached_source_ids)
 
     assert {obj.source_id for obj in loaded} == cached_source_ids
-
-
-def test_objects_of_type_selects_only_floor_resting_objects_of_that_type(
-    session: Session,
-) -> None:
-    """
-    Mesh coverage is targeted per object type, so the download worklist must
-    contain exactly the floor-resting objects of the requested type -- objects
-    standing on furniture are dressed from their own pools.
-    """
-    session.add_all(
-        [
-            EGObjectDAO(
-                id="floor_plant",
-                room_id="room_1",
-                place_id="floor",
-                source_id="plant_src",
-                object_type=ObjectType.PLANT,
-                scale=EGScaleDAO(height=1.0, length=0.5, width=0.5),
-                position=EGPositionDAO(x=0.0, y=0.0, z=0.5),
-                orientation=EGRotationDAO(x=0.0, y=0.0, z=0.0),
-            ),
-            EGObjectDAO(
-                id="shelf_plant",
-                room_id="room_1",
-                place_id=_SHELF_ID,
-                source_id="shelf_plant_src",
-                object_type=ObjectType.PLANT,
-                scale=EGScaleDAO(height=0.2, length=0.1, width=0.1),
-                position=EGPositionDAO(x=0.0, y=0.0, z=1.2),
-                orientation=EGRotationDAO(x=0.0, y=0.0, z=0.0),
-            ),
-            EGObjectDAO(
-                id="floor_chair",
-                room_id="room_1",
-                place_id="floor",
-                source_id="chair_src",
-                object_type=ObjectType.CHAIR,
-                scale=EGScaleDAO(height=0.9, length=0.5, width=0.5),
-                position=EGPositionDAO(x=1.0, y=0.0, z=0.45),
-                orientation=EGRotationDAO(x=0.0, y=0.0, z=0.0),
-            ),
-        ]
-    )
-    session.commit()
-
-    plants = objects_of_type(session, ObjectType.PLANT)
-
-    assert [obj.source_id for obj in plants] == ["plant_src"]

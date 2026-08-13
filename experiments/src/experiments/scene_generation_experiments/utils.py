@@ -1,20 +1,27 @@
 from __future__ import annotations
 
 import contextlib
+import dataclasses
 import threading
 import time
-from collections.abc import Collection, Sequence
+from collections.abc import Collection
 from pathlib import Path
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 
-from experiments.orm.ormatic_interface import EGObjectDAO
+from experiments.orm.ormatic_interface import (
+    EGObject2DDAO,
+    EGObjectDAO,
+    EGShelfLayerDAO,
+    EGShelfLayerDAO_objects_association,
+)
 from experiments.scene_generation_experiments.data_preprocessing import (
     Sage10kSceneDownloader,
     SourceIdNotFoundError,
 )
 from semantic_digital_twin.scene_generation.scene_schema import (
+    EGShelfLayer,
     MeshCandidate,
     ObjectType,
 )
@@ -25,8 +32,8 @@ MINIMUM_ROWS_PER_LEAF = 50
 """
 Fewest training rows a fitted leaf may describe.
 
-Below this a leaf describes its handful of rows rather than the distribution
-they were drawn from, so the fraction has to grow as the training set shrinks.
+Below this a leaf describes its handful of rows rather than the distribution they were
+drawn from, so the fraction has to grow as the training set shrinks.
 """
 
 MAXIMUM_LEAF_COUNT = 20
@@ -49,10 +56,10 @@ def min_samples_per_leaf_for(training_row_count: int) -> float:
     Return the ``min_samples_per_leaf`` fraction to fit a circuit with.
 
     Two constraints bind from opposite ends and the tighter one wins. Below
-    :data:`MINIMUM_ROWS_PER_LEAF` rows a leaf overfits, so small training sets
-    need a *larger* fraction. Above :data:`MAXIMUM_LEAF_COUNT` leaves the
-    circuit becomes too large to ground once per sampled part, so large training
-    sets are held at that floor rather than being allowed to grow finer.
+    :data:`MINIMUM_ROWS_PER_LEAF` rows a leaf overfits, so small training sets need a
+    *larger* fraction. Above :data:`MAXIMUM_LEAF_COUNT` leaves the circuit becomes too
+    large to ground once per sampled part, so large training sets are held at that floor
+    rather than being allowed to grow finer.
 
     :param training_row_count: Rows the circuit will be fitted on.
     :return: The fraction to pass as ``min_samples_per_leaf``.
@@ -64,24 +71,10 @@ def min_samples_per_leaf_for(training_row_count: int) -> float:
     return min(max(overfitting_fraction, leaf_budget_fraction), 1.0)
 
 
-DEFAULT_TRAINING_ROOM_COUNT = 1500
-"""
-Default number of distinct rooms sampled by :func:`sampled_room_ids` for RSPN
-training. Selecting rooms first, then loading every object that belongs to
-them via :func:`objects_for_rooms`, keeps each selected room's piece
-membership complete -- unlike capping the object query directly, which
-truncated most rooms' pieces long before their true membership was reached
-(the dataset's true median is 23 floor pieces per room, but a flat 50000-row
-cap across the whole object table left a median of just 2 pieces per room
-actually represented).
-"""
-
-
 @contextlib.contextmanager
 def rclpy_node():
     """
-    Context manager that initialises an rclpy node and spins it in a background
-    thread.
+    Context manager that initialises an rclpy node and spins it in a background thread.
 
     :raises ValueError: If rclpy is not installed.
     """
@@ -114,11 +107,10 @@ def load_all_objects(session: Session) -> list[EGObjectDAO]:
     Load a broad, capped sample of object DAOs, eagerly joining their
     scale/position/orientation, for use as a mesh-candidate pool.
 
-    Deliberately independent of :func:`sampled_room_ids`/
-    :func:`objects_for_rooms`: capping the *rooms* selected for RSPN training
-    must not also narrow which meshes are available to dress the sampled
-    result, so callers building a mesh-candidate pool should use this
-    instead of the objects an RSPN-training extractor happened to load.
+    Deliberately independent of :func:`load_shelf_layers`: which layers an RSPN is
+    trained on must not also narrow which meshes are available to dress the sampled
+    result, so callers building a mesh-candidate pool should use this instead of the
+    objects a training extractor happened to load.
 
     :param session: Database session to query objects from.
     :return: Loaded object DAOs.
@@ -142,13 +134,13 @@ def load_objects_with_cached_meshes(
     Load every object DAO whose mesh is already cached locally, eagerly joining
     scale/position/orientation.
 
-    Selecting by mesh availability keeps the candidate pool complete and
-    reproducible. Capping an unordered query first and intersecting with the
-    cached meshes afterwards left the pool an accident of which rows the
-    database happened to return -- a few dozen candidates skewed towards
-    whichever types earlier demos had downloaded, so most sampled object types
-    found no mesh of their own kind and fell back to the whole pool. The result
-    is bounded by the size of the local cache, so it needs no row limit.
+    Selecting by mesh availability keeps the candidate pool complete and reproducible.
+    Capping an unordered query first and intersecting with the cached meshes afterwards
+    left the pool an accident of which rows the database happened to return -- a few
+    dozen candidates skewed towards whichever types earlier demos had downloaded, so
+    most sampled object types found no mesh of their own kind and fell back to the whole
+    pool. The result is bounded by the size of the local cache, so it needs no row
+    limit.
 
     :param session: Database session to query objects from.
     :param cached_source_ids: Source IDs whose mesh files are cached locally.
@@ -166,72 +158,58 @@ def load_objects_with_cached_meshes(
     ).all()
 
 
-def objects_of_type(session: Session, object_type: ObjectType) -> list[EGObjectDAO]:
+def load_shelf_layers(
+    session: Session, object_type: ObjectType | None = None
+) -> list[EGShelfLayer]:
     """
-    Load every floor-resting object DAO of *object_type*.
+    Load every shelf layer prepared by the preprocessing pipeline.
 
-    Used to build a per-type mesh-download worklist, so each commonly sampled
-    type can be given its own mesh coverage rather than sharing one global cap.
+    The stored layers already carry mesh-centred positions, unified object
+    types and content-frame poses, so fitting a circuit on them needs no
+    further processing -- which is what keeps mesh measurement and clustering
+    out of every training run.
 
-    :param session: Database session to query objects from.
-    :param object_type: The type of object to load.
-    :return: The matching object DAOs.
+    Every relationship reached while converting a layer is eagerly loaded.
+    Leaving the objects' own scale, position and orientation to lazy loading
+    costs three statements per object on the one query path every training run
+    takes -- which is the very cost preprocessing exists to remove.
+
+    :param session: Session on the processed database.
+    :param object_type: When given, layers are reduced to their objects of this
+        type and layers left empty are dropped.
+    :return: The stored shelf layers.
     """
-    return session.scalars(
-        select(EGObjectDAO).where(EGObjectDAO.object_type == object_type).distinct()
-    ).all()
+    layer_data_access_objects = (
+        session.scalars(
+            select(EGShelfLayerDAO).options(
+                joinedload(EGShelfLayerDAO.scale),
+                joinedload(EGShelfLayerDAO.objects)
+                .joinedload(EGShelfLayerDAO_objects_association.target)
+                .options(
+                    joinedload(EGObject2DDAO.scale),
+                    joinedload(EGObject2DDAO.position),
+                    joinedload(EGObject2DDAO.orientation),
+                ),
+            )
+        )
+        .unique()
+        .all()
+    )
+    layers = [
+        layer_data_access_object.from_dao()
+        for layer_data_access_object in layer_data_access_objects
+    ]
+    if object_type is None:
+        return layers
 
-
-def sampled_room_ids(
-    session: Session, room_count: int = DEFAULT_TRAINING_ROOM_COUNT
-) -> list[str]:
-    """
-    Return a random sample of up to *room_count* distinct room ids.
-
-    Meant to be followed by :func:`objects_for_rooms`, so a bounded number of
-    rooms are selected first and then loaded in full -- rather than capping
-    the object query itself, which truncates almost every room's pieces long
-    before its true membership is reached.
-
-    :param session: Database session to query room ids from.
-    :return: Sampled room ids.
-    """
-    return session.scalars(select(EGObjectDAO.room_id).distinct()).all()
-
-
-def objects_for_rooms(
-    session: Session,
-    room_ids: Sequence[str],
-) -> list[EGObjectDAO]:
-    """
-    Load every object DAO belonging to any of *room_ids*, eagerly joining
-    scale/position/orientation, with no cap on row count.
-
-    A room's full piece membership must not be truncated, or an RSPN trained on
-    the result learns an artificially sparse room composition. A former
-    50000-row cap did exactly that: across 1500 rooms averaging 85 objects each
-    it cut the median floor-piece count from 22 to 9, which is what made
-    generated rooms come out both tiny and nearly empty.
-
-    .. warning::
-        Leave *place_id* unset when the loaded objects feed more than one
-        extractor. Shelf contents carry their shelf's id as ``place_id``, so
-        restricting to :attr:`PlaceId.FLOOR` yields no shelf layers at all.
-
-    :param session: Database session to query objects from.
-    :param room_ids: Room ids whose member objects should be loaded.
-    :param place_id: When given, only objects resting on this room structure are
-        loaded; otherwise every object of the rooms is returned.
-    :return: All matching object DAOs.
-    """
-    statement = select(EGObjectDAO).where(EGObjectDAO.room_id.in_(room_ids))
-    return session.scalars(
-        statement.options(
-            joinedload(EGObjectDAO.scale),
-            joinedload(EGObjectDAO.position),
-            joinedload(EGObjectDAO.orientation),
-        ).distinct()
-    ).all()
+    matching_layers = [
+        dataclasses.replace(
+            layer,
+            objects=[obj for obj in layer.objects if obj.object_type == object_type],
+        )
+        for layer in layers
+    ]
+    return [layer for layer in matching_layers if layer.objects]
 
 
 def _get_source_ids_for_objects(
@@ -241,23 +219,21 @@ def _get_source_ids_for_objects(
     minimum_candidates: int = 5,
 ) -> list[MeshCandidate]:
     """
-    Build the pool of mesh candidates for objects of *object_type* that have a
-    local PLY mesh available.
+    Build the pool of mesh candidates for objects of *object_type* that have a local PLY
+    mesh available.
 
     :param objects: All loaded object DAOs from the database.
-    :param object_type: Only objects whose type equals this value are
-        included. Defaults to :attr:`ObjectType.BOOK` to reproduce the
-        original book-only behaviour; pass ``None`` to include every
-        type.
-    :param downloader: When given, scenes are downloaded on demand for
-        matching objects whose mesh isn't cached locally yet, until
-        *minimum_candidates* distinct meshes are available or every
-        matching object has been tried. ``None`` skips downloading, so
-        the pool is whatever is already cached.
-    :param minimum_candidates: Target number of distinct meshes to have
-        available; only consulted when *downloader* is given.
-    :return: Pool of mesh candidates, one per matching object with a
-        resolvable PLY mesh.
+    :param object_type: Only objects whose type equals this value are included. Defaults
+        to :attr:`ObjectType.BOOK` to reproduce the original book-only behaviour; pass
+        ``None`` to include every type.
+    :param downloader: When given, scenes are downloaded on demand for matching objects
+        whose mesh isn't cached locally yet, until *minimum_candidates* distinct meshes
+        are available or every matching object has been tried. ``None`` skips
+        downloading, so the pool is whatever is already cached.
+    :param minimum_candidates: Target number of distinct meshes to have available; only
+        consulted when *downloader* is given.
+    :return: Pool of mesh candidates, one per matching object with a resolvable PLY
+        mesh.
     """
     source_id_to_path = build_source_id_to_path()
     matching_objects = [
@@ -288,21 +264,21 @@ def _ensure_minimum_mesh_pool(
     minimum_candidates: int,
 ) -> None:
     """
-    Download scenes for *objects* not yet in *source_id_to_path*, mutating it
-    in place, until *minimum_candidates* distinct meshes are cached or every
-    object has been tried.
+    Download scenes for *objects* not yet in *source_id_to_path*, mutating it in place,
+    until *minimum_candidates* distinct meshes are cached or every object has been
+    tried.
 
-    Not every ``source_id`` resolves in the Sage-10k database (e.g. objects
-    from a different data source), so a lookup miss is skipped rather than
-    aborting the whole pool.
+    Not every ``source_id`` resolves in the Sage-10k database (e.g. objects from a
+    different data source), so a lookup miss is skipped rather than aborting the whole
+    pool.
 
     :param objects: Candidate objects to download meshes for.
-    :param source_id_to_path: Mapping of already-cached source IDs to their
-        scene directory; extended in place with newly downloaded ones.
+    :param source_id_to_path: Mapping of already-cached source IDs to their scene
+        directory; extended in place with newly downloaded ones.
     :param downloader: Resolves a source ID to its scene and downloads it.
-    :param minimum_candidates: Target number of distinct meshes to have
-        available, among *objects* specifically -- other object types
-        already cached in *source_id_to_path* don't count towards it.
+    :param minimum_candidates: Target number of distinct meshes to have available, among
+        *objects* specifically -- other object types already cached in
+        *source_id_to_path* don't count towards it.
     """
     available = {obj.source_id for obj in objects if obj.source_id in source_id_to_path}
     for obj in objects:
@@ -323,16 +299,13 @@ def build_source_id_to_path(
     scenes_root: Path = Path.home() / "Documents" / "sage-10k-scenes",
 ) -> dict[str, Path]:
     """
-    Scan *scenes_root* and return a mapping from source_id to its scene
-    directory.
+    Scan *scenes_root* and return a mapping from source_id to its scene directory.
 
-    Each scene directory is expected to contain an ``objects/`` sub-
-    folder with files named ``{source_id}.ply``.
+    Each scene directory is expected to contain an ``objects/`` sub- folder with files
+    named ``{source_id}.ply``.
 
-    :param scenes_root: Root directory that contains individual scene
-        folders.
-    :return:``{source_id: scene_dir}`` for every PLY file found under
-        any scene.
+    :param scenes_root: Root directory that contains individual scene folders.
+    :return:``{source_id: scene_dir}`` for every PLY file found under any scene.
     """
     mapping: dict[str, Path] = {}
     for scene_dir in scenes_root.iterdir():

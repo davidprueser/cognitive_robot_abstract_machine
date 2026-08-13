@@ -2,21 +2,16 @@ from __future__ import annotations
 
 import os
 import time
-from collections import defaultdict
 from typing import TYPE_CHECKING
 
-import numpy as np
-from sklearn.cluster import DBSCAN
 from sqlalchemy.orm import Session
 
 from experiments.scene_generation_experiments.utils import (
-    DEFAULT_TRAINING_ROOM_COUNT,
     min_samples_per_leaf_for,
     _get_source_ids_for_objects,
     load_all_objects,
-    objects_for_rooms,
+    load_shelf_layers,
     rclpy_node,
-    sampled_room_ids,
 )
 from krrood.ormatic.data_access_objects.helper import to_dao
 from krrood.ormatic.utils import create_engine
@@ -36,14 +31,12 @@ from semantic_digital_twin.adapters.ros.visualization.viz_marker import (
     VizMarkerPublisher,
 )
 from semantic_digital_twin.scene_generation.scene_schema import (
-    EGObject2D,
     EGPoint2D,
     EGRotation,
     EGShelf,
     EGShelfLayer,
     EGScale,
     ObjectType,
-    wrap_angle_degrees,
 )
 
 if TYPE_CHECKING:
@@ -51,12 +44,21 @@ if TYPE_CHECKING:
         Sage10kSceneDownloader,
     )
 
+SHELF_HEIGHT = 2.0
+"""
+Height, in metres, of the shelf the sampled layers are spawned into.
+"""
+
 
 def generate_book_shelf(node, downloader: Sage10kSceneDownloader | None = None) -> None:
     """
-    Train an RSPN on shelf-layer data from the database, spawn a sampled
-    arrangement into a world, repair collisions and off-surface placements
-    directly in that world, and visualise the result via RViz markers.
+    Train an RSPN on the stored shelf layers' books, spawn a sampled arrangement into a
+    world, repair collisions and off-surface placements directly in that world, and
+    visualise the result via RViz markers.
+
+    Training data comes from the processed database built by
+    :func:`preprocess_sage10k_for_training`, reduced to the books on each
+    layer.
 
     :param node: An active rclpy node used to publish visualisation
         markers.
@@ -66,12 +68,15 @@ def generate_book_shelf(node, downloader: Sage10kSceneDownloader | None = None) 
         downloader for a final demo that needs a broad mesh pool.
     """
     start = time.time()
-    uri = os.environ.get("SEMANTIC_DIGITAL_TWIN_DATABASE_URI")
+    uri = os.environ.get("SAGE10K_PROCESSED_DATABASE_URI")
+    assert (
+        uri is not None
+    ), "Please set the SAGE10K_PROCESSED_DATABASE_URI environment variable."
     engine = create_engine(uri)
     Base.metadata.create_all(bind=engine)
     session = Session(engine)
 
-    shelf_layers, _ = _extract_shelf_layers_from_place_id(session)
+    shelf_layers = load_shelf_layers(session, object_type=ObjectType.BOOK)
     shelf_layer_data_access_objects = [to_dao(layer) for layer in shelf_layers]
 
     rspn = RelationalProbabilisticCircuit(
@@ -87,7 +92,11 @@ def generate_book_shelf(node, downloader: Sage10kSceneDownloader | None = None) 
     objects_per_layer = 3
     layer_count = 4
     reference_layer = next(
-        iter(probability_backend.evaluate(build_layer_query(free_count=objects_per_layer)))
+        iter(
+            probability_backend.evaluate(
+                build_layer_query(free_count=objects_per_layer)
+            )
+        )
     )
     target_scale = reference_layer.scale
     remaining_layers = [
@@ -108,7 +117,7 @@ def generate_book_shelf(node, downloader: Sage10kSceneDownloader | None = None) 
     shelf_sample = EGShelf(
         position=EGPoint2D(x=0.0, y=0.0),
         scale=EGScale(
-            height=_SHELF_HEIGHT,
+            height=SHELF_HEIGHT,
             length=target_scale.length,
             width=target_scale.width,
         ),

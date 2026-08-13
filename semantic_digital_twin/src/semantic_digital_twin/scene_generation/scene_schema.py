@@ -6,7 +6,7 @@ import random
 from dataclasses import dataclass, field
 from enum import IntEnum, StrEnum
 from pathlib import Path
-from typing import Any, ClassVar, Self, assert_never
+from typing import Any, ClassVar, Optional, Self, assert_never
 
 import numpy as np
 
@@ -345,7 +345,7 @@ class EGObject(EGWithID):
     place_id: str
     """
     The id of the object where the object is located/placed on/at, e.g. wall,
-    floor, anchor. The room-structure values are enumerated by :class:`PlaceId`.
+    floor, anchor, or the id of a piece of furniture it stands on.
     """
 
     object_type: ObjectType
@@ -375,6 +375,28 @@ class EGObject(EGWithID):
     This is used to identify the object in the dataset.
     """
 
+    description: Optional[str] = None
+    """
+    Free-text description of the object as written in the source dataset.
+    """
+
+    place_guidance: Optional[str] = None
+    """
+    Free-text description of where the object is meant to be placed, as
+    written in the source dataset.
+    """
+
+    position_is_mesh_corrected: bool = True
+    """
+    Whether :attr:`position` was corrected to the object's true mesh
+    bounding-box centre.
+
+    ``False`` means the mesh was unavailable when the object was processed and
+    the source dataset's recorded position was kept unchanged, which is not
+    guaranteed to be the mesh's centre. Consumers that need centred positions
+    should filter on this.
+    """
+
     def to_json(self) -> dict[str, Any]:
         return {
             **super().to_json(),
@@ -386,6 +408,9 @@ class EGObject(EGWithID):
             "rotation": to_json(self.orientation),
             "dimensions": to_json(self.scale),
             "source_id": self.source_id,
+            "description": self.description,
+            "place_guidance": self.place_guidance,
+            "position_is_mesh_corrected": self.position_is_mesh_corrected,
         }
 
     @classmethod
@@ -401,6 +426,9 @@ class EGObject(EGWithID):
             orientation=EGRotation._from_json(data["rotation"], **kwargs),
             scale=EGScale._from_json(data["dimensions"], **kwargs),
             source_id=data["source_id"],
+            description=data.get("description"),
+            place_guidance=data.get("place_guidance"),
+            position_is_mesh_corrected=data.get("position_is_mesh_corrected", True),
         )
 
     def create_in_world(
@@ -686,6 +714,11 @@ class EGShelfLayer(EGBase):
     Carries its own physical dimensions so the RSPN can learn width and
     length alongside object placement, rather than inheriting a fixed
     size from the parent shelf.
+
+    It also carries where it sits vertically in its shelf. An object's own
+    position is two-dimensional, since it simply rests on the slab, so without
+    these the height at which a category tends to be kept -- books low, display
+    pieces high -- is nowhere in the data.
     """
 
     scale: EGScale
@@ -698,11 +731,40 @@ class EGShelfLayer(EGBase):
     Objects placed on this layer, with positions relative to the layer centre.
     """
 
+    height_above_shelf_base: float = 0.0
+    """
+    Height of the slab above the base of its shelf, in metres.
+
+    This is the reachable height a robot has to plan for. Zero for a layer that
+    was not extracted from a real shelf.
+    """
+
+    relative_height: float = 0.0
+    """
+    Where the slab sits between its shelf's base (0) and top (1).
+
+    Carried alongside :attr:`height_above_shelf_base` because it is the form
+    that transfers: "books sit low" holds across shelves of different heights,
+    while a given height in metres does not.
+    """
+
+    vertical_clearance: float = 0.0
+    """
+    Space above the slab, in metres, up to the next layer or the shelf's
+    interior ceiling.
+
+    This is what decides whether an object fits, so keeping it lets that be
+    learned from real shelves instead of assumed from evenly spaced layers.
+    """
+
     def to_json(self) -> dict[str, Any]:
         return {
             **super().to_json(),
             "scale": to_json(self.scale),
             "objects": to_json(self.objects),
+            "height_above_shelf_base": self.height_above_shelf_base,
+            "relative_height": self.relative_height,
+            "vertical_clearance": self.vertical_clearance,
         }
 
     @classmethod
@@ -710,6 +772,126 @@ class EGShelfLayer(EGBase):
         return cls(
             scale=EGScale._from_json(data["scale"], **kwargs),
             objects=[EGObject2D._from_json(o, **kwargs) for o in data["objects"]],
+            height_above_shelf_base=data.get("height_above_shelf_base", 0.0),
+            relative_height=data.get("relative_height", 0.0),
+            vertical_clearance=data.get("vertical_clearance", 0.0),
+        )
+
+
+@dataclass
+class ObjectTypeAffinity(EGBase):
+    """
+    How often two object types were observed sharing a shelf layer, and how
+    they were typically arranged relative to each other.
+
+    Answers questions of the form "I am holding a book -- what else usually
+    shares a shelf with books, and roughly where do they sit relative to one
+    another" without re-scanning every stored layer at query time.
+    """
+
+    object_type_a: ObjectType
+    """
+    The first type of the pair, always the lexicographically smaller of the
+    two so that each unordered pair is stored exactly once.
+    """
+
+    object_type_b: ObjectType
+    """
+    The second type of the pair, always the lexicographically larger of the two.
+    """
+
+    co_occurrence_count: int
+    """
+    Number of observed pairs of objects of these two types on a common layer.
+    """
+
+    mean_relative_offset: EGPoint2D
+    """
+    Mean of ``b.position - a.position`` over every observed pair, in the layer's
+    own content frame.
+    """
+
+    @classmethod
+    def canonical_pair(
+        cls, first: ObjectType, second: ObjectType
+    ) -> tuple[ObjectType, ObjectType]:
+        """
+        Order *first* and *second* so an unordered type pair always maps onto
+        the same :attr:`object_type_a`/ :attr:`object_type_b` assignment.
+
+        :param first: One type of the pair.
+        :param second: The other type of the pair.
+        :return: The pair in canonical order.
+        """
+        return (first, second) if first <= second else (second, first)
+
+    def to_json(self) -> dict[str, Any]:
+        return {
+            **super().to_json(),
+            "object_type_a": self.object_type_a,
+            "object_type_b": self.object_type_b,
+            "co_occurrence_count": self.co_occurrence_count,
+            "mean_relative_offset": to_json(self.mean_relative_offset),
+        }
+
+    @classmethod
+    def _from_json(cls, data: dict[str, Any], **kwargs) -> Self:
+        return cls(
+            object_type_a=ObjectType(data["object_type_a"]),
+            object_type_b=ObjectType(data["object_type_b"]),
+            co_occurrence_count=data["co_occurrence_count"],
+            mean_relative_offset=EGPoint2D._from_json(
+                data["mean_relative_offset"], **kwargs
+            ),
+        )
+
+
+@dataclass
+class ObjectTypeHeightProfile(EGBase):
+    """
+    How high on a shelf objects of one type were typically found.
+
+    Answers "I am holding a book -- which shelf do books belong on" directly,
+    rather than leaving it to be recovered by walking every stored shelf.
+    """
+
+    object_type: ObjectType
+    """
+    The category this profile describes.
+    """
+
+    observation_count: int
+    """
+    Number of observed objects of this type the profile was built from.
+    """
+
+    mean_relative_height: float
+    """
+    Mean of the layers' :attr:`EGShelfLayer.relative_height`, so zero is the
+    shelf's base and one its top.
+    """
+
+    mean_height_above_shelf_base: float
+    """
+    Mean of the layers' :attr:`EGShelfLayer.height_above_shelf_base`, in metres.
+    """
+
+    def to_json(self) -> dict[str, Any]:
+        return {
+            **super().to_json(),
+            "object_type": self.object_type,
+            "observation_count": self.observation_count,
+            "mean_relative_height": self.mean_relative_height,
+            "mean_height_above_shelf_base": self.mean_height_above_shelf_base,
+        }
+
+    @classmethod
+    def _from_json(cls, data: dict[str, Any], **kwargs) -> Self:
+        return cls(
+            object_type=ObjectType(data["object_type"]),
+            observation_count=data["observation_count"],
+            mean_relative_height=data["mean_relative_height"],
+            mean_height_above_shelf_base=data["mean_height_above_shelf_base"],
         )
 
 

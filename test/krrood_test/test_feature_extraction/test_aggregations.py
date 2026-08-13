@@ -9,7 +9,6 @@ from krrood.ormatic.data_access_objects.helper import to_dao
 from krrood.parametrization.feature_extraction.aggregations import (
     AggregationStatistic,
     aggregation_statistic,
-    compute_aggregation_statistics,
     get_aggregation_class,
 )
 from krrood.parametrization.feature_extraction.exceptions import (
@@ -19,19 +18,7 @@ from krrood.parametrization.feature_extraction.feature_extractor import (
     FeatureExtractor,
 )
 from krrood.entity_query_language.core.mapped_variable import Call
-from probabilistic_model.probabilistic_circuit.relational.rspn import (
-    RelationalProbabilisticCircuit,
-)
 from random_events.interval import SimpleInterval, Bound
-from semantic_digital_twin.orm.ormatic_interface import *  # type: ignore
-from semantic_digital_twin.scene_generation.scene_schema import (
-    EGPoint2D,
-    EGPosition,
-    EGRoom,
-    EGScale,
-    EGWall,
-    RoomType,
-)
 from ..dataset.ormatic_interface import *  # type: ignore
 from ..dataset.example_classes import (
     SceneObject,
@@ -327,8 +314,7 @@ def test_get_aggregation_class_returns_scene_room_aggregations_for_scene_room():
 
 def test_get_aggregation_class_returns_test_ex_parts_aggregations_for_test_ex_parts():
     """
-    The registry must resolve TestExParts to TestExPartsAggregations
-    specifically.
+    The registry must resolve TestExParts to TestExPartsAggregations specifically.
     """
     assert get_aggregation_class(TestExParts) is TestExPartsAggregations
 
@@ -398,75 +384,3 @@ def test_symbolic_aggregation_features_require_a_field_name():
     )
     with pytest.raises(MissingFieldNameError):
         SceneRoomAggregations(instance=room).symbolic_aggregation_features()
-
-
-def _eg_room(room_id: str, wall_lengths: List[float]) -> EGRoom:
-    walls = [
-        EGWall(
-            id=f"{room_id}_wall_{index}",
-            start_point=EGPoint2D(x=0.0, y=0.0),
-            end_point=EGPoint2D(x=length, y=0.0),
-            height=2.5,
-            thickness=0.1,
-        )
-        for index, length in enumerate(wall_lengths)
-    ]
-    return EGRoom(
-        id=room_id,
-        room_type=RoomType.LIVING_ROOM,
-        scale=EGScale(height=2.5, length=5.0, width=5.0),
-        position=EGPosition(x=0.0, y=0.0, z=0.0),
-        walls=walls,
-    )
-
-
-def test_compute_aggregation_statistics_falls_back_instead_of_raising_when_computation_fails():
-    """
-    ``RoomAggregations.total_perimeter``
-    (semantic_digital_twin.scene_generation.
-
-    scene_schema_aggregations) computes its value by reading wall coordinates
-    directly, unlike ``chair_count``/``table_count``/``total_count`` above,
-    which go through the symbolic query engine and tolerate unresolved
-    (``Ellipsis``) items gracefully. When walls are still underspecified --
-    as during grounding of a free/learned exchangeable relation, before any
-    value has been sampled -- evaluating ``total_perimeter`` raises a plain
-    ``TypeError`` (``unsupported operand type(s) for -: 'ellipsis' and
-    'ellipsis'``). ``compute_aggregation_statistics`` must treat that the
-    same as any other statistic whose value fails domain validation: logged
-    and left out of the result for Monte-Carlo integration, not left to
-    crash uncaught.
-    """
-    training_rooms = [
-        _eg_room("room_1", [3.0, 4.0]),
-        _eg_room("room_2", [2.0, 5.0, 1.0]),
-    ]
-    model = RelationalProbabilisticCircuit(EGRoom)
-    model.fit([to_dao(training_room) for training_room in training_rooms])
-    wall_template = model.exchangeable_distribution_templates["walls"]
-
-    unresolved_room = _eg_room("query_room", [])
-    unresolved_room.walls = [
-        EGWall(
-            id=None,
-            start_point=EGPoint2D(x=..., y=...),
-            end_point=EGPoint2D(x=..., y=...),
-            height=...,
-            thickness=...,
-        )
-    ]
-
-    statistics = compute_aggregation_statistics(
-        unresolved_room,
-        model.feature_extractor.exchangeable_features["walls"],
-        wall_template.latent_variables,
-    )
-
-    # total_perimeter/mean_width read wall coordinates directly and cannot
-    # be computed from an unresolved wall, so they must be absent -- left
-    # for Monte-Carlo integration -- rather than raising. wall_count is a
-    # genuine count, computable regardless of content, so it may still be
-    # present.
-    computed_names = {variable.name for variable in statistics}
-    assert not any("total_perimeter" in name for name in computed_names)
-    assert not any("mean_width" in name for name in computed_names)

@@ -21,9 +21,8 @@ def probabilistic_backend(rspn: RelationalProbabilisticCircuit) -> Probabilistic
     """
     Build a single-sample probabilistic backend over *rspn*.
 
-    Centralises the registry-plus-backend wiring shared by the generation
-    pipelines and the in-world resolvers, so they all draw exactly one sample
-    per query evaluation.
+    Centralises the registry-plus-backend wiring shared by the generation pipelines and
+    the in-world resolvers, so they all draw exactly one sample per query evaluation.
 
     :param rspn: The fitted circuit to sample from.
     :return: A backend that draws one sample per query evaluation.
@@ -58,18 +57,15 @@ def _fixed_object_slot(object_2d: EGObject2D):
 
 def _free_object_slot():
     """
-    Build a fully underspecified EGObject2D query slot with all spatial fields
-    free.
+    Build a fully underspecified EGObject2D query slot with all spatial fields free.
 
-    Roll and pitch are fixed to ``0.0`` rather than left underspecified:
-    floor objects always sit upright without tilting, so those two circuit
-    dimensions are constant across every training example, and leaving a
-    constant dimension underspecified lets the RSPN sampling backend leak
-    the query's placeholder straight through instead of resolving it. Only
-    yaw genuinely varies and is left for the RSPN to sample.
+    Roll and pitch are fixed to ``0.0`` rather than left underspecified: floor objects
+    always sit upright without tilting, so those two circuit dimensions are constant
+    across every training example, and leaving a constant dimension underspecified lets
+    the RSPN sampling backend leak the query's placeholder straight through instead of
+    resolving it. Only yaw genuinely varies and is left for the RSPN to sample.
 
-    :return: An underspecified EGObject2D with position, scale, and yaw
-        unset.
+    :return: An underspecified EGObject2D with position, scale, and yaw unset.
     """
     return a(EGObject2D)(
         id=None,
@@ -93,28 +89,34 @@ def build_layer_query(
     conditioning evidence and leaves *free_count* fresh object slots fully
     underspecified.
 
-    Used both to draw a layer from scratch (no fixed objects) and to redraw a
-    layer's offending objects while holding its others in place. Conditioning
-    a resampled slot on its own scale, in addition to the other objects'
-    exact poses, pins the query to the single training example that
-    combination of evidence came from, collapsing the RSPN's posterior for
-    that slot's position back to its original, still-colliding value -- so a
-    fixed object's scale is carried as evidence but a free slot's scale never
-    is. Free slots are appended after the fixed ones, so the caller reads
-    freshly drawn objects off the tail of the result.
+    Used both to draw a layer from scratch (no fixed objects) and to redraw a layer's
+    offending objects while holding its others in place. Conditioning a resampled slot
+    on its own scale, in addition to the other objects' exact poses, pins the query to
+    the single training example that combination of evidence came from, collapsing the
+    RSPN's posterior for that slot's position back to its original, still-colliding
+    value -- so a fixed object's scale is carried as evidence but a free slot's scale
+    never is. Free slots are appended after the fixed ones, so the caller reads freshly
+    drawn objects off the tail of the result.
 
     :param fixed_objects: Objects whose full pose is held as evidence.
     :param free_count: Number of fully-underspecified object slots to draw.
-    :param scale: The layer dimensions to condition on. When ``None``, the
-        layer's own scale is left free and sampled from the RSPN marginal --
-        used to draw a reference layer whose scale can then be passed here
-        for subsequent layers.
+    :param scale: The layer dimensions to condition on. When ``None``, the layer's own
+        scale is left free and sampled from the RSPN marginal -- used to draw a
+        reference layer whose scale can then be passed here for subsequent layers.
     :return: An underspecified EGShelfLayer query ready for
         :class:`ProbabilisticBackend` evaluation.
     """
-    scale_argument = scale if scale is not None else a(EGScale)(width=..., length=..., height=...)
+    scale_argument = (
+        scale if scale is not None else a(EGScale)(width=..., length=..., height=...)
+    )
     return a(EGShelfLayer)(
         scale=scale_argument,
         objects=[_fixed_object_slot(object_2d) for object_2d in fixed_objects]
         + [_free_object_slot() for _ in range(free_count)],
+        # Left free so the layer's height carries whatever the objects drawn
+        # onto it imply -- a layer of books is drawn low, one of display pieces
+        # high -- rather than being pinned by the caller.
+        height_above_shelf_base=...,
+        relative_height=...,
+        vertical_clearance=...,
     )

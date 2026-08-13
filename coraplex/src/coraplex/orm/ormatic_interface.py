@@ -20916,6 +20916,12 @@ class EGShelfLayerDAO(
         ForeignKey(EGBaseDAO.database_id), primary_key=True, use_existing_column=True
     )
 
+    height_above_shelf_base: Mapped[builtins.float] = mapped_column(
+        use_existing_column=True
+    )
+    relative_height: Mapped[builtins.float] = mapped_column(use_existing_column=True)
+    vertical_clearance: Mapped[builtins.float] = mapped_column(use_existing_column=True)
+
     scale_id: Mapped[int] = mapped_column(
         ForeignKey("EGScaleDAO.database_id", use_alter=True),
         nullable=True,
@@ -20979,6 +20985,15 @@ class EGObjectDAO(
     )
     source_id: Mapped[builtins.str] = mapped_column(
         sqlalchemy.sql.sqltypes.Text, use_existing_column=True
+    )
+    description: Mapped[typing.Optional[builtins.str]] = mapped_column(
+        sqlalchemy.sql.sqltypes.Text, use_existing_column=True
+    )
+    place_guidance: Mapped[typing.Optional[builtins.str]] = mapped_column(
+        sqlalchemy.sql.sqltypes.Text, use_existing_column=True
+    )
+    position_is_mesh_corrected: Mapped[builtins.bool] = mapped_column(
+        use_existing_column=True
     )
 
     object_type: Mapped[
@@ -21107,6 +21122,90 @@ class MeshCandidateDAO(
         nullable=False,
         use_existing_column=True,
     )
+
+
+class ObjectTypeAffinityDAO(
+    EGBaseDAO,
+    DataAccessObject[
+        semantic_digital_twin.scene_generation.scene_schema.ObjectTypeAffinity
+    ],
+):
+    __tablename__ = "ObjectTypeAffinityDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        ForeignKey(EGBaseDAO.database_id), primary_key=True, use_existing_column=True
+    )
+
+    co_occurrence_count: Mapped[builtins.int] = mapped_column(use_existing_column=True)
+
+    object_type_a: Mapped[
+        semantic_digital_twin.scene_generation.scene_schema.ObjectType
+    ] = mapped_column(
+        krrood.ormatic.custom_types.PolymorphicEnumType,
+        nullable=False,
+        use_existing_column=True,
+    )
+    object_type_b: Mapped[
+        semantic_digital_twin.scene_generation.scene_schema.ObjectType
+    ] = mapped_column(
+        krrood.ormatic.custom_types.PolymorphicEnumType,
+        nullable=False,
+        use_existing_column=True,
+    )
+
+    mean_relative_offset_id: Mapped[int] = mapped_column(
+        ForeignKey("EGPoint2DDAO.database_id", use_alter=True),
+        nullable=True,
+        use_existing_column=True,
+    )
+
+    mean_relative_offset: Mapped[EGPoint2DDAO] = relationship(
+        "EGPoint2DDAO",
+        uselist=False,
+        foreign_keys=[mean_relative_offset_id],
+        post_update=True,
+    )
+
+    __mapper_args__ = {
+        "polymorphic_identity": "ObjectTypeAffinityDAO",
+        "inherit_condition": database_id == EGBaseDAO.database_id,
+        "polymorphic_load": "selectin",
+    }
+
+
+class ObjectTypeHeightProfileDAO(
+    EGBaseDAO,
+    DataAccessObject[
+        semantic_digital_twin.scene_generation.scene_schema.ObjectTypeHeightProfile
+    ],
+):
+    __tablename__ = "ObjectTypeHeightProfileDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        ForeignKey(EGBaseDAO.database_id), primary_key=True, use_existing_column=True
+    )
+
+    observation_count: Mapped[builtins.int] = mapped_column(use_existing_column=True)
+    mean_relative_height: Mapped[builtins.float] = mapped_column(
+        use_existing_column=True
+    )
+    mean_height_above_shelf_base: Mapped[builtins.float] = mapped_column(
+        use_existing_column=True
+    )
+
+    object_type: Mapped[
+        semantic_digital_twin.scene_generation.scene_schema.ObjectType
+    ] = mapped_column(
+        krrood.ormatic.custom_types.PolymorphicEnumType,
+        nullable=False,
+        use_existing_column=True,
+    )
+
+    __mapper_args__ = {
+        "polymorphic_identity": "ObjectTypeHeightProfileDAO",
+        "inherit_condition": database_id == EGBaseDAO.database_id,
+        "polymorphic_load": "selectin",
+    }
 
 
 class SpawnedShelfDAO(
