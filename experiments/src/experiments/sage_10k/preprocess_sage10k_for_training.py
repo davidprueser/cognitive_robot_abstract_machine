@@ -541,14 +541,19 @@ def shelves_with_layers(
     should have from the real distribution.
 
     Objects whose position could not be centred on their mesh are left out; see
-    :func:`_layers_of_shelf`.
+    :func:`_layers_of_shelf`. An object that is itself classified as a shelf-like
+    parent is also left out of *another* shelf's contents -- the raw dataset
+    records a smaller piece of shelf-like furniture standing on a bigger one this
+    way, and counting it as ordinary content teaches the circuit that shelves
+    commonly hold other shelves.
 
     :param objects: Processed objects.
     :param vertical_extents: Each shelf mesh's vertical reach, by source id. A
         shelf with no entry is skipped, since its layers' heights would be
         guesswork.
     :param shelf_types_by_object_id: Which kind of shelf each shelf-like object is;
-        an object absent from it is not treated as a shelf.
+        an object absent from it is not treated as a shelf, and one present in it
+        is never treated as another shelf's content.
     :param measurements: Supplies each object mesh's reach, used to locate slabs.
     :param edge_margin_fraction: Fraction of each shelf's width and length kept
         free at its edges.
@@ -557,6 +562,8 @@ def shelves_with_layers(
     """
     objects_by_place_id: defaultdict[str, list[EGObject]] = defaultdict(list)
     for obj in objects:
+        if obj.id in shelf_types_by_object_id:
+            continue
         if object_type is None or obj.object_type == object_type:
             objects_by_place_id[obj.place_id].append(obj)
 

@@ -666,6 +666,37 @@ def test_shelves_and_the_objects_standing_on_them_are_kept() -> None:
     assert contents.objects == [shelf, on_shelf]
 
 
+def test_a_shelf_like_object_is_not_counted_as_another_shelfs_content() -> None:
+    """
+    An object that is itself classified as a shelf-like parent must not also be
+    counted as ordinary content standing on a different shelf: the raw dataset
+    records a small piece of shelf-like furniture placed on a bigger one this way,
+    and treating it as passive content teaches the circuit that shelves commonly
+    hold other shelves.
+    """
+    shelf = _shelf()
+    nested_shelf_like_object = _eg_object(
+        "small_shelf_1", _SHELF_ID, ObjectType.SHELF, x=0.0, y=0.0
+    )
+    book = _eg_object("book_1", _SHELF_ID, ObjectType.BOOK, x=0.3, y=0.0)
+    shelf_types_by_object_id = {
+        _SHELF_ID: ShelfType.BOOKCASE,
+        "small_shelf_1": ShelfType.OPEN_SHELF,
+    }
+
+    [extracted_shelf] = shelves_with_layers(
+        [shelf, nested_shelf_like_object, book],
+        {_SHELF_SOURCE_ID: _SHELF_EXTENT},
+        shelf_types_by_object_id,
+        MeshMeasurements(source_id_to_path={}),
+    )
+
+    content_ids = {
+        obj.id for layer in extracted_shelf.layers for obj in layer.objects
+    }
+    assert content_ids == {"book_1"}
+
+
 def test_extraction_from_the_kept_objects_matches_extraction_from_all_of_them() -> None:
     """
     Holding back only shelves and their contents is what keeps the pipeline's memory
