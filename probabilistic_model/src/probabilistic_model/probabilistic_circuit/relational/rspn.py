@@ -12,6 +12,7 @@ Relational probabilistic circuits ("RSPNs").
 from __future__ import annotations
 
 import itertools
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -229,7 +230,7 @@ class RelationalProbabilisticCircuit:
     Must be a positive integer.
     """
 
-    min_samples_per_leaf: int | float = 1
+    min_samples_per_leaf: int | float | Callable[[int], int | float] = 1
     """
     Minimum number of samples required to create another sum node in the
     class-level :class:`~probabilistic_model.learning.jpt.jpt.JointProbabilityTree`,
@@ -244,6 +245,16 @@ class RelationalProbabilisticCircuit:
     part instance, which can exhaust memory. Callers fitting on large,
     high-cardinality datasets should pass a fractional value to bound the
     circuit's size.
+
+    A class-level and its exchangeable parts' circuits are fitted on very
+    different row counts (e.g. a shelf's own rows vs. its layers' vs. its
+    objects'), so a single precomputed fraction calibrated for one of them
+    miscalibrates the others. Passing a callable instead of a plain number
+    defers that calculation: it is invoked with each level's own row count
+    right before that level's ``JointProbabilityTree`` is fitted, and the
+    *callable itself* -- not a resolved value -- is what gets forwarded to
+    every recursively fitted exchangeable part, so each level resolves its
+    own floor independently.
     """
 
     schema_information: Optional[DataAccessObjectSchema] = field(
@@ -437,9 +448,14 @@ class RelationalProbabilisticCircuit:
             self.feature_extractor, instances, dataframe_from_parent
         )
         variables = infer_variables_from_dataframe(class_dataframe)
+        min_samples_per_leaf = (
+            self.min_samples_per_leaf(len(instances))
+            if callable(self.min_samples_per_leaf)
+            else self.min_samples_per_leaf
+        )
         self.class_probabilistic_circuit = JointProbabilityTree(
             annotated_variables=variables,
-            min_samples_per_leaf=self.min_samples_per_leaf,
+            min_samples_per_leaf=min_samples_per_leaf,
         ).fit(class_dataframe)
         self.schema_information = get_dao_schema(type(instances[0]))
         for collection_relationship in self.schema_information.collection_relationships:
@@ -449,6 +465,13 @@ class RelationalProbabilisticCircuit:
             self.exchangeable_distribution_templates[exchangeable_part] = (
                 self._fit_exchangeable_part(exchangeable_part, instances)
             )
+        # Recorded only now, after every exchangeable part has been fitted with the
+        # still-callable strategy: overwriting it earlier would hand children this
+        # circuit's own resolved bound instead of letting them resolve their own.
+        # A resolved number (unlike the callable) is also what a serializer can
+        # round-trip, and for a caller that already passed a plain number this is a
+        # no-op, since resolving one just returns it unchanged.
+        self.min_samples_per_leaf = min_samples_per_leaf
         return self
 
     def _condition_class_circuit(

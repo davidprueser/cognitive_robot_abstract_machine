@@ -1582,7 +1582,9 @@ class EGShelf(EGBase):
                     continue
                 candidate = (
                     mesh_matcher.random_match(
-                        obj.object_type, max_extents=max_object_extents
+                        obj.object_type,
+                        max_extents=max_object_extents,
+                        target_extents=obj.scale,
                     )
                     if self.source_ids
                     else None

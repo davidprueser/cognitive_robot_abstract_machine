@@ -346,6 +346,47 @@ def test_min_samples_per_leaf_is_forwarded_to_exchangeable_part_templates():
     assert template.template_distribution.min_samples_per_leaf == 0.1
 
 
+def test_min_samples_per_leaf_callable_resolves_per_level(scenario):
+    """
+    A callable ``min_samples_per_leaf`` must be invoked once per fitted level, each
+    time with *that level's own* row count rather than the parent's: the room-level
+    circuit here is fit on 2 rows (one per room), while its ``objects`` exchangeable
+    part is fit on the 7 rows pooled from both rooms' objects (3 + 4). A single
+    precomputed fraction calibrated against one of those counts miscalibrates the
+    other -- passing a callable instead is what lets each level derive its own bound.
+    """
+    room_dao, room2_dao = scenario
+    seen_row_counts = []
+
+    def bound_for(row_count: int) -> float:
+        seen_row_counts.append(row_count)
+        return 0.5
+
+    RelationalProbabilisticCircuit(SceneRoom, min_samples_per_leaf=bound_for).fit(
+        [room_dao, room2_dao]
+    )
+
+    assert seen_row_counts == [2, 7]
+
+
+def test_min_samples_per_leaf_callable_is_resolved_to_a_number_after_fit(scenario):
+    """
+    After ``fit`` returns, ``min_samples_per_leaf`` must hold the resolved number it
+    was fitted with, not the callable strategy: a function isn't JSON-serializable, and
+    ``TrainedArbitraryShelfModel.save`` (and any other caller of
+    :func:`~krrood.adapters.json_serializer.to_json`) needs to round-trip a fitted
+    circuit whichever form ``min_samples_per_leaf`` was originally given in.
+    """
+    room_dao, room2_dao = scenario
+    model = RelationalProbabilisticCircuit(
+        SceneRoom, min_samples_per_leaf=lambda row_count: 0.5
+    ).fit([room_dao, room2_dao])
+
+    assert model.min_samples_per_leaf == 0.5
+    restored = from_json(json.loads(json.dumps(to_json(model))))
+    assert restored.min_samples_per_leaf == 0.5
+
+
 # ---- Group A -- exchangeable parts nested two levels deep ----
 #
 # Nothing in production fits a class whose exchangeable part itself has an

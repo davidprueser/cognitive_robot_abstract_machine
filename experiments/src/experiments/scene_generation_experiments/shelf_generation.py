@@ -216,9 +216,7 @@ def generate_shelf_with_arbitrary_objects(
 
         rspn = RelationalProbabilisticCircuit(
             EGShelf,
-            min_samples_per_leaf=min_samples_per_leaf_for(
-                sum(len(layer.objects) for layer in shelf_layers)
-            ),
+            min_samples_per_leaf=min_samples_per_leaf_for,
         ).fit([to_dao(shelf) for shelf in shelves])
 
         trained_model = TrainedArbitraryShelfModel(

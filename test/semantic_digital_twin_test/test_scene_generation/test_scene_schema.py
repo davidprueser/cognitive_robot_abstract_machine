@@ -38,6 +38,38 @@ def chair_mesh_directory(tmp_path: Path) -> Path:
     return tmp_path
 
 
+@pytest.fixture
+def close_and_oversized_book_candidates(
+    tmp_path: Path,
+) -> tuple[MeshCandidate, MeshCandidate]:
+    """
+    Two mesh candidates of the same ``ObjectType``, sharing the same underlying
+    asset but claiming very different real-world sizes -- one close to the book
+    object :func:`_make_layer` samples, one bookcase-sized. The geometry itself
+    is irrelevant here; only the claimed ``native_extents`` matter for the size
+    scoring under test.
+    """
+    resources_root = (
+        Path(files("semantic_digital_twin")).parent.parent / "resources" / "ply"
+    )
+    objects_dir = tmp_path / "objects"
+    objects_dir.mkdir()
+    for source_id in ("close_match", "oversized"):
+        shutil.copy(resources_root / "chair.ply", objects_dir / f"{source_id}.ply")
+        shutil.copy(
+            resources_root / "chair_texture.png",
+            objects_dir / f"{source_id}_texture.png",
+        )
+    return (
+        MeshCandidate(
+            tmp_path, "close_match", ObjectType.BOOK, native_extents=(0.1, 0.05, 0.2)
+        ),
+        MeshCandidate(
+            tmp_path, "oversized", ObjectType.BOOK, native_extents=(0.6, 0.25, 1.5)
+        ),
+    )
+
+
 def _make_layer(
     relative_height: float = 0.0, width: float = 0.8, length: float = 0.4
 ) -> EGShelfLayer:
@@ -279,6 +311,28 @@ def test_an_object_on_the_shelfs_top_is_not_rejected_for_lack_of_headroom(
     spawned = shelf.spawn_in_world()
 
     assert sum(len(layer.object_bodies) for layer in spawned.layers) == 1
+
+
+def test_object_mesh_is_matched_to_its_sampled_size_not_just_its_type(
+    close_and_oversized_book_candidates: tuple[MeshCandidate, MeshCandidate],
+) -> None:
+    """
+    A mesh candidate's real size must be weighed against the size the circuit
+    actually sampled for that object, not only its ``ObjectType`` -- otherwise a
+    bookcase-sized mesh tagged the same type as a 0.2 m book is just as eligible
+    as one the right size, purely because both fit the layer's footprint (and,
+    on the shelf's top, its unbounded headroom).
+    """
+    close_match, oversized = close_and_oversized_book_candidates
+    shelf = _make_shelf(
+        relative_heights=(1.0,), scale=EGScale(height=1.0, length=0.4, width=0.8)
+    )
+    shelf.source_ids = [oversized, close_match]
+
+    spawned = shelf.spawn_in_world()
+
+    assert sum(len(layer.object_bodies) for layer in spawned.layers) == 1
+    assert shelf.layers[0].objects[0].source_id == "close_match"
 
 
 def test_an_object_with_no_mesh_spawns_a_placeholder_when_asked() -> None:
