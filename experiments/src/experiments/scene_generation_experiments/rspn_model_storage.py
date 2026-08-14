@@ -14,6 +14,9 @@ from probabilistic_model.probabilistic_circuit.rx.probabilistic_circuit import (
     UnivariateDiscreteLeaf,
 )
 from probabilistic_model.utils import MissingDict
+from experiments.scene_generation_experiments.exceptions import (
+    OutdatedTrainedModelError,
+)
 from semantic_digital_twin.scene_generation.scene_schema import ObjectType
 
 
@@ -58,8 +61,14 @@ class TrainedArbitraryShelfModel:
         ``frequent_object_types`` as a list; it is converted back to a set
         here to match the field's declared type.
 
+        A model fitted before shelf types existed is rejected rather than used:
+        it loads and samples perfectly well, so the only visible symptom would be
+        every kind of shelf coming out the same.
+
         :param path: File to read the exported model from.
         :return: The restored model.
+        :raises OutdatedTrainedModelError: If the fitted circuit predates the
+            current schema.
         """
         restored = from_json(json.loads(path.read_text()))
         restored.frequent_object_types = set(restored.frequent_object_types)
@@ -67,6 +76,14 @@ class TrainedArbitraryShelfModel:
             restored.relational_probabilistic_circuit,
             restored.categorical_hash_registry,
         )
+        circuit = restored.relational_probabilistic_circuit
+        modelled = {
+            variable.name for variable in circuit.class_probabilistic_circuit.variables
+        }
+        if not any(name.endswith("shelf_type") for name in modelled):
+            raise OutdatedTrainedModelError(
+                model_path=str(path), missing_variable="shelf_type"
+            )
         return restored
 
     def save(self, path: Path) -> None:

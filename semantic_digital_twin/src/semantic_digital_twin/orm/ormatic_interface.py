@@ -19,7 +19,6 @@ import builtins
 import coraplex.orm.model
 import enum
 import krrood.adapters.json_serializer
-import krrood.entity_query_language.orm.model
 import krrood.ormatic.custom_types
 import krrood.ormatic.data_access_objects.alternative_mappings
 import krrood.ormatic.type_dict
@@ -101,6 +100,7 @@ import semantic_digital_twin.scene_generation.object_type_classifier
 import semantic_digital_twin.scene_generation.sage10k_processing
 import semantic_digital_twin.scene_generation.scene_schema
 import semantic_digital_twin.scene_generation.scene_schema_aggregations
+import semantic_digital_twin.scene_generation.shelf_type_classifier
 import semantic_digital_twin.semantic_annotations.description_matching
 import semantic_digital_twin.semantic_annotations.mixins
 import semantic_digital_twin.semantic_annotations.natural_language
@@ -149,25 +149,6 @@ class Base(DeclarativeBase):
 
 
 # Association tables for many-to-many relationships
-class SymbolGraphMappingDAO_instances_association(Base, AssociationDataAccessObject):
-    __tablename__ = "_81067648797638488542008423406786912563441407992272678641741406"
-
-    database_id: Mapped[int] = mapped_column(Integer, primary_key=True)
-
-    source_symbolgraphmappingdao_id: Mapped[int] = mapped_column(
-        ForeignKey("SymbolGraphMappingDAO.database_id")
-    )
-    target_wrappedinstancemappingdao_id: Mapped[int] = mapped_column(
-        ForeignKey("WrappedInstanceMappingDAO.database_id")
-    )
-
-    target: Mapped[WrappedInstanceMappingDAO] = relationship(
-        "WrappedInstanceMappingDAO",
-        foreign_keys=[target_wrappedinstancemappingdao_id],
-        lazy="selectin",
-    )
-
-
 class RoboCasaTaskDAO_manipulated_objects_association(
     Base, AssociationDataAccessObject
 ):
@@ -2078,37 +2059,6 @@ class FunctionMappingDAO(
     )
     class_name: Mapped[typing.Optional[builtins.str]] = mapped_column(
         sqlalchemy.sql.sqltypes.Text, use_existing_column=True
-    )
-
-
-class SymbolGraphMappingDAO(
-    Base, DataAccessObject[krrood.entity_query_language.orm.model.SymbolGraphMapping]
-):
-    __tablename__ = "SymbolGraphMappingDAO"
-
-    database_id: Mapped[builtins.int] = mapped_column(
-        Integer, primary_key=True, use_existing_column=True
-    )
-
-    instances: Mapped[builtins.list[SymbolGraphMappingDAO_instances_association]] = (
-        relationship(
-            "SymbolGraphMappingDAO_instances_association",
-            collection_class=builtins.list,
-            cascade="all, delete-orphan",
-            foreign_keys="[SymbolGraphMappingDAO_instances_association.source_symbolgraphmappingdao_id]",
-            lazy="selectin",
-        )
-    )
-
-
-class WrappedInstanceMappingDAO(
-    Base,
-    DataAccessObject[krrood.entity_query_language.orm.model.WrappedInstanceMapping],
-):
-    __tablename__ = "WrappedInstanceMappingDAO"
-
-    database_id: Mapped[builtins.int] = mapped_column(
-        Integer, primary_key=True, use_existing_column=True
     )
 
 
@@ -9960,30 +9910,22 @@ class EGShelfDAO(
         ForeignKey(EGBaseDAO.database_id), primary_key=True, use_existing_column=True
     )
 
-    position_id: Mapped[int] = mapped_column(
-        ForeignKey("EGPoint2DDAO.database_id", use_alter=True),
-        nullable=True,
+    shelf_type: Mapped[
+        semantic_digital_twin.scene_generation.scene_schema.ShelfType
+    ] = mapped_column(
+        krrood.ormatic.custom_types.PolymorphicEnumType,
+        nullable=False,
         use_existing_column=True,
     )
+
     scale_id: Mapped[int] = mapped_column(
         ForeignKey("EGScaleDAO.database_id", use_alter=True),
         nullable=True,
         use_existing_column=True,
     )
-    orientation_id: Mapped[int] = mapped_column(
-        ForeignKey("EGRotationDAO.database_id", use_alter=True),
-        nullable=True,
-        use_existing_column=True,
-    )
 
-    position: Mapped[EGPoint2DDAO] = relationship(
-        "EGPoint2DDAO", uselist=False, foreign_keys=[position_id], post_update=True
-    )
     scale: Mapped[EGScaleDAO] = relationship(
         "EGScaleDAO", uselist=False, foreign_keys=[scale_id], post_update=True
-    )
-    orientation: Mapped[EGRotationDAO] = relationship(
-        "EGRotationDAO", uselist=False, foreign_keys=[orientation_id], post_update=True
     )
     layers: Mapped[builtins.list[EGShelfDAO_layers_association]] = relationship(
         "EGShelfDAO_layers_association",
@@ -10015,6 +9957,14 @@ class EGShelfLayerDAO(
     )
     relative_height: Mapped[builtins.float] = mapped_column(use_existing_column=True)
     vertical_clearance: Mapped[builtins.float] = mapped_column(use_existing_column=True)
+
+    shelf_type: Mapped[
+        semantic_digital_twin.scene_generation.scene_schema.ShelfType
+    ] = mapped_column(
+        krrood.ormatic.custom_types.PolymorphicEnumType,
+        nullable=False,
+        use_existing_column=True,
+    )
 
     scale_id: Mapped[int] = mapped_column(
         ForeignKey("EGScaleDAO.database_id", use_alter=True),
@@ -10153,6 +10103,13 @@ class EGObject2DDAO(
 
     object_type: Mapped[
         semantic_digital_twin.scene_generation.scene_schema.ObjectType
+    ] = mapped_column(
+        krrood.ormatic.custom_types.PolymorphicEnumType,
+        nullable=False,
+        use_existing_column=True,
+    )
+    shelf_type: Mapped[
+        semantic_digital_twin.scene_generation.scene_schema.ShelfType
     ] = mapped_column(
         krrood.ormatic.custom_types.PolymorphicEnumType,
         nullable=False,
@@ -10312,6 +10269,8 @@ class SpawnedShelfDAO(
         Integer, primary_key=True, use_existing_column=True
     )
 
+    placeholder_count: Mapped[builtins.int] = mapped_column(use_existing_column=True)
+
     world_id: Mapped[int] = mapped_column(
         ForeignKey("WorldMappingDAO.database_id", use_alter=True),
         nullable=True,
@@ -10395,6 +10354,33 @@ class _MeshTypeMatcherDAO(
     )
 
 
+class EGShelfAggregationsDAO(
+    Base,
+    DataAccessObject[
+        semantic_digital_twin.scene_generation.scene_schema_aggregations.EGShelfAggregations
+    ],
+):
+    __tablename__ = "EGShelfAggregationsDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        Integer, primary_key=True, use_existing_column=True
+    )
+
+    field_name: Mapped[typing.Optional[builtins.str]] = mapped_column(
+        sqlalchemy.sql.sqltypes.Text, use_existing_column=True
+    )
+
+    instance_id: Mapped[int] = mapped_column(
+        ForeignKey("EGShelfDAO.database_id", use_alter=True),
+        nullable=True,
+        use_existing_column=True,
+    )
+
+    instance: Mapped[EGShelfDAO] = relationship(
+        "EGShelfDAO", uselist=False, foreign_keys=[instance_id], post_update=True
+    )
+
+
 class EGShelfLayerAggregationsDAO(
     Base,
     DataAccessObject[
@@ -10419,6 +10405,19 @@ class EGShelfLayerAggregationsDAO(
 
     instance: Mapped[EGShelfLayerDAO] = relationship(
         "EGShelfLayerDAO", uselist=False, foreign_keys=[instance_id], post_update=True
+    )
+
+
+class ShelfTypeClassifierDAO(
+    Base,
+    DataAccessObject[
+        semantic_digital_twin.scene_generation.shelf_type_classifier.ShelfTypeClassifier
+    ],
+):
+    __tablename__ = "ShelfTypeClassifierDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        Integer, primary_key=True, use_existing_column=True
     )
 
 

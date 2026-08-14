@@ -24,6 +24,7 @@ from semantic_digital_twin.collision_checking.trimesh_collision_detector import 
     FCLCollisionDetector,
 )
 from semantic_digital_twin.scene_generation.scene_schema import (
+    ShelfType,
     EGObject2D,
     EGPoint2D,
     EGRotation,
@@ -43,7 +44,9 @@ from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.connections import Connection6DoF
 
 
-_RESOURCES_PLY = Path(files("semantic_digital_twin")).parent.parent / "resources" / "ply"
+_RESOURCES_PLY = (
+    Path(files("semantic_digital_twin")).parent.parent / "resources" / "ply"
+)
 _CHAIR_EXTENTS = trimesh.load(str(_RESOURCES_PLY / "chair.ply"), process=False).extents
 """
 Native (x, y, z) bounding-box size of the bundled chair mesh. Objects now spawn
@@ -57,7 +60,9 @@ def mesh_candidate(tmp_path: Path) -> MeshCandidate:
     A mesh candidate backed by the bundled chair PLY, so objects spawn with real
     geometry the FCL detector and supporting-surface checks can act on.
     """
-    resources_root = Path(files("semantic_digital_twin")).parent.parent / "resources" / "ply"
+    resources_root = (
+        Path(files("semantic_digital_twin")).parent.parent / "resources" / "ply"
+    )
     objects_dir = tmp_path / "objects"
     objects_dir.mkdir()
     shutil.copy(resources_root / "chair.ply", objects_dir / "test_object.ply")
@@ -79,6 +84,7 @@ def _object(object_id: str, x: float, y: float) -> EGObject2D:
         position=EGPoint2D(x=x, y=y),
         orientation=EGRotation(x=0.0, y=0.0, z=0.0),
         source_id="test_object",
+        shelf_type=ShelfType.BOOKCASE,
     )
 
 
@@ -88,14 +94,15 @@ def _shelf(objects: list[EGObject2D], candidate: MeshCandidate) -> EGShelf:
     still comfortably supported after being moved a metre away.
     """
     layer = EGShelfLayer(
-        scale=EGScale(height=0.02, length=4.0, width=4.0), objects=objects
+        scale=EGScale(height=0.02, length=4.0, width=4.0),
+        objects=objects,
+        shelf_type=ShelfType.BOOKCASE,
     )
     return EGShelf(
-        position=EGPoint2D(x=0.0, y=0.0),
         scale=EGScale(height=2.0, length=4.0, width=4.0),
-        orientation=EGRotation(x=0.0, y=0.0, z=0.0),
         layers=[layer],
         source_ids=[candidate],
+        shelf_type=ShelfType.BOOKCASE,
     )
 
 
@@ -120,15 +127,18 @@ def _multi_layer_shelf(candidate: MeshCandidate, corpus_height: float) -> EGShel
     corpus height alone determines how the layers are spread vertically.
     """
     layers = [
-        EGShelfLayer(scale=EGScale(height=0.02, length=4.0, width=4.0), objects=[])
+        EGShelfLayer(
+            scale=EGScale(height=0.02, length=4.0, width=4.0),
+            objects=[],
+            shelf_type=ShelfType.BOOKCASE,
+        )
         for _ in range(4)
     ]
     return EGShelf(
-        position=EGPoint2D(x=0.0, y=0.0),
         scale=EGScale(height=corpus_height, length=4.0, width=4.0),
-        orientation=EGRotation(x=0.0, y=0.0, z=0.0),
         layers=layers,
         source_ids=[candidate],
+        shelf_type=ShelfType.BOOKCASE,
     )
 
 
@@ -220,12 +230,18 @@ def _single_layer_shelf_with(
         position=EGPoint2D(x=0.0, y=0.0),
         orientation=EGRotation(x=0.0, y=0.0, z=0.0),
         source_id="test_object",
+        shelf_type=ShelfType.BOOKCASE,
     )
     return EGShelf(
-        position=EGPoint2D(x=0.0, y=0.0),
         scale=EGScale(height=2.0, length=1.0, width=1.0),
-        orientation=EGRotation(x=0.0, y=0.0, z=0.0),
-        layers=[EGShelfLayer(scale=EGScale(height=0.02, length=1.0, width=1.0), objects=[obj])],
+        layers=[
+            EGShelfLayer(
+                scale=EGScale(height=0.02, length=1.0, width=1.0),
+                objects=[obj],
+                shelf_type=ShelfType.BOOKCASE,
+            )
+        ],
+        shelf_type=ShelfType.BOOKCASE,
         source_ids=[candidate],
     )
 
@@ -236,10 +252,10 @@ def test_object_too_big_for_the_layer_is_dropped(mesh_candidate: MeshCandidate) 
     must be left out of the spawned shelf, since the resolver moves objects only
     in the plane and could never repair a mesh piercing the shelf above.
     """
-    too_tall = dataclasses.replace(
-        mesh_candidate, native_extents=(0.1, 0.1, 2.0)
+    too_tall = dataclasses.replace(mesh_candidate, native_extents=(0.1, 0.1, 2.0))
+    shelf = _single_layer_shelf_with(
+        too_tall, EGScale(height=0.1, length=0.1, width=0.1)
     )
-    shelf = _single_layer_shelf_with(too_tall, EGScale(height=0.1, length=0.1, width=0.1))
 
     spawned = shelf.spawn_in_world()
 
@@ -251,10 +267,10 @@ def test_object_that_fits_the_layer_is_kept(mesh_candidate: MeshCandidate) -> No
     An object with a mesh that fits the layer's clearance and footprint must be
     spawned as usual.
     """
-    fitting = dataclasses.replace(
-        mesh_candidate, native_extents=(0.1, 0.1, 0.1)
+    fitting = dataclasses.replace(mesh_candidate, native_extents=(0.1, 0.1, 0.1))
+    shelf = _single_layer_shelf_with(
+        fitting, EGScale(height=0.1, length=0.1, width=0.1)
     )
-    shelf = _single_layer_shelf_with(fitting, EGScale(height=0.1, length=0.1, width=0.1))
 
     spawned = shelf.spawn_in_world()
 
@@ -352,17 +368,15 @@ def test_spawn_in_world_keeps_edge_object_clear_of_the_corpus_walls(
     """
     edge_object = _object("edge_book", 0.0, 0.0)
     layer = EGShelfLayer(
-        scale=EGScale(
-            height=0.02, length=_CHAIR_EXTENTS[0], width=_CHAIR_EXTENTS[1]
-        ),
+        scale=EGScale(height=0.02, length=_CHAIR_EXTENTS[0], width=_CHAIR_EXTENTS[1]),
         objects=[edge_object],
+        shelf_type=ShelfType.BOOKCASE,
     )
     shelf = EGShelf(
-        position=EGPoint2D(x=0.0, y=0.0),
         scale=EGScale(height=2.0, length=_CHAIR_EXTENTS[0], width=_CHAIR_EXTENTS[1]),
-        orientation=EGRotation(x=0.0, y=0.0, z=0.0),
         layers=[layer],
         source_ids=[mesh_candidate],
+        shelf_type=ShelfType.BOOKCASE,
     )
 
     spawned = shelf.spawn_in_world()
@@ -510,6 +524,7 @@ def test_resolver_moves_colliding_object_until_layer_is_collision_free(
     separated_layer = EGShelfLayer(
         scale=shelf.layers[0].scale,
         objects=[_object("fixed", 0.0, 0.0), _object("moved", 0.0, 1.5)],
+        shelf_type=ShelfType.BOOKCASE,
     )
 
     with patch(
@@ -542,16 +557,18 @@ def test_resolver_moves_object_colliding_with_the_corpus_walls(
     layer = EGShelfLayer(
         scale=EGScale(height=0.02, length=layer_length, width=layer_width),
         objects=[_object("edge_book", _CHAIR_EXTENTS[0] * 0.5, 0.0)],
+        shelf_type=ShelfType.BOOKCASE,
     )
     shelf = EGShelf(
-        position=EGPoint2D(x=0.0, y=0.0),
         scale=EGScale(height=2.0, length=layer_length, width=layer_width),
-        orientation=EGRotation(x=0.0, y=0.0, z=0.0),
         layers=[layer],
         source_ids=[mesh_candidate],
+        shelf_type=ShelfType.BOOKCASE,
     )
     centered_layer = EGShelfLayer(
-        scale=layer.scale, objects=[_object("moved", 0.0, 0.0)]
+        scale=layer.scale,
+        objects=[_object("moved", 0.0, 0.0)],
+        shelf_type=ShelfType.BOOKCASE,
     )
 
     with patch(
@@ -586,7 +603,9 @@ def test_resolver_falls_back_to_relaxed_query_when_neighbour_evidence_has_no_sol
         [_object("book_0", 0.0, 0.0), _object("book_1", 0.0, 0.0)], mesh_candidate
     )
     relaxed_layer = EGShelfLayer(
-        scale=shelf.layers[0].scale, objects=[_object("moved", 0.0, 1.5)]
+        scale=shelf.layers[0].scale,
+        objects=[_object("moved", 0.0, 1.5)],
+        shelf_type=ShelfType.BOOKCASE,
     )
 
     with patch(
@@ -618,13 +637,16 @@ def test_resolver_drops_objects_it_cannot_separate(
     still_overlapping = EGShelfLayer(
         scale=shelf.layers[0].scale,
         objects=[_object("fixed", 0.0, 0.0), _object("moved", 0.0, 0.0)],
+        shelf_type=ShelfType.BOOKCASE,
     )
 
     with patch(
         "experiments.scene_generation_experiments.in_world_resolver.probabilistic_backend"
     ) as backend_factory:
         backend_factory.return_value.evaluate.return_value = [still_overlapping]
-        resolver = InWorldLayoutResolver.for_shelf(shelf, rspn=MagicMock(), max_passes=3)
+        resolver = InWorldLayoutResolver.for_shelf(
+            shelf, rspn=MagicMock(), max_passes=3
+        )
         spawned = resolver.resolve()
 
     assert not _colliding_bodies(spawned)
@@ -652,6 +674,7 @@ def test_resolver_stops_retrying_a_persistently_stuck_object_before_max_passes(
     still_overlapping = EGShelfLayer(
         scale=shelf.layers[0].scale,
         objects=[_object("fixed", 0.0, 0.0), _object("moved", 0.0, 0.0)],
+        shelf_type=ShelfType.BOOKCASE,
     )
 
     with patch(
@@ -685,7 +708,9 @@ def test_resolver_falls_back_past_the_layer_scale_when_it_has_no_solution(
         [_object("book_0", 0.0, 0.0), _object("book_1", 0.0, 0.0)], mesh_candidate
     )
     free_layer = EGShelfLayer(
-        scale=shelf.layers[0].scale, objects=[_object("moved", 0.0, 1.5)]
+        scale=shelf.layers[0].scale,
+        objects=[_object("moved", 0.0, 1.5)],
+        shelf_type=ShelfType.BOOKCASE,
     )
 
     with patch(

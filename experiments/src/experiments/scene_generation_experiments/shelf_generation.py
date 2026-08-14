@@ -5,6 +5,7 @@ import os
 import time
 from collections import Counter
 from pathlib import Path
+from typing import Optional
 
 from sqlalchemy.orm import Session
 
@@ -20,7 +21,7 @@ from experiments.orm.ormatic_interface import *  # type: ignore
 from experiments.scene_generation_experiments.utils import (
     _get_source_ids_for_objects,
     load_all_objects,
-    load_shelf_layers,
+    load_shelves,
     rclpy_node,
     min_samples_per_leaf_for,
 )
@@ -28,20 +29,17 @@ from experiments.scene_generation_experiments.in_world_resolver import (
     InWorldLayoutResolver,
 )
 from experiments.scene_generation_experiments.rspn_sampling import (
-    build_layer_query,
-    probabilistic_backend,
+    draw_shelf,
 )
 from semantic_digital_twin.adapters.ros.visualization.viz_marker import (
     VizMarkerPublisher,
 )
 from semantic_digital_twin.scene_generation.scene_schema import (
-    EGPoint2D,
-    EGRotation,
     EGShelf,
     EGShelfLayer,
-    EGScale,
     MeshCandidate,
     ObjectType,
+    ShelfType,
 )
 
 
@@ -124,37 +122,77 @@ def _coarsen_mesh_candidate_types(
     ]
 
 
+def _coarsen_rare_object_types_of_shelves(
+    shelves: list[EGShelf],
+    keep_count: int = 20,
+) -> list[EGShelf]:
+    """
+    Return new shelves whose layers' object types have been coarsened together.
+
+    Every layer of every shelf is coarsened in one pass, so one shared set of
+    frequent types survives. Coarsening each shelf on its own would let a type be
+    kept on one shelf and collapsed on another, and the mesh pool -- coarsened
+    once against the same set -- would then find no mesh for it.
+
+    :param shelves: Shelves whose objects' types should be coarsened.
+    :param keep_count: Number of distinct, most frequent object types to leave
+        unchanged.
+    :return: New shelves carrying coarsened layers.
+    """
+    coarsened_layers = iter(
+        _coarsen_rare_object_types(
+            [layer for shelf in shelves for layer in shelf.layers], keep_count
+        )
+    )
+    return [
+        dataclasses.replace(
+            shelf, layers=[next(coarsened_layers) for _ in shelf.layers]
+        )
+        for shelf in shelves
+    ]
+
+
 def generate_shelf_with_arbitrary_objects(
     node,
+    shelf_type: ShelfType = ShelfType.BOOKCASE,
+    layer_count: Optional[int] = None,
+    objects_per_layer: int = 3,
+    placeholders_for_missing_meshes: bool = True,
     model_path: Path = Path.home()
     / "Documents"
     / "sage-10k-models"
     / "arbitrary_shelf_rspn.json",
 ) -> None:
     """
-    Train an RSPN on all object types found on shelves in the dataset and visualise a
-    sampled, collision-free arrangement via RViz.
+    Train an RSPN on whole shelves and visualise a sampled, collision-free shelf
+    of the requested kind via RViz.
 
-    Unlike :func:`book_shelf_generation.generate_book_shelf`, this demo
-    includes every object type found on shelves in the training data — books,
-    cups, plants, containers, and more — so the RSPN learns the joint
-    spatial distribution across all of them. Mesh assets are drawn at random
-    from the pool of available shelf-object PLY files that share the same
-    (generalized) object type as the object sampled by the RSPN; if no mesh
-    of that type is available, a mesh is drawn from the full pool instead.
+    The circuit is rooted at the shelf rather than at a loose layer, so a shelf's
+    dimensions, its layers and their contents are drawn together and conditioned
+    on the kind of shelf asked for: a bookcase comes out with the proportions and
+    contents bookcases were observed to have, a cabinet with a cabinet's.
+
+    Every object type found on shelves takes part, so the circuit learns the joint
+    spatial distribution across all of them. Mesh assets are drawn at random from
+    the pool of shelf-object PLY files sharing the sampled object's generalized
+    type; an object whose type has no mesh small enough for its layer is left out.
 
     Training data comes from the processed database built by
-    :func:`preprocess_sage10k_for_training`, so the layers read here are
-    already centred, filtered and grouped.
+    :func:`preprocess_sage10k_for_training`, so what is read here is already
+    centred, filtered and grouped.
 
     .. note::
-        Meshes are rescaled so their bounding box matches the RSPN-sampled
-        scale, and collisions are resolved against those real meshes. A mesh
-        whose native aspect ratio differs from the sampled scale is stretched
-        to fit, which can look unnatural for high-variance types (e.g. plants,
-        containers).
+        Meshes keep their native size rather than being rescaled to the sampled
+        scale, since the dataset's meshes are already modelled at real-world size.
 
     :param node: An active rclpy node used to publish visualisation markers.
+    :param shelf_type: Kind of shelf to generate.
+    :param layer_count: Number of layers to draw. Drawn from the kind of shelf
+        when omitted, which is what makes a bookcase deeper-stacked than a cabinet.
+    :param objects_per_layer: Number of objects to draw onto each layer.
+    :param placeholders_for_missing_meshes: Stand a plain box in for objects whose
+        type has no cached mesh, so a sparse render can be told apart from a sparse
+        draw while the mesh library is incomplete.
     :param model_path: Where the fitted model is exported to and, on a later
         run, loaded from instead of being refit. Training data is only
         queried and the RSPN only fit when no model exists at this path yet.
@@ -171,17 +209,17 @@ def generate_shelf_with_arbitrary_objects(
     if model_path.exists():
         trained_model = TrainedArbitraryShelfModel.load(model_path)
     else:
-        shelf_layers = load_shelf_layers(session)
+        shelves = load_shelves(session)
+        shelf_layers = [layer for shelf in shelves for layer in shelf.layers]
         frequent_types = _frequent_object_types(shelf_layers, keep_count=20)
-        shelf_layers = _coarsen_rare_object_types(shelf_layers)
-        shelf_layer_data_access_objects = [to_dao(layer) for layer in shelf_layers]
+        shelves = _coarsen_rare_object_types_of_shelves(shelves)
 
         rspn = RelationalProbabilisticCircuit(
-            EGShelfLayer,
+            EGShelf,
             min_samples_per_leaf=min_samples_per_leaf_for(
                 sum(len(layer.objects) for layer in shelf_layers)
             ),
-        ).fit(shelf_layer_data_access_objects)
+        ).fit([to_dao(shelf) for shelf in shelves])
 
         trained_model = TrainedArbitraryShelfModel(
             relational_probabilistic_circuit=rspn,
@@ -192,43 +230,30 @@ def generate_shelf_with_arbitrary_objects(
     rspn = trained_model.relational_probabilistic_circuit
     frequent_types = trained_model.frequent_object_types
 
-    probability_backend = probabilistic_backend(rspn)
-
-    objects_per_layer = 3
-    layer_count = 4
-    reference_layer = next(
-        iter(
-            probability_backend.evaluate(
-                build_layer_query(free_count=objects_per_layer)
-            )
-        )
-    )
-    target_scale = reference_layer.scale
-    remaining_layers = [
-        next(
-            iter(
-                probability_backend.evaluate(
-                    build_layer_query(free_count=objects_per_layer, scale=target_scale)
-                )
-            )
-        )
-        for _ in range(layer_count - 1)
-    ]
-    sampled_layers = [reference_layer] + remaining_layers
+    shelf_sample = draw_shelf(rspn, shelf_type, objects_per_layer, layer_count)
 
     source_ids = _get_source_ids_for_objects(
         load_all_objects(session), object_type=None
     )
-    source_ids = _coarsen_mesh_candidate_types(source_ids, frequent_types)
-    shelf_sample = EGShelf(
-        position=EGPoint2D(x=0.0, y=0.0),
-        scale=EGScale(height=2.0, length=target_scale.length, width=target_scale.width),
-        orientation=EGRotation(x=0.0, y=0.0, z=0.0),
-        layers=sampled_layers,
-        source_ids=source_ids,
-    )
+    shelf_sample.source_ids = _coarsen_mesh_candidate_types(source_ids, frequent_types)
 
-    spawned_shelf = InWorldLayoutResolver.for_shelf(shelf_sample, rspn).resolve()
+    layer_template = rspn.exchangeable_distribution_templates["layers"]
+    resolver = InWorldLayoutResolver.for_shelf(
+        shelf_sample,
+        layer_template.template_distribution,
+        placeholders_for_missing_meshes=placeholders_for_missing_meshes,
+    )
+    spawned_shelf = resolver.resolve()
+    # Counted after repair, which drops what it cannot separate, while the
+    # placeholders were counted when the shelf was spawned. Reporting them as a
+    # share of what survived would read as more stand-ins than there are objects.
+    placed = sum(len(layer.object_bodies) for layer in spawned_shelf.layers)
+    print(
+        f"{shelf_type.value}: {len(spawned_shelf.layers)} layers, "
+        f"{placed} objects standing "
+        f"(spawned with {spawned_shelf.placeholder_count} placeholders, "
+        f"{resolver.dropped_body_count} dropped in repair)"
+    )
     world = spawned_shelf.world
     viz_marker = VizMarkerPublisher(_world=world, node=node)
     viz_marker.with_tf_publisher()

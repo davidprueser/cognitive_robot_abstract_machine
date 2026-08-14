@@ -338,7 +338,11 @@ class RelationalProbabilisticCircuit:
             for aggregation in aggregations
         }
         child_column_names = [
-            f._name_ if f in child_aggregation_features else f.get_clean_name_from_mapped_variable()
+            (
+                f._name_
+                if f in child_aggregation_features
+                else f.get_clean_name_from_mapped_variable()
+            )
             for f in child_feature_extractor.features
         ]
         return pd.DataFrame(columns=aggregation_names + child_column_names, data=rows)
@@ -748,7 +752,21 @@ class RelationalProbabilisticCircuit:
             for product_node in product_nodes_to_extend
         ]
         retained_variables = SortedSet(circuit.variables) - undetermined_latents
+        # Marginalizing can simplify a mounting node away: once its latent-valued
+        # children are gone a product node left with a single child is collapsed into
+        # its parent. What each node still shares with the circuit is therefore
+        # recorded first, so the node that inherited its role can be found afterwards.
+        retained_per_node = [
+            SortedSet(product_node.variables) & retained_variables
+            for product_node in product_nodes_to_extend
+        ]
         circuit.marginal_in_place(retained_variables)
+        surviving_product_nodes = [
+            self._mounting_node_after_marginalization(circuit, product_node, retained)
+            for product_node, retained in zip(
+                product_nodes_to_extend, retained_per_node
+            )
+        ]
         mounted_roots = [
             self._mount_instance(
                 circuit, template, query_parts, {**determined_statistics, **assignment}
@@ -756,11 +774,41 @@ class RelationalProbabilisticCircuit:
             for assignment in sampled_assignments
         ]
         for product_node, log_weights in zip(
-            product_nodes_to_extend, log_weights_per_node
+            surviving_product_nodes, log_weights_per_node
         ):
             self._attach_mixture_to_node(
                 circuit, product_node, mounted_roots, log_weights
             )
+
+    @staticmethod
+    def _mounting_node_after_marginalization(
+        circuit: ProbabilisticCircuit,
+        product_node: ProductUnit,
+        retained_variables: SortedSet[Variable],
+    ) -> Unit:
+        """
+        Find the node that carries *product_node*'s mounting role after marginalization.
+
+        A node that survived marginalization keeps its role. One that was simplified
+        away is replaced by the lowest product node still modelling the variables it
+        retained, which is the node its children were reparented onto. A node that
+        modelled nothing but the integrated-out latents leaves no such trace, so the
+        mixture goes to the root, the only node guaranteed to dominate its position.
+
+        :param circuit: The marginalized class circuit.
+        :param product_node: The mounting node chosen before marginalization.
+        :param retained_variables: The variables *product_node* modelled that survived.
+        :return: The node the exchangeable mixture must be attached to.
+        """
+        if product_node.probabilistic_circuit is circuit:
+            return product_node
+        if retained_variables:
+            candidates = find_lowest_product_nodes_that_model_variables(
+                circuit, retained_variables
+            )
+            if candidates:
+                return candidates[0]
+        return circuit.root
 
     @staticmethod
     def _attach_mixture_to_node(

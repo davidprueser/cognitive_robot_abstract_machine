@@ -1582,9 +1582,18 @@ class ProbabilisticCircuit(ProbabilisticModel, SubclassJSONSerializer):
         """
         Update the variables of this unit and its descendants.
 
+        Every leaf in the graph is visited rather than only the root's
+        descendants, because a leaf reports no descendants of its own. Delegating
+        to the root would therefore leave a circuit that *is* a single leaf
+        untouched, silently keeping the old names.
+
         :param new_variables: The new variables to set.
         """
-        self.root.update_variables(new_variables)
+        for node in self.graph.nodes():
+            if not node.is_leaf:
+                continue
+            if node.variable in new_variables:
+                node.distribution.variable = new_variables[node.variable]
 
     def is_deterministic(self) -> bool:
         """

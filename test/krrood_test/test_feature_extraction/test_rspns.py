@@ -6,8 +6,10 @@ import numpy as np
 import pytest
 
 from krrood.adapters.json_serializer import from_json, to_json
+from krrood.entity_query_language.backends import ProbabilisticBackend
 from krrood.entity_query_language.factories import a, an
 from krrood.ormatic.data_access_objects.helper import to_dao
+from krrood.parametrization.model_registries import RelationalCircuitRegistry
 from probabilistic_model.probabilistic_circuit.relational.exceptions import (
     CircuitNotFittedError,
     InvalidMonteCarloSampleCountError,
@@ -23,6 +25,7 @@ from ..dataset.example_classes import (
     SceneObject,
     SceneObjectType,
     SceneRoom,
+    TestExParts,
 )
 
 
@@ -341,3 +344,219 @@ def test_min_samples_per_leaf_is_forwarded_to_exchangeable_part_templates():
     )
     template = model.exchangeable_distribution_templates["objects"]
     assert template.template_distribution.min_samples_per_leaf == 0.1
+
+
+# ---- Group A -- exchangeable parts nested two levels deep ----
+#
+# Nothing in production fits a class whose exchangeable part itself has an
+# exchangeable part. The prefixing and joint-dataframe code anticipates it (and
+# documents the bugs it caused), but no test pins it, so these do.
+
+
+def _nested_scenario(room_counts: list[int]) -> list:
+    """
+    Build ``TestExParts`` instances whose rooms each hold objects.
+
+    The first instance decides the shape of the whole fit: ``_fit_exchangeable_part``
+    reads the child type off ``instances[0]`` and ``_process_many_to_many`` skips empty
+    collections, so the leading instance must populate every collection in the chain.
+
+    :param room_counts: Object count for each room of each built instance.
+    :return: One data access object per requested instance.
+    """
+    return [
+        to_dao(
+            TestExParts(
+                objects=[SceneObject(type=SceneObjectType.TABLE)],
+                rooms=[
+                    SceneRoom(
+                        position=KRROODPosition(x=float(index), y=1.0, z=0.0),
+                        orientation=KRROODOrientation(x=0.0, y=0.0, z=0.0, w=1.0),
+                        objects=[
+                            SceneObject(type=SceneObjectType.CHAIR)
+                            for _ in range(object_count)
+                        ],
+                    )
+                    for index, object_count in enumerate(room_counts)
+                ],
+            )
+        )
+        for _ in range(4)
+    ]
+
+
+@pytest.fixture
+def nested_relational_probabilistic_circuit():
+    model = RelationalProbabilisticCircuit(TestExParts)
+    model.fit(_nested_scenario([2, 3]))
+    return model
+
+
+@pytest.fixture
+def nested_query():
+    query = a(TestExParts)(
+        objects=[a(SceneObject)(type=...)],
+        rooms=[
+            a(SceneRoom)(
+                position=a(KRROODPosition)(x=..., y=..., z=...),
+                orientation=a(KRROODOrientation)(x=..., y=..., z=..., w=...),
+                objects=[a(SceneObject)(type=...) for _ in range(2)],
+            )
+            for _ in range(2)
+        ],
+    )
+    query.resolve()
+    return query
+
+
+def test_nested_exchangeable_part_is_fitted_as_its_own_template(
+    nested_relational_probabilistic_circuit,
+):
+    """
+    A room's ``objects`` must become a template *inside* the rooms template.
+
+    Asserting on the inner template specifically -- rather than on the outer one --
+    is what separates "depth-2 recursion broken" from "a sibling template broken",
+    since ``fit`` builds a template for every collection with aggregation features.
+    """
+    rooms_template = (
+        nested_relational_probabilistic_circuit.exchangeable_distribution_templates[
+            "rooms"
+        ]
+    )
+    inner = rooms_template.template_distribution.exchangeable_distribution_templates
+    assert "objects" in inner
+    assert (
+        inner["objects"].template_distribution.class_probabilistic_circuit is not None
+    )
+
+
+def test_grounding_a_nested_query_yields_a_single_rooted_circuit(
+    nested_relational_probabilistic_circuit, nested_query
+):
+    """
+    A depth-2 mount that fails to connect surfaces as a circuit with more than one
+    root, which is the failure the part-prefix renaming exists to prevent.
+    """
+    np.random.seed(0)
+    grounded = nested_relational_probabilistic_circuit.ground(nested_query)
+    assert grounded.is_valid()
+
+
+def test_grounded_nested_circuit_models_a_variable_per_inner_part(
+    nested_relational_probabilistic_circuit, nested_query
+):
+    """
+    Each object of each room needs its own variable, addressed by the full path
+    through both levels -- otherwise the two rooms' objects share variables and the
+    inner distribution collapses.
+    """
+    np.random.seed(0)
+    grounded = nested_relational_probabilistic_circuit.ground(nested_query)
+    names = {v.name for v in grounded.variables}
+    for room_index in range(2):
+        for object_index in range(2):
+            assert (
+                f"TestExParts.rooms[{room_index}].objects[{object_index}].type" in names
+            )
+
+
+def test_a_nested_query_samples_back_into_an_instance(
+    nested_relational_probabilistic_circuit, nested_query
+):
+    """
+    Grounding is only useful if the sample can be written back through the match
+    tree, which is the step that consumes the prefixed variable names.
+    """
+    np.random.seed(0)
+    backend = ProbabilisticBackend(
+        model_registry=RelationalCircuitRegistry(
+            relational_probabilistic_circuit=nested_relational_probabilistic_circuit
+        ),
+        number_of_samples=1,
+    )
+    sampled = next(iter(backend.evaluate(nested_query)))
+    assert len(sampled.rooms) == 2
+    for room in sampled.rooms:
+        assert len(room.objects) == 2
+
+
+# ---- Group B -- conditioning a query on an enum literal ----
+#
+# Pinning an enum on a query slot is avoided in production because of
+# "enum-to-float conversion issues in the RSPN sampling backend". Whether that
+# still holds decides whether a categorical field can be used as a conditioning
+# variable at all, so it is pinned here rather than worked around.
+#
+# Fitting encodes an enum column as ``hash(member)``, and ``Enum.__hash__``
+# hashes the member *name*, so the encoded values change with PYTHONHASHSEED.
+# Values of that magnitude do not survive the circuit's numeric pipeline: a
+# column of small integers keeps its values exactly, while hash-sized ones come
+# back as different numbers entirely, leaving nothing to condition against.
+# These two tests therefore fail for almost every seed and pass for the rare one
+# whose hashes happen to survive -- the seed dependence is the bug, not flake.
+
+
+def _typed_objects(counts: dict) -> list:
+    """
+    Build one data access object per requested object of each type.
+
+    Every enum member has to appear, or the fitted variable's domain covers only the
+    observed subset and conditioning on the missing member is a different failure.
+
+    :param counts: How many objects to build for each object type.
+    :return: The objects, as data access objects.
+    """
+    return [
+        to_dao(SceneObject(type=object_type))
+        for object_type, count_of_type in counts.items()
+        for _ in range(count_of_type)
+    ]
+
+
+@pytest.fixture
+def object_type_circuit():
+    model = RelationalProbabilisticCircuit(SceneObject)
+    model.fit(_typed_objects({SceneObjectType.CHAIR: 30, SceneObjectType.TABLE: 30}))
+    return model
+
+
+def test_a_query_pinned_to_an_enum_member_samples_that_member(object_type_circuit):
+    """
+    Conditioning a query on a categorical literal must actually restrict the samples.
+
+    A backend that ignores the literal still returns a sample, so asserting only that
+    sampling succeeded would pass while the condition silently did nothing.
+    """
+    np.random.seed(0)
+    query = a(SceneObject)(type=SceneObjectType.CHAIR)
+    query.resolve()
+    backend = ProbabilisticBackend(
+        model_registry=RelationalCircuitRegistry(
+            relational_probabilistic_circuit=object_type_circuit
+        ),
+        number_of_samples=10,
+    )
+    sampled = list(backend.evaluate(query))
+    assert sampled
+    assert all(obj.type is SceneObjectType.CHAIR for obj in sampled)
+
+
+def test_conditioning_the_class_circuit_directly_restricts_an_enum_variable(
+    object_type_circuit,
+):
+    """
+    The circuit-level conditioning path is exercised separately from the query path.
+
+    Sampling a part count conditioned on a category uses this path directly, so it has
+    to be known-good even if the query path turns out not to be. The member itself is
+    the value the variable is defined over, so no encoding step stands between the
+    caller and the condition.
+    """
+    circuit = object_type_circuit.class_probabilistic_circuit
+    [type_variable] = [v for v in circuit.variables if v.name.endswith("type")]
+    conditioned, probability = circuit.conditional(
+        {type_variable: SceneObjectType.CHAIR}
+    )
+    assert probability > 0.0
+    assert conditioned is not None

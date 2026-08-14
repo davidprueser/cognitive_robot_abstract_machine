@@ -7,6 +7,7 @@ from itertools import combinations
 from experiments.scene_generation_experiments.exceptions import LayoutResolutionError
 from experiments.scene_generation_experiments.rspn_sampling import (
     build_layer_query,
+    evaluate_first_supported,
     probabilistic_backend,
 )
 from krrood.entity_query_language.backends import ProbabilisticBackend
@@ -62,39 +63,6 @@ def minimal_resample_set(colliding_pairs: set[tuple[int, int]]) -> set[int]:
             pair for pair in remaining_pairs if most_colliding_index not in pair
         }
     return indices_to_resample
-
-
-def _evaluate_first_supported(backend: ProbabilisticBackend, *queries):
-    """
-    Evaluate *queries* in order, returning the first sample the RSPN has
-    support for.
-
-    Each query is expected to hold strictly less evidence than the one before
-    it, so the search walks outwards from the most informative conditioning to
-    the least. Two kinds of evidence go unsupported in practice, and both abort
-    the whole layout if the search stops early:
-
-    - **Neighbour poses.** Conditioning a resample on every already-placed
-      neighbour's exact pose pins the query to a region of zero probability
-      mass, and the neighbours drift further from the training distribution
-      with each repair pass.
-    - **The layer's own scale.** Every layer of a shelf is conditioned on the
-      reference layer's drawn scale (see :func:`build_layer_query`),
-      so a later layer's objects are resampled against a scale the circuit only
-      ever saw paired with a different layer's contents. Relaxing only the
-      neighbours keeps that scale pinned and fails again.
-
-    :param backend: The backend to evaluate the queries against.
-    :param queries: Progressively less-conditioned forms of the same query.
-    :raises NoSolutionFound: If the circuit supports none of them.
-    :return: The first sample from whichever query found a solution.
-    """
-    for query in queries[:-1]:
-        try:
-            return next(iter(backend.evaluate(query)))
-        except NoSolutionFound:
-            continue
-    return next(iter(backend.evaluate(queries[-1])))
 
 
 @dataclass
@@ -200,7 +168,10 @@ class ShelfLayerGroup:
                 colliding_pairs.add(
                     tuple(
                         sorted(
-                            (body_to_index[contact.body_a], body_to_index[contact.body_b])
+                            (
+                                body_to_index[contact.body_a],
+                                body_to_index[contact.body_b],
+                            )
                         )
                     )
                 )
@@ -249,11 +220,15 @@ class ShelfLayerGroup:
         resampled_indices = sorted(indices)
         resampled_objects = [layer.objects[index] for index in resampled_indices]
 
-        new_layer = _evaluate_first_supported(
+        new_layer = evaluate_first_supported(
             self.backend,
-            build_layer_query(fixed_objects, len(resampled_objects), layer.scale),
-            build_layer_query([], len(resampled_objects), layer.scale),
-            build_layer_query(free_count=len(resampled_objects)),
+            build_layer_query(
+                layer.shelf_type, fixed_objects, len(resampled_objects), layer.scale
+            ),
+            build_layer_query(
+                layer.shelf_type, [], len(resampled_objects), layer.scale
+            ),
+            build_layer_query(layer.shelf_type, free_count=len(resampled_objects)),
         )
         redrawn_objects = new_layer.objects[-len(resampled_objects) :]
 
@@ -329,6 +304,7 @@ class InWorldLayoutResolver:
         rspn: RelationalProbabilisticCircuit,
         max_passes: int = 10,
         stuck_after_passes: int = 3,
+        placeholders_for_missing_meshes: bool = False,
     ) -> InWorldLayoutResolver:
         """
         Spawn *shelf* and build one collision group per layer, each supported by
@@ -336,12 +312,17 @@ class InWorldLayoutResolver:
 
         :param shelf: The sampled shelf to spawn and repair.
         :param rspn: The fitted circuit used to redraw offending object poses.
+        :param placeholders_for_missing_meshes: Stand a plain box in for objects
+            with no cached mesh, so an incomplete mesh library is visible in the
+            render rather than mistaken for a sparse draw.
         :param max_passes: Upper bound on repair passes.
         :param stuck_after_passes: Consecutive passes a member may remain in
             violation before it stops being resampled.
         :return: A resolver ready to repair the spawned shelf.
         """
-        spawned = shelf.spawn_in_world()
+        spawned = shelf.spawn_in_world(
+            placeholders_for_missing_meshes=placeholders_for_missing_meshes
+        )
         groups = cls._shelf_layer_groups(shelf, spawned, probabilistic_backend(rspn))
         return cls(
             spawned=spawned,

@@ -466,5 +466,57 @@ class UnitEqualityTestCase(unittest.TestCase):
         self.assertNotIn(first_unit, [second_unit])
 
 
+class RenamingVariablesOfEveryCircuitShapeTestCase(unittest.TestCase):
+    """
+    Renaming must reach every leaf whatever shape the circuit has.
+
+    A leaf reports no descendants of its own, so a renaming that walks the root's
+    descendants covers a circuit with an inner root but silently skips one that *is*
+    a single leaf. Callers that namespace a subcircuit's variables before mounting it
+    rely on this: a skipped rename leaves the old name in place, and several such
+    subcircuits then collide on one variable instead of staying distinct.
+    """
+
+    def test_renaming_reaches_the_leaf_of_a_single_leaf_circuit(self):
+        circuit = ProbabilisticCircuit()
+        original = Continuous("x")
+        renamed = Continuous("prefix.x")
+        leaf(
+            UniformDistribution(
+                variable=original, interval=SimpleInterval.from_data(0, 1)
+            ),
+            probabilistic_circuit=circuit,
+        )
+
+        circuit.update_variables({original: renamed})
+
+        self.assertEqual(
+            [variable.name for variable in circuit.variables], ["prefix.x"]
+        )
+
+    def test_renaming_reaches_every_leaf_below_an_inner_root(self):
+        circuit = ProbabilisticCircuit()
+        first, second = Continuous("x"), Continuous("y")
+        product = ProductUnit(probabilistic_circuit=circuit)
+        for variable in (first, second):
+            product.add_subcircuit(
+                leaf(
+                    UniformDistribution(
+                        variable=variable, interval=SimpleInterval.from_data(0, 1)
+                    ),
+                    probabilistic_circuit=circuit,
+                )
+            )
+
+        circuit.update_variables(
+            {first: Continuous("prefix.x"), second: Continuous("prefix.y")}
+        )
+
+        self.assertEqual(
+            sorted(variable.name for variable in circuit.variables),
+            ["prefix.x", "prefix.y"],
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

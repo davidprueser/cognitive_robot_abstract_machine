@@ -13,6 +13,8 @@ from sqlalchemy.orm import Session, joinedload
 from experiments.orm.ormatic_interface import (
     EGObject2DDAO,
     EGObjectDAO,
+    EGShelfDAO,
+    EGShelfDAO_layers_association,
     EGShelfLayerDAO,
     EGShelfLayerDAO_objects_association,
 )
@@ -21,6 +23,7 @@ from experiments.scene_generation_experiments.data_preprocessing import (
     SourceIdNotFoundError,
 )
 from semantic_digital_twin.scene_generation.scene_schema import (
+    EGShelf,
     EGShelfLayer,
     MeshCandidate,
     ObjectType,
@@ -210,6 +213,49 @@ def load_shelf_layers(
         for layer in layers
     ]
     return [layer for layer in matching_layers if layer.objects]
+
+
+def load_shelves(session: Session) -> list[EGShelf]:
+    """
+    Load every shelf prepared by the preprocessing pipeline, with its layers and
+    their objects.
+
+    Loading whole shelves rather than loose layers is what lets a circuit learn
+    how many layers a kind of shelf has and how they are spaced, alongside what
+    stands on them.
+
+    The join chain is extended one level past :func:`load_shelf_layers` for the
+    same reason it exists there: leaving a level to lazy loading costs a
+    statement per row on the one query path every training run takes.
+
+    :param session: Session on the processed database.
+    :return: The stored shelves.
+    """
+    shelf_data_access_objects = (
+        session.scalars(
+            select(EGShelfDAO).options(
+                joinedload(EGShelfDAO.scale),
+                joinedload(EGShelfDAO.layers)
+                .joinedload(EGShelfDAO_layers_association.target)
+                .options(
+                    joinedload(EGShelfLayerDAO.scale),
+                    joinedload(EGShelfLayerDAO.objects)
+                    .joinedload(EGShelfLayerDAO_objects_association.target)
+                    .options(
+                        joinedload(EGObject2DDAO.scale),
+                        joinedload(EGObject2DDAO.position),
+                        joinedload(EGObject2DDAO.orientation),
+                    ),
+                ),
+            )
+        )
+        .unique()
+        .all()
+    )
+    return [
+        shelf_data_access_object.from_dao()
+        for shelf_data_access_object in shelf_data_access_objects
+    ]
 
 
 def _get_source_ids_for_objects(

@@ -11,6 +11,7 @@ import trimesh
 from sqlalchemy.orm import Session
 
 import experiments.orm.ormatic_interface  # noqa: F401  registers ORM mappers
+from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
 from experiments.orm.ormatic_interface import (
     Sage10kObjectDAO,
     Sage10kPhysicallyBasedRenderingDAO,
@@ -27,11 +28,15 @@ from experiments.sage_10k.preprocess_sage10k_for_training import (
     object_type_height_profiles,
     shelves_with_layers,
 )
+from semantic_digital_twin.scene_generation.shelf_type_classifier import (
+    ShelfTypeClassifier,
+)
 from semantic_digital_twin.scene_generation.object_type_classifier import (
     ObjectTypeClassifier,
 )
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.scene_generation.scene_schema import (
+    ShelfType,
     EGObject,
     EGObject2D,
     EGPoint2D,
@@ -58,6 +63,29 @@ def _empty_world() -> tuple[World, Body]:
     with world.modify_world():
         world.add_body(root)
     return world, root
+
+
+def _move_shelf_to(
+    spawned: SpawnedShelf, x: float, y: float, yaw_degrees: float
+) -> None:
+    """
+    Put a spawned shelf where it stood in the scene it was extracted from.
+
+    A shelf spawns at its parent's origin, so it is placed by moving its corpus,
+    which is the movable branch the whole shelf hangs off. The corpus is built in
+    the content frame, so its yaw carries
+    :attr:`EGShelf.CONTENT_FRAME_YAW_OFFSET_DEGREES` on top of the shelf's own.
+    """
+    origin = spawned.corpus.parent_connection.origin
+    spawned.corpus.parent_connection.origin = (
+        HomogeneousTransformationMatrix.from_xyz_rpy(
+            x=x,
+            y=y,
+            z=float(origin.to_position().to_np()[2].item()),
+            yaw=math.radians(yaw_degrees + EGShelf.CONTENT_FRAME_YAW_OFFSET_DEGREES),
+            reference_frame=origin.reference_frame,
+        )
+    )
 
 
 def _eg_object(
@@ -114,6 +142,7 @@ def _object_2d(
         position=EGPoint2D(x=x, y=y),
         orientation=EGRotation(x=0.0, y=0.0, z=0.0),
         source_id=object_id,
+        shelf_type=ShelfType.BOOKCASE,
     )
 
 
@@ -133,7 +162,11 @@ def _layers_by_shelf(objects: list[EGObject], **kwargs) -> list[list[EGShelfLaye
     return [
         shelf.layers
         for shelf in shelves_with_layers(
-            objects, {_SHELF_SOURCE_ID: _SHELF_EXTENT}, **kwargs
+            objects,
+            {_SHELF_SOURCE_ID: _SHELF_EXTENT},
+            {_SHELF_ID: ShelfType.BOOKCASE},
+            MeshMeasurements(source_id_to_path={}),
+            **kwargs,
         )
     ]
 
@@ -542,7 +575,10 @@ def test_a_shelf_of_no_measurable_height_reads_as_sitting_at_its_base() -> None:
     ]
 
     shelves = shelves_with_layers(
-        objects, {_SHELF_SOURCE_ID: VerticalExtent(bottom=0.0, top=0.0)}
+        objects,
+        {_SHELF_SOURCE_ID: VerticalExtent(bottom=0.0, top=0.0)},
+        {_SHELF_ID: ShelfType.BOOKCASE},
+        MeshMeasurements(source_id_to_path={}),
     )
 
     [layer] = shelves[0].layers
@@ -560,7 +596,15 @@ def test_a_shelf_whose_mesh_was_never_measured_is_skipped() -> None:
         _eg_object("book_1", _SHELF_ID, ObjectType.BOOK, x=0.0, y=0.0),
     ]
 
-    assert shelves_with_layers(objects, {}) == []
+    assert (
+        shelves_with_layers(
+            objects,
+            {},
+            {_SHELF_ID: ShelfType.BOOKCASE},
+            MeshMeasurements(source_id_to_path={}),
+        )
+        == []
+    )
 
 
 def test_a_shelf_keeps_its_own_pose_and_measured_height() -> None:
@@ -569,7 +613,10 @@ def test_a_shelf_keeps_its_own_pose_and_measured_height() -> None:
     together and in what order.
     """
     [shelf] = shelves_with_layers(
-        _three_layer_shelf(), {_SHELF_SOURCE_ID: _SHELF_EXTENT}
+        _three_layer_shelf(),
+        {_SHELF_SOURCE_ID: _SHELF_EXTENT},
+        {_SHELF_ID: ShelfType.BOOKCASE},
+        MeshMeasurements(source_id_to_path={}),
     )
 
     assert shelf.scale.height == pytest.approx(2.0)
@@ -602,7 +649,7 @@ def test_shelf_ids_come_from_the_classified_types_of_the_raw_objects(
     )
     session.commit()
 
-    contents = ShelfContents.from_raw_objects(session, ObjectTypeClassifier())
+    contents = ShelfContents.from_raw_objects(session, ShelfTypeClassifier())
 
     assert contents.shelf_ids == {"shelf_1"}
 
@@ -611,7 +658,7 @@ def test_shelves_and_the_objects_standing_on_them_are_kept() -> None:
     shelf = _shelf()
     on_shelf = _eg_object("book_1", _SHELF_ID, ObjectType.BOOK, x=0.0, y=0.0)
     elsewhere = _eg_object("chair_1", "floor", ObjectType.CHAIR, x=5.0, y=5.0)
-    contents = ShelfContents(shelf_ids={_SHELF_ID})
+    contents = ShelfContents(shelf_types_by_object_id={_SHELF_ID: ShelfType.BOOKCASE})
 
     for processed_object in [shelf, on_shelf, elsewhere]:
         contents.collect(processed_object)
@@ -629,14 +676,23 @@ def test_extraction_from_the_kept_objects_matches_extraction_from_all_of_them() 
         _eg_object("chair_1", "floor", ObjectType.CHAIR, x=5.0, y=5.0),
         _eg_object("cup_1", "table_1", ObjectType.CUP, x=6.0, y=6.0),
     ]
-    contents = ShelfContents(shelf_ids={_SHELF_ID})
+    contents = ShelfContents(shelf_types_by_object_id={_SHELF_ID: ShelfType.BOOKCASE})
     for processed_object in every_object:
         contents.collect(processed_object)
 
     vertical_extents = {_SHELF_SOURCE_ID: _SHELF_EXTENT}
+    measurements = MeshMeasurements(source_id_to_path={})
     assert shelves_with_layers(
-        contents.objects, vertical_extents
-    ) == shelves_with_layers(every_object, vertical_extents)
+        contents.objects,
+        vertical_extents,
+        contents.shelf_types_by_object_id,
+        measurements,
+    ) == shelves_with_layers(
+        every_object,
+        vertical_extents,
+        contents.shelf_types_by_object_id,
+        measurements,
+    )
 
 
 def test_kept_shelves_supply_the_vertical_extents_their_layers_need(
@@ -647,7 +703,7 @@ def test_kept_shelves_supply_the_vertical_extents_their_layers_need(
     load meshes whose reach nothing reads.
     """
     scene_directory = _cache_off_center_mesh(tmp_path, _SHELF_SOURCE_ID)
-    contents = ShelfContents(shelf_ids={_SHELF_ID})
+    contents = ShelfContents(shelf_types_by_object_id={_SHELF_ID: ShelfType.BOOKCASE})
     for processed_object in _three_layer_shelf():
         contents.collect(processed_object)
 
@@ -670,6 +726,7 @@ def _layer_at(relative_height: float, *objects: EGObject2D) -> EGShelfLayer:
         height_above_shelf_base=relative_height * 2.0,
         relative_height=relative_height,
         vertical_clearance=0.3,
+        shelf_type=ShelfType.BOOKCASE,
     )
 
 
@@ -784,16 +841,16 @@ def test_extracted_contents_spawn_back_at_their_original_world_pose(
 
     [layers] = _layers_by_shelf([shelf, book])
     spawned = EGShelf(
-        position=EGPoint2D(x=shelf_world_x, y=shelf_world_y),
         scale=EGScale(height=2.0, length=1.0, width=1.0),
-        orientation=EGRotation(x=0.0, y=0.0, z=shelf_yaw),
         layers=layers,
         source_ids=[
             MeshCandidate(
                 scene_dir=tmp_path, source_id="book_src", object_type=ObjectType.BOOK
             )
         ],
+        shelf_type=ShelfType.BOOKCASE,
     ).spawn_in_world(*_empty_world())
+    _move_shelf_to(spawned, shelf_world_x, shelf_world_y, shelf_yaw)
 
     [body] = spawned.layers[0].object_bodies.values()
     position = body.global_pose.to_position().to_np()
@@ -834,15 +891,14 @@ def test_extracted_contents_spawn_within_the_layer_footprint(tmp_path: Path) -> 
 
     [layers] = _layers_by_shelf([shelf, book])
     spawned = EGShelf(
-        position=EGPoint2D(x=0.0, y=0.0),
         scale=EGScale(height=2.0, length=shelf_depth, width=shelf_face),
-        orientation=EGRotation(x=0.0, y=0.0, z=0.0),
         layers=layers,
         source_ids=[
             MeshCandidate(
                 scene_dir=tmp_path, source_id="book_src", object_type=ObjectType.BOOK
             )
         ],
+        shelf_type=ShelfType.BOOKCASE,
     ).spawn_in_world(*_empty_world())
 
     [body] = spawned.layers[0].object_bodies.values()
@@ -864,6 +920,7 @@ def test_affinity_counts_every_pair_sharing_a_layer() -> None:
                 _object_2d(ObjectType.BOOK, "book_1"),
                 _object_2d(ObjectType.CUP, "cup_1"),
             ],
+            shelf_type=ShelfType.BOOKCASE,
         ),
         EGShelfLayer(
             scale=EGScale(width=0.4, length=0.3, height=0.02),
@@ -871,6 +928,7 @@ def test_affinity_counts_every_pair_sharing_a_layer() -> None:
                 _object_2d(ObjectType.BOOK, "book_2"),
                 _object_2d(ObjectType.CUP, "cup_2"),
             ],
+            shelf_type=ShelfType.BOOKCASE,
         ),
     ]
 
@@ -891,6 +949,7 @@ def test_affinity_pairs_are_stored_in_canonical_order() -> None:
                 _object_2d(ObjectType.CUP, "cup_1"),
                 _object_2d(ObjectType.BOOK, "book_1"),
             ],
+            shelf_type=ShelfType.BOOKCASE,
         )
     ]
 
@@ -908,6 +967,7 @@ def test_affinity_mean_offset_points_from_the_first_type_to_the_second() -> None
                 _object_2d(ObjectType.CUP, "cup_1", x=0.3, y=0.1),
                 _object_2d(ObjectType.BOOK, "book_1", x=0.1, y=0.1),
             ],
+            shelf_type=ShelfType.BOOKCASE,
         )
     ]
 
@@ -925,6 +985,7 @@ def test_affinity_averages_the_offset_over_every_observed_pair() -> None:
                 _object_2d(ObjectType.BOOK, "book_1", x=0.0, y=0.0),
                 _object_2d(ObjectType.CUP, "cup_1", x=0.2, y=0.0),
             ],
+            shelf_type=ShelfType.BOOKCASE,
         ),
         EGShelfLayer(
             scale=EGScale(width=0.4, length=0.3, height=0.02),
@@ -932,6 +993,7 @@ def test_affinity_averages_the_offset_over_every_observed_pair() -> None:
                 _object_2d(ObjectType.BOOK, "book_2", x=0.0, y=0.0),
                 _object_2d(ObjectType.CUP, "cup_2", x=0.4, y=0.0),
             ],
+            shelf_type=ShelfType.BOOKCASE,
         ),
     ]
 
@@ -952,6 +1014,7 @@ def test_affinity_includes_pairs_of_the_same_type() -> None:
                 _object_2d(ObjectType.BOOK, "book_1", x=0.0, y=0.0),
                 _object_2d(ObjectType.BOOK, "book_2", x=0.1, y=0.0),
             ],
+            shelf_type=ShelfType.BOOKCASE,
         )
     ]
 
@@ -967,6 +1030,7 @@ def test_affinity_is_empty_for_layers_holding_a_single_object() -> None:
         EGShelfLayer(
             scale=EGScale(width=0.4, length=0.3, height=0.02),
             objects=[_object_2d(ObjectType.BOOK, "book_1")],
+            shelf_type=ShelfType.BOOKCASE,
         )
     ]
 

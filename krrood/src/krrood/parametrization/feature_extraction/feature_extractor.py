@@ -276,7 +276,13 @@ class FeatureExtractor:
     def preprocess_dataframe(self, df: pd.DataFrame) -> pd.DataFrame:
         """
         Preprocess the dataframe for JointProbabilityTrees by converting boolean columns
-        to integers and enum columns to hashes.
+        to integers.
+
+        Enum columns are deliberately left holding their members, so that variable
+        inference makes them symbolic variables over those members. Encoding them as
+        ``hash()`` instead produced integers far outside the range the circuits keep
+        exactly, which silently changed the stored values and left the category
+        unconditionable.
 
         :param df: The dataframe to preprocess.
         :return: The dataframe in a JPT compatible format.
@@ -287,7 +293,7 @@ class FeatureExtractor:
             if feature._type_ is bool:
                 df[column] = df[column].astype(int)
             elif isinstance(feature._type_, enum.EnumType):
-                df[column] = df[column].apply(lambda x: hash(x))
+                continue
             elif feature._type_ not in compatible_types and feature._type_ is not None:
                 raise UnsupportedFeatureTypeError(
                     feature_type=feature._type_, column_name=column

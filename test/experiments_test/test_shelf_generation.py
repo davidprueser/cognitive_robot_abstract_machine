@@ -4,6 +4,8 @@ import os
 import shutil
 import subprocess
 import sys
+import dataclasses
+import json
 from dataclasses import dataclass, field
 from importlib.resources import files
 from pathlib import Path
@@ -29,11 +31,19 @@ from experiments.scene_generation_experiments.utils import (
 )
 from experiments.scene_generation_experiments.rspn_sampling import (
     build_layer_query,
+    ShelfDimensionSampler,
+    draw_shelf,
+    ShelfDimensions,
+    build_shelf_query,
     probabilistic_backend,
 )
 from experiments.scene_generation_experiments.shelf_generation import (
     _coarsen_mesh_candidate_types,
     _coarsen_rare_object_types,
+)
+from experiments.scene_generation_experiments.exceptions import (
+    OutdatedTrainedModelError,
+    UndrawableShelfError,
 )
 from experiments.scene_generation_experiments.rspn_model_storage import (
     TrainedArbitraryShelfModel,
@@ -44,6 +54,7 @@ from probabilistic_model.probabilistic_circuit.relational.rspn import (
 )
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.scene_generation.scene_schema import (
+    ShelfType,
     EGObject2D,
     EGPoint2D,
     EGRotation,
@@ -293,6 +304,7 @@ def test_loading_layers_does_not_scale_query_count_with_object_count(
                     _typed_object(ObjectType.BOOK, f"book_{layer_index}_{index}")
                     for index in range(10)
                 ],
+                shelf_type=ShelfType.BOOKCASE,
             )
         )
         for layer_index in range(5)
@@ -332,6 +344,7 @@ def _typed_object(object_type: ObjectType, object_id: str) -> EGObject2D:
         position=EGPoint2D(x=0.0, y=0.0),
         orientation=EGRotation(x=0.0, y=0.0, z=0.0),
         source_id=object_id,
+        shelf_type=ShelfType.BOOKCASE,
     )
 
 
@@ -355,6 +368,7 @@ def test_coarsen_rare_object_types_keeps_only_the_most_frequent_types() -> None:
             _typed_object(ObjectType.PLANT, "plant_1"),
             _typed_object(ObjectType.CHAIR, "chair_1"),
         ],
+        shelf_type=ShelfType.BOOKCASE,
     )
 
     result = _coarsen_rare_object_types([layer], keep_count=1)
@@ -386,6 +400,7 @@ def test_coarsen_rare_object_types_leaves_layer_within_keep_count_unchanged() ->
             _typed_object(ObjectType.CUP, "cup_1"),
             _typed_object(ObjectType.PLANT, "plant_1"),
         ],
+        shelf_type=ShelfType.BOOKCASE,
     )
 
     result = _coarsen_rare_object_types([layer], keep_count=2)
@@ -445,9 +460,16 @@ def fitted_arbitrary_shelf_model() -> TrainedArbitraryShelfModel:
         EGShelfLayer(
             scale=EGScale(height=0.02, length=0.3, width=0.4),
             objects=[
-                _typed_object(ObjectType.CUP, f"cup_{index}"),
-                _typed_object(ObjectType.PLANT, f"plant_{index}"),
+                dataclasses.replace(
+                    _typed_object(ObjectType.CUP, f"cup_{index}"),
+                    shelf_type=ShelfType.BOOKCASE,
+                ),
+                dataclasses.replace(
+                    _typed_object(ObjectType.PLANT, f"plant_{index}"),
+                    shelf_type=ShelfType.BOOKCASE,
+                ),
             ],
+            shelf_type=ShelfType.BOOKCASE,
         )
         for index in range(5)
     ]
@@ -495,7 +517,9 @@ def test_load_restores_a_circuit_that_can_still_be_grounded_and_sampled(
     restored = TrainedArbitraryShelfModel.load(export_path)
     backend = probabilistic_backend(restored.relational_probabilistic_circuit)
 
-    sample = next(iter(backend.evaluate(build_layer_query(free_count=2))))
+    sample = next(
+        iter(backend.evaluate(build_layer_query(ShelfType.BOOKCASE, free_count=2)))
+    )
 
     assert len(sample.objects) == 2
 
@@ -506,7 +530,7 @@ from probabilistic_model.probabilistic_circuit.relational.rspn import Relational
 from experiments.orm.ormatic_interface import *  # noqa: F401,F403  registers ORM mappers
 from experiments.scene_generation_experiments.shelf_generation import TrainedArbitraryShelfModel
 from semantic_digital_twin.scene_generation.scene_schema import (
-    EGObject2D, EGPoint2D, EGRotation, EGScale, EGShelfLayer, ObjectType,
+    EGObject2D, EGPoint2D, EGRotation, EGScale, EGShelfLayer, ObjectType, ShelfType,
 )
 from pathlib import Path
 import sys
@@ -516,7 +540,7 @@ def typed_object(object_type, object_id):
         id=object_id, room_id="room_1", place_id="shelf_1", object_type=object_type,
         scale=EGScale(height=0.1, length=0.1, width=0.1),
         position=EGPoint2D(x=0.0, y=0.0), orientation=EGRotation(x=0.0, y=0.0, z=0.0),
-        source_id=object_id,
+        source_id=object_id, shelf_type=ShelfType.BOOKCASE,
     )
 
 types = [ObjectType.CUP, ObjectType.PLANT, ObjectType.BOOK, ObjectType.SHELF, ObjectType.CHAIR]
@@ -524,6 +548,7 @@ layers = [
     EGShelfLayer(
         scale=EGScale(height=0.02, length=0.3, width=0.4),
         objects=[typed_object(t, f"{t.value}_{i}") for t in types],
+        shelf_type=ShelfType.BOOKCASE,
     )
     for i in range(10)
 ]
@@ -539,12 +564,13 @@ _LOAD_SCRIPT = """
 from experiments.orm.ormatic_interface import *  # noqa: F401,F403  registers ORM mappers
 from experiments.scene_generation_experiments.shelf_generation import TrainedArbitraryShelfModel
 from experiments.scene_generation_experiments.rspn_sampling import build_layer_query, probabilistic_backend
+from semantic_digital_twin.scene_generation.scene_schema import ShelfType
 from pathlib import Path
 import sys
 
 model = TrainedArbitraryShelfModel.load(Path(sys.argv[1]))
 backend = probabilistic_backend(model.relational_probabilistic_circuit)
-sample = next(iter(backend.evaluate(build_layer_query(free_count=2))))
+sample = next(iter(backend.evaluate(build_layer_query(ShelfType.BOOKCASE, free_count=2))))
 assert len(sample.objects) == 2
 print("GROUNDED_OK")
 """
@@ -584,37 +610,40 @@ def test_load_survives_a_different_hash_seed_process(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_each_layer_slab_uses_its_own_scale() -> None:
+def test_slab_size_does_not_depend_on_which_layers_are_present() -> None:
     """
-    Each ShelfLayer slab must be created with the dimensions of its own
-    EGShelfLayer.scale, not the maximum scale across all layers.
+    A slab spans the shelf's own footprint, so adding a layer of some other size
+    must not resize the others.
 
-    Before the fix, create_in_world computed layer_scale = max(...) once outside
-    the loop and applied it to every slab, causing narrower-scale layers to be
-    rendered wider than the RSPN's spatial context for them.
+    Slab size was once taken from the widest layer, which made every slab an
+    accident of the company it kept; taking it from each layer's own scale instead
+    let independently drawn layers disagree and leave the narrow ones floating
+    clear of the corpus walls. The shelf is the one thing all its layers share.
     """
-    narrow = EGShelfLayer(
-        scale=EGScale(height=0.02, length=0.3, width=0.4),
-        objects=[],
-    )
-    wide = EGShelfLayer(
-        scale=EGScale(height=0.02, length=0.6, width=0.8),
-        objects=[],
-    )
-    shelf = EGShelf(
-        position=EGPoint2D(x=0.0, y=0.0),
-        scale=EGScale(height=2.0, length=0.6, width=0.8),
-        orientation=EGRotation(x=0.0, y=0.0, z=0.0),
-        layers=[narrow, wide],
-        source_ids=None,
-    )
-    world = shelf.create_in_world()
-    slab_annotations = world.get_semantic_annotations_by_type(ShelfLayer)
-    slab_face_widths = sorted(
-        ann.root.collision.shapes[0].scale.y for ann in slab_annotations
-    )
-    assert slab_face_widths[0] == pytest.approx(0.4)
-    assert slab_face_widths[1] == pytest.approx(0.8)
+    shelf_scale = EGScale(height=2.0, length=0.6, width=0.8)
+
+    def face_widths(layer_widths: tuple[float, ...]) -> list[float]:
+        shelf = EGShelf(
+            scale=shelf_scale,
+            layers=[
+                EGShelfLayer(
+                    scale=EGScale(height=0.02, length=0.3, width=width),
+                    objects=[],
+                    shelf_type=ShelfType.BOOKCASE,
+                )
+                for width in layer_widths
+            ],
+            source_ids=None,
+            shelf_type=ShelfType.BOOKCASE,
+        )
+        world = shelf.create_in_world()
+        return sorted(
+            annotation.root.collision.shapes[0].scale.y
+            for annotation in world.get_semantic_annotations_by_type(ShelfLayer)
+        )
+
+    assert face_widths((0.4,)) == [pytest.approx(shelf_scale.width)]
+    assert face_widths((0.4, 0.8)) == [pytest.approx(shelf_scale.width)] * 2
 
 
 # ---------------------------------------------------------------------------
@@ -653,6 +682,7 @@ def test_object_mesh_keeps_its_native_size(tmp_path: Path) -> None:
         position=EGPoint2D(x=0.0, y=0.0),
         orientation=EGRotation(x=0.0, y=0.0, z=0.0),
         source_id="test_object",
+        shelf_type=ShelfType.BOOKCASE,
     )
 
     world = World()
@@ -807,3 +837,312 @@ def test_mesh_pool_loads_every_object_whose_mesh_is_cached(session: Session) -> 
     loaded = load_objects_with_cached_meshes(session, cached_source_ids)
 
     assert {obj.source_id for obj in loaded} == cached_source_ids
+
+
+# ---- Group F -- conditioning contents and structure on the kind of shelf ----
+
+
+def _layer_of(
+    shelf_type: ShelfType, object_type: ObjectType, index: int
+) -> EGShelfLayer:
+    return EGShelfLayer(
+        scale=EGScale(height=0.02, length=0.3, width=0.4),
+        objects=[
+            dataclasses.replace(
+                _typed_object(object_type, f"{object_type.value}_{index}"),
+                shelf_type=shelf_type,
+            )
+        ],
+        shelf_type=shelf_type,
+        relative_height=0.2,
+    )
+
+
+_BOOKCASE_SCALE = EGScale(height=2.0, length=0.3, width=0.4)
+"""Dimensions of the synthetic bookcases, so a query can pin what was fitted."""
+
+_CABINET_SCALE = EGScale(height=1.0, length=0.3, width=0.4)
+"""Dimensions of the synthetic cabinets."""
+
+_LAYER_SCALE = EGScale(height=0.02, length=0.3, width=0.4)
+"""
+Footprint of the synthetic layers, which every shelf of either type shares.
+
+A layer carries the slab's own thickness, not the shelf's height, so pinning a
+layer to a shelf-shaped scale asks the circuit for something it never saw.
+"""
+
+
+def _two_type_shelves() -> list[EGShelf]:
+    """
+    Shelves of two kinds whose contents and layer counts do not overlap.
+
+    Disjoint object types are what makes conditioning observable: a draw for one
+    kind that produced the other kind's objects could not be explained away as
+    the model's own uncertainty.
+    """
+    bookcases = [
+        EGShelf(
+            scale=_BOOKCASE_SCALE,
+            layers=[_layer_of(ShelfType.BOOKCASE, ObjectType.BOOK, index)] * 3,
+            shelf_type=ShelfType.BOOKCASE,
+        )
+        for index in range(8)
+    ]
+    cabinets = [
+        EGShelf(
+            scale=_CABINET_SCALE,
+            layers=[_layer_of(ShelfType.CABINET, ObjectType.CUP, index)],
+            shelf_type=ShelfType.CABINET,
+        )
+        for index in range(8)
+    ]
+    return bookcases + cabinets
+
+
+@pytest.fixture
+def two_type_shelf_model() -> RelationalProbabilisticCircuit:
+    return RelationalProbabilisticCircuit(EGShelf, min_samples_per_leaf=0.25).fit(
+        [to_dao(shelf) for shelf in _two_type_shelves()]
+    )
+
+
+def test_a_shelf_drawn_for_one_type_holds_that_types_objects(
+    two_type_shelf_model: RelationalProbabilisticCircuit,
+) -> None:
+    """
+    The whole point of the shelf type: a bookcase must be filled with what
+    bookcases hold, not with the global mixture of everything on any shelf.
+
+    Conditioning that quietly failed would still return a shelf, so the objects
+    themselves are checked rather than merely that a draw succeeded.
+    """
+    backend = probabilistic_backend(two_type_shelf_model)
+
+    bookcase = next(iter(backend.evaluate(build_shelf_query(ShelfType.BOOKCASE, _LAYER_SCALE, 3, 1))))
+    cabinet = next(iter(backend.evaluate(build_shelf_query(ShelfType.CABINET, _LAYER_SCALE, 1, 1))))
+
+    assert {obj.object_type for layer in bookcase.layers for obj in layer.objects} == {
+        ObjectType.BOOK
+    }
+    assert {obj.object_type for layer in cabinet.layers for obj in layer.objects} == {
+        ObjectType.CUP
+    }
+
+
+def test_a_drawn_shelf_carries_the_type_it_was_asked_for(
+    two_type_shelf_model: RelationalProbabilisticCircuit,
+) -> None:
+    """
+    The type is denormalized onto the layers, so a shelf whose layers disagreed
+    with it would resample its contents against the wrong kind during repair.
+    """
+    backend = probabilistic_backend(two_type_shelf_model)
+
+    shelf = next(iter(backend.evaluate(build_shelf_query(ShelfType.CABINET, _LAYER_SCALE, 1, 1))))
+
+    assert shelf.shelf_type is ShelfType.CABINET
+    assert {layer.shelf_type for layer in shelf.layers} == {ShelfType.CABINET}
+
+
+def test_a_shelf_model_learns_a_template_for_its_layers(
+    two_type_shelf_model: RelationalProbabilisticCircuit,
+) -> None:
+    """
+    Layers are only reachable by fitting when an aggregation statistic declares
+    them; without one a shelf-rooted circuit models the shelf's own dimensions
+    and nothing of what it holds.
+    """
+    templates = two_type_shelf_model.exchangeable_distribution_templates
+
+    assert "layers" in templates
+    assert (
+        "objects"
+        in templates["layers"].template_distribution.exchangeable_distribution_templates
+    )
+
+
+def test_loading_a_model_fitted_before_shelf_types_is_refused(tmp_path: Path) -> None:
+    """
+    A model predating the shelf type loads and samples perfectly well, so nothing
+    would look wrong -- every kind of shelf would simply come out identical. It is
+    refused rather than served, since a cached model outliving a schema change is
+    the ordinary case, not an exotic one.
+    """
+    layers = [
+        EGShelfLayer(
+            scale=EGScale(height=0.02, length=0.3, width=0.4),
+            objects=[_typed_object(ObjectType.CUP, f"cup_{index}")],
+            shelf_type=ShelfType.BOOKCASE,
+        )
+        for index in range(5)
+    ]
+    without_shelf_type = [
+        dataclasses.replace(
+            layer,
+            objects=[
+                dataclasses.replace(obj, shelf_type=ShelfType.BOOKCASE)
+                for obj in layer.objects
+            ],
+        )
+        for layer in layers
+    ]
+    model = TrainedArbitraryShelfModel(
+        relational_probabilistic_circuit=RelationalProbabilisticCircuit(
+            EGObject2D, min_samples_per_leaf=0.5
+        ).fit([to_dao(obj) for layer in without_shelf_type for obj in layer.objects]),
+        frequent_object_types={ObjectType.CUP},
+    )
+    export_path = tmp_path / "outdated.json"
+    model.save(export_path)
+    stored = json.loads(export_path.read_text())
+    _drop_shelf_type_variables(stored)
+    export_path.write_text(json.dumps(stored))
+
+    with pytest.raises(OutdatedTrainedModelError):
+        TrainedArbitraryShelfModel.load(export_path)
+
+
+def _drop_shelf_type_variables(node: object) -> None:
+    """Rename every stored ``shelf_type`` variable, as a pre-shelf-type fit had none."""
+    if isinstance(node, dict):
+        for key, value in node.items():
+            if (
+                key == "name"
+                and isinstance(value, str)
+                and value.endswith("shelf_type")
+            ):
+                node[key] = "legacy_field"
+            else:
+                _drop_shelf_type_variables(value)
+    elif isinstance(node, list):
+        for item in node:
+            _drop_shelf_type_variables(item)
+
+
+# ---- Group G -- drawing the shelf's own attributes before its layers ----
+
+
+def _shelf_of(shelf_type: ShelfType, layer_count: int, width: float) -> EGShelf:
+    return EGShelf(
+        scale=EGScale(height=2.0, length=0.3, width=width),
+        layers=[
+            EGShelfLayer(
+                scale=EGScale(height=0.02, length=0.3, width=width),
+                objects=[
+                    dataclasses.replace(
+                        _typed_object(ObjectType.BOOK, f"book_{index}"),
+                        shelf_type=shelf_type,
+                    )
+                ],
+                shelf_type=shelf_type,
+                relative_height=0.2,
+            )
+            for index in range(layer_count)
+        ],
+        shelf_type=shelf_type,
+    )
+
+
+@pytest.fixture
+def differing_structure_model() -> RelationalProbabilisticCircuit:
+    """A model where one type has one narrow layer and the other has five wide ones."""
+    shelves = [_shelf_of(ShelfType.CABINET, 1, 1.4) for _ in range(8)] + [
+        _shelf_of(ShelfType.BOOKCASE, 5, 0.6) for _ in range(8)
+    ]
+    return RelationalProbabilisticCircuit(EGShelf, min_samples_per_leaf=0.25).fit(
+        [to_dao(shelf) for shelf in shelves]
+    )
+
+
+def test_the_drawn_layer_count_follows_the_type_it_was_asked_for(
+    differing_structure_model: RelationalProbabilisticCircuit,
+) -> None:
+    """
+    The count is learned per type, so pinning it at a constant throws that away
+    and every kind of shelf comes out with the same number of levels.
+    """
+    sampler = ShelfDimensionSampler(differing_structure_model)
+
+    cabinet_counts = {sampler.sample(ShelfType.CABINET).layer_count for _ in range(6)}
+    bookcase_counts = {sampler.sample(ShelfType.BOOKCASE).layer_count for _ in range(6)}
+
+    assert max(cabinet_counts) < min(bookcase_counts)
+
+
+def test_a_drawn_layer_count_is_never_zero(
+    differing_structure_model: RelationalProbabilisticCircuit,
+) -> None:
+    """A shelf with no layers holds nothing and spawns an empty box."""
+    sampler = ShelfDimensionSampler(differing_structure_model)
+
+    counts = [sampler.sample(shelf_type).layer_count
+              for shelf_type in (ShelfType.CABINET, ShelfType.BOOKCASE)
+              for _ in range(6)]
+
+    assert all(count >= 1 for count in counts)
+
+
+def test_every_layer_of_a_drawn_shelf_shares_the_shelfs_footprint(
+    differing_structure_model: RelationalProbabilisticCircuit,
+) -> None:
+    """
+    Object positions are drawn conditioned on the layer's scale, so layers whose
+    footprints disagree with the shelf get positions meant for a differently
+    sized surface -- bunched in the middle of a wide slab, or hanging off a narrow
+    one. Every layer of a real shelf shares its footprint, and the draw has to
+    preserve that.
+    """
+    shelf = draw_shelf(differing_structure_model, ShelfType.BOOKCASE, 1)
+
+    footprints = {(layer.scale.width, layer.scale.length) for layer in shelf.layers}
+    assert len(footprints) == 1
+    assert footprints == {(shelf.scale.width, shelf.scale.length)}
+
+
+def test_a_shelf_can_be_drawn_for_every_type_the_model_knows(
+    differing_structure_model: RelationalProbabilisticCircuit,
+) -> None:
+    """
+    Pinning the layers to the shelf's own drawn scale left some types with no
+    solution at all, which surfaced only when the demo was run: with real data the
+    scale is continuous, so a value drawn from the shelf's distribution has no
+    counterpart in the layers'. Drawing each known type is what catches that.
+    """
+    for shelf_type in (ShelfType.BOOKCASE, ShelfType.CABINET):
+        shelf = draw_shelf(differing_structure_model, shelf_type, 1)
+
+        assert shelf.shelf_type is shelf_type
+        assert shelf.layers
+
+
+def test_a_shelf_is_drawn_even_when_a_layer_count_has_no_support(
+    differing_structure_model: RelationalProbabilisticCircuit,
+) -> None:
+    """
+    A layer count can carry mass in the shelf's own distribution while the shelf it
+    implies has none: the grounded query conditions on the count, the kind of shelf
+    and the layer structure together, which is stricter than the count's marginal.
+    Drawing repeatedly is what turns that into a sample from the feasible
+    conditional rather than an outright failure.
+    """
+    for _ in range(8):
+        shelf = draw_shelf(differing_structure_model, ShelfType.CABINET, 2)
+
+        assert shelf.layers
+        assert shelf.shelf_type is ShelfType.CABINET
+
+
+def test_a_layer_count_the_model_rejects_outright_is_reported(
+    differing_structure_model: RelationalProbabilisticCircuit,
+) -> None:
+    """
+    A count the caller pins is never redrawn, so one the model gives no probability
+    to has to be reported rather than retried into a different shelf than asked for.
+
+    Five is the telling case: the fit has seen five-layer shelves, just never
+    five-layer cabinets. A count it has never seen at all lies outside the modelled
+    range and is integrated out instead of rejected, so it would not exercise this.
+    """
+    with pytest.raises(UndrawableShelfError):
+        draw_shelf(differing_structure_model, ShelfType.CABINET, 2, layer_count=5)

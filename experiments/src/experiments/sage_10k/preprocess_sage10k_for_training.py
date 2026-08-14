@@ -21,6 +21,9 @@ from krrood.ormatic.utils import create_engine, drop_database
 from semantic_digital_twin.scene_generation.object_type_classifier import (
     ObjectTypeClassifier,
 )
+from semantic_digital_twin.scene_generation.shelf_type_classifier import (
+    ShelfTypeClassifier,
+)
 from semantic_digital_twin.scene_generation.scene_schema import (
     EGObject,
     EGObject2D,
@@ -33,6 +36,7 @@ from semantic_digital_twin.scene_generation.scene_schema import (
     ObjectType,
     ObjectTypeAffinity,
     ObjectTypeHeightProfile,
+    ShelfType,
     wrap_angle_degrees,
 )
 
@@ -59,7 +63,7 @@ whether an object really stands on it, so a learned layout never places an
 object where it would protrude.
 """
 
-LAYER_SLAB_HEIGHT = 0.02
+LAYER_SLAB_HEIGHT = EGShelfLayer.SLAB_THICKNESS
 """
 Height, in metres, recorded for an extracted layer slab.
 """
@@ -320,7 +324,9 @@ def _is_within_shelf_footprint(
     )
 
 
-def _object_in_content_frame(shelf: EGObject, obj: EGObject) -> EGObject2D:
+def _object_in_content_frame(
+    shelf: EGObject, obj: EGObject, shelf_type: ShelfType
+) -> EGObject2D:
     """
     Express *obj*'s pose relative to *shelf* in the shelf's content frame.
 
@@ -332,6 +338,8 @@ def _object_in_content_frame(shelf: EGObject, obj: EGObject) -> EGObject2D:
 
     :param shelf: The shelf the object stands on.
     :param obj: The object whose pose is converted.
+    :param shelf_type: Kind of shelf, carried so that which objects a kind of
+        shelf holds can be conditioned on.
     :return: The object with a shelf-relative, content-frame pose.
     """
     content_frame_yaw = shelf.orientation.z + EGShelf.CONTENT_FRAME_YAW_OFFSET_DEGREES
@@ -354,6 +362,7 @@ def _object_in_content_frame(shelf: EGObject, obj: EGObject) -> EGObject2D:
             z=wrap_angle_degrees(obj.orientation.z - content_frame_yaw),
         ),
         source_id=obj.source_id,
+        shelf_type=shelf_type,
     )
 
 
@@ -362,6 +371,8 @@ def _layers_of_shelf(
     members: list[EGObject],
     shelf_vertical_extent: VerticalExtent,
     edge_margin_fraction: float,
+    shelf_type: ShelfType,
+    measurements: MeshMeasurements,
 ) -> list[EGShelfLayer]:
     """
     Group the objects standing on *shelf* into its horizontal layers, ordered
@@ -384,6 +395,10 @@ def _layers_of_shelf(
         locates its base and top and so gives the layers their heights.
     :param edge_margin_fraction: Fraction of the shelf's width and length kept
         free at its edges.
+    :param shelf_type: Kind of shelf, stamped onto every layer so that layer
+        contents can be conditioned on it.
+    :param measurements: Supplies each object mesh's reach, which locates the
+        slab an object rests on.
     :return: The shelf's layers, lowest first; empty when nothing qualifies.
     """
     if not shelf.position_is_mesh_corrected:
@@ -420,8 +435,12 @@ def _layers_of_shelf(
     # top follow from where the mesh reaches around that origin.
     base_height = shelf.position.z + shelf_vertical_extent.bottom
     top_height = shelf.position.z + shelf_vertical_extent.top
+    # A slab sits at the underside of what stands on it, not at those objects'
+    # centres. Averaging the centres would put every slab roughly half an object
+    # height too high, and since spawning places slabs at the height recorded
+    # here, that error compounds on each extract-and-regenerate round trip.
     slab_heights = [
-        sum(obj.position.z for obj in objects) / len(objects)
+        sum(_object_bottom(obj, measurements) for obj in objects) / len(objects)
         for objects in ordered_groups
     ]
 
@@ -432,7 +451,11 @@ def _layers_of_shelf(
                 length=shelf.scale.length,
                 height=LAYER_SLAB_HEIGHT,
             ),
-            objects=[_object_in_content_frame(shelf, obj) for obj in layer_objects],
+            objects=[
+                _object_in_content_frame(shelf, obj, shelf_type)
+                for obj in layer_objects
+            ],
+            shelf_type=shelf_type,
             height_above_shelf_base=slab_height - base_height,
             relative_height=_relative_height(
                 slab_height, base_height, shelf_vertical_extent.height
@@ -443,6 +466,23 @@ def _layers_of_shelf(
             zip(ordered_groups, slab_heights)
         )
     ]
+
+
+def _object_bottom(obj: EGObject, measurements: MeshMeasurements) -> float:
+    """
+    Height at which *obj* rests, which is the height of the slab beneath it.
+
+    Falls back to the object's own origin when its mesh is not cached, which
+    reads as an object of no height rather than inventing a reach for it.
+
+    :param obj: The object standing on a slab.
+    :param measurements: Supplies the mesh's vertical reach.
+    :return: The height of the object's underside.
+    """
+    extent = measurements.vertical_extent(obj.source_id)
+    if extent is None:
+        return obj.position.z
+    return obj.position.z + extent.bottom
 
 
 def _relative_height(
@@ -485,6 +525,8 @@ def _vertical_clearance(
 def shelves_with_layers(
     objects: list[EGObject],
     vertical_extents: dict[str, VerticalExtent],
+    shelf_types_by_object_id: dict[str, ShelfType],
+    measurements: MeshMeasurements,
     edge_margin_fraction: float = DEFAULT_EDGE_MARGIN_FRACTION,
     object_type: Optional[ObjectType] = None,
 ) -> list[EGShelf]:
@@ -505,6 +547,9 @@ def shelves_with_layers(
     :param vertical_extents: Each shelf mesh's vertical reach, by source id. A
         shelf with no entry is skipped, since its layers' heights would be
         guesswork.
+    :param shelf_types_by_object_id: Which kind of shelf each shelf-like object is;
+        an object absent from it is not treated as a shelf.
+    :param measurements: Supplies each object mesh's reach, used to locate slabs.
     :param edge_margin_fraction: Fraction of each shelf's width and length kept
         free at its edges.
     :param object_type: When given, only objects of this type are extracted.
@@ -517,7 +562,8 @@ def shelves_with_layers(
 
     shelves = []
     for shelf in objects:
-        if shelf.object_type != ObjectType.SHELF or not objects_by_place_id[shelf.id]:
+        shelf_type = shelf_types_by_object_id.get(shelf.id)
+        if shelf_type is None or not objects_by_place_id[shelf.id]:
             continue
         vertical_extent = vertical_extents.get(shelf.source_id)
         if vertical_extent is None:
@@ -527,23 +573,20 @@ def shelves_with_layers(
             objects_by_place_id[shelf.id],
             vertical_extent,
             edge_margin_fraction,
+            shelf_type,
+            measurements,
         )
         if not layers:
             continue
         shelves.append(
             EGShelf(
-                position=EGPoint2D(x=shelf.position.x, y=shelf.position.y),
                 scale=EGScale(
                     width=shelf.scale.width,
                     length=shelf.scale.length,
                     height=vertical_extent.height,
                 ),
-                orientation=EGRotation(
-                    x=shelf.orientation.x,
-                    y=shelf.orientation.y,
-                    z=shelf.orientation.z,
-                ),
                 layers=layers,
+                shelf_type=shelf_type,
             )
         )
     return shelves
@@ -560,9 +603,9 @@ class ShelfContents:
     away. Keeping the whole dataset instead exhausts memory long before it is written.
     """
 
-    shelf_ids: set[str]
+    shelf_types_by_object_id: dict[str, ShelfType]
     """
-    Ids of the raw objects that classify as shelves.
+    Kind of shelf each raw object that classifies as one is, by object id.
     """
 
     objects: list[EGObject] = field(default_factory=list)
@@ -570,16 +613,29 @@ class ShelfContents:
     The kept objects, in the order they were read.
     """
 
+    @property
+    def shelf_ids(self) -> set[str]:
+        """
+        Ids of the raw objects that classify as shelves.
+        """
+        return set(self.shelf_types_by_object_id)
+
     @classmethod
     def from_raw_objects(
-        cls, session: Session, classifier: ObjectTypeClassifier
+        cls, session: Session, classifier: ShelfTypeClassifier
     ) -> ShelfContents:
         """
         Find the shelves among the raw objects, reading only the two columns that decide
         it so the whole dataset can be scanned cheaply.
 
+        The classifier answers both questions at once: whether an object is storage
+        furniture of a modelled kind, and which kind, which is why the raw type string
+        has to be read here rather than recovered later. The generalized object type
+        cannot stand in for it, since it merges bookcases and open shelves into one
+        category.
+
         :param session: Session on the raw sage10k database.
-        :param classifier: Maps a raw type string onto an :class:`ObjectType`.
+        :param classifier: Maps a raw type string onto a :class:`ShelfType`.
         :return: Collector primed with the shelves it has to keep.
         """
         rows = session.execute(
@@ -587,11 +643,12 @@ class ShelfContents:
                 yield_per=STREAM_CHUNK_SIZE
             )
         )
+        classified = ((row.id, classifier.classify(row.type)) for row in rows)
         return cls(
-            shelf_ids={
-                row.id
-                for row in rows
-                if classifier.classify(row.type) == ObjectType.SHELF
+            shelf_types_by_object_id={
+                object_id: shelf_type
+                for object_id, shelf_type in classified
+                if shelf_type is not None
             }
         )
 
@@ -620,7 +677,9 @@ class ShelfContents:
         :return: The measured reach, by mesh source id.
         """
         shelf_source_ids = {
-            obj.source_id for obj in self.objects if obj.object_type == ObjectType.SHELF
+            obj.source_id
+            for obj in self.objects
+            if obj.id in self.shelf_types_by_object_id
         }
         return {
             source_id: extent
@@ -912,7 +971,9 @@ def preprocess_sage10k_for_training() -> None:
 
     classifier = ObjectTypeClassifier()
     measurements = MeshMeasurements(source_id_to_path=build_source_id_to_path())
-    shelf_contents = ShelfContents.from_raw_objects(sage10k_session, classifier)
+    shelf_contents = ShelfContents.from_raw_objects(
+        sage10k_session, ShelfTypeClassifier()
+    )
     print(f"Found {len(shelf_contents.shelf_ids)} shelves among the raw objects.")
 
     object_writer = BatchedRecordWriter(session=processed_session, label="objects")
@@ -931,7 +992,10 @@ def preprocess_sage10k_for_training() -> None:
     )
 
     shelves = shelves_with_layers(
-        shelf_contents.objects, shelf_contents.vertical_extents(measurements)
+        shelf_contents.objects,
+        shelf_contents.vertical_extents(measurements),
+        shelf_contents.shelf_types_by_object_id,
+        measurements,
     )
     shelf_layers = [layer for shelf in shelves for layer in shelf.layers]
     affinities = object_type_affinities(shelf_layers)
