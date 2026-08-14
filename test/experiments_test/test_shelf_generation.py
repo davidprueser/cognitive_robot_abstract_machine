@@ -28,6 +28,7 @@ from experiments.scene_generation_experiments.utils import (
     _get_source_ids_for_objects,
     load_objects_with_cached_meshes,
     load_shelf_layers,
+    min_samples_per_leaf_for,
 )
 from experiments.scene_generation_experiments.rspn_sampling import (
     build_layer_query,
@@ -1146,3 +1147,57 @@ def test_a_layer_count_the_model_rejects_outright_is_reported(
     """
     with pytest.raises(UndrawableShelfError):
         draw_shelf(differing_structure_model, ShelfType.CABINET, 2, layer_count=5)
+
+
+# ---- Group H -- calibration must not block type differentiation on realistically
+# sparse, uneven data ----
+
+
+@pytest.fixture
+def sparse_realistic_structure_model() -> RelationalProbabilisticCircuit:
+    """
+    Mirrors the real processed database's per-type shelf counts and layer counts
+    (5 cabinets mostly single-layer with one four-layer outlier, 6 bookcases spread
+    1-3, 11 open shelves that are never single-layer and spread 2-5), fitted with
+    the production calibration function rather than a hand-picked lenient fraction.
+
+    A fixed fraction like the one :func:`differing_structure_model` uses never
+    exercises the sparse-data calibration path an imbalanced, 22-row dataset this
+    size triggers in production, so it could not have caught the regression this
+    fixture guards against.
+    """
+    shelves = (
+        [_shelf_of(ShelfType.CABINET, count, 1.4) for count in (1, 1, 1, 1, 4)]
+        + [_shelf_of(ShelfType.BOOKCASE, count, 0.7) for count in (1, 1, 2, 3, 3, 3)]
+        + [
+            _shelf_of(ShelfType.OPEN_SHELF, count, 1.1)
+            for count in (2, 2, 2, 3, 3, 4, 5, 5, 5, 5, 5)
+        ]
+    )
+    return RelationalProbabilisticCircuit(
+        EGShelf, min_samples_per_leaf=min_samples_per_leaf_for
+    ).fit([to_dao(shelf) for shelf in shelves])
+
+
+def test_layer_count_still_differentiates_by_type_on_realistically_sparse_data(
+    sparse_realistic_structure_model: RelationalProbabilisticCircuit,
+) -> None:
+    """
+    Regression test for a real bug: applying one ``min_samples_per_leaf`` fraction
+    calibrated for the whole dataset's row count unchanged to every circuit level
+    gave the shelf-level circuit a leaf floor above the row count of two of its
+    three shelf types, so it could never split on shelf type at all -- every type's
+    drawn layer count collapsed to the same, type-blind distribution.
+
+    Open shelf is the type that catches it: its training data never has a single
+    layer, so a ``1`` appearing here means shelf-type conditioning has failed and
+    the draw fell back to the pooled marginal (dominated by cabinet's four
+    single-layer rows).
+    """
+    sampler = ShelfDimensionSampler(sparse_realistic_structure_model)
+
+    open_shelf_counts = {
+        sampler.sample(ShelfType.OPEN_SHELF).layer_count for _ in range(20)
+    }
+
+    assert 1 not in open_shelf_counts

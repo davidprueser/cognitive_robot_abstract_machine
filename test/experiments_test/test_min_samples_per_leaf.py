@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import math
+
 import pytest
 
 from experiments.scene_generation_experiments.utils import (
     MAXIMUM_LEAF_COUNT,
     MINIMUM_ROWS_PER_LEAF,
+    MINIMUM_ROWS_PER_LEAF_WHEN_DATA_IS_SPARSE,
     min_samples_per_leaf_for,
 )
 
@@ -58,3 +61,49 @@ def test_the_fraction_never_grows_with_the_training_set() -> None:
     fractions = [min_samples_per_leaf_for(n) for n in (100, 1_000, 10_000, 100_000)]
 
     assert fractions == sorted(fractions, reverse=True)
+
+
+@pytest.mark.parametrize("row_count", [5, 6, 11, 22, 49, 50])
+def test_a_training_set_at_or_below_the_leaf_floor_still_yields_a_true_fraction(
+    row_count: int,
+) -> None:
+    """
+    A value of exactly ``1.0`` is read by
+    :class:`~probabilistic_model.learning.jpt.jpt.JointProbabilityTree` as an
+    *absolute* row count of one -- the least restrictive setting there is --
+    rather than as "all of the training set", so a training set this small must
+    never produce it: three real shelf types hold 5, 6, 11 and 22 rows apiece
+    and each still needs genuine overfitting protection.
+    """
+    fraction = min_samples_per_leaf_for(row_count)
+
+    assert fraction < 1.0
+
+
+@pytest.mark.parametrize(
+    "row_count,expected_absolute_rows",
+    [(5, 4), (6, 5), (11, 5), (22, 5), (50, 5)],
+)
+def test_the_sparse_fallback_still_lets_uneven_sub_populations_form_their_own_leaf(
+    row_count: int, expected_absolute_rows: int
+) -> None:
+    """
+    The three real shelf types this was written for hold 5, 6 and 11 rows: each
+    must still be able to earn a leaf of its own rather than being forced to
+    share one with a differently sized type, however few rows any of them has.
+    """
+    fraction = min_samples_per_leaf_for(row_count)
+
+    assert math.ceil(fraction * row_count) == expected_absolute_rows
+
+
+def test_the_sparse_fallback_never_exceeds_its_own_target() -> None:
+    """
+    :data:`MINIMUM_ROWS_PER_LEAF_WHEN_DATA_IS_SPARSE` is the ceiling once the
+    training set is smaller than :data:`MINIMUM_ROWS_PER_LEAF`; the resolved
+    absolute row count must never demand more than that.
+    """
+    for row_count in range(2, MINIMUM_ROWS_PER_LEAF + 1):
+        fraction = min_samples_per_leaf_for(row_count)
+
+        assert math.ceil(fraction * row_count) <= MINIMUM_ROWS_PER_LEAF_WHEN_DATA_IS_SPARSE

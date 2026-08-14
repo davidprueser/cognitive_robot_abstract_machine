@@ -39,6 +39,24 @@ Below this a leaf describes its handful of rows rather than the distribution the
 drawn from, so the fraction has to grow as the training set shrinks.
 """
 
+MINIMUM_ROWS_PER_LEAF_WHEN_DATA_IS_SPARSE = 5
+"""
+Fallback target used instead of :data:`MINIMUM_ROWS_PER_LEAF` once the training set
+itself is smaller than that target.
+
+``MINIMUM_ROWS_PER_LEAF / training_row_count`` exceeds ``1.0`` whenever the training
+set is smaller than :data:`MINIMUM_ROWS_PER_LEAF`, and
+:class:`~probabilistic_model.learning.jpt.jpt.JointProbabilityTree` reads any value
+``>= 1.0`` as an *absolute* row count rather than a fraction of the training set --
+so clamping straight to ``1.0`` silently meant "one sample per leaf", the least
+restrictive setting there is, exactly where the fewest rows most need protecting
+against overfitting. This is what :func:`min_samples_per_leaf_for` targets instead
+once the training set drops below :data:`MINIMUM_ROWS_PER_LEAF`: small enough that a
+handful of unevenly sized sub-populations (e.g. 5, 6 and 11 rows for three shelf
+types) can each still earn their own leaf, without shrinking a leaf down to a
+single memorized row.
+"""
+
 MAXIMUM_LEAF_COUNT = 20
 """
 Most leaves a fitted circuit may have.
@@ -58,19 +76,33 @@ def min_samples_per_leaf_for(training_row_count: int) -> float:
     """
     Return the ``min_samples_per_leaf`` fraction to fit a circuit with.
 
-    Two constraints bind from opposite ends and the tighter one wins. Below
+    Three constraints bind from opposite ends and the tightest one wins. Below
     :data:`MINIMUM_ROWS_PER_LEAF` rows a leaf overfits, so small training sets need a
-    *larger* fraction. Above :data:`MAXIMUM_LEAF_COUNT` leaves the circuit becomes too
-    large to ground once per sampled part, so large training sets are held at that floor
+    *larger* fraction. Once the training set itself is smaller than that target,
+    :data:`MINIMUM_ROWS_PER_LEAF_WHEN_DATA_IS_SPARSE` takes over as a reachable one
+    instead -- demanding more rows than the training set has would make the fraction
+    exceed ``1.0``, which flips its meaning entirely (see that constant's own
+    docstring). Above :data:`MAXIMUM_LEAF_COUNT` leaves the circuit becomes too large
+    to ground once per sampled part, so large training sets are held at that floor
     rather than being allowed to grow finer.
 
     :param training_row_count: Rows the circuit will be fitted on.
     :return: The fraction to pass as ``min_samples_per_leaf``.
     """
-    leaf_budget_fraction = 1 / MAXIMUM_LEAF_COUNT
     if training_row_count <= 0:
         return 1.0
-    overfitting_fraction = MINIMUM_ROWS_PER_LEAF / training_row_count
+    leaf_budget_fraction = 1 / MAXIMUM_LEAF_COUNT
+    if training_row_count > MINIMUM_ROWS_PER_LEAF:
+        target_rows = MINIMUM_ROWS_PER_LEAF
+    else:
+        # Kept strictly below training_row_count (never just equal to the sparse
+        # target) so the fraction below stays a genuine fraction: at exactly
+        # target_rows == training_row_count it would land on 1.0 again, the very
+        # flip this fallback exists to avoid.
+        target_rows = max(
+            min(MINIMUM_ROWS_PER_LEAF_WHEN_DATA_IS_SPARSE, training_row_count - 1), 1
+        )
+    overfitting_fraction = target_rows / training_row_count
     return min(max(overfitting_fraction, leaf_budget_fraction), 1.0)
 
 
