@@ -30,6 +30,34 @@ def test_shape():
     assert len(mesh.mesh.visual.uv) == 8527
 
 
+def test_textured_mesh_keeps_the_textures_own_brightness():
+    """
+    A textured mesh's material must not darken its texture.
+
+    trimesh's ``SimpleMaterial`` defaults to a gray diffuse ([102, 102, 102]) when none
+    is given explicitly, which multiplies into the texture on export
+    (``baseColorFactor`` in glTF) and dims it to ~40% brightness -- visually close
+    enough to black that a viewer renders it as if the texture were missing entirely.
+    The material must carry an explicit opaque white diffuse instead, so the texture's
+    own colors are unmodified.
+    """
+    mesh = Mesh.from_ply_file(
+        ply_file_path=os.path.join(
+            Path(files("semantic_digital_twin")).parent.parent,
+            "resources",
+            "ply",
+            "chair.ply",
+        ),
+        texture_file_path=os.path.join(
+            Path(files("semantic_digital_twin")).parent.parent,
+            "resources",
+            "ply",
+            "chair_texture.png",
+        ),
+    )
+    assert mesh.mesh.visual.material.diffuse.tolist() == [255, 255, 255, 255]
+
+
 def test_mesh_color_survives_serialization(tmp_path):
     """
     Per-vertex mesh color survives the to_json/from_json round-trip.
@@ -72,8 +100,8 @@ def test_texture_defaults():
 
 def test_texture_survives_serialization():
     """
-    A texture's fields survive the to_json/from_json round-trip, so a receiver renders the
-    same tiling as the sender without needing the original scene.
+    A texture's fields survive the to_json/from_json round-trip, so a receiver renders
+    the same tiling as the sender without needing the original scene.
     """
     texture = Texture(file_path="/textures/wood.png", repeat=(2.0, 3.0), uniform=True)
 
@@ -84,8 +112,8 @@ def test_texture_survives_serialization():
 
 def test_textured_primitive_survives_serialization():
     """
-    A primitive shape carrying a texture round-trips through serialization with the texture
-    intact, rather than silently collapsing to its flat color.
+    A primitive shape carrying a texture round-trips through serialization with the
+    texture intact, rather than silently collapsing to its flat color.
     """
     box = Box(scale=Scale(1.0, 1.0, 1.0), texture=Texture(file_path="/textures/marble.png"))
 

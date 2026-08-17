@@ -71,6 +71,23 @@ room of twenty-odd pieces groundable.
     number of pieces in the sampled room, not the size of the circuit.
 """
 
+MINIMUM_SAMPLES_PER_QUANTILE = 200
+"""
+Fewest training rows a continuous variable's Nyga histogram piece may describe,
+passed as ``min_samples_per_quantile`` on
+:class:`~probabilistic_model.probabilistic_circuit.relational.rspn.RelationalProbabilisticCircuit`.
+
+Measured against the full sage10k shelf dataset (18,437 shelves / 44,609 layers /
+124,800 objects): the library default of 10 let continuous variables (position,
+orientation, scale) fragment into thousands of histogram pieces per fitted level,
+producing a 68,893-node object-level circuit that made a single :func:`draw_shelf` call
+fail to complete a grounding in over 20 minutes. Raising this to 200 shrank that circuit
+to 3,532 nodes and brought grounding down to single-digit seconds --
+:data:`MAXIMUM_LEAF_COUNT` alone does not bound this, since it only constrains the JPT
+tree's own split count, not the per-variable histogram induction nested inside each of
+its leaves.
+"""
+
 
 def min_samples_per_leaf_for(training_row_count: int) -> float:
     """
@@ -249,8 +266,8 @@ def load_shelf_layers(
 
 def load_shelves(session: Session) -> list[EGShelf]:
     """
-    Load every shelf prepared by the preprocessing pipeline, with its layers and
-    their objects.
+    Load every shelf prepared by the preprocessing pipeline, with its layers and their
+    objects.
 
     Loading whole shelves rather than loose layers is what lets a circuit learn
     how many layers a kind of shelf has and how they are spaced, alongside what

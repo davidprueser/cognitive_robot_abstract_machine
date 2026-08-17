@@ -336,9 +336,11 @@ def _many_rooms(count: int) -> list:
 
 
 def test_min_samples_per_leaf_is_forwarded_to_exchangeable_part_templates():
-    """The bound must also apply to recursively fitted exchangeable parts
-    (e.g. a room's ``objects``), since those are the circuits that get
-    deep-copied once per grounded instance during sampling."""
+    """
+    The bound must also apply to recursively fitted exchangeable parts (e.g. a room's
+    ``objects``), since those are the circuits that get deep-copied once per grounded
+    instance during sampling.
+    """
     model = RelationalProbabilisticCircuit(SceneRoom, min_samples_per_leaf=0.1).fit(
         _many_rooms(50)
     )
@@ -348,10 +350,12 @@ def test_min_samples_per_leaf_is_forwarded_to_exchangeable_part_templates():
 
 def test_min_samples_per_leaf_callable_resolves_per_level(scenario):
     """
-    A callable ``min_samples_per_leaf`` must be invoked once per fitted level, each
-    time with *that level's own* row count rather than the parent's: the room-level
-    circuit here is fit on 2 rows (one per room), while its ``objects`` exchangeable
-    part is fit on the 7 rows pooled from both rooms' objects (3 + 4). A single
+    A callable ``min_samples_per_leaf`` must be invoked once per fitted level, each time
+    with *that level's own* row count rather than the parent's: the room-level circuit
+    here is fit on 2 rows (one per room), while its ``objects`` exchangeable part is fit
+    on the 7 rows pooled from both rooms' objects (3 + 4).
+
+    A single
     precomputed fraction calibrated against one of those counts miscalibrates the
     other -- passing a callable instead is what lets each level derive its own bound.
     """
@@ -371,8 +375,8 @@ def test_min_samples_per_leaf_callable_resolves_per_level(scenario):
 
 def test_min_samples_per_leaf_callable_is_resolved_to_a_number_after_fit(scenario):
     """
-    After ``fit`` returns, ``min_samples_per_leaf`` must hold the resolved number it
-    was fitted with, not the callable strategy: a function isn't JSON-serializable, and
+    After ``fit`` returns, ``min_samples_per_leaf`` must hold the resolved number it was
+    fitted with, not the callable strategy: a function isn't JSON-serializable, and
     ``TrainedArbitraryShelfModel.save`` (and any other caller of
     :func:`~krrood.adapters.json_serializer.to_json`) needs to round-trip a fitted
     circuit whichever form ``min_samples_per_leaf`` was originally given in.
@@ -385,6 +389,57 @@ def test_min_samples_per_leaf_callable_is_resolved_to_a_number_after_fit(scenari
     assert model.min_samples_per_leaf == 0.5
     restored = from_json(json.loads(json.dumps(to_json(model))))
     assert restored.min_samples_per_leaf == 0.5
+
+
+def test_min_samples_per_quantile_defaults_to_the_nyga_library_default():
+    """
+    A caller that never touches ``min_samples_per_quantile`` must see the same histogram
+    granularity as before this field existed, since
+    :func:`~probabilistic_model.learning.jpt.variables.infer_variables_from_dataframe`
+    itself defaults to 10.
+    """
+    model = RelationalProbabilisticCircuit(SceneRoom)
+
+    assert model.min_samples_per_quantile == 10
+
+
+def test_min_samples_per_quantile_is_forwarded_to_exchangeable_part_templates():
+    """
+    The bound must also apply to recursively fitted exchangeable parts (e.g. a room's
+    ``objects``), since those are the circuits that get deep-copied once per grounded
+    instance during sampling.
+    """
+    model = RelationalProbabilisticCircuit(
+        SceneRoom, min_samples_per_quantile=200
+    ).fit(_many_rooms(50))
+    template = model.exchangeable_distribution_templates["objects"]
+    assert template.template_distribution.min_samples_per_quantile == 200
+
+
+def test_min_samples_per_quantile_bounds_continuous_variable_leaf_count():
+    """
+    Regression test for a real incident: fitting the full sage10k shelf dataset (18,437
+    shelves / 44,609 layers / 124,800 objects) with
+    :func:`~probabilistic_model.learning.jpt.variables.infer_variables_from_dataframe`'s
+    library default of 10 produced a 68,893-node object-level circuit and made
+    ``draw_shelf`` unable to complete a single grounding in over 20 minutes, because
+    every continuous variable (position, orientation, scale) fragmented into thousands
+    of Nyga histogram pieces, each of which grounding deep-copies once per sampled part.
+
+    Raising ``min_samples_per_quantile`` must measurably shrink the fitted circuit, the
+    same lever that took it back down to seconds.
+    """
+    rooms = _many_rooms(50)
+    fine = RelationalProbabilisticCircuit(SceneRoom, min_samples_per_quantile=2).fit(
+        rooms
+    )
+    coarse = RelationalProbabilisticCircuit(
+        SceneRoom, min_samples_per_quantile=20
+    ).fit(rooms)
+
+    assert len(coarse.class_probabilistic_circuit.nodes()) < len(
+        fine.class_probabilistic_circuit.nodes()
+    )
 
 
 # ---- Group A -- exchangeable parts nested two levels deep ----
@@ -456,9 +511,9 @@ def test_nested_exchangeable_part_is_fitted_as_its_own_template(
     """
     A room's ``objects`` must become a template *inside* the rooms template.
 
-    Asserting on the inner template specifically -- rather than on the outer one --
-    is what separates "depth-2 recursion broken" from "a sibling template broken",
-    since ``fit`` builds a template for every collection with aggregation features.
+    Asserting on the inner template specifically -- rather than on the outer one -- is
+    what separates "depth-2 recursion broken" from "a sibling template broken", since
+    ``fit`` builds a template for every collection with aggregation features.
     """
     rooms_template = (
         nested_relational_probabilistic_circuit.exchangeable_distribution_templates[
@@ -476,8 +531,8 @@ def test_grounding_a_nested_query_yields_a_single_rooted_circuit(
     nested_relational_probabilistic_circuit, nested_query
 ):
     """
-    A depth-2 mount that fails to connect surfaces as a circuit with more than one
-    root, which is the failure the part-prefix renaming exists to prevent.
+    A depth-2 mount that fails to connect surfaces as a circuit with more than one root,
+    which is the failure the part-prefix renaming exists to prevent.
     """
     np.random.seed(0)
     grounded = nested_relational_probabilistic_circuit.ground(nested_query)
@@ -488,9 +543,9 @@ def test_grounded_nested_circuit_models_a_variable_per_inner_part(
     nested_relational_probabilistic_circuit, nested_query
 ):
     """
-    Each object of each room needs its own variable, addressed by the full path
-    through both levels -- otherwise the two rooms' objects share variables and the
-    inner distribution collapses.
+    Each object of each room needs its own variable, addressed by the full path through
+    both levels -- otherwise the two rooms' objects share variables and the inner
+    distribution collapses.
     """
     np.random.seed(0)
     grounded = nested_relational_probabilistic_circuit.ground(nested_query)
@@ -506,8 +561,8 @@ def test_a_nested_query_samples_back_into_an_instance(
     nested_relational_probabilistic_circuit, nested_query
 ):
     """
-    Grounding is only useful if the sample can be written back through the match
-    tree, which is the step that consumes the prefixed variable names.
+    Grounding is only useful if the sample can be written back through the match tree,
+    which is the step that consumes the prefixed variable names.
     """
     np.random.seed(0)
     backend = ProbabilisticBackend(

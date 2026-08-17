@@ -1,13 +1,20 @@
 from __future__ import annotations
 
+import argparse
 import dataclasses
 import os
 import time
 from collections import Counter
+from enum import StrEnum
 from pathlib import Path
 from typing import Optional
 
+import trimesh
+from ament_index_python.packages import get_package_share_directory
+from rclpy.qos import DurabilityPolicy, QoSProfile
+from scipy.spatial.transform import Rotation
 from sqlalchemy.orm import Session
+from visualization_msgs.msg import Marker, MarkerArray
 
 from experiments.scene_generation_experiments.rspn_model_storage import (
     TrainedArbitraryShelfModel,
@@ -19,6 +26,7 @@ from probabilistic_model.probabilistic_circuit.relational.rspn import (
 )
 from experiments.orm.ormatic_interface import *  # type: ignore
 from experiments.scene_generation_experiments.utils import (
+    MINIMUM_SAMPLES_PER_QUANTILE,
     _get_source_ids_for_objects,
     load_all_objects,
     load_shelves,
@@ -129,10 +137,10 @@ def _coarsen_rare_object_types_of_shelves(
     """
     Return new shelves whose layers' object types have been coarsened together.
 
-    Every layer of every shelf is coarsened in one pass, so one shared set of
-    frequent types survives. Coarsening each shelf on its own would let a type be
-    kept on one shelf and collapsed on another, and the mesh pool -- coarsened
-    once against the same set -- would then find no mesh for it.
+    Every layer of every shelf is coarsened in one pass, so one shared set of frequent
+    types survives. Coarsening each shelf on its own would let a type be kept on one
+    shelf and collapsed on another, and the mesh pool -- coarsened once against the same
+    set -- would then find no mesh for it.
 
     :param shelves: Shelves whose objects' types should be coarsened.
     :param keep_count: Number of distinct, most frequent object types to leave
@@ -152,6 +160,127 @@ def _coarsen_rare_object_types_of_shelves(
     ]
 
 
+class VisualizationBackend(StrEnum):
+    """
+    Viewer the generated shelf's markers are published for.
+    """
+
+    FOXGLOVE = "foxglove"
+    """
+    A browser-based Foxglove client connected through ``foxglove_bridge``.
+
+    Browsers cannot load ``file://`` mesh resources, so mesh URIs are
+    rewritten onto a ``package://`` resource :func:`_rewrite_mesh_uris_for_foxglove`
+    serves over the same websocket.
+    """
+
+    RVIZ = "rviz"
+    """
+    A local RViz2 instance, which loads ``file://`` mesh resources directly and
+    needs no ``foxglove_bridge`` package to serve them through.
+    """
+
+
+_MESH_RESOURCE_PACKAGE = "foxglove_bridge"
+"""
+ROS package whose share directory mesh files are copied into so a browser-based viewer
+can load them via a ``package://`` marker resource.
+
+Browsers refuse to ``fetch()`` ``file://`` URLs, which is what a MESH_RESOURCE
+marker normally points at -- ``package://`` is instead resolved server-side by
+foxglove_bridge and streamed back over the same websocket, so it works from an
+arbitrary remote browser. ``foxglove_bridge`` is reused here only because it is
+already installed and its share directory is guaranteed to exist; the meshes
+have no other relation to that package.
+"""
+
+_MESH_RESOURCE_SHARE_SUBDIR = "shelf_generation_meshes"
+"""
+Subdirectory of :data:`_MESH_RESOURCE_PACKAGE`'s share directory that copied mesh files
+are placed under.
+"""
+
+_FOXGLOVE_GLTF_UP_AXIS_CORRECTION = Rotation.from_euler("x", -90, degrees=True)
+"""
+Rotation applied to a mesh marker's local orientation to cancel out Foxglove's glTF up-
+axis handling.
+
+glTF meshes are conventionally authored Y-up, and Foxglove's 3D panel documents that its
+"Mesh up axis" override does not apply to glTF/``.glb`` files because they are assumed
+to already carry that convention -- unlike STL/OBJ, there is no user-facing toggle to
+disable it. Our exported ``.glb`` files are written directly from Z-up (ROS/world)
+vertex data with no axis conversion, so Foxglove's built-in Y-up-to-Z-up correction
+misinterprets them and renders them tipped onto their side. RViz's mesh loader applies
+no such correction, so this compensation is Foxglove-only.
+"""
+
+
+def _rewrite_mesh_uris_for_foxglove(viz_marker: VizMarkerPublisher) -> None:
+    """
+    Convert every mesh a marker references from OBJ to glTF (``.glb``) in a ROS
+    package share directory and rewrite that marker's ``mesh_resource`` to the
+    matching ``package://`` URI, so a browser-based Foxglove client can load it
+    over the websocket instead of a ``file://`` path it cannot fetch.
+
+    ``Mesh.from_ply_file`` exports OBJ with a separate ``.mtl`` sidecar for
+    material/texture, which RViz2 and MuJoCo both read but Foxglove does not --
+    Foxglove only loads material/texture from a self-contained glTF file. Converting
+    here, rather than in ``Mesh.from_ply_file`` itself, keeps that OBJ default intact
+    for every other consumer.
+
+    Also pre-rotates each mesh marker's local orientation to cancel Foxglove's glTF
+    up-axis correction; see :data:`_FOXGLOVE_GLTF_UP_AXIS_CORRECTION`.
+
+    :param viz_marker: Publisher whose current markers are rewritten in place.
+    """
+    share_root = (
+        Path(get_package_share_directory(_MESH_RESOURCE_PACKAGE))
+        / _MESH_RESOURCE_SHARE_SUBDIR
+    )
+    for marker in viz_marker.markers.markers:
+        if not marker.mesh_resource.startswith("file:///tmp/"):
+            continue
+        source_path = Path(marker.mesh_resource[len("file://") :])
+        dest_dir = share_root / source_path.parent.name
+        dest_path = dest_dir / f"{source_path.stem}.glb"
+        if not dest_path.exists():
+            dest_dir.mkdir(parents=True, exist_ok=True)
+            trimesh.load(source_path, force="mesh").export(
+                dest_path, file_type="glb"
+            )
+        marker.mesh_resource = (
+            f"package://{_MESH_RESOURCE_PACKAGE}/{_MESH_RESOURCE_SHARE_SUBDIR}/"
+            f"{source_path.parent.name}/{dest_path.name}"
+        )
+        orientation = marker.pose.orientation
+        corrected = Rotation.from_quat(
+            [orientation.x, orientation.y, orientation.z, orientation.w]
+        ) * _FOXGLOVE_GLTF_UP_AXIS_CORRECTION
+        (
+            orientation.x,
+            orientation.y,
+            orientation.z,
+            orientation.w,
+        ) = corrected.as_quat()
+
+
+def _publish_with_deleteall(viz_marker: VizMarkerPublisher) -> None:
+    """
+    Prepend a DELETEALL marker and publish, so a fresh run replaces the previous one
+    instead of piling on top of it.
+
+    Every run gives its bodies fresh UUIDs: RViz/Foxglove key a marker's
+    identity on ``(ns, id)``, so a run's markers never share an id with an
+    earlier run's and an ADD alone would leave the previous run's shelf on
+    screen alongside the new one.
+
+    :param viz_marker: Publisher whose current markers are republished on its
+        own topic, DELETEALL first.
+    """
+    viz_marker.markers.markers.insert(0, Marker(action=Marker.DELETEALL))
+    viz_marker.publisher.publish(viz_marker.markers)
+
+
 def generate_shelf_with_arbitrary_objects(
     node,
     shelf_type: ShelfType = ShelfType.BOOKCASE,
@@ -162,10 +291,11 @@ def generate_shelf_with_arbitrary_objects(
     / "Documents"
     / "sage-10k-models"
     / "arbitrary_shelf_rspn.json",
-) -> None:
+    visualization_backend: VisualizationBackend = VisualizationBackend.FOXGLOVE,
+) -> VizMarkerPublisher:
     """
-    Train an RSPN on whole shelves and visualise a sampled, collision-free shelf
-    of the requested kind via RViz.
+    Train an RSPN on whole shelves and visualise a sampled, collision-free shelf of the
+    requested kind via :attr:`visualization_backend`.
 
     The circuit is rooted at the shelf rather than at a loose layer, so a shelf's
     dimensions, its layers and their contents are drawn together and conditioned
@@ -196,6 +326,13 @@ def generate_shelf_with_arbitrary_objects(
     :param model_path: Where the fitted model is exported to and, on a later
         run, loaded from instead of being refit. Training data is only
         queried and the RSPN only fit when no model exists at this path yet.
+    :param visualization_backend: Viewer the markers are published for --
+        Foxglove needs its mesh URIs rewritten onto a ``package://`` resource
+        it can serve over its websocket, RViz loads ``file://`` resources
+        directly.
+    :return: The publisher, so a caller can keep it alive and re-trigger its TF
+        publish for viewers that connect after the initial, one-shot publish --
+        TF, unlike the marker publisher, is not transient-local.
     """
     start = time.time()
     uri = os.environ.get("SAGE10K_PROCESSED_DATABASE_URI")
@@ -217,6 +354,7 @@ def generate_shelf_with_arbitrary_objects(
         rspn = RelationalProbabilisticCircuit(
             EGShelf,
             min_samples_per_leaf=min_samples_per_leaf_for,
+            min_samples_per_quantile=MINIMUM_SAMPLES_PER_QUANTILE,
         ).fit([to_dao(shelf) for shelf in shelves])
 
         trained_model = TrainedArbitraryShelfModel(
@@ -253,11 +391,54 @@ def generate_shelf_with_arbitrary_objects(
         f"{resolver.dropped_body_count} dropped in repair)"
     )
     world = spawned_shelf.world
-    viz_marker = VizMarkerPublisher(_world=world, node=node)
+    viz_marker = VizMarkerPublisher(
+        _world=world,
+        node=node,
+        # depth=1 so a fresh subscriber's transient-local history only ever
+        # holds the final, published-below markers, not the file:// URIs this
+        # publisher writes on construction -- a Foxglove viewer cannot fetch
+        # those, so that first sample must not linger.
+        qos_profile=QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL),
+    )
     viz_marker.with_tf_publisher()
+    if visualization_backend is VisualizationBackend.FOXGLOVE:
+        _rewrite_mesh_uris_for_foxglove(viz_marker)
+    _publish_with_deleteall(viz_marker)
     print(f"Finished generating shelf sample in {time.time() - start:.2f}s")
+    return viz_marker
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--visualization",
+        type=VisualizationBackend,
+        choices=list(VisualizationBackend),
+        default=VisualizationBackend.FOXGLOVE,
+        help="Viewer to publish markers for.",
+    )
+    args = parser.parse_args()
+
     with rclpy_node() as node:
-        generate_shelf_with_arbitrary_objects(node)
+        viz_marker = generate_shelf_with_arbitrary_objects(
+            node, visualization_backend=args.visualization
+        )
+        # The MarkerArray publisher is TRANSIENT_LOCAL, so it can still serve a
+        # viewer that connects after this point, but TF is not: a viewer that
+        # connects (or reconnects, e.g. on a page refresh) after the one-shot
+        # publish in with_tf_publisher() would see no transforms at all, so TF
+        # is re-published here on every tick to cover that.
+        print("Publishing until interrupted (Ctrl+C); keep this running while "
+              "a viewer is connected.")
+        try:
+            while True:
+                viz_marker._tf_publisher.on_state_change()
+                time.sleep(1)
+        except KeyboardInterrupt:
+            pass
+        finally:
+            # Since the marker publisher is TRANSIENT_LOCAL, its last published
+            # state lingers for any viewer connecting after this process exits.
+            # Clearing it here means markers are only ever on screen while this
+            # script is actively running.
+            viz_marker.publisher.publish(MarkerArray(markers=[Marker(action=Marker.DELETEALL)]))

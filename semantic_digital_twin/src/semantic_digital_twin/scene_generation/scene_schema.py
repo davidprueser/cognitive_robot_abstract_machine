@@ -64,12 +64,12 @@ class EGWithID(EGBase):
         **kwargs,
     ) -> WorldEntity:
         """
-        Create the object in the world by getting its geometry from the
-        provided information.
+        Create the object in the world by getting its geometry from the provided
+        information.
 
         :param world: The world where the object is created.
-        :param object_id_to_mesh_path: A mapping from an object's id to its
-            mesh directory path.
+        :param object_id_to_mesh_path: A mapping from an object's id to its mesh
+            directory path.
         :param parent: The parent of the object in the world.
         :param kwargs: Additional keyword arguments.
         :return: The relevant created body
@@ -121,13 +121,12 @@ class EGPoint2D(EGBase):
 
     def rotated_into_frame(self, frame_yaw_degrees: float) -> EGPoint2D:
         """
-        Express this point, currently an offset along the world axes, in the
-        axes of a frame rotated by *frame_yaw_degrees*.
+        Express this point, currently an offset along the world axes, in the axes of a
+        frame rotated by *frame_yaw_degrees*.
 
-        Needed wherever an object's offset from a rotated parent is stored for
-        later re-use *inside* that parent: keeping the offset on the world axes
-        makes it mean something different once the parent's own rotation is
-        applied again.
+        Needed wherever an object's offset from a rotated parent is stored for later re-
+        use *inside* that parent: keeping the offset on the world axes makes it mean
+        something different once the parent's own rotation is applied again.
 
         :param frame_yaw_degrees: Yaw of the target frame, in degrees.
         :return: The same offset expressed in the target frame's axes.
@@ -178,9 +177,8 @@ class EGRotation(EGPoint2D):
     """
     Rotation of an object, expressed as roll, pitch, and yaw in degrees.
 
-    Inherits ``x`` (roll) and ``y`` (pitch) from :class:`EGPoint2D`;
-    only ``z`` (yaw) varies for objects that sit upright without
-    tilting.
+    Inherits ``x`` (roll) and ``y`` (pitch) from :class:`EGPoint2D`; only ``z`` (yaw)
+    varies for objects that sit upright without tilting.
     """
 
     z: float
@@ -217,11 +215,10 @@ class EGRotation(EGPoint2D):
 
 class ObjectType(StrEnum):
     """
-    Generalized object categories that unify the tens of thousands of distinct,
-    near-instance-specific ``object_type`` strings found in the raw sage10k
-    dataset (for example ``"book1"``, ``"book_table2"`` and
-    ``"bookchair8eba7fdc"`` all belong to the same real-world category of
-    object).
+    Generalized object categories that unify the tens of thousands of distinct, near-
+    instance-specific ``object_type`` strings found in the raw sage10k dataset (for
+    example ``"book1"``, ``"book_table2"`` and ``"bookchair8eba7fdc"`` all belong to the
+    same real-world category of object).
 
     .. note::
         Mapping the raw sage10k strings onto these generalized members is
@@ -358,6 +355,49 @@ class ShelfType(StrEnum):
     SIDEBOARD = "sideboard"
 
 
+def _mesh_centered_on_footprint(
+    ply_file_path: Path,
+    texture_file_path: Path,
+    body: KinematicStructureEntity,
+) -> Mesh:
+    """
+    Load a sage10k PLY mesh with its origin re-centred onto its own footprint.
+
+    A sage10k PLY's local origin is wherever the scan happened to put it -- a corner, an
+    edge, the true centre -- with no guarantee it means anything about the object.
+    Placing such a mesh at identity origin would seat the body's TF frame on that
+    arbitrary point instead of the object, so the same recorded position visually
+    offsets different meshes by different, mesh-specific amounts. Re-centring here makes
+    the body's TF frame sit at the mesh's true horizontal centre and lowest point
+    instead, matching what :attr:`EGObject.position_is_mesh_corrected` promises
+    consumers.
+
+    :param ply_file_path: Path to the PLY geometry file.
+    :param texture_file_path: Path to the PLY's texture image.
+    :param body: The body the mesh's origin is expressed relative to.
+    :return: The mesh, with its origin re-centred onto its own footprint.
+    """
+    # sage10k meshes already carry their real-world size, so spawn at
+    # identity scale to keep the mesh's true proportions instead of
+    # stretching it to an independently sampled scale.
+    mesh = Mesh.from_ply_file(
+        ply_file_path=str(ply_file_path),
+        texture_file_path=str(texture_file_path),
+        origin=HomogeneousTransformationMatrix.from_xyz_rpy(reference_frame=body),
+        scale=Scale(1.0, 1.0, 1.0),
+    )
+    minimum_bound, maximum_bound = mesh.mesh.bounds
+    footprint_center_x = (minimum_bound[0] + maximum_bound[0]) / 2
+    footprint_center_y = (minimum_bound[1] + maximum_bound[1]) / 2
+    mesh.origin = HomogeneousTransformationMatrix.from_xyz_rpy(
+        -footprint_center_x,
+        -footprint_center_y,
+        -minimum_bound[2],
+        reference_frame=body,
+    )
+    return mesh
+
+
 # %%
 @dataclass
 class EGObject(EGWithID):
@@ -368,8 +408,8 @@ class EGObject(EGWithID):
 
     place_id: str
     """
-    The id of the object where the object is located/placed on/at, e.g. wall,
-    floor, anchor, or the id of a piece of furniture it stands on.
+    The id of the object where the object is located/placed on/at, e.g. wall, floor,
+    anchor, or the id of a piece of furniture it stands on.
     """
 
     object_type: ObjectType
@@ -406,19 +446,18 @@ class EGObject(EGWithID):
 
     place_guidance: Optional[str] = None
     """
-    Free-text description of where the object is meant to be placed, as
-    written in the source dataset.
+    Free-text description of where the object is meant to be placed, as written in the
+    source dataset.
     """
 
     position_is_mesh_corrected: bool = True
     """
-    Whether :attr:`position` was corrected to the object's true mesh
-    bounding-box centre.
+    Whether :attr:`position` was corrected to the object's true mesh bounding-box
+    centre.
 
-    ``False`` means the mesh was unavailable when the object was processed and
-    the source dataset's recorded position was kept unchanged, which is not
-    guaranteed to be the mesh's centre. Consumers that need centred positions
-    should filter on this.
+    ``False`` means the mesh was unavailable when the object was processed and the
+    source dataset's recorded position was kept unchanged, which is not guaranteed to be
+    the mesh's centre. Consumers that need centred positions should filter on this.
     """
 
     def to_json(self) -> dict[str, Any]:
@@ -464,27 +503,24 @@ class EGObject(EGWithID):
         **kwargs,
     ) -> Body:
         """
-        Instantiate this object in *world* by loading its PLY mesh from
-        *mesh_path*.
+        Instantiate this object in *world* by loading its PLY mesh from *mesh_path*.
 
-        The mesh keeps its own native real-world size, since sage10k PLY assets
-        already carry their real dimensions; collisions are checked against that
-        real mesh, so stretching it to an independently sampled scale would both
-        distort it and disagree with the geometry the layout is resolved
-        against.
+        The mesh keeps its own native real-world size, since sage10k PLY assets already
+        carry their real dimensions; collisions are checked against that real mesh, so
+        stretching it to an independently sampled scale would both distort it and
+        disagree with the geometry the layout is resolved against.
 
-        Walls are attached with a fixed connection; every other object is
-        attached with a movable 6-DoF connection whose pose lives in its degrees
-        of freedom, so a resolver can reposition it in place via the ``origin``
-        setter.
+        Walls are attached with a fixed connection; every other object is attached with
+        a movable 6-DoF connection whose pose lives in its degrees of freedom, so a
+        resolver can reposition it in place via the ``origin`` setter.
 
         :param world: The world where the object is created.
-        :param mesh_path: Directory containing the ``objects/`` sub-
-            folder with PLY and texture files for this object.
+        :param mesh_path: Directory containing the ``objects/`` sub- folder with PLY and
+            texture files for this object.
         :param parent: The parent kinematic structure entity.
-        :param world_pose: When given, the body is placed at this pose instead
-            of the one built from :attr:`position`/ :attr:`orientation`, so a
-            caller that already computed the pose can reuse it.
+        :param world_pose: When given, the body is placed at this pose instead of the
+            one built from :attr:`position`/ :attr:`orientation`, so a caller that
+            already computed the pose can reuse it.
         :raises ValueError: If *mesh_path* is ``None`` or does not exist.
         :return: The created :class:`Body`.
         """
@@ -565,8 +601,7 @@ class EGObject(EGWithID):
 @dataclass
 class EGObject2D(EGWithID):
     """
-    An object on a shelf layer — position is 2-D since z is determined by the
-    layer.
+    An object on a shelf layer — position is 2-D since z is determined by the layer.
     """
 
     room_id: str
@@ -601,8 +636,7 @@ class EGObject2D(EGWithID):
 
     source_id: str
     """
-    Identifier used to look up the PLY mesh file for this object in the
-    dataset.
+    Identifier used to look up the PLY mesh file for this object in the dataset.
     """
 
     shelf_type: ShelfType
@@ -610,12 +644,11 @@ class EGObject2D(EGWithID):
     Kind of shelf this object was found in.
 
     Denormalized, like :attr:`EGShelfLayer.shelf_type`, because only aggregation
-    statistics reach a part from its parent. Present on the layer alone it would
-    shape the layer's own dimensions but leave which objects are drawn onto it
-    independent of the kind of shelf -- a bookcase would fill with a cabinet's
-    crockery. Required rather than defaulted, so that an extraction path which
-    forgets it fails outright instead of quietly labelling its objects as
-    belonging to some other kind of shelf.
+    statistics reach a part from its parent. Present on the layer alone it would shape
+    the layer's own dimensions but leave which objects are drawn onto it independent of
+    the kind of shelf -- a bookcase would fill with a cabinet's crockery. Required
+    rather than defaulted, so that an extraction path which forgets it fails outright
+    instead of quietly labelling its objects as belonging to some other kind of shelf.
     """
 
     def to_json(self) -> dict[str, Any]:
@@ -662,22 +695,20 @@ class EGObject2D(EGWithID):
         """
         Instantiate this object in *world* at the given absolute pose.
 
-        The mesh keeps its own native real-world size, since sage10k PLY assets
-        already carry their real dimensions; stretching them to an independently
-        sampled scale would distort them.
+        The mesh keeps its own native real-world size, since sage10k PLY assets already
+        carry their real dimensions; stretching them to an independently sampled scale
+        would distort them.
 
         :param world: The world where the object is created.
-        :param mesh_path: Directory containing the ``objects/`` sub-
-            folder with PLY and texture files for this object.
+        :param mesh_path: Directory containing the ``objects/`` sub- folder with PLY and
+            texture files for this object.
         :param parent: The parent kinematic structure entity.
-        :param x: Absolute x in world coordinates (defaults to
-            ``self.position.x``).
-        :param y: Absolute y in world coordinates (defaults to
-            ``self.position.y``).
+        :param x: Absolute x in world coordinates (defaults to ``self.position.x``).
+        :param y: Absolute y in world coordinates (defaults to ``self.position.y``).
         :param z: Absolute z in world coordinates.
-        :param world_pose: When given, the body is placed at this pose and
-            *x*, *y*, *z* are ignored, so a caller that already computed the
-            pose can reuse it for both spawning and later repositioning.
+        :param world_pose: When given, the body is placed at this pose and *x*, *y*, *z*
+            are ignored, so a caller that already computed the pose can reuse it for
+            both spawning and later repositioning.
         :raises ValueError: If *mesh_path* is ``None`` or does not exist.
         :return: The created :class:`Body`.
         """
@@ -707,15 +738,7 @@ class EGObject2D(EGWithID):
                 child_frame=body,
             )
 
-        # sage10k meshes already carry their real-world size, so spawn at
-        # identity scale to keep the mesh's true proportions instead of
-        # stretching it to an independently sampled scale.
-        mesh = Mesh.from_ply_file(
-            ply_file_path=str(ply_file),
-            texture_file_path=str(texture_file),
-            origin=HomogeneousTransformationMatrix.from_xyz_rpy(reference_frame=body),
-            scale=Scale(1.0, 1.0, 1.0),
-        )
+        mesh = _mesh_centered_on_footprint(ply_file, texture_file, body)
 
         geometry = ShapeCollection([mesh], reference_frame=body)
         body.visual = geometry
@@ -750,14 +773,13 @@ class EGShelfLayer(EGBase):
     """
     A shelf layer for environment generation.
 
-    Carries its own physical dimensions so the RSPN can learn width and
-    length alongside object placement, rather than inheriting a fixed
-    size from the parent shelf.
+    Carries its own physical dimensions so the RSPN can learn width and length alongside
+    object placement, rather than inheriting a fixed size from the parent shelf.
 
-    It also carries where it sits vertically in its shelf. An object's own
-    position is two-dimensional, since it simply rests on the slab, so without
-    these the height at which a category tends to be kept -- books low, display
-    pieces high -- is nowhere in the data.
+    It also carries where it sits vertically in its shelf. An object's own position is
+    two-dimensional, since it simply rests on the slab, so without these the height at
+    which a category tends to be kept -- books low, display pieces high -- is nowhere in
+    the data.
     """
 
     SLAB_THICKNESS: ClassVar[float] = 0.02
@@ -772,9 +794,9 @@ class EGShelfLayer(EGBase):
     """
     Physical dimensions of the layer slab (width × length × height).
 
-    Every layer of a shelf carries the shelf's own footprint -- that is how they
-    are extracted and how they are drawn. It is kept per layer because object
-    placement is learned relative to it and collision repair conditions on it.
+    Every layer of a shelf carries the shelf's own footprint -- that is how they are
+    extracted and how they are drawn. It is kept per layer because object placement is
+    learned relative to it and collision repair conditions on it.
     """
 
     objects: list[EGObject2D]
@@ -796,8 +818,8 @@ class EGShelfLayer(EGBase):
     """
     Height of the slab above the base of its shelf, in metres.
 
-    This is the reachable height a robot has to plan for. Zero for a layer that
-    was not extracted from a real shelf.
+    This is the reachable height a robot has to plan for. Zero for a layer that was not
+    extracted from a real shelf.
     """
 
     relative_height: float = 0.0
@@ -811,11 +833,11 @@ class EGShelfLayer(EGBase):
 
     vertical_clearance: float = 0.0
     """
-    Space above the slab, in metres, up to the next layer or the shelf's
-    interior ceiling.
+    Space above the slab, in metres, up to the next layer or the shelf's interior
+    ceiling.
 
-    This is what decides whether an object fits, so keeping it lets that be
-    learned from real shelves instead of assumed from evenly spaced layers.
+    This is what decides whether an object fits, so keeping it lets that be learned from
+    real shelves instead of assumed from evenly spaced layers.
     """
 
     def to_json(self) -> dict[str, Any]:
@@ -844,18 +866,18 @@ class EGShelfLayer(EGBase):
 @dataclass
 class ObjectTypeAffinity(EGBase):
     """
-    How often two object types were observed sharing a shelf layer, and how
-    they were typically arranged relative to each other.
+    How often two object types were observed sharing a shelf layer, and how they were
+    typically arranged relative to each other.
 
-    Answers questions of the form "I am holding a book -- what else usually
-    shares a shelf with books, and roughly where do they sit relative to one
-    another" without re-scanning every stored layer at query time.
+    Answers questions of the form "I am holding a book -- what else usually shares a
+    shelf with books, and roughly where do they sit relative to one another" without re-
+    scanning every stored layer at query time.
     """
 
     object_type_a: ObjectType
     """
-    The first type of the pair, always the lexicographically smaller of the
-    two so that each unordered pair is stored exactly once.
+    The first type of the pair, always the lexicographically smaller of the two so that
+    each unordered pair is stored exactly once.
     """
 
     object_type_b: ObjectType
@@ -879,8 +901,8 @@ class ObjectTypeAffinity(EGBase):
         cls, first: ObjectType, second: ObjectType
     ) -> tuple[ObjectType, ObjectType]:
         """
-        Order *first* and *second* so an unordered type pair always maps onto
-        the same :attr:`object_type_a`/ :attr:`object_type_b` assignment.
+        Order *first* and *second* so an unordered type pair always maps onto the same
+        :attr:`object_type_a`/ :attr:`object_type_b` assignment.
 
         :param first: One type of the pair.
         :param second: The other type of the pair.
@@ -914,8 +936,8 @@ class ObjectTypeHeightProfile(EGBase):
     """
     How high on a shelf objects of one type were typically found.
 
-    Answers "I am holding a book -- which shelf do books belong on" directly,
-    rather than leaving it to be recovered by walking every stored shelf.
+    Answers "I am holding a book -- which shelf do books belong on" directly, rather
+    than leaving it to be recovered by walking every stored shelf.
     """
 
     object_type: ObjectType
@@ -930,8 +952,8 @@ class ObjectTypeHeightProfile(EGBase):
 
     mean_relative_height: float
     """
-    Mean of the layers' :attr:`EGShelfLayer.relative_height`, so zero is the
-    shelf's base and one its top.
+    Mean of the layers' :attr:`EGShelfLayer.relative_height`, so zero is the shelf's
+    base and one its top.
     """
 
     mean_height_above_shelf_base: float
@@ -961,14 +983,14 @@ class ObjectTypeHeightProfile(EGBase):
 @dataclass(frozen=True)
 class MeshCandidate:
     """
-    A mesh asset available for rendering a sampled object, together with the
-    generalized object type it was captured from.
+    A mesh asset available for rendering a sampled object, together with the generalized
+    object type it was captured from.
     """
 
     scene_dir: Path
     """
-    Directory containing the ``objects/`` sub-folder with this mesh's PLY and
-    texture files.
+    Directory containing the ``objects/`` sub-folder with this mesh's PLY and texture
+    files.
     """
 
     source_id: str
@@ -985,17 +1007,17 @@ class MeshCandidate:
     native_extents: tuple[float, float, float] | None = None
     """
     The mesh's own real-world size as ``(width, length, height)``, used to decide
-    whether it fits a target space. ``None`` when the size is unknown, in which
-    case the candidate is treated as always fitting. A tuple (not an
-    :class:`EGScale`) keeps :class:`MeshCandidate` hashable.
-    """
+    whether it fits a target space.
 
+    ``None`` when the size is unknown, in which case the candidate is treated as always
+    fitting. A tuple (not an :class:`EGScale`) keeps :class:`MeshCandidate` hashable.
+    """
 
 @dataclass
 class _MeshTypeMatcher:
     """
-    Selects, from a pool of candidate meshes, a random one captured from an
-    object of the same :class:`ObjectType`.
+    Selects, from a pool of candidate meshes, a random one captured from an object of
+    the same :class:`ObjectType`.
 
     Object-type labels in the source dataset are effectively per-
     instance identifiers rather than real categories, so grouping meshes by
@@ -1013,12 +1035,12 @@ class _MeshTypeMatcher:
 
     MAXIMUM_SIZE_RATIO: ClassVar[float] = 2.0
     """
-    How far a candidate's real size may differ from a requested target size, as
-    a factor on each axis, before it is rejected.
+    How far a candidate's real size may differ from a requested target size, as a factor
+    on each axis, before it is rejected.
 
-    A mesh of the right category but the wrong size still looks wrong -- a
-    sampled 0.45 m stool spawning as a 1.2 m armchair -- so category alone is
-    not enough once the circuit has sampled a size to aim for.
+    A mesh of the right category but the wrong size still looks wrong -- a sampled 0.45
+    m stool spawning as a 1.2 m armchair -- so category alone is not enough once the
+    circuit has sampled a size to aim for.
     """
 
     candidates: list[MeshCandidate]
@@ -1033,14 +1055,14 @@ class _MeshTypeMatcher:
         target_extents: EGScale | None = None,
     ) -> MeshCandidate | None:
         """
-        Return a candidate whose :attr:`MeshCandidate.object_type` equals
-        *object_type*, or ``None`` when the pool holds none.
+        Return a candidate whose :attr:`MeshCandidate.object_type` equals *object_type*,
+        or ``None`` when the pool holds none.
 
-        *max_extents* is an upper bound: candidates larger than it on any axis
-        are ineligible, which is how shelf contents are kept from piercing the
-        layer above. *target_extents* is a size to aim for: candidates further
-        than :attr:`MAXIMUM_SIZE_RATIO` from it on any axis are ineligible, and
-        the closest remaining one is returned rather than a random one.
+        *max_extents* is an upper bound: candidates larger than it on any axis are
+        ineligible, which is how shelf contents are kept from piercing the layer above.
+        *target_extents* is a size to aim for: candidates further than
+        :attr:`MAXIMUM_SIZE_RATIO` from it on any axis are ineligible, and the closest
+        remaining one is returned rather than a random one.
 
         :param object_type: The category of the object a mesh is selected for.
         :param max_extents: Upper bound on the mesh's width/length/height.
@@ -1078,10 +1100,9 @@ class _MeshTypeMatcher:
         How far *candidate*'s real size is from *target_extents*, as the largest
         absolute log-ratio across the three axes.
 
-        A log-ratio is used so that being twice too large and half too large
-        count equally. Candidates of unknown size score as a perfect match,
-        since there is nothing to judge them on and dropping them would thin an
-        already sparse pool.
+        A log-ratio is used so that being twice too large and half too large count
+        equally. Candidates of unknown size score as a perfect match, since there is
+        nothing to judge them on and dropping them would thin an already sparse pool.
 
         :param candidate: The mesh candidate to score.
         :param target_extents: The size the mesh should match.
@@ -1100,8 +1121,8 @@ class _MeshTypeMatcher:
     @staticmethod
     def _fits(candidate: MeshCandidate, max_extents: EGScale) -> bool:
         """
-        Whether *candidate*'s real-world size stays within *max_extents* on
-        every axis. Candidates of unknown size are treated as fitting.
+        Whether *candidate*'s real-world size stays within *max_extents* on every axis.
+        Candidates of unknown size are treated as fitting.
 
         :param candidate: The mesh candidate to test.
         :param max_extents: Per-axis upper bound.
@@ -1142,8 +1163,8 @@ class SpawnedShelfLayer:
 @dataclass
 class SpawnedShelf:
     """
-    A shelf instantiated in a :class:`World`, with handles for in-world
-    validation and repositioning of its objects.
+    A shelf instantiated in a :class:`World`, with handles for in-world validation and
+    repositioning of its objects.
     """
 
     world: World
@@ -1163,8 +1184,8 @@ class SpawnedShelf:
 
     corpus: Body
     """
-    The shelf corpus's body, so a caller can check objects for collision
-    against its walls in addition to each other.
+    The shelf corpus's body, so a caller can check objects for collision against its
+    walls in addition to each other.
     """
 
     placeholder_count: int = 0
@@ -1176,30 +1197,30 @@ class SpawnedShelf:
     that way.
     """
 
-
 @dataclass
 class EGShelf(EGBase):
     """
     A shelf and the horizontal layers its contents rest on.
 
-    The shelf defines the frame its contents are expressed in and always sits at
-    that frame's origin. Where a shelf happened to stand in the room it was
-    extracted from says nothing about shelves, so carrying it would only add a
-    near-unique coordinate per training row for a circuit to split on.
+    The shelf defines the frame its contents are expressed in and always sits at that
+    frame's origin. Where a shelf happened to stand in the room it was extracted from
+    says nothing about shelves, so carrying it would only add a near-unique coordinate
+    per training row for a circuit to split on.
     """
 
     _CORPUS_WALL_THICKNESS: ClassVar[float] = 0.03
     """
-    Thickness of the spawned :class:`Cabinet` corpus's walls. The corpus is
-    sized larger than the layers' own footprint by this amount (see
-    :meth:`spawn_in_world`), so a wall carved out of that footprint never
-    intrudes into the region objects were trained to occupy.
+    Thickness of the spawned :class:`Cabinet` corpus's walls.
+
+    The corpus is sized larger than the layers' own footprint by this amount (see
+    :meth:`spawn_in_world`), so a wall carved out of that footprint never intrudes into
+    the region objects were trained to occupy.
     """
 
     CONTENT_FRAME_YAW_OFFSET_DEGREES: ClassVar[float] = 90.0
     """
-    Yaw offset, in degrees, between a shelf's stored orientation and the frame
-    its contents are expressed in.
+    Yaw offset, in degrees, between a shelf's stored orientation and the frame its
+    contents are expressed in.
 
     In the dataset a shelf's contents spread along its wide face, which lies
     along the shelf's local x-axis -- but the spawned :class:`Cabinet` corpus
@@ -1219,8 +1240,8 @@ class EGShelf(EGBase):
 
     _OBJECT_VERTICAL_MARGIN: ClassVar[float] = 0.01
     """
-    Slack, in metres, kept between the tallest object a layer accepts and the
-    surface above it, so a fitting object never grazes the next slab or ceiling.
+    Slack, in metres, kept between the tallest object a layer accepts and the surface
+    above it, so a fitting object never grazes the next slab or ceiling.
     """
 
     _TOP_SURFACE_RELATIVE_HEIGHT: ClassVar[float] = 1.0
@@ -1228,9 +1249,9 @@ class EGShelf(EGBase):
     Relative height at which a layer stops describing a shelf level and starts
     describing the shelf's top.
 
-    Extraction groups whatever stands on a piece of furniture, including what sits
-    on top of it, so a quarter of the recorded layers reach the shelf's own top
-    rather than a slab inside it.
+    Extraction groups whatever stands on a piece of furniture, including what sits on
+    top of it, so a quarter of the recorded layers reach the shelf's own top rather than
+    a slab inside it.
     """
 
     _MAXIMUM_TOP_PLACEMENT_HEIGHT: ClassVar[float] = 1.6
@@ -1356,20 +1377,17 @@ class EGShelf(EGBase):
         corpus: KinematicStructureEntity,
     ) -> None:
         """
-        Lower *body* so its mesh rests on the layer slab with a small contact
-        overlap.
+        Lower *body* so its mesh rests on the layer slab with a small contact overlap.
 
-        Object meshes carry their own, mesh-specific origin offset, so seating
-        them by their measured collision bottom -- rather than by a fixed
-        origin height -- both makes them actually rest on the slab and gives the
-        slight overlap that :func:`is_supported_by` needs to register support.
-        Assumes the object is upright, so its body-frame vertical extent equals
-        its corpus-frame one.
+        Object meshes carry their own, mesh-specific origin offset, so seating them by
+        their measured collision bottom -- rather than by a fixed origin height -- both
+        makes them actually rest on the slab and gives the slight overlap that
+        :func:`is_supported_by` needs to register support. Assumes the object is
+        upright, so its body-frame vertical extent equals its corpus-frame one.
 
         :param obj: The object being seated, used to recompute the pose.
         :param body: The already-spawned body to lower.
-        :param slab_top_z: Height of the layer slab's top face in the corpus
-            frame.
+        :param slab_top_z: Height of the layer slab's top face in the corpus frame.
         :param corpus: The shelf corpus body the pose is expressed relative to.
         """
         mesh_bottom = body.collision.combined_mesh.bounds[0][2]
@@ -1380,10 +1398,9 @@ class EGShelf(EGBase):
         """
         Whether *layer* describes objects standing on the shelf rather than in it.
 
-        A shelf has one top, but layers are drawn independently and several can
-        come back recorded there, so only the highest takes it; the rest are
-        ordinary levels. Otherwise their slabs would land on each other with no
-        room between them.
+        A shelf has one top, but layers are drawn independently and several can come
+        back recorded there, so only the highest takes it; the rest are ordinary levels.
+        Otherwise their slabs would land on each other with no room between them.
 
         :param layer: The layer to classify.
         :return: ``True`` when its objects belong on the shelf's top surface.
@@ -1400,13 +1417,13 @@ class EGShelf(EGBase):
         """
         Height of each layer's slab in the parent frame, aligned to :attr:`layers`.
 
-        Slabs are spaced evenly across the corpus. A layer's ``relative_height``
-        records where its objects were *found*, not where a slab is: a shelf level
-        holding nothing leaves no layer behind, so a measured gap is the distance
-        to the next *occupied* level rather than to the next shelf. Placing slabs
-        at those heights would carry that bias into the geometry and cluster them,
-        while real shelves are evenly divided. What the data does supply is how
-        many levels a kind of shelf has, and that decides how many slabs there are.
+        Slabs are spaced evenly across the corpus. A layer's ``relative_height`` records
+        where its objects were *found*, not where a slab is: a shelf level holding
+        nothing leaves no layer behind, so a measured gap is the distance to the next
+        *occupied* level rather than to the next shelf. Placing slabs at those heights
+        would carry that bias into the geometry and cluster them, while real shelves are
+        evenly divided. What the data does supply is how many levels a kind of shelf
+        has, and that decides how many slabs there are.
 
         :param corpus_height: Interior height of the shelf corpus, in metres.
         :return: One height per layer, in the order of :attr:`layers`.
@@ -1465,20 +1482,19 @@ class EGShelf(EGBase):
         placeholders_for_missing_meshes: bool = False,
     ) -> SpawnedShelf:
         """
-        Instantiate the shelf and its objects inside a :class:`World`, returning
-        handles to the created layer annotations and object bodies.
+        Instantiate the shelf and its objects inside a :class:`World`, returning handles
+        to the created layer annotations and object bodies.
 
-        The handles let a caller validate and reposition individual objects in
-        the spawned world without rebuilding it.
+        The handles let a caller validate and reposition individual objects in the
+        spawned world without rebuilding it.
 
-        :param world: Existing world to extend. A fresh world with a ``map``
-            root body is created when omitted.
-        :param parent: The parent entity the shelf is placed under. Defaults to
-            the world's root when omitted.
-        :param placeholders_for_missing_meshes: Stand a plain box in for any
-            object whose type has no cached mesh, instead of leaving it out.
-            For inspecting a render; off so a generation run never gains bodies
-            that stand for nothing.
+        :param world: Existing world to extend. A fresh world with a ``map`` root body
+            is created when omitted.
+        :param parent: The parent entity the shelf is placed under. Defaults to the
+            world's root when omitted.
+        :param placeholders_for_missing_meshes: Stand a plain box in for any object
+            whose type has no cached mesh, instead of leaving it out. For inspecting a
+            render; off so a generation run never gains bodies that stand for nothing.
         :return: The spawned shelf, its world, and per-layer handles.
         """
         _world: World = world if world is not None else World()
@@ -1636,12 +1652,11 @@ class EGShelf(EGBase):
         Thin wrapper over :meth:`spawn_in_world` for callers that only need the
         resulting world and not the per-object body handles.
 
-        :param world: Existing world to extend. A fresh world with a ``map``
-            root body is created when omitted.
-        :param parent: The parent entity the shelf's own
-            :attr:`position`/ :attr:`orientation` are expressed relative to.
-            Defaults to the world's root when omitted, so standalone callers
-            are unaffected.
+        :param world: Existing world to extend. A fresh world with a ``map`` root body
+            is created when omitted.
+        :param parent: The parent entity the shelf's own :attr:`position`/
+            :attr:`orientation` are expressed relative to. Defaults to the world's root
+            when omitted, so standalone callers are unaffected.
         :return: The world containing the shelf.
         """
         return self.spawn_in_world(world, parent).world

@@ -11,10 +11,13 @@ from importlib.resources import files
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import numpy as np
 import pytest
 import trimesh
+from scipy.spatial.transform import Rotation
 from sqlalchemy import event
 from sqlalchemy.orm import Session
+from visualization_msgs.msg import Marker, MarkerArray
 
 import experiments.orm.ormatic_interface  # noqa: F401  registers ORM mappers
 from experiments.orm.ormatic_interface import (
@@ -41,6 +44,7 @@ from experiments.scene_generation_experiments.rspn_sampling import (
 from experiments.scene_generation_experiments.shelf_generation import (
     _coarsen_mesh_candidate_types,
     _coarsen_rare_object_types,
+    _rewrite_mesh_uris_for_foxglove,
 )
 from experiments.scene_generation_experiments.exceptions import (
     OutdatedTrainedModelError,
@@ -349,6 +353,68 @@ def _typed_object(object_type: ObjectType, object_id: str) -> EGObject2D:
     )
 
 
+@dataclass
+class _MockVizMarkerPublisher:
+    """
+    Duck-type substitute for VizMarkerPublisher exposing only the ``markers`` attribute
+    :func:`_rewrite_mesh_uris_for_foxglove` reads and mutates.
+    """
+
+    markers: MarkerArray
+
+
+def test_foxglove_mesh_uri_rewrite_cancels_gltf_up_axis_convention(
+    tmp_path: Path,
+) -> None:
+    """
+    Foxglove's 3D panel documents that its "Mesh up axis" override does not apply to
+    glTF/``.glb`` files, since they are assumed to already be authored Y-up -- unlike
+    STL/OBJ, there is no toggle to disable this.
+
+    Meshes are authored with Z-up (ROS/world) vertex data unmodified, so Foxglove's
+    built-in Y-up-to-Z-up correction misinterprets them, rendering objects tipped onto
+    their side. Every mesh marker rewritten for Foxglove must therefore be pre-rotated
+    -90 degrees about X to cancel that correction. The rewrite must also convert the
+    source OBJ to a self-contained ``.glb``, since Foxglove does not read the separate
+    ``.mtl`` sidecar OBJ relies on for material/texture.
+    """
+    mesh_dir = tmp_path / "source_mesh_dir"
+    mesh_dir.mkdir()
+    mesh_file = mesh_dir / "object.obj"
+    mesh_file.write_text("v 0.0 0.0 0.0\nv 1.0 0.0 0.0\nv 0.0 1.0 0.0\nf 1 2 3\n")
+
+    marker = Marker()
+    marker.mesh_resource = f"file://{mesh_file}"
+    original_orientation = Rotation.from_euler("z", 30, degrees=True).as_quat()
+    (
+        marker.pose.orientation.x,
+        marker.pose.orientation.y,
+        marker.pose.orientation.z,
+        marker.pose.orientation.w,
+    ) = original_orientation
+    viz_marker = _MockVizMarkerPublisher(markers=MarkerArray(markers=[marker]))
+
+    with patch(
+        "experiments.scene_generation_experiments.shelf_generation."
+        "get_package_share_directory",
+        return_value=str(tmp_path / "share"),
+    ):
+        _rewrite_mesh_uris_for_foxglove(viz_marker)
+
+    assert marker.mesh_resource.endswith(".glb")
+    expected_orientation = (
+        Rotation.from_quat(original_orientation)
+        * Rotation.from_euler("x", -90, degrees=True)
+    ).as_quat()
+    actual_orientation = [
+        marker.pose.orientation.x,
+        marker.pose.orientation.y,
+        marker.pose.orientation.z,
+        marker.pose.orientation.w,
+    ]
+    assert np.allclose(actual_orientation, expected_orientation)
+
+
 def test_coarsen_rare_object_types_keeps_only_the_most_frequent_types() -> None:
     """
     Object types outside the keep_count most frequent ones must be replaced with
@@ -613,13 +679,13 @@ def test_load_survives_a_different_hash_seed_process(tmp_path: Path) -> None:
 
 def test_slab_size_does_not_depend_on_which_layers_are_present() -> None:
     """
-    A slab spans the shelf's own footprint, so adding a layer of some other size
-    must not resize the others.
+    A slab spans the shelf's own footprint, so adding a layer of some other size must
+    not resize the others.
 
-    Slab size was once taken from the widest layer, which made every slab an
-    accident of the company it kept; taking it from each layer's own scale instead
-    let independently drawn layers disagree and leave the narrow ones floating
-    clear of the corpus walls. The shelf is the one thing all its layers share.
+    Slab size was once taken from the widest layer, which made every slab an accident of
+    the company it kept; taking it from each layer's own scale instead let independently
+    drawn layers disagree and leave the narrow ones floating clear of the corpus walls.
+    The shelf is the one thing all its layers share.
     """
     shelf_scale = EGScale(height=2.0, length=0.6, width=0.8)
 
@@ -860,17 +926,21 @@ def _layer_of(
 
 
 _BOOKCASE_SCALE = EGScale(height=2.0, length=0.3, width=0.4)
-"""Dimensions of the synthetic bookcases, so a query can pin what was fitted."""
+"""
+Dimensions of the synthetic bookcases, so a query can pin what was fitted.
+"""
 
 _CABINET_SCALE = EGScale(height=1.0, length=0.3, width=0.4)
-"""Dimensions of the synthetic cabinets."""
+"""
+Dimensions of the synthetic cabinets.
+"""
 
 _LAYER_SCALE = EGScale(height=0.02, length=0.3, width=0.4)
 """
 Footprint of the synthetic layers, which every shelf of either type shares.
 
-A layer carries the slab's own thickness, not the shelf's height, so pinning a
-layer to a shelf-shaped scale asks the circuit for something it never saw.
+A layer carries the slab's own thickness, not the shelf's height, so pinning a layer to
+a shelf-shaped scale asks the circuit for something it never saw.
 """
 
 
@@ -912,8 +982,8 @@ def test_a_shelf_drawn_for_one_type_holds_that_types_objects(
     two_type_shelf_model: RelationalProbabilisticCircuit,
 ) -> None:
     """
-    The whole point of the shelf type: a bookcase must be filled with what
-    bookcases hold, not with the global mixture of everything on any shelf.
+    The whole point of the shelf type: a bookcase must be filled with what bookcases
+    hold, not with the global mixture of everything on any shelf.
 
     Conditioning that quietly failed would still return a shelf, so the objects
     themselves are checked rather than merely that a draw succeeded.
@@ -935,8 +1005,8 @@ def test_a_drawn_shelf_carries_the_type_it_was_asked_for(
     two_type_shelf_model: RelationalProbabilisticCircuit,
 ) -> None:
     """
-    The type is denormalized onto the layers, so a shelf whose layers disagreed
-    with it would resample its contents against the wrong kind during repair.
+    The type is denormalized onto the layers, so a shelf whose layers disagreed with it
+    would resample its contents against the wrong kind during repair.
     """
     backend = probabilistic_backend(two_type_shelf_model)
 
@@ -950,9 +1020,9 @@ def test_a_shelf_model_learns_a_template_for_its_layers(
     two_type_shelf_model: RelationalProbabilisticCircuit,
 ) -> None:
     """
-    Layers are only reachable by fitting when an aggregation statistic declares
-    them; without one a shelf-rooted circuit models the shelf's own dimensions
-    and nothing of what it holds.
+    Layers are only reachable by fitting when an aggregation statistic declares them;
+    without one a shelf-rooted circuit models the shelf's own dimensions and nothing of
+    what it holds.
     """
     templates = two_type_shelf_model.exchangeable_distribution_templates
 
@@ -965,9 +1035,10 @@ def test_a_shelf_model_learns_a_template_for_its_layers(
 
 def test_loading_a_model_fitted_before_shelf_types_is_refused(tmp_path: Path) -> None:
     """
-    A model predating the shelf type loads and samples perfectly well, so nothing
-    would look wrong -- every kind of shelf would simply come out identical. It is
-    refused rather than served, since a cached model outliving a schema change is
+    A model predating the shelf type loads and samples perfectly well, so nothing would
+    look wrong -- every kind of shelf would simply come out identical.
+
+    It is refused rather than served, since a cached model outliving a schema change is
     the ordinary case, not an exotic one.
     """
     layers = [
@@ -1005,7 +1076,9 @@ def test_loading_a_model_fitted_before_shelf_types_is_refused(tmp_path: Path) ->
 
 
 def _drop_shelf_type_variables(node: object) -> None:
-    """Rename every stored ``shelf_type`` variable, as a pre-shelf-type fit had none."""
+    """
+    Rename every stored ``shelf_type`` variable, as a pre-shelf-type fit had none.
+    """
     if isinstance(node, dict):
         for key, value in node.items():
             if (
@@ -1047,7 +1120,9 @@ def _shelf_of(shelf_type: ShelfType, layer_count: int, width: float) -> EGShelf:
 
 @pytest.fixture
 def differing_structure_model() -> RelationalProbabilisticCircuit:
-    """A model where one type has one narrow layer and the other has five wide ones."""
+    """
+    A model where one type has one narrow layer and the other has five wide ones.
+    """
     shelves = [_shelf_of(ShelfType.CABINET, 1, 1.4) for _ in range(8)] + [
         _shelf_of(ShelfType.BOOKCASE, 5, 0.6) for _ in range(8)
     ]
@@ -1060,8 +1135,8 @@ def test_the_drawn_layer_count_follows_the_type_it_was_asked_for(
     differing_structure_model: RelationalProbabilisticCircuit,
 ) -> None:
     """
-    The count is learned per type, so pinning it at a constant throws that away
-    and every kind of shelf comes out with the same number of levels.
+    The count is learned per type, so pinning it at a constant throws that away and
+    every kind of shelf comes out with the same number of levels.
     """
     sampler = ShelfDimensionSampler(differing_structure_model)
 
@@ -1074,7 +1149,9 @@ def test_the_drawn_layer_count_follows_the_type_it_was_asked_for(
 def test_a_drawn_layer_count_is_never_zero(
     differing_structure_model: RelationalProbabilisticCircuit,
 ) -> None:
-    """A shelf with no layers holds nothing and spawns an empty box."""
+    """
+    A shelf with no layers holds nothing and spawns an empty box.
+    """
     sampler = ShelfDimensionSampler(differing_structure_model)
 
     counts = [sampler.sample(shelf_type).layer_count
@@ -1089,10 +1166,10 @@ def test_every_layer_of_a_drawn_shelf_shares_the_shelfs_footprint(
 ) -> None:
     """
     Object positions are drawn conditioned on the layer's scale, so layers whose
-    footprints disagree with the shelf get positions meant for a differently
-    sized surface -- bunched in the middle of a wide slab, or hanging off a narrow
-    one. Every layer of a real shelf shares its footprint, and the draw has to
-    preserve that.
+    footprints disagree with the shelf get positions meant for a differently sized
+    surface -- bunched in the middle of a wide slab, or hanging off a narrow one.
+
+    Every layer of a real shelf shares its footprint, and the draw has to preserve that.
     """
     shelf = draw_shelf(differing_structure_model, ShelfType.BOOKCASE, 1)
 
@@ -1105,10 +1182,12 @@ def test_a_shelf_can_be_drawn_for_every_type_the_model_knows(
     differing_structure_model: RelationalProbabilisticCircuit,
 ) -> None:
     """
-    Pinning the layers to the shelf's own drawn scale left some types with no
-    solution at all, which surfaced only when the demo was run: with real data the
-    scale is continuous, so a value drawn from the shelf's distribution has no
-    counterpart in the layers'. Drawing each known type is what catches that.
+    Pinning the layers to the shelf's own drawn scale left some types with no solution
+    at all, which surfaced only when the demo was run: with real data the scale is
+    continuous, so a value drawn from the shelf's distribution has no counterpart in the
+    layers'.
+
+    Drawing each known type is what catches that.
     """
     for shelf_type in (ShelfType.BOOKCASE, ShelfType.CABINET):
         shelf = draw_shelf(differing_structure_model, shelf_type, 1)
@@ -1138,8 +1217,8 @@ def test_a_layer_count_the_model_rejects_outright_is_reported(
     differing_structure_model: RelationalProbabilisticCircuit,
 ) -> None:
     """
-    A count the caller pins is never redrawn, so one the model gives no probability
-    to has to be reported rather than retried into a different shelf than asked for.
+    A count the caller pins is never redrawn, so one the model gives no probability to
+    has to be reported rather than retried into a different shelf than asked for.
 
     Five is the telling case: the fit has seen five-layer shelves, just never
     five-layer cabinets. A count it has never seen at all lies outside the modelled
@@ -1156,15 +1235,14 @@ def test_a_layer_count_the_model_rejects_outright_is_reported(
 @pytest.fixture
 def sparse_realistic_structure_model() -> RelationalProbabilisticCircuit:
     """
-    Mirrors the real processed database's per-type shelf counts and layer counts
-    (5 cabinets mostly single-layer with one four-layer outlier, 6 bookcases spread
-    1-3, 11 open shelves that are never single-layer and spread 2-5), fitted with
-    the production calibration function rather than a hand-picked lenient fraction.
+    Mirrors the real processed database's per-type shelf counts and layer counts (5
+    cabinets mostly single-layer with one four-layer outlier, 6 bookcases spread 1-3, 11
+    open shelves that are never single-layer and spread 2-5), fitted with the production
+    calibration function rather than a hand-picked lenient fraction.
 
-    A fixed fraction like the one :func:`differing_structure_model` uses never
-    exercises the sparse-data calibration path an imbalanced, 22-row dataset this
-    size triggers in production, so it could not have caught the regression this
-    fixture guards against.
+    A fixed fraction like the one :func:`differing_structure_model` uses never exercises
+    the sparse-data calibration path an imbalanced, 22-row dataset this size triggers in
+    production, so it could not have caught the regression this fixture guards against.
     """
     shelves = (
         [_shelf_of(ShelfType.CABINET, count, 1.4) for count in (1, 1, 1, 1, 4)]
@@ -1184,10 +1262,10 @@ def test_layer_count_still_differentiates_by_type_on_realistically_sparse_data(
 ) -> None:
     """
     Regression test for a real bug: applying one ``min_samples_per_leaf`` fraction
-    calibrated for the whole dataset's row count unchanged to every circuit level
-    gave the shelf-level circuit a leaf floor above the row count of two of its
-    three shelf types, so it could never split on shelf type at all -- every type's
-    drawn layer count collapsed to the same, type-blind distribution.
+    calibrated for the whole dataset's row count unchanged to every circuit level gave
+    the shelf-level circuit a leaf floor above the row count of two of its three shelf
+    types, so it could never split on shelf type at all -- every type's drawn layer
+    count collapsed to the same, type-blind distribution.
 
     Open shelf is the type that catches it: its training data never has a single
     layer, so a ``1`` appearing here means shelf-type conditioning has failed and
