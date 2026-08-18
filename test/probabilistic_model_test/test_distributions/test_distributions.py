@@ -1,5 +1,9 @@
+import os
+import subprocess
+import sys
 import unittest
 from enum import IntEnum
+from pathlib import Path
 
 from krrood.adapters.json_serializer import to_json, from_json
 
@@ -325,3 +329,85 @@ class EventCompatibleForTruncationTestCase(unittest.TestCase):
             }
         ).as_composite_set()
         self.assertTrue(event_compatible_for_truncation_with_singletons(event))
+
+
+_SAVE_SYMBOLIC_DISTRIBUTION_SCRIPT = """
+import json
+import sys
+from enum import StrEnum
+
+from krrood.adapters.json_serializer import to_json
+from probabilistic_model.distributions.distributions import SymbolicDistribution
+from probabilistic_model.utils import MissingDict
+from random_events.set import Set
+from random_events.variable import Symbolic
+
+
+class StringBackedCategory(StrEnum):
+    ALPHA = "ALPHA"
+    BETA = "BETA"
+
+
+variable = Symbolic(name="category", domain=Set.from_iterable(StringBackedCategory))
+probabilities = MissingDict(float)
+probabilities[hash(StringBackedCategory.ALPHA)] = 0.25
+probabilities[hash(StringBackedCategory.BETA)] = 0.75
+distribution = SymbolicDistribution(variable=variable, probabilities=probabilities)
+
+with open(sys.argv[1], "w") as f:
+    json.dump(to_json(distribution), f)
+"""
+
+_LOAD_SYMBOLIC_DISTRIBUTION_SCRIPT = """
+import json
+import sys
+from enum import StrEnum
+
+from krrood.adapters.json_serializer import from_json
+
+
+class StringBackedCategory(StrEnum):
+    ALPHA = "ALPHA"
+    BETA = "BETA"
+
+
+with open(sys.argv[1]) as f:
+    distribution = from_json(json.load(f))
+
+alpha_probability = distribution.probabilities[hash(StringBackedCategory.ALPHA)]
+beta_probability = distribution.probabilities[hash(StringBackedCategory.BETA)]
+print(f"{alpha_probability} {beta_probability}")
+"""
+
+
+def test_symbolic_distribution_survives_a_different_hash_seed_process(
+    tmp_path: Path,
+) -> None:
+    """
+    A SymbolicDistribution exported by one process must deserialize to the same
+    probabilities when loaded by a different process with a different PYTHONHASHSEED.
+
+    StrEnum members hash their name with Python's randomized string hash, so
+    fitting and loading in the same process cannot expose a regression here:
+    only two genuinely separate processes with different seeds can.
+    """
+    export_path = tmp_path / "symbolic_distribution.json"
+
+    subprocess.run(
+        [sys.executable, "-c", _SAVE_SYMBOLIC_DISTRIBUTION_SCRIPT, str(export_path)],
+        env={**os.environ, "PYTHONHASHSEED": "1"},
+        check=True,
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", _LOAD_SYMBOLIC_DISTRIBUTION_SCRIPT, str(export_path)],
+        env={**os.environ, "PYTHONHASHSEED": "2"},
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    alpha_probability, beta_probability = (
+        float(value) for value in result.stdout.split()
+    )
+    assert alpha_probability == 0.25
+    assert beta_probability == 0.75

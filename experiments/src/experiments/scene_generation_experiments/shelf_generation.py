@@ -245,17 +245,18 @@ def _rewrite_mesh_uris_for_foxglove(viz_marker: VizMarkerPublisher) -> None:
         dest_path = dest_dir / f"{source_path.stem}.glb"
         if not dest_path.exists():
             dest_dir.mkdir(parents=True, exist_ok=True)
-            trimesh.load(source_path, force="mesh").export(
-                dest_path, file_type="glb"
-            )
+            trimesh.load(source_path, force="mesh").export(dest_path, file_type="glb")
         marker.mesh_resource = (
             f"package://{_MESH_RESOURCE_PACKAGE}/{_MESH_RESOURCE_SHARE_SUBDIR}/"
             f"{source_path.parent.name}/{dest_path.name}"
         )
         orientation = marker.pose.orientation
-        corrected = Rotation.from_quat(
-            [orientation.x, orientation.y, orientation.z, orientation.w]
-        ) * _FOXGLOVE_GLTF_UP_AXIS_CORRECTION
+        corrected = (
+            Rotation.from_quat(
+                [orientation.x, orientation.y, orientation.z, orientation.w]
+            )
+            * _FOXGLOVE_GLTF_UP_AXIS_CORRECTION
+        )
         (
             orientation.x,
             orientation.y,
@@ -285,7 +286,6 @@ def generate_shelf_with_arbitrary_objects(
     node,
     shelf_type: ShelfType = ShelfType.BOOKCASE,
     layer_count: Optional[int] = None,
-    objects_per_layer: int = 3,
     placeholders_for_missing_meshes: bool = True,
     model_path: Path = Path.home()
     / "Documents"
@@ -319,7 +319,6 @@ def generate_shelf_with_arbitrary_objects(
     :param shelf_type: Kind of shelf to generate.
     :param layer_count: Number of layers to draw. Drawn from the kind of shelf
         when omitted, which is what makes a bookcase deeper-stacked than a cabinet.
-    :param objects_per_layer: Number of objects to draw onto each layer.
     :param placeholders_for_missing_meshes: Stand a plain box in for objects whose
         type has no cached mesh, so a sparse render can be told apart from a sparse
         draw while the mesh library is incomplete.
@@ -366,7 +365,7 @@ def generate_shelf_with_arbitrary_objects(
     rspn = trained_model.relational_probabilistic_circuit
     frequent_types = trained_model.frequent_object_types
 
-    shelf_sample = draw_shelf(rspn, shelf_type, objects_per_layer, layer_count)
+    shelf_sample = draw_shelf(rspn, shelf_type, layer_count)
 
     source_ids = _get_source_ids_for_objects(
         load_all_objects(session), object_type=None
@@ -417,19 +416,30 @@ if __name__ == "__main__":
         default=VisualizationBackend.FOXGLOVE,
         help="Viewer to publish markers for.",
     )
+    parser.add_argument(
+        "--shelf-type",
+        type=ShelfType,
+        choices=list(ShelfType),
+        default=ShelfType.BOOKCASE,
+        help="Kind of shelf to sample.",
+    )
     args = parser.parse_args()
 
     with rclpy_node() as node:
         viz_marker = generate_shelf_with_arbitrary_objects(
-            node, visualization_backend=args.visualization
+            node,
+            shelf_type=args.shelf_type,
+            visualization_backend=args.visualization,
         )
         # The MarkerArray publisher is TRANSIENT_LOCAL, so it can still serve a
         # viewer that connects after this point, but TF is not: a viewer that
         # connects (or reconnects, e.g. on a page refresh) after the one-shot
         # publish in with_tf_publisher() would see no transforms at all, so TF
         # is re-published here on every tick to cover that.
-        print("Publishing until interrupted (Ctrl+C); keep this running while "
-              "a viewer is connected.")
+        print(
+            "Publishing until interrupted (Ctrl+C); keep this running while "
+            "a viewer is connected."
+        )
         try:
             while True:
                 viz_marker._tf_publisher.on_state_change()
@@ -441,4 +451,6 @@ if __name__ == "__main__":
             # state lingers for any viewer connecting after this process exits.
             # Clearing it here means markers are only ever on screen while this
             # script is actively running.
-            viz_marker.publisher.publish(MarkerArray(markers=[Marker(action=Marker.DELETEALL)]))
+            viz_marker.publisher.publish(
+                MarkerArray(markers=[Marker(action=Marker.DELETEALL)])
+            )

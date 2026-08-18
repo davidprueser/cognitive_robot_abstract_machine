@@ -13,6 +13,7 @@ from random_events.interval import Interval, SimpleInterval, Bound, singleton, c
 from random_events.product_algebra import Event, SimpleEvent, VariableMap
 from typing_extensions import Union, Iterable, Any, Self, Dict, List, Tuple
 
+from krrood.adapters.json_serializer import SubclassJSONSerializer, to_json, from_json
 from probabilistic_model.constants import SCALING_FACTOR_FOR_EXPECTATION_IN_PLOT
 from probabilistic_model.probabilistic_model import (
     ProbabilisticModel,
@@ -433,12 +434,42 @@ class DiscreteDistribution(UnivariateDistribution):
 
 
 @dataclass(eq=False)
-class SymbolicDistribution(DiscreteDistribution):
+class SymbolicDistribution(DiscreteDistribution, SubclassJSONSerializer):
     """
     Class for symbolic (categorical) distributions.
     """
 
     variable: Symbolic = field(kw_only=True)
+
+    def to_json(self) -> Dict[str, Any]:
+        """
+        Serialize this distribution with ``probabilities`` keyed by the domain elements
+        themselves (via their enum name) instead of ``hash()``.
+
+        :func:`enum.Enum.__hash__` hashes the member name using Python's randomized
+        string hash for ``StrEnum``-backed domains, so a hash-keyed export would
+        silently mismatch every domain element when reloaded by a different process. See
+        :func:`SymbolicDistribution._from_json`.
+        """
+        hash_map = self.variable.domain.hash_map
+        return {
+            **super().to_json(),
+            "variable": to_json(self.variable),
+            "probabilities": {
+                "keys": [to_json(hash_map[key]) for key in self.probabilities],
+                "values": list(self.probabilities.values()),
+            },
+        }
+
+    @classmethod
+    def _from_json(cls, data: Dict[str, Any], **kwargs) -> Self:
+        variable = from_json(data["variable"])
+        elements = [from_json(key) for key in data["probabilities"]["keys"]]
+        values = data["probabilities"]["values"]
+        probabilities = MissingDict(
+            float, {hash(element): value for element, value in zip(elements, values)}
+        )
+        return cls(variable=variable, probabilities=probabilities)
 
     def univariate_log_mode(self) -> Tuple[Set, float]:
         max_likelihood = max(self.probabilities.values())

@@ -35,6 +35,7 @@ from experiments.scene_generation_experiments.utils import (
 )
 from experiments.scene_generation_experiments.rspn_sampling import (
     build_layer_query,
+    LayerObjectCountSampler,
     ShelfDimensionSampler,
     draw_shelf,
     ShelfDimensions,
@@ -990,8 +991,12 @@ def test_a_shelf_drawn_for_one_type_holds_that_types_objects(
     """
     backend = probabilistic_backend(two_type_shelf_model)
 
-    bookcase = next(iter(backend.evaluate(build_shelf_query(ShelfType.BOOKCASE, _LAYER_SCALE, 3, 1))))
-    cabinet = next(iter(backend.evaluate(build_shelf_query(ShelfType.CABINET, _LAYER_SCALE, 1, 1))))
+    bookcase = next(
+        iter(backend.evaluate(build_shelf_query(ShelfType.BOOKCASE, _LAYER_SCALE, [1, 1, 1])))
+    )
+    cabinet = next(
+        iter(backend.evaluate(build_shelf_query(ShelfType.CABINET, _LAYER_SCALE, [1])))
+    )
 
     assert {obj.object_type for layer in bookcase.layers for obj in layer.objects} == {
         ObjectType.BOOK
@@ -1010,7 +1015,9 @@ def test_a_drawn_shelf_carries_the_type_it_was_asked_for(
     """
     backend = probabilistic_backend(two_type_shelf_model)
 
-    shelf = next(iter(backend.evaluate(build_shelf_query(ShelfType.CABINET, _LAYER_SCALE, 1, 1))))
+    shelf = next(
+        iter(backend.evaluate(build_shelf_query(ShelfType.CABINET, _LAYER_SCALE, [1])))
+    )
 
     assert shelf.shelf_type is ShelfType.CABINET
     assert {layer.shelf_type for layer in shelf.layers} == {ShelfType.CABINET}
@@ -1171,7 +1178,7 @@ def test_every_layer_of_a_drawn_shelf_shares_the_shelfs_footprint(
 
     Every layer of a real shelf shares its footprint, and the draw has to preserve that.
     """
-    shelf = draw_shelf(differing_structure_model, ShelfType.BOOKCASE, 1)
+    shelf = draw_shelf(differing_structure_model, ShelfType.BOOKCASE)
 
     footprints = {(layer.scale.width, layer.scale.length) for layer in shelf.layers}
     assert len(footprints) == 1
@@ -1190,7 +1197,7 @@ def test_a_shelf_can_be_drawn_for_every_type_the_model_knows(
     Drawing each known type is what catches that.
     """
     for shelf_type in (ShelfType.BOOKCASE, ShelfType.CABINET):
-        shelf = draw_shelf(differing_structure_model, shelf_type, 1)
+        shelf = draw_shelf(differing_structure_model, shelf_type)
 
         assert shelf.shelf_type is shelf_type
         assert shelf.layers
@@ -1207,7 +1214,7 @@ def test_a_shelf_is_drawn_even_when_a_layer_count_has_no_support(
     conditional rather than an outright failure.
     """
     for _ in range(8):
-        shelf = draw_shelf(differing_structure_model, ShelfType.CABINET, 2)
+        shelf = draw_shelf(differing_structure_model, ShelfType.CABINET)
 
         assert shelf.layers
         assert shelf.shelf_type is ShelfType.CABINET
@@ -1225,7 +1232,7 @@ def test_a_layer_count_the_model_rejects_outright_is_reported(
     range and is integrated out instead of rejected, so it would not exercise this.
     """
     with pytest.raises(UndrawableShelfError):
-        draw_shelf(differing_structure_model, ShelfType.CABINET, 2, layer_count=5)
+        draw_shelf(differing_structure_model, ShelfType.CABINET, layer_count=5)
 
 
 # ---- Group H -- calibration must not block type differentiation on realistically
@@ -1279,3 +1286,99 @@ def test_layer_count_still_differentiates_by_type_on_realistically_sparse_data(
     }
 
     assert 1 not in open_shelf_counts
+
+
+# ---- Group I -- a layer's object count is learned per shelf type, not pinned ----
+
+
+def _layer_with_object_count(shelf_type: ShelfType, count: int, index: int) -> EGShelfLayer:
+    object_type = ObjectType.BOOK if shelf_type is ShelfType.BOOKCASE else ObjectType.CUP
+    return EGShelfLayer(
+        scale=EGScale(height=0.02, length=0.3, width=0.4),
+        objects=[
+            dataclasses.replace(
+                _typed_object(object_type, f"{object_type.value}_{index}_{i}"),
+                shelf_type=shelf_type,
+            )
+            for i in range(count)
+        ],
+        shelf_type=shelf_type,
+        relative_height=0.2,
+    )
+
+
+@pytest.fixture
+def differing_object_count_model() -> RelationalProbabilisticCircuit:
+    """
+    A model where bookcase layers hold many objects and cabinet layers hold few.
+    """
+    shelves = [
+        EGShelf(
+            scale=_BOOKCASE_SCALE,
+            layers=[_layer_with_object_count(ShelfType.BOOKCASE, 4, index)] * 3,
+            shelf_type=ShelfType.BOOKCASE,
+        )
+        for index in range(8)
+    ] + [
+        EGShelf(
+            scale=_CABINET_SCALE,
+            layers=[_layer_with_object_count(ShelfType.CABINET, 1, index)],
+            shelf_type=ShelfType.CABINET,
+        )
+        for index in range(8)
+    ]
+    return RelationalProbabilisticCircuit(EGShelf, min_samples_per_leaf=0.25).fit(
+        [to_dao(shelf) for shelf in shelves]
+    )
+
+
+def test_the_drawn_object_count_follows_the_type_it_was_asked_for(
+    differing_object_count_model: RelationalProbabilisticCircuit,
+) -> None:
+    """
+    Object counts are learned per shelf type via EGShelfLayerAggregations, so pinning a
+    layer's object count at a caller-chosen constant throws that away and every kind of
+    shelf's layers would come out equally full.
+    """
+    layer_template = differing_object_count_model.exchangeable_distribution_templates[
+        "layers"
+    ]
+    sampler = LayerObjectCountSampler(layer_template.template_distribution)
+
+    cabinet_counts = {sampler.sample(ShelfType.CABINET) for _ in range(6)}
+    bookcase_counts = {sampler.sample(ShelfType.BOOKCASE) for _ in range(6)}
+
+    assert max(cabinet_counts) < min(bookcase_counts)
+
+
+def test_a_drawn_object_count_is_never_negative(
+    differing_object_count_model: RelationalProbabilisticCircuit,
+) -> None:
+    layer_template = differing_object_count_model.exchangeable_distribution_templates[
+        "layers"
+    ]
+    sampler = LayerObjectCountSampler(layer_template.template_distribution)
+
+    counts = [
+        sampler.sample(shelf_type)
+        for shelf_type in (ShelfType.CABINET, ShelfType.BOOKCASE)
+        for _ in range(6)
+    ]
+
+    assert all(count >= 0 for count in counts)
+
+
+def test_a_drawn_shelfs_layers_reflect_the_types_object_count(
+    differing_object_count_model: RelationalProbabilisticCircuit,
+) -> None:
+    """
+    draw_shelf must use the aggregation-sampled object count for each layer rather than
+    a caller-supplied constant, so a bookcase comes out with fuller layers than a
+    cabinet without either being asked for by count.
+    """
+    bookcase = draw_shelf(differing_object_count_model, ShelfType.BOOKCASE, layer_count=3)
+    cabinet = draw_shelf(differing_object_count_model, ShelfType.CABINET, layer_count=1)
+
+    bookcase_counts = [len(layer.objects) for layer in bookcase.layers]
+    cabinet_counts = [len(layer.objects) for layer in cabinet.layers]
+    assert min(bookcase_counts) > max(cabinet_counts)

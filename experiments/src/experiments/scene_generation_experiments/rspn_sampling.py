@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 import dataclasses
 from dataclasses import dataclass
-from typing import Optional
+from typing import ClassVar, Optional
 
 from krrood.entity_query_language.backends import ProbabilisticBackend
 from krrood.entity_query_language.exceptions import NoSolutionFound
@@ -11,6 +11,9 @@ from krrood.entity_query_language.factories import a
 from krrood.parametrization.model_registries import RelationalCircuitRegistry
 from probabilistic_model.probabilistic_circuit.relational.rspn import (
     RelationalProbabilisticCircuit,
+)
+from probabilistic_model.probabilistic_circuit.rx.probabilistic_circuit import (
+    ProbabilisticCircuit,
 )
 from random_events.variable import Variable
 
@@ -21,6 +24,7 @@ from experiments.scene_generation_experiments.exceptions import (
 from krrood.utils import get_class_and_attribute_name
 from semantic_digital_twin.scene_generation.scene_schema_aggregations import (
     EGShelfAggregations,
+    EGShelfLayerAggregations,
 )
 from semantic_digital_twin.scene_generation.scene_schema import (
     EGObject2D,
@@ -151,8 +155,7 @@ def build_layer_query(
 
 def evaluate_first_supported(backend: ProbabilisticBackend, *queries):
     """
-    Evaluate *queries* in order, returning the first sample the RSPN has
-    support for.
+    Evaluate *queries* in order, returning the first sample the RSPN has support for.
 
     Each query is expected to hold strictly less evidence than the one before
     it, so the search walks outwards from the most informative conditioning to
@@ -186,9 +189,8 @@ _DRAW_ATTEMPTS = 8
 """
 How many shelves to try before reporting that none can be drawn.
 
-Each attempt redraws the layer count, so this bounds a rejection sample rather
-than a retry of the same request; a handful covers the counts a kind of shelf
-plausibly takes.
+Each attempt redraws the layer count, so this bounds a rejection sample rather than a
+retry of the same request; a handful covers the counts a kind of shelf plausibly takes.
 """
 
 
@@ -213,6 +215,24 @@ class ShelfDimensions:
     """
 
 
+def _find_variable(circuit: ProbabilisticCircuit, name: str) -> Variable:
+    """
+    Find *circuit*'s variable with the given name.
+
+    :param circuit: The class-level circuit to search.
+    :param name: The variable's full name.
+    :return: The matching variable.
+    :raises UnknownShelfVariableError: If the circuit does not model it.
+    """
+    matches = [variable for variable in circuit.variables if variable.name == name]
+    if not matches:
+        raise UnknownShelfVariableError(
+            variable_name=name,
+            modelled_variables=sorted(v.name for v in circuit.variables),
+        )
+    return matches[0]
+
+
 @dataclass(frozen=True)
 class ShelfDimensionSampler:
     """
@@ -229,35 +249,19 @@ class ShelfDimensionSampler:
     The fitted circuit, rooted at :class:`EGShelf`.
     """
 
-    def _variable_named(self, name: str) -> Variable:
-        """
-        Find the class circuit's variable with the given name.
-
-        :param name: The variable's full name.
-        :return: The matching variable.
-        :raises UnknownShelfVariableError: If the circuit does not model it.
-        """
-        circuit = self.relational_probabilistic_circuit.class_probabilistic_circuit
-        matches = [variable for variable in circuit.variables if variable.name == name]
-        if not matches:
-            raise UnknownShelfVariableError(
-                variable_name=name,
-                modelled_variables=sorted(v.name for v in circuit.variables),
-            )
-        return matches[0]
-
     def sample(self, shelf_type: ShelfType) -> ShelfDimensions:
         """
         Draw the dimensions and layer count of a shelf of the given kind.
 
         :param shelf_type: Kind of shelf to draw.
         :return: The drawn shelf-level values.
-        :raises UnknownShelfVariableError: If the circuit models neither the shelf
-            type nor the layer count, which means it predates them.
+        :raises UnknownShelfVariableError: If the circuit models neither the shelf type
+            nor the layer count, which means it predates them.
         """
         [count_feature] = EGShelfAggregations.symbolic_features_of_field("layers")
-        type_variable = self._variable_named(
-            get_class_and_attribute_name(EGShelf.__name__, "shelf_type")
+        type_variable = _find_variable(
+            self.relational_probabilistic_circuit.class_probabilistic_circuit,
+            get_class_and_attribute_name(EGShelf.__name__, "shelf_type"),
         )
         conditioned, _ = (
             self.relational_probabilistic_circuit.class_probabilistic_circuit.conditional(
@@ -285,15 +289,58 @@ class ShelfDimensionSampler:
         )
 
 
+@dataclass(frozen=True)
+class LayerObjectCountSampler:
+    """
+    Draws how many objects a layer holds from the fitted per-layer template circuit.
+
+    :class:`EGShelfLayerAggregations` records this as an aggregation statistic over each
+    observed layer's objects, so a fitted circuit already knows how many objects layers
+    of each kind of shelf tend to hold -- sampling it here is what lets a bookcase's
+    layers come out as full as bookcase layers were trained on, and a cabinet's as
+    sparse as cabinet layers were, instead of every layer getting the same caller-chosen
+    count regardless of shelf type.
+    """
+
+    layer_template_circuit: RelationalProbabilisticCircuit
+    """
+    The fitted circuit rooted at :class:`EGShelfLayer`, i.e. the "layers" exchangeable
+    distribution template's ``template_distribution``.
+    """
+
+    _SHELF_TYPE_VARIABLE_NAME: ClassVar[str] = "shelf_type"
+    """
+    Unlike a root-level circuit's own variables (e.g. ``EGShelf.shelf_type``), a nested
+    exchangeable template's own variables carry no owning-class prefix, so this is the
+    bare name the fitted circuit actually calls the field.
+    """
+
+    def sample(self, shelf_type: ShelfType) -> int:
+        """
+        Draw the object count of one layer of the given kind of shelf.
+
+        :param shelf_type: Kind of shelf the layer belongs to.
+        :return: The drawn object count, never negative.
+        :raises UnknownShelfVariableError: If the circuit models neither the layer's
+            shelf type nor its object count, which means it predates them.
+        """
+        [count_feature] = EGShelfLayerAggregations.symbolic_features_of_field("objects")
+        circuit = self.layer_template_circuit.class_probabilistic_circuit
+        type_variable = _find_variable(circuit, self._SHELF_TYPE_VARIABLE_NAME)
+        conditioned, _ = circuit.conditional({type_variable: shelf_type})
+        count_variable = _find_variable(conditioned, count_feature._name_)
+        [drawn] = conditioned.marginal([count_variable]).sample(1)
+        return max(0, round(float(drawn[0])))
+
+
 def build_shelf_query(
     shelf_type: ShelfType,
     layer_footprint: Optional[EGScale],
-    layer_count: int,
-    objects_per_layer: int,
+    objects_per_layer: Sequence[int],
 ):
     """
-    Build an EGShelf query of *layer_count* layers, each holding
-    *objects_per_layer* underspecified objects.
+    Build an EGShelf query of ``len(objects_per_layer)`` layers, the i-th holding
+    ``objects_per_layer[i]`` underspecified objects.
 
     The kind of shelf is held as evidence at both levels. It is denormalized onto
     the layers, and leaving it free there would let the drawn layers disagree with
@@ -313,18 +360,16 @@ def build_shelf_query(
     :param layer_footprint: Footprint every layer is pinned to, taken from a layer
         drawn beforehand. Left free when ``None``, which is how that first draw is
         made.
-    :param layer_count: Number of layers the shelf should have.
-    :param objects_per_layer: Number of objects to draw onto each layer.
+    :param objects_per_layer: Number of objects to draw onto each layer, one entry
+        per layer; its length is the number of layers the shelf gets.
     :return: An underspecified EGShelf query ready for
         :class:`ProbabilisticBackend` evaluation.
     """
     return a(EGShelf)(
         scale=a(EGScale)(width=..., length=..., height=...),
         layers=[
-            build_layer_query(
-                shelf_type, free_count=objects_per_layer, scale=layer_footprint
-            )
-            for _ in range(layer_count)
+            build_layer_query(shelf_type, free_count=count, scale=layer_footprint)
+            for count in objects_per_layer
         ],
         shelf_type=shelf_type,
     )
@@ -333,30 +378,33 @@ def build_shelf_query(
 def draw_shelf(
     relational_probabilistic_circuit: RelationalProbabilisticCircuit,
     shelf_type: ShelfType,
-    objects_per_layer: int,
     layer_count: Optional[int] = None,
 ) -> EGShelf:
     """
     Draw one coherent shelf of the given kind.
 
-    Three things have to agree and none can be settled by the query alone. How
-    many layers there are fixes how many slots the query needs, so it is drawn
-    from the shelf's own distribution first. The footprint every layer shares is
-    taken from a reference layer, since only a value the layers' own distribution
-    produced can be pinned on them. The shelf's height comes from the shelf, which
-    is what makes a bookcase tall and a cabinet low.
+    Four things have to agree and none can be settled by the query alone. How many
+    layers there are fixes how many slots the query needs, so it is drawn from the
+    shelf's own distribution first. Each layer's own object count is drawn the same way,
+    from :class:`LayerObjectCountSampler`, rather than taken as a caller-chosen constant
+    -- that is what lets a bookcase's layers come out as full as bookcase layers were
+    trained on. The footprint every layer shares is taken from a reference layer, since
+    only a value the layers' own distribution produced can be pinned on them. The
+    shelf's height comes from the shelf, which is what makes a bookcase tall and a
+    cabinet low.
 
     :param relational_probabilistic_circuit: The fitted circuit, rooted at EGShelf.
     :param shelf_type: Kind of shelf to draw.
-    :param objects_per_layer: Number of objects to draw onto each layer.
     :param layer_count: Overrides the drawn number of layers when given.
     :return: A shelf whose layers agree with it in footprint and count.
     """
     backend = probabilistic_backend(relational_probabilistic_circuit)
     sampler = ShelfDimensionSampler(relational_probabilistic_circuit)
-
-    def query_for(footprint: Optional[EGScale], count: int):
-        return build_shelf_query(shelf_type, footprint, count, objects_per_layer)
+    object_count_sampler = LayerObjectCountSampler(
+        relational_probabilistic_circuit.exchangeable_distribution_templates[
+            "layers"
+        ].template_distribution
+    )
 
     # Drawn by rejection. The layer count comes from the shelf's own distribution,
     # but a count can carry mass there while the shelf it implies has none -- the
@@ -369,7 +417,10 @@ def draw_shelf(
         drawn_layer_count = (
             layer_count if layer_count is not None else dimensions.layer_count
         )
-        free_query = query_for(None, drawn_layer_count)
+        objects_per_layer = [
+            object_count_sampler.sample(shelf_type) for _ in range(drawn_layer_count)
+        ]
+        free_query = build_shelf_query(shelf_type, None, objects_per_layer)
         try:
             # The footprint every layer shares has to be a value the layers' own
             # distribution produced, and only a full shelf draw resolves a layer:
@@ -377,7 +428,9 @@ def draw_shelf(
             # query never determines.
             footprint = next(iter(backend.evaluate(free_query))).layers[0].scale
             shelf = evaluate_first_supported(
-                backend, query_for(footprint, drawn_layer_count), free_query
+                backend,
+                build_shelf_query(shelf_type, footprint, objects_per_layer),
+                free_query,
             )
         except NoSolutionFound:
             continue
