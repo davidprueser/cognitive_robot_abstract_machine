@@ -1,13 +1,71 @@
+import math
 import os
 from importlib.resources import files
 from pathlib import Path
 
 import numpy as np
+import pytest
 import trimesh
 
 from krrood.adapters.json_serializer import from_json, to_json
+from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
+from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix, Point3
+from semantic_digital_twin.world import World
+from semantic_digital_twin.world_description.connections import FixedConnection
+from semantic_digital_twin.world_description.geometry import (
+    Box,
+    Cylinder,
+    Mesh,
+    Scale,
+    Sphere,
+    Texture,
+)
+from semantic_digital_twin.world_description.world_entity import Body
 
-from semantic_digital_twin.world_description.geometry import Box, Mesh, Scale, Texture
+
+def test_recenter_origin_centers_bounding_box():
+    # A non-planar point cloud whose bounding box is offset from the origin.
+    mesh = Mesh.from_3d_points(
+        points_3d=[
+            Point3(0, 0, 0),
+            Point3(2, 0, 0),
+            Point3(0, 4, 0),
+            Point3(0, 0, 6),
+        ]
+    )
+    bounding_box = mesh.local_frame_bounding_box
+    expected_center = np.array(
+        [
+            (bounding_box.min_x + bounding_box.max_x) / 2,
+            (bounding_box.min_y + bounding_box.max_y) / 2,
+            (bounding_box.min_z + bounding_box.max_z) / 2,
+        ]
+    )
+
+    mesh.recenter_origin()
+
+    np.testing.assert_allclose(mesh.origin.to_position().to_np()[:3], -expected_center)
+
+
+def test_recenter_origin_preserves_existing_rotation():
+    # Recentering only moves the origin's translation; a pre-existing rotation must
+    # survive so the shape is not silently re-oriented.
+    mesh = Mesh.from_3d_points(
+        points_3d=[
+            Point3(0, 0, 0),
+            Point3(2, 0, 0),
+            Point3(0, 4, 0),
+            Point3(0, 0, 6),
+        ]
+    )
+    mesh.origin = HomogeneousTransformationMatrix.from_xyz_rpy(0, 0, 0, 0, 0, np.pi / 2)
+    expected_rotation = mesh.origin.to_rotation_matrix().to_np()
+
+    mesh.recenter_origin()
+
+    np.testing.assert_allclose(
+        mesh.origin.to_rotation_matrix().to_np(), expected_rotation, atol=1e-12
+    )
 
 
 def test_shape():
@@ -115,9 +173,150 @@ def test_textured_primitive_survives_serialization():
     A primitive shape carrying a texture round-trips through serialization with the
     texture intact, rather than silently collapsing to its flat color.
     """
-    box = Box(scale=Scale(1.0, 1.0, 1.0), texture=Texture(file_path="/textures/marble.png"))
+    box = Box(
+        scale=Scale(1.0, 1.0, 1.0), texture=Texture(file_path="/textures/marble.png")
+    )
 
     restored = Box.from_json(box.to_json())
 
     assert restored.texture == box.texture
     assert restored == box
+
+
+# %% the volume a shape encloses
+
+
+def test_box_volume():
+    assert Box(scale=Scale(0.5, 2.0, 3.0)).volume == pytest.approx(3.0)
+
+
+def test_sphere_volume():
+    assert Sphere(radius=2.0).volume == pytest.approx(4.0 / 3.0 * math.pi * 8.0)
+
+
+def test_cylinder_volume():
+    """
+    A cylinder's volume follows from the circle its width spans, not from the polygon
+    its mesh approximates that circle with.
+    """
+    cylinder = Cylinder(width=2.0, height=3.0)
+
+    assert cylinder.volume == pytest.approx(math.pi * 3.0)
+    assert cylinder.volume > cylinder.mesh.volume
+
+
+def test_mesh_volume(tmp_path):
+    source = trimesh.creation.box(extents=(1.0, 2.0, 4.0))
+
+    mesh = Mesh.from_trimesh(mesh=source, dirname=str(tmp_path), file_type="stl")
+
+    assert mesh.volume == pytest.approx(8.0)
+
+
+# %% the units a mesh file declares
+
+
+def collada_fixture_path(file_name: str) -> str:
+    """
+    :param file_name: The name of the COLLADA file inside the collada resources.
+    :return: The absolute path of that file.
+    """
+    return os.path.join(
+        Path(files("semantic_digital_twin")).parent.parent,
+        "resources",
+        "collada",
+        file_name,
+    )
+
+
+def test_mesh_declaring_centimeters_loads_in_meters():
+    """
+    A mesh file stating that its coordinates are centimeters loads at its real size.
+
+    The world is in meters throughout, so a file measuring its cube as 100 across in
+    centimeters must arrive as a cube of one meter.
+    """
+    mesh = Mesh(filename=collada_fixture_path("centimeter_cube.dae"))
+
+    assert mesh.mesh.extents == pytest.approx([1.0, 1.0, 1.0])
+
+
+def test_mesh_declaring_no_units_is_taken_as_meters():
+    """
+    A mesh file that states no units is read as it is written.
+
+    Without a declaration there is nothing to convert from, so the coordinates are
+    already the meters the world expects.
+    """
+    mesh = Mesh(filename=collada_fixture_path("unitless_cube.dae"))
+
+    assert mesh.mesh.extents == pytest.approx([100.0, 100.0, 100.0])
+
+
+def test_declared_units_compose_with_the_meshs_own_scale():
+    """
+    A mesh keeps scaling by its own :attr:`~Mesh.scale` on top of the file's units.
+
+    The two are independent: the file says what its numbers mean, the shape says how
+    much to resize the result.
+    """
+    mesh = Mesh(
+        filename=collada_fixture_path("centimeter_cube.dae"), scale=Scale(2, 2, 2)
+    )
+
+    assert mesh.mesh.extents == pytest.approx([2.0, 2.0, 2.0])
+
+
+def test_stl_without_unit_metadata_loads_unchanged(tmp_path):
+    """
+    An STL carries no unit metadata at all, which must not be mistaken for a conversion
+    request.
+    """
+    source = trimesh.creation.box(extents=(1.0, 2.0, 4.0))
+
+    mesh = Mesh.from_trimesh(mesh=source, dirname=str(tmp_path), file_type="stl")
+
+    assert mesh.mesh.extents == pytest.approx([1.0, 2.0, 4.0])
+
+
+# %% expressing a shape's mesh in another frame
+
+
+def test_mesh_in_frame_applies_the_owning_bodys_world_transform():
+    world = World()
+    with world.modify_world():
+        root = Body(name=PrefixedName("map"))
+        world.add_kinematic_structure_entity(root)
+        obstacle = Body(name=PrefixedName("obstacle"))
+        world.add_connection(
+            FixedConnection(
+                root,
+                child=obstacle,
+                parent_T_connection_expression=HomogeneousTransformationMatrix.from_xyz_rpy(
+                    x=2.0, y=0.0, z=0.0, reference_frame=root
+                ),
+            )
+        )
+        shape = Box(scale=Scale(1.0, 1.0, 1.0))
+        obstacle.collision.append(shape)
+
+    world_mesh = shape.mesh_in_frame(root)
+
+    np.testing.assert_allclose(
+        world_mesh.bounds, shape.mesh.bounds + np.array([2.0, 0.0, 0.0])
+    )
+
+
+def test_mesh_in_frame_in_the_shapes_own_frame_matches_its_local_mesh():
+    world = World()
+    with world.modify_world():
+        root = Body(name=PrefixedName("map"))
+        world.add_kinematic_structure_entity(root)
+        obstacle = Body(name=PrefixedName("obstacle"))
+        world.add_connection(FixedConnection.create_with_dofs(world, root, obstacle))
+        shape = Box(scale=Scale(1.0, 1.0, 1.0))
+        obstacle.collision.append(shape)
+
+    world_mesh = shape.mesh_in_frame(obstacle)
+
+    np.testing.assert_allclose(world_mesh.bounds, shape.mesh.bounds)
