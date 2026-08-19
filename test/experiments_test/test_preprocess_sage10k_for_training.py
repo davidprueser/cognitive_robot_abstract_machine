@@ -28,15 +28,14 @@ from experiments.sage_10k.preprocess_sage10k_for_training import (
     object_type_height_profiles,
     shelves_with_layers,
 )
-from semantic_digital_twin.scene_generation.shelf_type_classifier import (
-    ShelfTypeClassifier,
+from semantic_digital_twin.scene_generation.shelf_membership_classifier import (
+    ShelfMembershipClassifier,
 )
 from semantic_digital_twin.scene_generation.object_type_classifier import (
     ObjectTypeClassifier,
 )
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.scene_generation.scene_schema import (
-    ShelfType,
     EGObject,
     EGObject2D,
     EGPoint2D,
@@ -142,7 +141,7 @@ def _object_2d(
         position=EGPoint2D(x=x, y=y),
         orientation=EGRotation(x=0.0, y=0.0, z=0.0),
         source_id=object_id,
-        shelf_type=ShelfType.BOOKCASE,
+        theme_dominant_type=ObjectType.BOOK,
     )
 
 
@@ -164,7 +163,7 @@ def _layers_by_shelf(objects: list[EGObject], **kwargs) -> list[list[EGShelfLaye
         for shelf in shelves_with_layers(
             objects,
             {_SHELF_SOURCE_ID: _SHELF_EXTENT},
-            {_SHELF_ID: ShelfType.BOOKCASE},
+            {_SHELF_ID},
             MeshMeasurements(source_id_to_path={}),
             **kwargs,
         )
@@ -577,7 +576,7 @@ def test_a_shelf_of_no_measurable_height_reads_as_sitting_at_its_base() -> None:
     shelves = shelves_with_layers(
         objects,
         {_SHELF_SOURCE_ID: VerticalExtent(bottom=0.0, top=0.0)},
-        {_SHELF_ID: ShelfType.BOOKCASE},
+        {_SHELF_ID},
         MeshMeasurements(source_id_to_path={}),
     )
 
@@ -600,7 +599,7 @@ def test_a_shelf_whose_mesh_was_never_measured_is_skipped() -> None:
         shelves_with_layers(
             objects,
             {},
-            {_SHELF_ID: ShelfType.BOOKCASE},
+            {_SHELF_ID},
             MeshMeasurements(source_id_to_path={}),
         )
         == []
@@ -615,7 +614,7 @@ def test_a_shelf_keeps_its_own_pose_and_measured_height() -> None:
     [shelf] = shelves_with_layers(
         _three_layer_shelf(),
         {_SHELF_SOURCE_ID: _SHELF_EXTENT},
-        {_SHELF_ID: ShelfType.BOOKCASE},
+        {_SHELF_ID},
         MeshMeasurements(source_id_to_path={}),
     )
 
@@ -626,6 +625,53 @@ def test_a_shelf_keeps_its_own_pose_and_measured_height() -> None:
         "middle",
         "top",
     ]
+
+
+def test_a_shelfs_theme_is_the_object_type_its_objects_have_the_most_of() -> None:
+    """
+    A shelf's theme is derived from what is actually placed on it, so two books and
+    one bottle must make the shelf book-themed -- and every layer and object on it
+    must carry that same theme, since it is denormalized onto all three.
+    """
+    objects = [_shelf()] + [
+        _eg_object("book_1", _SHELF_ID, ObjectType.BOOK, x=0.0, y=0.0, z=0.5),
+        _eg_object("book_2", _SHELF_ID, ObjectType.BOOK, x=0.2, y=0.0, z=0.5),
+        _eg_object("bottle_1", _SHELF_ID, ObjectType.BOTTLE, x=0.4, y=0.0, z=0.5),
+    ]
+
+    [shelf] = shelves_with_layers(
+        objects,
+        {_SHELF_SOURCE_ID: _SHELF_EXTENT},
+        {_SHELF_ID},
+        MeshMeasurements(source_id_to_path={}),
+    )
+
+    assert shelf.theme_dominant_type is ObjectType.BOOK
+    assert {layer.theme_dominant_type for layer in shelf.layers} == {ObjectType.BOOK}
+    assert {
+        obj.theme_dominant_type for layer in shelf.layers for obj in layer.objects
+    } == {ObjectType.BOOK}
+
+
+def test_a_tied_theme_breaks_alphabetically_by_type_value() -> None:
+    """
+    A tie between equally-frequent types must resolve the same way every time
+    rather than depend on iteration order -- broken here by the type's own,
+    ascending value ("book" < "bottle").
+    """
+    objects = [_shelf()] + [
+        _eg_object("bottle_1", _SHELF_ID, ObjectType.BOTTLE, x=0.0, y=0.0, z=0.5),
+        _eg_object("book_1", _SHELF_ID, ObjectType.BOOK, x=0.2, y=0.0, z=0.5),
+    ]
+
+    [shelf] = shelves_with_layers(
+        objects,
+        {_SHELF_SOURCE_ID: _SHELF_EXTENT},
+        {_SHELF_ID},
+        MeshMeasurements(source_id_to_path={}),
+    )
+
+    assert shelf.theme_dominant_type is ObjectType.BOOK
 
 
 # ---------------------------------------------------------------------------
@@ -649,7 +695,7 @@ def test_shelf_ids_come_from_the_classified_types_of_the_raw_objects(
     )
     session.commit()
 
-    contents = ShelfContents.from_raw_objects(session, ShelfTypeClassifier())
+    contents = ShelfContents.from_raw_objects(session, ShelfMembershipClassifier())
 
     assert contents.shelf_ids == {"shelf_1"}
 
@@ -658,7 +704,7 @@ def test_shelves_and_the_objects_standing_on_them_are_kept() -> None:
     shelf = _shelf()
     on_shelf = _eg_object("book_1", _SHELF_ID, ObjectType.BOOK, x=0.0, y=0.0)
     elsewhere = _eg_object("chair_1", "floor", ObjectType.CHAIR, x=5.0, y=5.0)
-    contents = ShelfContents(shelf_types_by_object_id={_SHELF_ID: ShelfType.BOOKCASE})
+    contents = ShelfContents(shelf_ids={_SHELF_ID})
 
     for processed_object in [shelf, on_shelf, elsewhere]:
         contents.collect(processed_object)
@@ -679,15 +725,12 @@ def test_a_shelf_like_object_is_not_counted_as_another_shelfs_content() -> None:
         "small_shelf_1", _SHELF_ID, ObjectType.SHELF, x=0.0, y=0.0
     )
     book = _eg_object("book_1", _SHELF_ID, ObjectType.BOOK, x=0.3, y=0.0)
-    shelf_types_by_object_id = {
-        _SHELF_ID: ShelfType.BOOKCASE,
-        "small_shelf_1": ShelfType.OPEN_SHELF,
-    }
+    shelf_ids = {_SHELF_ID, "small_shelf_1"}
 
     [extracted_shelf] = shelves_with_layers(
         [shelf, nested_shelf_like_object, book],
         {_SHELF_SOURCE_ID: _SHELF_EXTENT},
-        shelf_types_by_object_id,
+        shelf_ids,
         MeshMeasurements(source_id_to_path={}),
     )
 
@@ -707,7 +750,7 @@ def test_extraction_from_the_kept_objects_matches_extraction_from_all_of_them() 
         _eg_object("chair_1", "floor", ObjectType.CHAIR, x=5.0, y=5.0),
         _eg_object("cup_1", "table_1", ObjectType.CUP, x=6.0, y=6.0),
     ]
-    contents = ShelfContents(shelf_types_by_object_id={_SHELF_ID: ShelfType.BOOKCASE})
+    contents = ShelfContents(shelf_ids={_SHELF_ID})
     for processed_object in every_object:
         contents.collect(processed_object)
 
@@ -716,12 +759,12 @@ def test_extraction_from_the_kept_objects_matches_extraction_from_all_of_them() 
     assert shelves_with_layers(
         contents.objects,
         vertical_extents,
-        contents.shelf_types_by_object_id,
+        contents.shelf_ids,
         measurements,
     ) == shelves_with_layers(
         every_object,
         vertical_extents,
-        contents.shelf_types_by_object_id,
+        contents.shelf_ids,
         measurements,
     )
 
@@ -734,7 +777,7 @@ def test_kept_shelves_supply_the_vertical_extents_their_layers_need(
     load meshes whose reach nothing reads.
     """
     scene_directory = _cache_off_center_mesh(tmp_path, _SHELF_SOURCE_ID)
-    contents = ShelfContents(shelf_types_by_object_id={_SHELF_ID: ShelfType.BOOKCASE})
+    contents = ShelfContents(shelf_ids={_SHELF_ID})
     for processed_object in _three_layer_shelf():
         contents.collect(processed_object)
 
@@ -757,7 +800,7 @@ def _layer_at(relative_height: float, *objects: EGObject2D) -> EGShelfLayer:
         height_above_shelf_base=relative_height * 2.0,
         relative_height=relative_height,
         vertical_clearance=0.3,
-        shelf_type=ShelfType.BOOKCASE,
+        theme_dominant_type=ObjectType.BOOK,
     )
 
 
@@ -879,7 +922,7 @@ def test_extracted_contents_spawn_back_at_their_original_world_pose(
                 scene_dir=tmp_path, source_id="book_src", object_type=ObjectType.BOOK
             )
         ],
-        shelf_type=ShelfType.BOOKCASE,
+        theme_dominant_type=ObjectType.BOOK,
     ).spawn_in_world(*_empty_world())
     _move_shelf_to(spawned, shelf_world_x, shelf_world_y, shelf_yaw)
 
@@ -929,7 +972,7 @@ def test_extracted_contents_spawn_within_the_layer_footprint(tmp_path: Path) -> 
                 scene_dir=tmp_path, source_id="book_src", object_type=ObjectType.BOOK
             )
         ],
-        shelf_type=ShelfType.BOOKCASE,
+        theme_dominant_type=ObjectType.BOOK,
     ).spawn_in_world(*_empty_world())
 
     [body] = spawned.layers[0].object_bodies.values()
@@ -951,7 +994,7 @@ def test_affinity_counts_every_pair_sharing_a_layer() -> None:
                 _object_2d(ObjectType.BOOK, "book_1"),
                 _object_2d(ObjectType.CUP, "cup_1"),
             ],
-            shelf_type=ShelfType.BOOKCASE,
+            theme_dominant_type=ObjectType.BOOK,
         ),
         EGShelfLayer(
             scale=EGScale(width=0.4, length=0.3, height=0.02),
@@ -959,7 +1002,7 @@ def test_affinity_counts_every_pair_sharing_a_layer() -> None:
                 _object_2d(ObjectType.BOOK, "book_2"),
                 _object_2d(ObjectType.CUP, "cup_2"),
             ],
-            shelf_type=ShelfType.BOOKCASE,
+            theme_dominant_type=ObjectType.BOOK,
         ),
     ]
 
@@ -980,7 +1023,7 @@ def test_affinity_pairs_are_stored_in_canonical_order() -> None:
                 _object_2d(ObjectType.CUP, "cup_1"),
                 _object_2d(ObjectType.BOOK, "book_1"),
             ],
-            shelf_type=ShelfType.BOOKCASE,
+            theme_dominant_type=ObjectType.BOOK,
         )
     ]
 
@@ -998,7 +1041,7 @@ def test_affinity_mean_offset_points_from_the_first_type_to_the_second() -> None
                 _object_2d(ObjectType.CUP, "cup_1", x=0.3, y=0.1),
                 _object_2d(ObjectType.BOOK, "book_1", x=0.1, y=0.1),
             ],
-            shelf_type=ShelfType.BOOKCASE,
+            theme_dominant_type=ObjectType.BOOK,
         )
     ]
 
@@ -1016,7 +1059,7 @@ def test_affinity_averages_the_offset_over_every_observed_pair() -> None:
                 _object_2d(ObjectType.BOOK, "book_1", x=0.0, y=0.0),
                 _object_2d(ObjectType.CUP, "cup_1", x=0.2, y=0.0),
             ],
-            shelf_type=ShelfType.BOOKCASE,
+            theme_dominant_type=ObjectType.BOOK,
         ),
         EGShelfLayer(
             scale=EGScale(width=0.4, length=0.3, height=0.02),
@@ -1024,7 +1067,7 @@ def test_affinity_averages_the_offset_over_every_observed_pair() -> None:
                 _object_2d(ObjectType.BOOK, "book_2", x=0.0, y=0.0),
                 _object_2d(ObjectType.CUP, "cup_2", x=0.4, y=0.0),
             ],
-            shelf_type=ShelfType.BOOKCASE,
+            theme_dominant_type=ObjectType.BOOK,
         ),
     ]
 
@@ -1045,7 +1088,7 @@ def test_affinity_includes_pairs_of_the_same_type() -> None:
                 _object_2d(ObjectType.BOOK, "book_1", x=0.0, y=0.0),
                 _object_2d(ObjectType.BOOK, "book_2", x=0.1, y=0.0),
             ],
-            shelf_type=ShelfType.BOOKCASE,
+            theme_dominant_type=ObjectType.BOOK,
         )
     ]
 
@@ -1061,7 +1104,7 @@ def test_affinity_is_empty_for_layers_holding_a_single_object() -> None:
         EGShelfLayer(
             scale=EGScale(width=0.4, length=0.3, height=0.02),
             objects=[_object_2d(ObjectType.BOOK, "book_1")],
-            shelf_type=ShelfType.BOOKCASE,
+            theme_dominant_type=ObjectType.BOOK,
         )
     ]
 

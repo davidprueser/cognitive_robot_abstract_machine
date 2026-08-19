@@ -331,30 +331,6 @@ class ObjectType(StrEnum):
     WORKBENCH = "workbench"
 
 
-class ShelfType(StrEnum):
-    """
-    Kinds of storage furniture whose layer structure and contents are modelled
-    separately.
-
-    The members are the categories the raw dataset supports well enough to
-    condition on: each is backed by thousands of observed instances, and they
-    differ in what the model is meant to capture -- bookcases carry several
-    tightly spaced layers, cabinets and sideboards usually only one.
-
-    .. note::
-        Storage furniture the dataset describes too thinly or too ambiguously
-        (dressers, wardrobes, display cases) is deliberately absent rather than
-        folded into a neighbouring member. Conditioning on a member with almost
-        no mass silently falls back to an unconditioned draw, which would answer
-        a request for a type nothing was learned about with an arbitrary shelf.
-    """
-
-    OPEN_SHELF = "open_shelf"
-    BOOKCASE = "bookcase"
-    CABINET = "cabinet"
-    SIDEBOARD = "sideboard"
-
-
 def _mesh_centered_on_footprint(
     ply_file_path: Path,
     texture_file_path: Path,
@@ -639,16 +615,18 @@ class EGObject2D(EGWithID):
     Identifier used to look up the PLY mesh file for this object in the dataset.
     """
 
-    shelf_type: ShelfType
+    theme_dominant_type: ObjectType
     """
-    Kind of shelf this object was found in.
+    The object type that occurs most often among the objects on the shelf this object
+    was found on.
 
-    Denormalized, like :attr:`EGShelfLayer.shelf_type`, because only aggregation
-    statistics reach a part from its parent. Present on the layer alone it would shape
-    the layer's own dimensions but leave which objects are drawn onto it independent of
-    the kind of shelf -- a bookcase would fill with a cabinet's crockery. Required
-    rather than defaulted, so that an extraction path which forgets it fails outright
-    instead of quietly labelling its objects as belonging to some other kind of shelf.
+    Denormalized, like :attr:`EGShelfLayer.theme_dominant_type`, because only
+    aggregation statistics reach a part from its parent. Present on the layer alone it
+    would shape the layer's own dimensions but leave which objects are drawn onto it
+    independent of the shelf's theme -- a book-dominant shelf would fill with a bottle-
+    dominant shelf's contents. Required rather than defaulted, so that an extraction
+    path which forgets it fails outright instead of quietly labelling its objects as
+    belonging to some other shelf's theme.
     """
 
     def to_json(self) -> dict[str, Any]:
@@ -662,7 +640,7 @@ class EGObject2D(EGWithID):
             "rotation": to_json(self.orientation),
             "dimensions": to_json(self.scale),
             "source_id": self.source_id,
-            "shelf_type": self.shelf_type,
+            "theme_dominant_type": self.theme_dominant_type,
         }
 
     @classmethod
@@ -678,7 +656,7 @@ class EGObject2D(EGWithID):
             orientation=EGRotation._from_json(data["rotation"], **kwargs),
             scale=EGScale._from_json(data["dimensions"], **kwargs),
             source_id=data["source_id"],
-            shelf_type=ShelfType(data["shelf_type"]),
+            theme_dominant_type=ObjectType(data["theme_dominant_type"]),
         )
 
     def create_in_world(
@@ -804,14 +782,14 @@ class EGShelfLayer(EGBase):
     Objects placed on this layer, with positions relative to the shelf centre.
     """
 
-    shelf_type: ShelfType
+    theme_dominant_type: ObjectType
     """
-    Kind of shelf this layer belongs to.
+    The object type that occurs most often among this layer's shelf's objects.
 
     Denormalized from the owning shelf because a fitted circuit passes only
-    aggregation statistics from a parent to its parts: a type known solely to
-    the shelf would leave layer contents independent of it, and a bookcase would
-    draw the same objects as a cabinet.
+    aggregation statistics from a parent to its parts: a theme known solely to
+    the shelf would leave layer contents independent of it, and a book-dominant
+    shelf would draw the same objects as a bottle-dominant one.
     """
 
     height_above_shelf_base: float = 0.0
@@ -845,7 +823,7 @@ class EGShelfLayer(EGBase):
             **super().to_json(),
             "scale": to_json(self.scale),
             "objects": to_json(self.objects),
-            "shelf_type": self.shelf_type,
+            "theme_dominant_type": self.theme_dominant_type,
             "height_above_shelf_base": self.height_above_shelf_base,
             "relative_height": self.relative_height,
             "vertical_clearance": self.vertical_clearance,
@@ -856,7 +834,7 @@ class EGShelfLayer(EGBase):
         return cls(
             scale=EGScale._from_json(data["scale"], **kwargs),
             objects=[EGObject2D._from_json(o, **kwargs) for o in data["objects"]],
-            shelf_type=ShelfType(data["shelf_type"]),
+            theme_dominant_type=ObjectType(data["theme_dominant_type"]),
             height_above_shelf_base=data.get("height_above_shelf_base", 0.0),
             relative_height=data.get("relative_height", 0.0),
             vertical_clearance=data.get("vertical_clearance", 0.0),
@@ -1276,10 +1254,10 @@ class EGShelf(EGBase):
     The layers of the Shelf.
     """
 
-    shelf_type: ShelfType
+    theme_dominant_type: ObjectType
     """
-    Kind of shelf this is, which its dimensions, layer count and contents are
-    conditioned on.
+    The object type that occurs most often among this shelf's own objects, which its
+    dimensions, layer count and contents are conditioned on.
     """
 
     source_ids: list[MeshCandidate] | None = field(default=None)
@@ -1323,7 +1301,7 @@ class EGShelf(EGBase):
             **super().to_json(),
             "scale": to_json(self.scale),
             "layers": to_json(self.layers),
-            "shelf_type": self.shelf_type,
+            "theme_dominant_type": self.theme_dominant_type,
         }
 
     @classmethod
@@ -1331,7 +1309,7 @@ class EGShelf(EGBase):
         return cls(
             scale=EGScale._from_json(data["scale"], **kwargs),
             layers=[EGShelfLayer._from_json(l, **kwargs) for l in data["layers"]],
-            shelf_type=ShelfType(data["shelf_type"]),
+            theme_dominant_type=ObjectType(data["theme_dominant_type"]),
         )
 
     def object_local_pose(
@@ -1435,10 +1413,18 @@ class EGShelf(EGBase):
         heights_bottom_up = iter(
             step * (index + 1) for index in range(len(interior_layers))
         )
-        return [
-            corpus_height if self._rests_on_top(layer) else next(heights_bottom_up)
+        # ``layers`` is drawn from an exchangeable RSPN template and comes back in
+        # no particular order, so the grid is built by walking it sorted by height
+        # and then read back out in the caller's own order -- a slab must land at
+        # the layer it was built for, not at whichever grid slot the sorted pass
+        # happened to produce it in.
+        height_by_layer = {
+            id(layer): (
+                corpus_height if self._rests_on_top(layer) else next(heights_bottom_up)
+            )
             for layer in sorted(self.layers, key=lambda l: l.relative_height)
-        ]
+        }
+        return [height_by_layer[id(layer)] for layer in self.layers]
 
     def _spawn_placeholder(
         self,

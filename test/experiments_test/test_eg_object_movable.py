@@ -15,7 +15,6 @@ from semantic_digital_twin.scene_generation.scene_schema import (
     EGRotation,
     EGScale,
     ObjectType,
-    ShelfType,
 )
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
@@ -87,7 +86,7 @@ def _object_2d() -> EGObject2D:
         position=EGPoint2D(x=0.0, y=0.0),
         orientation=EGRotation(x=0.0, y=0.0, z=0.0),
         source_id="test_object",
-        shelf_type=ShelfType.BOOKCASE,
+        theme_dominant_type=ObjectType.BOOK,
     )
 
 

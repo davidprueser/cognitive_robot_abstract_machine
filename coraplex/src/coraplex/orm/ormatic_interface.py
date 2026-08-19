@@ -211,7 +211,7 @@ import semantic_digital_twin.scene_generation.object_type_classifier
 import semantic_digital_twin.scene_generation.sage10k_processing
 import semantic_digital_twin.scene_generation.scene_schema
 import semantic_digital_twin.scene_generation.scene_schema_aggregations
-import semantic_digital_twin.scene_generation.shelf_type_classifier
+import semantic_digital_twin.scene_generation.shelf_membership_classifier
 import semantic_digital_twin.semantic_annotations.description_matching
 import semantic_digital_twin.semantic_annotations.mixins
 import semantic_digital_twin.semantic_annotations.natural_language
@@ -20867,8 +20867,8 @@ class EGShelfDAO(
         ForeignKey(EGBaseDAO.database_id), primary_key=True, use_existing_column=True
     )
 
-    shelf_type: Mapped[
-        semantic_digital_twin.scene_generation.scene_schema.ShelfType
+    theme_dominant_type: Mapped[
+        semantic_digital_twin.scene_generation.scene_schema.ObjectType
     ] = mapped_column(
         krrood.ormatic.custom_types.PolymorphicEnumType,
         nullable=False,
@@ -20915,8 +20915,8 @@ class EGShelfLayerDAO(
     relative_height: Mapped[builtins.float] = mapped_column(use_existing_column=True)
     vertical_clearance: Mapped[builtins.float] = mapped_column(use_existing_column=True)
 
-    shelf_type: Mapped[
-        semantic_digital_twin.scene_generation.scene_schema.ShelfType
+    theme_dominant_type: Mapped[
+        semantic_digital_twin.scene_generation.scene_schema.ObjectType
     ] = mapped_column(
         krrood.ormatic.custom_types.PolymorphicEnumType,
         nullable=False,
@@ -21065,8 +21065,8 @@ class EGObject2DDAO(
         nullable=False,
         use_existing_column=True,
     )
-    shelf_type: Mapped[
-        semantic_digital_twin.scene_generation.scene_schema.ShelfType
+    theme_dominant_type: Mapped[
+        semantic_digital_twin.scene_generation.scene_schema.ObjectType
     ] = mapped_column(
         krrood.ormatic.custom_types.PolymorphicEnumType,
         nullable=False,
@@ -21226,6 +21226,8 @@ class SpawnedShelfDAO(
         Integer, primary_key=True, use_existing_column=True
     )
 
+    placeholder_count: Mapped[builtins.int] = mapped_column(use_existing_column=True)
+
     world_id: Mapped[int] = mapped_column(
         ForeignKey("WorldMappingDAO.database_id", use_alter=True),
         nullable=True,
@@ -21363,13 +21365,13 @@ class EGShelfLayerAggregationsDAO(
     )
 
 
-class ShelfTypeClassifierDAO(
+class ShelfMembershipClassifierDAO(
     Base,
     DataAccessObject[
-        semantic_digital_twin.scene_generation.shelf_type_classifier.ShelfTypeClassifier
+        semantic_digital_twin.scene_generation.shelf_membership_classifier.ShelfMembershipClassifier
     ],
 ):
-    __tablename__ = "ShelfTypeClassifierDAO"
+    __tablename__ = "ShelfMembershipClassifierDAO"
 
     database_id: Mapped[builtins.int] = mapped_column(
         Integer, primary_key=True, use_existing_column=True

@@ -107,16 +107,16 @@ class UnknownShelfVariableError(DataclassException):
 @dataclass
 class UndrawableShelfError(DataclassException):
     """
-    Raised when no shelf of the requested kind could be drawn.
+    Raised when no shelf of the requested theme could be drawn.
 
     Every attempt asked the circuit for a shelf it gives no probability to, which
     means the fit has nothing to say about that combination rather than that the
     draw was unlucky.
     """
 
-    shelf_type: str
+    requested_theme: str
     """
-    Kind of shelf that was asked for.
+    The dominant object type that was asked for.
     """
 
     requested_layer_count: Optional[int]
@@ -136,12 +136,13 @@ class UndrawableShelfError(DataclassException):
             else ""
         )
         return (
-            f"No {self.shelf_type}{pinned} could be drawn in {self.attempts} "
-            "attempts; the fitted model gives that shelf no probability."
+            f"No {self.requested_theme}-dominant shelf{pinned} could be drawn in "
+            f"{self.attempts} attempts; the fitted model gives that shelf no "
+            "probability."
         )
 
     def suggest_correction(self) -> str:
         return (
             "Leave the layer count to the model, or refit on data that contains "
-            "shelves of this kind and size."
+            "shelves of this theme and size."
         )

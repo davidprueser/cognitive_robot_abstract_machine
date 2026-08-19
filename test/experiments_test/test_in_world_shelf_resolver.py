@@ -24,7 +24,6 @@ from semantic_digital_twin.collision_checking.trimesh_collision_detector import 
     FCLCollisionDetector,
 )
 from semantic_digital_twin.scene_generation.scene_schema import (
-    ShelfType,
     EGObject2D,
     EGPoint2D,
     EGRotation,
@@ -84,7 +83,7 @@ def _object(object_id: str, x: float, y: float) -> EGObject2D:
         position=EGPoint2D(x=x, y=y),
         orientation=EGRotation(x=0.0, y=0.0, z=0.0),
         source_id="test_object",
-        shelf_type=ShelfType.BOOKCASE,
+        theme_dominant_type=ObjectType.BOOK,
     )
 
 
@@ -96,13 +95,13 @@ def _shelf(objects: list[EGObject2D], candidate: MeshCandidate) -> EGShelf:
     layer = EGShelfLayer(
         scale=EGScale(height=0.02, length=4.0, width=4.0),
         objects=objects,
-        shelf_type=ShelfType.BOOKCASE,
+        theme_dominant_type=ObjectType.BOOK,
     )
     return EGShelf(
         scale=EGScale(height=2.0, length=4.0, width=4.0),
         layers=[layer],
         source_ids=[candidate],
-        shelf_type=ShelfType.BOOKCASE,
+        theme_dominant_type=ObjectType.BOOK,
     )
 
 
@@ -130,7 +129,7 @@ def _multi_layer_shelf(candidate: MeshCandidate, corpus_height: float) -> EGShel
         EGShelfLayer(
             scale=EGScale(height=0.02, length=4.0, width=4.0),
             objects=[],
-            shelf_type=ShelfType.BOOKCASE,
+            theme_dominant_type=ObjectType.BOOK,
         )
         for _ in range(4)
     ]
@@ -138,7 +137,7 @@ def _multi_layer_shelf(candidate: MeshCandidate, corpus_height: float) -> EGShel
         scale=EGScale(height=corpus_height, length=4.0, width=4.0),
         layers=layers,
         source_ids=[candidate],
-        shelf_type=ShelfType.BOOKCASE,
+        theme_dominant_type=ObjectType.BOOK,
     )
 
 
@@ -230,7 +229,7 @@ def _single_layer_shelf_with(
         position=EGPoint2D(x=0.0, y=0.0),
         orientation=EGRotation(x=0.0, y=0.0, z=0.0),
         source_id="test_object",
-        shelf_type=ShelfType.BOOKCASE,
+        theme_dominant_type=ObjectType.BOOK,
     )
     return EGShelf(
         scale=EGScale(height=2.0, length=1.0, width=1.0),
@@ -238,10 +237,10 @@ def _single_layer_shelf_with(
             EGShelfLayer(
                 scale=EGScale(height=0.02, length=1.0, width=1.0),
                 objects=[obj],
-                shelf_type=ShelfType.BOOKCASE,
+                theme_dominant_type=ObjectType.BOOK,
             )
         ],
-        shelf_type=ShelfType.BOOKCASE,
+        theme_dominant_type=ObjectType.BOOK,
         source_ids=[candidate],
     )
 
@@ -370,13 +369,13 @@ def test_spawn_in_world_keeps_edge_object_clear_of_the_corpus_walls(
     layer = EGShelfLayer(
         scale=EGScale(height=0.02, length=_CHAIR_EXTENTS[0], width=_CHAIR_EXTENTS[1]),
         objects=[edge_object],
-        shelf_type=ShelfType.BOOKCASE,
+        theme_dominant_type=ObjectType.BOOK,
     )
     shelf = EGShelf(
         scale=EGScale(height=2.0, length=_CHAIR_EXTENTS[0], width=_CHAIR_EXTENTS[1]),
         layers=[layer],
         source_ids=[mesh_candidate],
-        shelf_type=ShelfType.BOOKCASE,
+        theme_dominant_type=ObjectType.BOOK,
     )
 
     spawned = shelf.spawn_in_world()
@@ -524,7 +523,7 @@ def test_resolver_moves_colliding_object_until_layer_is_collision_free(
     separated_layer = EGShelfLayer(
         scale=shelf.layers[0].scale,
         objects=[_object("fixed", 0.0, 0.0), _object("moved", 0.0, 1.5)],
-        shelf_type=ShelfType.BOOKCASE,
+        theme_dominant_type=ObjectType.BOOK,
     )
 
     with patch(
@@ -557,18 +556,18 @@ def test_resolver_moves_object_colliding_with_the_corpus_walls(
     layer = EGShelfLayer(
         scale=EGScale(height=0.02, length=layer_length, width=layer_width),
         objects=[_object("edge_book", _CHAIR_EXTENTS[0] * 0.5, 0.0)],
-        shelf_type=ShelfType.BOOKCASE,
+        theme_dominant_type=ObjectType.BOOK,
     )
     shelf = EGShelf(
         scale=EGScale(height=2.0, length=layer_length, width=layer_width),
         layers=[layer],
         source_ids=[mesh_candidate],
-        shelf_type=ShelfType.BOOKCASE,
+        theme_dominant_type=ObjectType.BOOK,
     )
     centered_layer = EGShelfLayer(
         scale=layer.scale,
         objects=[_object("moved", 0.0, 0.0)],
-        shelf_type=ShelfType.BOOKCASE,
+        theme_dominant_type=ObjectType.BOOK,
     )
 
     with patch(
@@ -605,7 +604,7 @@ def test_resolver_falls_back_to_relaxed_query_when_neighbour_evidence_has_no_sol
     relaxed_layer = EGShelfLayer(
         scale=shelf.layers[0].scale,
         objects=[_object("moved", 0.0, 1.5)],
-        shelf_type=ShelfType.BOOKCASE,
+        theme_dominant_type=ObjectType.BOOK,
     )
 
     with patch(
@@ -637,7 +636,7 @@ def test_resolver_drops_objects_it_cannot_separate(
     still_overlapping = EGShelfLayer(
         scale=shelf.layers[0].scale,
         objects=[_object("fixed", 0.0, 0.0), _object("moved", 0.0, 0.0)],
-        shelf_type=ShelfType.BOOKCASE,
+        theme_dominant_type=ObjectType.BOOK,
     )
 
     with patch(
@@ -674,7 +673,7 @@ def test_resolver_stops_retrying_a_persistently_stuck_object_before_max_passes(
     still_overlapping = EGShelfLayer(
         scale=shelf.layers[0].scale,
         objects=[_object("fixed", 0.0, 0.0), _object("moved", 0.0, 0.0)],
-        shelf_type=ShelfType.BOOKCASE,
+        theme_dominant_type=ObjectType.BOOK,
     )
 
     with patch(
@@ -710,7 +709,7 @@ def test_resolver_falls_back_past_the_layer_scale_when_it_has_no_solution(
     free_layer = EGShelfLayer(
         scale=shelf.layers[0].scale,
         objects=[_object("moved", 0.0, 1.5)],
-        shelf_type=ShelfType.BOOKCASE,
+        theme_dominant_type=ObjectType.BOOK,
     )
 
     with patch(

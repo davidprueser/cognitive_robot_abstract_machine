@@ -33,7 +33,7 @@ from semantic_digital_twin.scene_generation.scene_schema import (
     EGScale,
     EGShelf,
     EGShelfLayer,
-    ShelfType,
+    ObjectType,
 )
 
 
@@ -72,11 +72,11 @@ def _fixed_object_slot(object_2d: EGObject2D):
         position=object_2d.position,
         orientation=object_2d.orientation,
         source_id=None,
-        shelf_type=object_2d.shelf_type,
+        theme_dominant_type=object_2d.theme_dominant_type,
     )
 
 
-def _free_object_slot(shelf_type: ShelfType):
+def _free_object_slot(theme_dominant_type: ObjectType):
     """
     Build a fully underspecified EGObject2D query slot with all spatial fields free.
 
@@ -86,11 +86,11 @@ def _free_object_slot(shelf_type: ShelfType):
     the RSPN sampling backend leak the query's placeholder straight through instead of
     resolving it. Only yaw genuinely varies and is left for the RSPN to sample.
 
-    The kind of shelf is pinned rather than left free: it is what decides which
+    The shelf's theme is pinned rather than left free: it is what decides which
     objects are drawn, and only the fields a slot carries itself reach the
     distribution the object is drawn from.
 
-    :param shelf_type: Kind of shelf the object is being drawn into.
+    :param theme_dominant_type: The shelf's dominant object type.
     :return: An underspecified EGObject2D with position, scale, and yaw unset.
     """
     return a(EGObject2D)(
@@ -102,12 +102,12 @@ def _free_object_slot(shelf_type: ShelfType):
         position=a(EGPoint2D)(x=..., y=...),
         orientation=a(EGRotation)(x=0.0, y=0.0, z=...),
         source_id=None,
-        shelf_type=shelf_type,
+        theme_dominant_type=theme_dominant_type,
     )
 
 
 def build_layer_query(
-    shelf_type: ShelfType,
+    theme_dominant_type: ObjectType,
     fixed_objects: Sequence[EGObject2D] = (),
     free_count: int = 0,
     scale: EGScale | None = None,
@@ -126,8 +126,8 @@ def build_layer_query(
     never is. Free slots are appended after the fixed ones, so the caller reads freshly
     drawn objects off the tail of the result.
 
-    :param shelf_type: Kind of shelf the layer belongs to, held as evidence so the
-        objects drawn onto it are the ones that kind of shelf holds.
+    :param theme_dominant_type: The shelf's dominant object type, held as evidence
+        so the objects drawn onto it are the ones a shelf of that theme holds.
     :param fixed_objects: Objects whose full pose is held as evidence.
     :param free_count: Number of fully-underspecified object slots to draw.
     :param scale: The layer dimensions to condition on. When ``None``, the layer's own
@@ -142,8 +142,8 @@ def build_layer_query(
     return a(EGShelfLayer)(
         scale=scale_argument,
         objects=[_fixed_object_slot(object_2d) for object_2d in fixed_objects]
-        + [_free_object_slot(shelf_type) for _ in range(free_count)],
-        shelf_type=shelf_type,
+        + [_free_object_slot(theme_dominant_type) for _ in range(free_count)],
+        theme_dominant_type=theme_dominant_type,
         # Left free so the layer's height carries whatever the objects drawn
         # onto it imply -- a layer of books is drawn low, one of display pieces
         # high -- rather than being pinned by the caller.
@@ -190,7 +190,8 @@ _DRAW_ATTEMPTS = 8
 How many shelves to try before reporting that none can be drawn.
 
 Each attempt redraws the layer count, so this bounds a rejection sample rather than a
-retry of the same request; a handful covers the counts a kind of shelf plausibly takes.
+retry of the same request; a handful covers the counts a shelf of a given theme
+plausibly takes.
 """
 
 
@@ -249,23 +250,23 @@ class ShelfDimensionSampler:
     The fitted circuit, rooted at :class:`EGShelf`.
     """
 
-    def sample(self, shelf_type: ShelfType) -> ShelfDimensions:
+    def sample(self, theme_dominant_type: ObjectType) -> ShelfDimensions:
         """
         Draw the dimensions and layer count of a shelf of the given kind.
 
-        :param shelf_type: Kind of shelf to draw.
+        :param theme_dominant_type: The shelf's dominant object type to draw.
         :return: The drawn shelf-level values.
-        :raises UnknownShelfVariableError: If the circuit models neither the shelf type
+        :raises UnknownShelfVariableError: If the circuit models neither the theme
             nor the layer count, which means it predates them.
         """
         [count_feature] = EGShelfAggregations.symbolic_features_of_field("layers")
         type_variable = _find_variable(
             self.relational_probabilistic_circuit.class_probabilistic_circuit,
-            get_class_and_attribute_name(EGShelf.__name__, "shelf_type"),
+            get_class_and_attribute_name(EGShelf.__name__, "theme_dominant_type"),
         )
         conditioned, _ = (
             self.relational_probabilistic_circuit.class_probabilistic_circuit.conditional(
-                {type_variable: shelf_type}
+                {type_variable: theme_dominant_type}
             )
         )
         wanted = [count_feature._name_] + [
@@ -296,10 +297,10 @@ class LayerObjectCountSampler:
 
     :class:`EGShelfLayerAggregations` records this as an aggregation statistic over each
     observed layer's objects, so a fitted circuit already knows how many objects layers
-    of each kind of shelf tend to hold -- sampling it here is what lets a bookcase's
-    layers come out as full as bookcase layers were trained on, and a cabinet's as
-    sparse as cabinet layers were, instead of every layer getting the same caller-chosen
-    count regardless of shelf type.
+    of each theme tend to hold -- sampling it here is what lets a book-themed shelf's
+    layers come out as full as book-themed layers were trained on, and a tool-themed
+    shelf's as sparse as tool-themed layers were, instead of every layer getting the
+    same caller-chosen count regardless of theme.
     """
 
     layer_template_circuit: RelationalProbabilisticCircuit
@@ -308,33 +309,33 @@ class LayerObjectCountSampler:
     distribution template's ``template_distribution``.
     """
 
-    _SHELF_TYPE_VARIABLE_NAME: ClassVar[str] = "shelf_type"
+    _THEME_VARIABLE_NAME: ClassVar[str] = "theme_dominant_type"
     """
-    Unlike a root-level circuit's own variables (e.g. ``EGShelf.shelf_type``), a nested
-    exchangeable template's own variables carry no owning-class prefix, so this is the
-    bare name the fitted circuit actually calls the field.
+    Unlike a root-level circuit's own variables (e.g. ``EGShelf.theme_dominant_type``),
+    a nested exchangeable template's own variables carry no owning-class prefix, so
+    this is the bare name the fitted circuit actually calls the field.
     """
 
-    def sample(self, shelf_type: ShelfType) -> int:
+    def sample(self, theme_dominant_type: ObjectType) -> int:
         """
-        Draw the object count of one layer of the given kind of shelf.
+        Draw the object count of one layer of the given theme.
 
-        :param shelf_type: Kind of shelf the layer belongs to.
+        :param theme_dominant_type: The shelf's dominant object type.
         :return: The drawn object count, never negative.
         :raises UnknownShelfVariableError: If the circuit models neither the layer's
-            shelf type nor its object count, which means it predates them.
+            theme nor its object count, which means it predates them.
         """
         [count_feature] = EGShelfLayerAggregations.symbolic_features_of_field("objects")
         circuit = self.layer_template_circuit.class_probabilistic_circuit
-        type_variable = _find_variable(circuit, self._SHELF_TYPE_VARIABLE_NAME)
-        conditioned, _ = circuit.conditional({type_variable: shelf_type})
+        type_variable = _find_variable(circuit, self._THEME_VARIABLE_NAME)
+        conditioned, _ = circuit.conditional({type_variable: theme_dominant_type})
         count_variable = _find_variable(conditioned, count_feature._name_)
         [drawn] = conditioned.marginal([count_variable]).sample(1)
         return max(0, round(float(drawn[0])))
 
 
 def build_shelf_query(
-    shelf_type: ShelfType,
+    theme_dominant_type: ObjectType,
     layer_footprint: Optional[EGScale],
     objects_per_layer: Sequence[int],
 ):
@@ -342,9 +343,10 @@ def build_shelf_query(
     Build an EGShelf query of ``len(objects_per_layer)`` layers, the i-th holding
     ``objects_per_layer[i]`` underspecified objects.
 
-    The kind of shelf is held as evidence at both levels. It is denormalized onto
+    The shelf's theme is held as evidence at both levels. It is denormalized onto
     the layers, and leaving it free there would let the drawn layers disagree with
-    the shelf they belong to -- a bookcase whose layers claim to be a cabinet's.
+    the shelf they belong to -- a book-themed shelf whose layers claim to be
+    bottle-themed.
 
     Every layer is pinned to the shelf's own footprint, which is how real shelves
     are built and what the training data records. Left free, each layer draws its
@@ -356,7 +358,7 @@ def build_shelf_query(
     so an exact value drawn from the shelf's distribution has no counterpart in the
     layers' and pinning them to it leaves the query with no solution.
 
-    :param shelf_type: Kind of shelf to draw.
+    :param theme_dominant_type: The shelf's dominant object type to draw.
     :param layer_footprint: Footprint every layer is pinned to, taken from a layer
         drawn beforehand. Left free when ``None``, which is how that first draw is
         made.
@@ -368,33 +370,35 @@ def build_shelf_query(
     return a(EGShelf)(
         scale=a(EGScale)(width=..., length=..., height=...),
         layers=[
-            build_layer_query(shelf_type, free_count=count, scale=layer_footprint)
+            build_layer_query(
+                theme_dominant_type, free_count=count, scale=layer_footprint
+            )
             for count in objects_per_layer
         ],
-        shelf_type=shelf_type,
+        theme_dominant_type=theme_dominant_type,
     )
 
 
 def draw_shelf(
     relational_probabilistic_circuit: RelationalProbabilisticCircuit,
-    shelf_type: ShelfType,
+    theme_dominant_type: ObjectType,
     layer_count: Optional[int] = None,
 ) -> EGShelf:
     """
-    Draw one coherent shelf of the given kind.
+    Draw one coherent shelf of the given theme.
 
     Four things have to agree and none can be settled by the query alone. How many
     layers there are fixes how many slots the query needs, so it is drawn from the
     shelf's own distribution first. Each layer's own object count is drawn the same way,
     from :class:`LayerObjectCountSampler`, rather than taken as a caller-chosen constant
-    -- that is what lets a bookcase's layers come out as full as bookcase layers were
-    trained on. The footprint every layer shares is taken from a reference layer, since
-    only a value the layers' own distribution produced can be pinned on them. The
-    shelf's height comes from the shelf, which is what makes a bookcase tall and a
-    cabinet low.
+    -- that is what lets a book-themed shelf's layers come out as full as book-themed
+    layers were trained on. The footprint every layer shares is taken from a reference
+    layer, since only a value the layers' own distribution produced can be pinned on
+    them. The shelf's height comes from the shelf, which is what makes a book-themed
+    shelf tall and a tool-themed one low.
 
     :param relational_probabilistic_circuit: The fitted circuit, rooted at EGShelf.
-    :param shelf_type: Kind of shelf to draw.
+    :param theme_dominant_type: The shelf's dominant object type to draw.
     :param layer_count: Overrides the drawn number of layers when given.
     :return: A shelf whose layers agree with it in footprint and count.
     """
@@ -408,19 +412,20 @@ def draw_shelf(
 
     # Drawn by rejection. The layer count comes from the shelf's own distribution,
     # but a count can carry mass there while the shelf it implies has none -- the
-    # grounded query conditions on the count, the kind of shelf and the layer
+    # grounded query conditions on the count, the theme and the layer
     # structure together, which is stricter than the count's own marginal. Asking
     # again is how a draw from the feasible conditional is obtained; the count is
     # redrawn each time, since that is what the query rejects.
     for _ in range(_DRAW_ATTEMPTS):
-        dimensions = sampler.sample(shelf_type)
+        dimensions = sampler.sample(theme_dominant_type)
         drawn_layer_count = (
             layer_count if layer_count is not None else dimensions.layer_count
         )
         objects_per_layer = [
-            object_count_sampler.sample(shelf_type) for _ in range(drawn_layer_count)
+            object_count_sampler.sample(theme_dominant_type)
+            for _ in range(drawn_layer_count)
         ]
-        free_query = build_shelf_query(shelf_type, None, objects_per_layer)
+        free_query = build_shelf_query(theme_dominant_type, None, objects_per_layer)
         try:
             # The footprint every layer shares has to be a value the layers' own
             # distribution produced, and only a full shelf draw resolves a layer:
@@ -429,7 +434,7 @@ def draw_shelf(
             footprint = next(iter(backend.evaluate(free_query))).layers[0].scale
             shelf = evaluate_first_supported(
                 backend,
-                build_shelf_query(shelf_type, footprint, objects_per_layer),
+                build_shelf_query(theme_dominant_type, footprint, objects_per_layer),
                 free_query,
             )
         except NoSolutionFound:
@@ -442,7 +447,7 @@ def draw_shelf(
         break
     else:
         raise UndrawableShelfError(
-            shelf_type=shelf_type.value,
+            requested_theme=theme_dominant_type.value,
             requested_layer_count=layer_count,
             attempts=_DRAW_ATTEMPTS,
         )

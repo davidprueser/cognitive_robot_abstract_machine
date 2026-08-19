@@ -47,7 +47,6 @@ from semantic_digital_twin.scene_generation.scene_schema import (
     EGShelfLayer,
     MeshCandidate,
     ObjectType,
-    ShelfType,
 )
 
 
@@ -155,6 +154,67 @@ def _coarsen_rare_object_types_of_shelves(
     return [
         dataclasses.replace(
             shelf, layers=[next(coarsened_layers) for _ in shelf.layers]
+        )
+        for shelf in shelves
+    ]
+
+
+def _frequent_shelf_themes(
+    shelves: list[EGShelf],
+    keep_count: int,
+) -> set[ObjectType]:
+    """
+    Return the *keep_count* most frequent dominant types across *shelves*.
+
+    A shelf's theme (the object type its own objects have the most of) is a
+    per-shelf statistic, distinct from the per-object frequency
+    :func:`_frequent_object_types` counts -- a type common on individual objects is
+    not necessarily common as a shelf's *mode*, so this needs its own frequency
+    count rather than reusing that one.
+
+    :param shelves: Shelves whose dominant types are counted.
+    :param keep_count: Number of distinct, most frequent themes to return.
+    :return: The most frequent themes.
+    """
+    theme_counts = Counter(shelf.theme_dominant_type for shelf in shelves)
+    return {theme for theme, _ in theme_counts.most_common(keep_count)}
+
+
+def _coarsen_rare_shelf_themes(
+    shelves: list[EGShelf],
+    keep_count: int = 20,
+) -> list[EGShelf]:
+    """
+    Return new shelves whose theme, outside the *keep_count* most frequent themes
+    across *shelves*, is replaced with ``ObjectType.OTHER`` on the shelf, every
+    layer, and every object -- the three places it is denormalized onto.
+
+    :param shelves: Shelves whose themes should be coarsened.
+    :param keep_count: Number of distinct, most frequent themes to leave unchanged.
+    :return: New shelves carrying a coarsened theme throughout.
+    """
+    frequent_themes = _frequent_shelf_themes(shelves, keep_count)
+    return [
+        (
+            shelf
+            if shelf.theme_dominant_type in frequent_themes
+            else dataclasses.replace(
+                shelf,
+                theme_dominant_type=ObjectType.OTHER,
+                layers=[
+                    dataclasses.replace(
+                        layer,
+                        theme_dominant_type=ObjectType.OTHER,
+                        objects=[
+                            dataclasses.replace(
+                                object_2d, theme_dominant_type=ObjectType.OTHER
+                            )
+                            for object_2d in layer.objects
+                        ],
+                    )
+                    for layer in shelf.layers
+                ],
+            )
         )
         for shelf in shelves
     ]
@@ -284,23 +344,21 @@ def _publish_with_deleteall(viz_marker: VizMarkerPublisher) -> None:
 
 def generate_shelf_with_arbitrary_objects(
     node,
-    shelf_type: ShelfType = ShelfType.BOOKCASE,
+    theme_dominant_type: ObjectType = ObjectType.BOOK,
     layer_count: Optional[int] = None,
     placeholders_for_missing_meshes: bool = True,
-    model_path: Path = Path.home()
-    / "Documents"
-    / "sage-10k-models"
-    / "arbitrary_shelf_rspn.json",
+    model_path: Path = Path(__file__).parent / "models" / "arbitrary_shelf_rspn.json",
     visualization_backend: VisualizationBackend = VisualizationBackend.FOXGLOVE,
 ) -> VizMarkerPublisher:
     """
     Train an RSPN on whole shelves and visualise a sampled, collision-free shelf of the
-    requested kind via :attr:`visualization_backend`.
+    requested theme via :attr:`visualization_backend`.
 
     The circuit is rooted at the shelf rather than at a loose layer, so a shelf's
     dimensions, its layers and their contents are drawn together and conditioned
-    on the kind of shelf asked for: a bookcase comes out with the proportions and
-    contents bookcases were observed to have, a cabinet with a cabinet's.
+    on the theme asked for: a book-dominant shelf comes out with the proportions
+    and contents book-dominant shelves were observed to have, a bottle-dominant
+    one with a bottle-dominant shelf's.
 
     Every object type found on shelves takes part, so the circuit learns the joint
     spatial distribution across all of them. Mesh assets are drawn at random from
@@ -316,9 +374,10 @@ def generate_shelf_with_arbitrary_objects(
         scale, since the dataset's meshes are already modelled at real-world size.
 
     :param node: An active rclpy node used to publish visualisation markers.
-    :param shelf_type: Kind of shelf to generate.
-    :param layer_count: Number of layers to draw. Drawn from the kind of shelf
-        when omitted, which is what makes a bookcase deeper-stacked than a cabinet.
+    :param theme_dominant_type: The dominant object type of the shelf to generate.
+    :param layer_count: Number of layers to draw. Drawn from the theme when
+        omitted, which is what makes a book-dominant shelf deeper-stacked than a
+        tool-dominant one.
     :param placeholders_for_missing_meshes: Stand a plain box in for objects whose
         type has no cached mesh, so a sparse render can be told apart from a sparse
         draw while the mesh library is incomplete.
@@ -348,7 +407,9 @@ def generate_shelf_with_arbitrary_objects(
         shelves = load_shelves(session)
         shelf_layers = [layer for shelf in shelves for layer in shelf.layers]
         frequent_types = _frequent_object_types(shelf_layers, keep_count=20)
+        frequent_themes = _frequent_shelf_themes(shelves, keep_count=20)
         shelves = _coarsen_rare_object_types_of_shelves(shelves)
+        shelves = _coarsen_rare_shelf_themes(shelves)
 
         rspn = RelationalProbabilisticCircuit(
             EGShelf,
@@ -359,13 +420,14 @@ def generate_shelf_with_arbitrary_objects(
         trained_model = TrainedArbitraryShelfModel(
             relational_probabilistic_circuit=rspn,
             frequent_object_types=frequent_types,
+            frequent_theme_types=frequent_themes,
         )
         trained_model.save(model_path)
 
     rspn = trained_model.relational_probabilistic_circuit
     frequent_types = trained_model.frequent_object_types
 
-    shelf_sample = draw_shelf(rspn, shelf_type, layer_count)
+    shelf_sample = draw_shelf(rspn, theme_dominant_type, layer_count)
 
     source_ids = _get_source_ids_for_objects(
         load_all_objects(session), object_type=None
@@ -384,7 +446,7 @@ def generate_shelf_with_arbitrary_objects(
     # share of what survived would read as more stand-ins than there are objects.
     placed = sum(len(layer.object_bodies) for layer in spawned_shelf.layers)
     print(
-        f"{shelf_type.value}: {len(spawned_shelf.layers)} layers, "
+        f"{theme_dominant_type.value}: {len(spawned_shelf.layers)} layers, "
         f"{placed} objects standing "
         f"(spawned with {spawned_shelf.placeholder_count} placeholders, "
         f"{resolver.dropped_body_count} dropped in repair)"
@@ -417,18 +479,19 @@ if __name__ == "__main__":
         help="Viewer to publish markers for.",
     )
     parser.add_argument(
-        "--shelf-type",
-        type=ShelfType,
-        choices=list(ShelfType),
-        default=ShelfType.BOOKCASE,
-        help="Kind of shelf to sample.",
+        "--theme",
+        type=ObjectType,
+        default=ObjectType.BOOK,
+        help="Dominant object type of the shelf to sample (e.g. book, bottle, "
+        "candle, jar, vase, cup, art, container, tool). No choices are listed "
+        "since ObjectType has ~100 members; an unrecognised value raises.",
     )
     args = parser.parse_args()
 
     with rclpy_node() as node:
         viz_marker = generate_shelf_with_arbitrary_objects(
             node,
-            shelf_type=args.shelf_type,
+            theme_dominant_type=args.theme,
             visualization_backend=args.visualization,
         )
         # The MarkerArray publisher is TRANSIENT_LOCAL, so it can still serve a

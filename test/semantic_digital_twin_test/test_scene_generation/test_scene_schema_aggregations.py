@@ -10,7 +10,6 @@ from semantic_digital_twin.scene_generation.scene_schema import (
     EGShelf,
     EGShelfLayer,
     ObjectType,
-    ShelfType,
 )
 from semantic_digital_twin.scene_generation.scene_schema_aggregations import (
     EGShelfAggregations,
@@ -28,7 +27,7 @@ def _object(object_id: str) -> EGObject2D:
         position=EGPoint2D(x=0.0, y=0.0),
         orientation=EGRotation(x=0.0, y=0.0, z=0.0),
         source_id="book_src",
-        shelf_type=ShelfType.BOOKCASE,
+        theme_dominant_type=ObjectType.BOOK,
     )
 
 
@@ -36,7 +35,7 @@ def _layer(object_count: int) -> EGShelfLayer:
     return EGShelfLayer(
         scale=EGScale(width=0.6, length=0.3, height=EGShelfLayer.SLAB_THICKNESS),
         objects=[_object(f"book_{index}") for index in range(object_count)],
-        shelf_type=ShelfType.BOOKCASE,
+        theme_dominant_type=ObjectType.BOOK,
         relative_height=0.2,
     )
 
@@ -63,7 +62,7 @@ def test_a_shelf_counts_the_layers_it_holds(layer_count: int) -> None:
     shelf = EGShelf(
         scale=EGScale(width=0.6, length=0.3, height=2.0),
         layers=[_layer(1) for _ in range(layer_count)],
-        shelf_type=ShelfType.BOOKCASE,
+        theme_dominant_type=ObjectType.BOOK,
     )
 
     assert EGShelfAggregations(shelf).layer_count() == layer_count

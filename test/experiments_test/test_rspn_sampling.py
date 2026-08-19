@@ -7,7 +7,6 @@ from experiments.scene_generation_experiments.rspn_sampling import (
 )
 from krrood.parametrization.parameterizer import UnderspecifiedParameters
 from semantic_digital_twin.scene_generation.scene_schema import (
-    ShelfType,
     EGObject2D,
     EGPoint2D,
     EGRotation,
@@ -26,7 +25,7 @@ def _typed_object(object_type: ObjectType, object_id: str) -> EGObject2D:
         position=EGPoint2D(x=0.0, y=0.0),
         orientation=EGRotation(x=0.0, y=0.0, z=0.0),
         source_id=object_id,
-        shelf_type=ShelfType.BOOKCASE,
+        theme_dominant_type=ObjectType.BOTTLE,
     )
 
 
@@ -45,7 +44,7 @@ def test_free_object_slot_pins_roll_and_pitch_to_upright() -> None:
     number, so only yaw -- which genuinely varies in the training data -- may be left
     for the RSPN to sample.
     """
-    orientation = _free_object_slot(ShelfType.BOOKCASE).kwargs["orientation"]
+    orientation = _free_object_slot(ObjectType.BOTTLE).kwargs["orientation"]
 
     assert orientation.kwargs["x"] == 0.0
     assert orientation.kwargs["y"] == 0.0
@@ -65,7 +64,7 @@ def test_build_layer_query_conditions_scale_when_given() -> None:
     scale.
     """
     target_scale = EGScale(width=0.5, length=0.3, height=0.02)
-    query = build_layer_query(ShelfType.BOOKCASE, free_count=2, scale=target_scale)
+    query = build_layer_query(ObjectType.BOTTLE, free_count=2, scale=target_scale)
     params = UnderspecifiedParameters(query)
     conditioned_names = {
         variable.name
@@ -81,7 +80,7 @@ def test_build_layer_query_leaves_scale_free_without_one() -> None:
     samples scale from its marginal -- the reference layer for the fixed-scale workflow
     is obtained this way.
     """
-    query = build_layer_query(ShelfType.BOOKCASE, free_count=2)
+    query = build_layer_query(ObjectType.BOTTLE, free_count=2)
     params = UnderspecifiedParameters(query)
     conditioned_names = {
         variable.name
@@ -105,7 +104,7 @@ def test_build_layer_query_frees_resampled_scale_and_pose() -> None:
     that collapse.
     """
     query = build_layer_query(
-        ShelfType.BOOKCASE,
+        ObjectType.BOTTLE,
         [_typed_object(ObjectType.BOOK, "fixed")],
         1,
         EGScale(width=0.5, length=0.3, height=0.02),

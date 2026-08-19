@@ -223,12 +223,17 @@ class ShelfLayerGroup:
         new_layer = evaluate_first_supported(
             self.backend,
             build_layer_query(
-                layer.shelf_type, fixed_objects, len(resampled_objects), layer.scale
+                layer.theme_dominant_type,
+                fixed_objects,
+                len(resampled_objects),
+                layer.scale,
             ),
             build_layer_query(
-                layer.shelf_type, [], len(resampled_objects), layer.scale
+                layer.theme_dominant_type, [], len(resampled_objects), layer.scale
             ),
-            build_layer_query(layer.shelf_type, free_count=len(resampled_objects)),
+            build_layer_query(
+                layer.theme_dominant_type, free_count=len(resampled_objects)
+            ),
         )
         redrawn_objects = new_layer.objects[-len(resampled_objects) :]
 
