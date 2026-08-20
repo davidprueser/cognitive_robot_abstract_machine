@@ -73,9 +73,9 @@ room of twenty-odd pieces groundable.
 
 MINIMUM_SAMPLES_PER_QUANTILE = 200
 """
-Fewest training rows a continuous variable's Nyga histogram piece may describe,
-passed as ``min_samples_per_quantile`` on
-:class:`~probabilistic_model.probabilistic_circuit.relational.rspn.RelationalProbabilisticCircuit`.
+Fewest training rows a continuous variable's Nyga histogram piece may describe, passed
+as ``min_samples_per_quantile`` on :class:`~probabilistic_model.probabilistic_circuit.re
+lational.rspn.RelationalProbabilisticCircuit`.
 
 Measured against the full sage10k shelf dataset (18,437 shelves / 44,609 layers /
 124,800 objects): the library default of 10 let continuous variables (position,
@@ -234,7 +234,6 @@ def load_shelf_layers(
     layer_data_access_objects = (
         session.scalars(
             select(EGShelfLayerDAO).options(
-                joinedload(EGShelfLayerDAO.scale),
                 joinedload(EGShelfLayerDAO.objects)
                 .joinedload(EGShelfLayerDAO_objects_association.target)
                 .options(
@@ -287,7 +286,6 @@ def load_shelves(session: Session) -> list[EGShelf]:
                 joinedload(EGShelfDAO.layers)
                 .joinedload(EGShelfDAO_layers_association.target)
                 .options(
-                    joinedload(EGShelfLayerDAO.scale),
                     joinedload(EGShelfLayerDAO.objects)
                     .joinedload(EGShelfLayerDAO_objects_association.target)
                     .options(

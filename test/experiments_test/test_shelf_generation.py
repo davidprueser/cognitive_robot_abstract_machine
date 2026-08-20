@@ -304,7 +304,6 @@ def test_loading_layers_does_not_scale_query_count_with_object_count(
     session.add_all(
         to_dao(
             EGShelfLayer(
-                scale=EGScale(height=0.02, length=0.3, width=0.4),
                 objects=[
                     _typed_object(ObjectType.BOOK, f"book_{layer_index}_{index}")
                     for index in range(10)
@@ -428,7 +427,6 @@ def test_coarsen_rare_object_types_keeps_only_the_most_frequent_types() -> None:
     while cutting that domain -- and therefore grounding cost -- down sharply.
     """
     layer = EGShelfLayer(
-        scale=EGScale(height=0.02, length=0.3, width=0.4),
         objects=[
             _typed_object(ObjectType.CUP, "cup_1"),
             _typed_object(ObjectType.CUP, "cup_2"),
@@ -462,7 +460,6 @@ def test_coarsen_rare_object_types_leaves_layer_within_keep_count_unchanged() ->
     never actually rare.
     """
     layer = EGShelfLayer(
-        scale=EGScale(height=0.02, length=0.3, width=0.4),
         objects=[
             _typed_object(ObjectType.CUP, "cup_1"),
             _typed_object(ObjectType.PLANT, "plant_1"),
@@ -525,7 +522,6 @@ def test_coarsen_mesh_candidate_types_leaves_frequent_types_unchanged() -> None:
 def fitted_arbitrary_shelf_model() -> TrainedArbitraryShelfModel:
     layers = [
         EGShelfLayer(
-            scale=EGScale(height=0.02, length=0.3, width=0.4),
             objects=[
                 dataclasses.replace(
                     _typed_object(ObjectType.CUP, f"cup_{index}"),
@@ -613,7 +609,6 @@ def typed_object(object_type, object_id):
 types = [ObjectType.CUP, ObjectType.PLANT, ObjectType.BOOK, ObjectType.SHELF, ObjectType.CHAIR]
 layers = [
     EGShelfLayer(
-        scale=EGScale(height=0.02, length=0.3, width=0.4),
         objects=[typed_object(t, f"{t.value}_{i}") for t in types],
         theme_dominant_type=ObjectType.BOOK,
     )
@@ -694,7 +689,6 @@ def test_slab_size_does_not_depend_on_which_layers_are_present() -> None:
             scale=shelf_scale,
             layers=[
                 EGShelfLayer(
-                    scale=EGScale(height=0.02, length=0.3, width=width),
                     objects=[],
                     theme_dominant_type=ObjectType.BOOK,
                 )
@@ -913,7 +907,6 @@ def _layer_of(
     theme_dominant_type: ObjectType, object_type: ObjectType, index: int
 ) -> EGShelfLayer:
     return EGShelfLayer(
-        scale=EGScale(height=0.02, length=0.3, width=0.4),
         objects=[
             dataclasses.replace(
                 _typed_object(object_type, f"{object_type.value}_{index}"),
@@ -933,14 +926,6 @@ Dimensions of the synthetic bookcases, so a query can pin what was fitted.
 _CABINET_SCALE = EGScale(height=1.0, length=0.3, width=0.4)
 """
 Dimensions of the synthetic cabinets.
-"""
-
-_LAYER_SCALE = EGScale(height=0.02, length=0.3, width=0.4)
-"""
-Footprint of the synthetic layers, which every shelf of either type shares.
-
-A layer carries the slab's own thickness, not the shelf's height, so pinning a layer to
-a shelf-shaped scale asks the circuit for something it never saw.
 """
 
 
@@ -982,8 +967,8 @@ def test_a_shelf_drawn_for_one_type_holds_that_types_objects(
     two_type_shelf_model: RelationalProbabilisticCircuit,
 ) -> None:
     """
-    The whole point of the theme: a book-themed shelf must be filled with what
-    book-themed shelves hold, not with the global mixture of everything on any shelf.
+    The whole point of the theme: a book-themed shelf must be filled with what book-
+    themed shelves hold, not with the global mixture of everything on any shelf.
 
     Conditioning that quietly failed would still return a shelf, so the objects
     themselves are checked rather than merely that a draw succeeded.
@@ -991,11 +976,9 @@ def test_a_shelf_drawn_for_one_type_holds_that_types_objects(
     backend = probabilistic_backend(two_type_shelf_model)
 
     book_themed = next(
-        iter(backend.evaluate(build_shelf_query(ObjectType.BOOK, _LAYER_SCALE, [1, 1, 1])))
+        iter(backend.evaluate(build_shelf_query(ObjectType.BOOK, [1, 1, 1])))
     )
-    cup_themed = next(
-        iter(backend.evaluate(build_shelf_query(ObjectType.CUP, _LAYER_SCALE, [1])))
-    )
+    cup_themed = next(iter(backend.evaluate(build_shelf_query(ObjectType.CUP, [1]))))
 
     assert {
         obj.object_type for layer in book_themed.layers for obj in layer.objects
@@ -1009,14 +992,12 @@ def test_a_drawn_shelf_carries_the_type_it_was_asked_for(
     two_type_shelf_model: RelationalProbabilisticCircuit,
 ) -> None:
     """
-    The theme is denormalized onto the layers, so a shelf whose layers disagreed with
-    it would resample its contents against the wrong theme during repair.
+    The theme is denormalized onto the layers, so a shelf whose layers disagreed with it
+    would resample its contents against the wrong theme during repair.
     """
     backend = probabilistic_backend(two_type_shelf_model)
 
-    shelf = next(
-        iter(backend.evaluate(build_shelf_query(ObjectType.CUP, _LAYER_SCALE, [1])))
-    )
+    shelf = next(iter(backend.evaluate(build_shelf_query(ObjectType.CUP, [1]))))
 
     assert shelf.theme_dominant_type is ObjectType.CUP
     assert {layer.theme_dominant_type for layer in shelf.layers} == {ObjectType.CUP}
@@ -1041,15 +1022,14 @@ def test_a_shelf_model_learns_a_template_for_its_layers(
 
 def test_loading_a_model_fitted_before_themes_is_refused(tmp_path: Path) -> None:
     """
-    A model predating the theme loads and samples perfectly well, so nothing would
-    look wrong -- every theme would simply come out identical.
+    A model predating the theme loads and samples perfectly well, so nothing would look
+    wrong -- every theme would simply come out identical.
 
     It is refused rather than served, since a cached model outliving a schema change is
     the ordinary case, not an exotic one.
     """
     layers = [
         EGShelfLayer(
-            scale=EGScale(height=0.02, length=0.3, width=0.4),
             objects=[_typed_object(ObjectType.CUP, f"cup_{index}")],
             theme_dominant_type=ObjectType.BOOK,
         )
@@ -1103,12 +1083,13 @@ def _drop_theme_variables(node: object) -> None:
 # ---- Group G -- drawing the shelf's own attributes before its layers ----
 
 
-def _shelf_of(theme_dominant_type: ObjectType, layer_count: int, width: float) -> EGShelf:
+def _shelf_of(
+    theme_dominant_type: ObjectType, layer_count: int, width: float
+) -> EGShelf:
     return EGShelf(
         scale=EGScale(height=2.0, length=0.3, width=width),
         layers=[
             EGShelfLayer(
-                scale=EGScale(height=0.02, length=0.3, width=width),
                 objects=[
                     dataclasses.replace(
                         _typed_object(ObjectType.BOOK, f"book_{index}"),
@@ -1160,40 +1141,21 @@ def test_a_drawn_layer_count_is_never_zero(
     """
     sampler = ShelfDimensionSampler(differing_structure_model)
 
-    counts = [sampler.sample(theme_dominant_type).layer_count
-              for theme_dominant_type in (ObjectType.BOTTLE, ObjectType.BOOK)
-              for _ in range(6)]
+    counts = [
+        sampler.sample(theme_dominant_type).layer_count
+        for theme_dominant_type in (ObjectType.BOTTLE, ObjectType.BOOK)
+        for _ in range(6)
+    ]
 
     assert all(count >= 1 for count in counts)
-
-
-def test_every_layer_of_a_drawn_shelf_shares_the_shelfs_footprint(
-    differing_structure_model: RelationalProbabilisticCircuit,
-) -> None:
-    """
-    Object positions are drawn conditioned on the layer's scale, so layers whose
-    footprints disagree with the shelf get positions meant for a differently sized
-    surface -- bunched in the middle of a wide slab, or hanging off a narrow one.
-
-    Every layer of a real shelf shares its footprint, and the draw has to preserve that.
-    """
-    shelf = draw_shelf(differing_structure_model, ObjectType.BOOK)
-
-    footprints = {(layer.scale.width, layer.scale.length) for layer in shelf.layers}
-    assert len(footprints) == 1
-    assert footprints == {(shelf.scale.width, shelf.scale.length)}
 
 
 def test_a_shelf_can_be_drawn_for_every_type_the_model_knows(
     differing_structure_model: RelationalProbabilisticCircuit,
 ) -> None:
     """
-    Pinning the layers to the shelf's own drawn scale left some types with no solution
-    at all, which surfaced only when the demo was run: with real data the scale is
-    continuous, so a value drawn from the shelf's distribution has no counterpart in the
-    layers'.
-
-    Drawing each known type is what catches that.
+    A shelf of every theme the model has seen must be drawable end to end, not just the
+    ones exercised by other tests.
     """
     for theme_dominant_type in (ObjectType.BOOK, ObjectType.BOTTLE):
         shelf = draw_shelf(differing_structure_model, theme_dominant_type)
@@ -1290,10 +1252,13 @@ def test_layer_count_still_differentiates_by_type_on_realistically_sparse_data(
 # ---- Group I -- a layer's object count is learned per shelf type, not pinned ----
 
 
-def _layer_with_object_count(theme_dominant_type: ObjectType, count: int, index: int) -> EGShelfLayer:
-    object_type = ObjectType.BOOK if theme_dominant_type is ObjectType.BOOK else ObjectType.CUP
+def _layer_with_object_count(
+    theme_dominant_type: ObjectType, count: int, index: int
+) -> EGShelfLayer:
+    object_type = (
+        ObjectType.BOOK if theme_dominant_type is ObjectType.BOOK else ObjectType.CUP
+    )
     return EGShelfLayer(
-        scale=EGScale(height=0.02, length=0.3, width=0.4),
         objects=[
             dataclasses.replace(
                 _typed_object(object_type, f"{object_type.value}_{index}_{i}"),
@@ -1336,8 +1301,8 @@ def test_the_drawn_object_count_follows_the_type_it_was_asked_for(
 ) -> None:
     """
     Object counts are learned per theme via EGShelfLayerAggregations, so pinning a
-    layer's object count at a caller-chosen constant throws that away and every
-    theme's layers would come out equally full.
+    layer's object count at a caller-chosen constant throws that away and every theme's
+    layers would come out equally full.
     """
     layer_template = differing_object_count_model.exchangeable_distribution_templates[
         "layers"
@@ -1372,10 +1337,12 @@ def test_a_drawn_shelfs_layers_reflect_the_types_object_count(
 ) -> None:
     """
     draw_shelf must use the aggregation-sampled object count for each layer rather than
-    a caller-supplied constant, so a book-themed shelf comes out with fuller layers
-    than a cup-themed one without either being asked for by count.
+    a caller-supplied constant, so a book-themed shelf comes out with fuller layers than
+    a cup-themed one without either being asked for by count.
     """
-    book_themed = draw_shelf(differing_object_count_model, ObjectType.BOOK, layer_count=3)
+    book_themed = draw_shelf(
+        differing_object_count_model, ObjectType.BOOK, layer_count=3
+    )
     cup_themed = draw_shelf(differing_object_count_model, ObjectType.CUP, layer_count=1)
 
     book_counts = [len(layer.objects) for layer in book_themed.layers]

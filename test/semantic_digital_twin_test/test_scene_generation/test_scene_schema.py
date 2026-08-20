@@ -70,11 +70,8 @@ def close_and_oversized_book_candidates(
     )
 
 
-def _make_layer(
-    relative_height: float = 0.0, width: float = 0.8, length: float = 0.4
-) -> EGShelfLayer:
+def _make_layer(relative_height: float = 0.0) -> EGShelfLayer:
     return EGShelfLayer(
-        scale=EGScale(width=width, length=length, height=0.02),
         objects=[
             EGObject2D(
                 id="book_1",
@@ -96,19 +93,10 @@ def _make_layer(
 def _make_shelf(
     relative_heights: tuple[float, ...] = (0.0,),
     scale: EGScale | None = None,
-    layer_scales: tuple[tuple[float, float], ...] | None = None,
 ) -> EGShelf:
-    """
-    A shelf whose layers may deliberately disagree with it in footprint, which is what
-    an independently sampled shelf looks like before the footprint is pinned.
-    """
-    footprints = layer_scales or tuple((0.8, 0.4) for _ in relative_heights)
     return EGShelf(
         scale=scale or EGScale(height=2.0, length=0.4, width=0.8),
-        layers=[
-            _make_layer(height, width, length)
-            for height, (width, length) in zip(relative_heights, footprints)
-        ],
+        layers=[_make_layer(height) for height in relative_heights],
         theme_dominant_type=ObjectType.BOOK,
         source_ids=[],
     )
@@ -190,23 +178,15 @@ def test_theme_dominant_type_survives_a_json_round_trip() -> None:
     restored = EGShelf.from_json(shelf.to_json())
 
     assert restored.theme_dominant_type is ObjectType.BOOK
-    assert [layer.theme_dominant_type for layer in restored.layers] == [
-        ObjectType.BOOK
-    ]
+    assert [layer.theme_dominant_type for layer in restored.layers] == [ObjectType.BOOK]
 
 
 def test_every_slab_spawns_at_the_shelfs_own_footprint() -> None:
     """
-    Layers are drawn independently, so their footprints can disagree with each other and
-    with the shelf.
-
-    Spawning each at its own size leaves smaller slabs floating clear of the corpus
-    walls, so the shelf's footprint is the single source of truth.
+    A layer carries no footprint of its own, so every slab spawns at its shelf's width
+    and length.
     """
-    shelf = _make_shelf(
-        relative_heights=(0.2, 0.5, 0.8),
-        layer_scales=((0.8, 0.4), (0.5, 0.2), (0.7, 0.3)),
-    )
+    shelf = _make_shelf(relative_heights=(0.2, 0.5, 0.8))
 
     footprints = _slab_footprints(shelf)
 
@@ -269,7 +249,9 @@ def test_each_slab_is_placed_at_its_own_layers_height_rank() -> None:
         for spawned_layer in shelf.spawn_in_world().layers
     ]
 
-    ranks = sorted(range(len(spawned_heights)), key=lambda index: spawned_heights[index])
+    ranks = sorted(
+        range(len(spawned_heights)), key=lambda index: spawned_heights[index]
+    )
     expected_ranks = sorted(
         range(len(shelf.layers)),
         key=lambda index: shelf.layers[index].relative_height,
@@ -442,8 +424,6 @@ def test_a_placeholder_can_be_repositioned_like_a_real_object() -> None:
     spawned = shelf.spawn_in_world(placeholders_for_missing_meshes=True)
 
     [placeholder] = spawned.layers[0].object_bodies.values()
-    placeholder.parent_connection.origin = (
-        HomogeneousTransformationMatrix.from_xyz_rpy(
-            0.1, 0.0, 0.0, reference_frame=placeholder.parent_connection.parent
-        )
+    placeholder.parent_connection.origin = HomogeneousTransformationMatrix.from_xyz_rpy(
+        0.1, 0.0, 0.0, reference_frame=placeholder.parent_connection.parent
     )

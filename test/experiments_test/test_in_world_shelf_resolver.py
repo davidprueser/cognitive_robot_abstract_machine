@@ -93,7 +93,6 @@ def _shelf(objects: list[EGObject2D], candidate: MeshCandidate) -> EGShelf:
     still comfortably supported after being moved a metre away.
     """
     layer = EGShelfLayer(
-        scale=EGScale(height=0.02, length=4.0, width=4.0),
         objects=objects,
         theme_dominant_type=ObjectType.BOOK,
     )
@@ -122,12 +121,11 @@ def _colliding_bodies(spawned: SpawnedShelf) -> bool:
 
 def _multi_layer_shelf(candidate: MeshCandidate, corpus_height: float) -> EGShelf:
     """
-    A four-layer shelf whose layers carry only the fixed slab thickness, so the
+    A four-layer shelf whose layers carry no dimensions of their own, so the
     corpus height alone determines how the layers are spread vertically.
     """
     layers = [
         EGShelfLayer(
-            scale=EGScale(height=0.02, length=4.0, width=4.0),
             objects=[],
             theme_dominant_type=ObjectType.BOOK,
         )
@@ -235,7 +233,6 @@ def _single_layer_shelf_with(
         scale=EGScale(height=2.0, length=1.0, width=1.0),
         layers=[
             EGShelfLayer(
-                scale=EGScale(height=0.02, length=1.0, width=1.0),
                 objects=[obj],
                 theme_dominant_type=ObjectType.BOOK,
             )
@@ -367,7 +364,6 @@ def test_spawn_in_world_keeps_edge_object_clear_of_the_corpus_walls(
     """
     edge_object = _object("edge_book", 0.0, 0.0)
     layer = EGShelfLayer(
-        scale=EGScale(height=0.02, length=_CHAIR_EXTENTS[0], width=_CHAIR_EXTENTS[1]),
         objects=[edge_object],
         theme_dominant_type=ObjectType.BOOK,
     )
@@ -472,8 +468,8 @@ def test_clamp_to_bounds_moves_an_out_of_bounds_object_back_onto_the_layer(
     group.clamp_to_bounds()
 
     clamped = shelf.layers[0].objects[0].position
-    half_width = shelf.layers[0].scale.width / 2
-    half_length = shelf.layers[0].scale.length / 2
+    half_width = shelf.scale.width / 2
+    half_length = shelf.scale.length / 2
     object_scale = shelf.layers[0].objects[0].scale
     assert abs(clamped.x) + object_scale.width / 2 <= half_width + 1e-9
     assert abs(clamped.y) + object_scale.length / 2 <= half_length + 1e-9
@@ -521,7 +517,6 @@ def test_resolver_moves_colliding_object_until_layer_is_collision_free(
         [_object("book_0", 0.0, 0.0), _object("book_1", 0.0, 0.0)], mesh_candidate
     )
     separated_layer = EGShelfLayer(
-        scale=shelf.layers[0].scale,
         objects=[_object("fixed", 0.0, 0.0), _object("moved", 0.0, 1.5)],
         theme_dominant_type=ObjectType.BOOK,
     )
@@ -554,7 +549,6 @@ def test_resolver_moves_object_colliding_with_the_corpus_walls(
     layer_length = _CHAIR_EXTENTS[0] * 1.4
     layer_width = _CHAIR_EXTENTS[1] * 1.4
     layer = EGShelfLayer(
-        scale=EGScale(height=0.02, length=layer_length, width=layer_width),
         objects=[_object("edge_book", _CHAIR_EXTENTS[0] * 0.5, 0.0)],
         theme_dominant_type=ObjectType.BOOK,
     )
@@ -565,7 +559,6 @@ def test_resolver_moves_object_colliding_with_the_corpus_walls(
         theme_dominant_type=ObjectType.BOOK,
     )
     centered_layer = EGShelfLayer(
-        scale=layer.scale,
         objects=[_object("moved", 0.0, 0.0)],
         theme_dominant_type=ObjectType.BOOK,
     )
@@ -602,7 +595,6 @@ def test_resolver_falls_back_to_relaxed_query_when_neighbour_evidence_has_no_sol
         [_object("book_0", 0.0, 0.0), _object("book_1", 0.0, 0.0)], mesh_candidate
     )
     relaxed_layer = EGShelfLayer(
-        scale=shelf.layers[0].scale,
         objects=[_object("moved", 0.0, 1.5)],
         theme_dominant_type=ObjectType.BOOK,
     )
@@ -634,7 +626,6 @@ def test_resolver_drops_objects_it_cannot_separate(
         [_object("book_0", 0.0, 0.0), _object("book_1", 0.0, 0.0)], mesh_candidate
     )
     still_overlapping = EGShelfLayer(
-        scale=shelf.layers[0].scale,
         objects=[_object("fixed", 0.0, 0.0), _object("moved", 0.0, 0.0)],
         theme_dominant_type=ObjectType.BOOK,
     )
@@ -671,7 +662,6 @@ def test_resolver_stops_retrying_a_persistently_stuck_object_before_max_passes(
         [_object("book_0", 0.0, 0.0), _object("book_1", 0.0, 0.0)], mesh_candidate
     )
     still_overlapping = EGShelfLayer(
-        scale=shelf.layers[0].scale,
         objects=[_object("fixed", 0.0, 0.0), _object("moved", 0.0, 0.0)],
         theme_dominant_type=ObjectType.BOOK,
     )
@@ -688,41 +678,3 @@ def test_resolver_stops_retrying_a_persistently_stuck_object_before_max_passes(
     assert not _colliding_bodies(spawned)
     assert len(spawned.layers[0].object_bodies) < 2
     assert backend_factory.return_value.evaluate.call_count == 3
-
-
-def test_resolver_falls_back_past_the_layer_scale_when_it_has_no_solution(
-    mesh_candidate: MeshCandidate,
-) -> None:
-    """
-    Dropping the neighbour evidence is not enough when it is the *layer scale*
-    that carries no probability mass. A shelf built from a room layout has its
-    layers' scales overwritten with the sampled piece's footprint after they
-    were drawn, so a layer routinely carries dimensions the circuit never saw --
-    and the relaxed query pins that same scale, so it fails too and the
-    unhandled ``NoSolutionFound`` aborts the whole room.
-
-    Observed end to end on a 31-piece living room holding three shelves.
-    """
-    shelf = _shelf(
-        [_object("book_0", 0.0, 0.0), _object("book_1", 0.0, 0.0)], mesh_candidate
-    )
-    free_layer = EGShelfLayer(
-        scale=shelf.layers[0].scale,
-        objects=[_object("moved", 0.0, 1.5)],
-        theme_dominant_type=ObjectType.BOOK,
-    )
-
-    with patch(
-        "experiments.scene_generation_experiments.in_world_resolver.probabilistic_backend"
-    ) as backend_factory:
-        backend_factory.return_value.evaluate.side_effect = [
-            NoSolutionFound(expression=MagicMock(), found_number=0),
-            NoSolutionFound(expression=MagicMock(), found_number=0),
-            [free_layer],
-        ]
-        resolver = InWorldLayoutResolver.for_shelf(shelf, rspn=MagicMock())
-        spawned = resolver.resolve()
-
-    assert backend_factory.return_value.evaluate.call_count == 3
-    assert shelf.layers[0].objects[1].position == EGPoint2D(x=0.0, y=1.5)
-    assert not _colliding_bodies(spawned)

@@ -33,7 +33,6 @@ def _object(object_id: str) -> EGObject2D:
 
 def _layer(object_count: int) -> EGShelfLayer:
     return EGShelfLayer(
-        scale=EGScale(width=0.6, length=0.3, height=EGShelfLayer.SLAB_THICKNESS),
         objects=[_object(f"book_{index}") for index in range(object_count)],
         theme_dominant_type=ObjectType.BOOK,
         relative_height=0.2,
@@ -43,10 +42,11 @@ def _layer(object_count: int) -> EGShelfLayer:
 @pytest.mark.parametrize("object_count", [0, 1, 3, 7])
 def test_a_layer_counts_the_objects_it_holds(object_count: int) -> None:
     """
-    Aggregation statistics are the only thing a fitted circuit passes from a shelf
-    to its layers, or from a layer to its objects. One that reports a constant
-    leaves the two levels independent while still appearing in the model, so its
-    value has to be pinned and not merely its presence.
+    Aggregation statistics are the only thing a fitted circuit passes from a shelf to
+    its layers, or from a layer to its objects.
+
+    One that reports a constant leaves the two levels independent while still appearing
+    in the model, so its value has to be pinned and not merely its presence.
     """
     layer = _layer(object_count)
 

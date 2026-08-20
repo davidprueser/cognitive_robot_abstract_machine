@@ -68,15 +68,15 @@ def minimal_resample_set(colliding_pairs: set[tuple[int, int]]) -> set[int]:
 @dataclass
 class ShelfLayerGroup:
     """
-    The objects on one shelf layer that must not collide with each other or
-    the shelf's corpus, resampled against that layer's learned distribution
-    and re-seated at their existing resting height.
+    The objects on one shelf layer that must not collide with each other or the shelf's
+    corpus, resampled against that layer's learned distribution and re-seated at their
+    existing resting height.
     """
 
     bodies: dict[int, Body]
     """
-    The movable bodies to keep collision-free, keyed by their index in the
-    owning layer's objects.
+    The movable bodies to keep collision-free, keyed by their index in the owning
+    layer's objects.
     """
 
     supporting_body: Body
@@ -86,8 +86,8 @@ class ShelfLayerGroup:
 
     shelf: EGShelf
     """
-    The shelf whose layer this group belongs to; its objects are mutated in
-    place as they are resampled.
+    The shelf whose layer this group belongs to; its objects are mutated in place as
+    they are resampled.
     """
 
     layer_index: int
@@ -97,26 +97,27 @@ class ShelfLayerGroup:
 
     corpus: KinematicStructureEntity
     """
-    The shelf corpus the object bodies hang under; their poses are expressed
-    relative to it, so they stay correct after the whole shelf is repositioned.
+    The shelf corpus the object bodies hang under; their poses are expressed relative to
+    it, so they stay correct after the whole shelf is repositioned.
     """
 
     backend: ProbabilisticBackend = field(kw_only=True)
     """
-    The single-sample backend over this layer's fitted circuit, from which
-    offending object poses are redrawn.
+    The single-sample backend over this layer's fitted circuit, from which offending
+    object poses are redrawn.
     """
 
     static_obstacles: list[Body] = field(default_factory=list, kw_only=True)
     """
-    Fixed bodies the members must not collide with, beyond each other (e.g. a
-    shelf's corpus walls). Empty when the group has none.
+    Fixed bodies the members must not collide with, beyond each other (e.g. a shelf's
+    corpus walls).
+
+    Empty when the group has none.
     """
 
     def unsupported_indices(self) -> set[int]:
         """
-        Return the indices of members that :attr:`supporting_body` does not
-        support.
+        Return the indices of members that :attr:`supporting_body` does not support.
         """
         return {
             index
@@ -126,9 +127,9 @@ class ShelfLayerGroup:
 
     def colliding_indices(self, detector: FCLCollisionDetector) -> set[int]:
         """
-        Return a minimal set of member indices whose resampling clears every
-        real-mesh collision among this group's members, and against its
-        :attr:`static_obstacles`, in the spawned world.
+        Return a minimal set of member indices whose resampling clears every real-mesh
+        collision among this group's members, and against its :attr:`static_obstacles`,
+        in the spawned world.
 
         A body that hits a static obstacle (e.g. a shelf's corpus wall) is
         always resampled directly: unlike an inter-body collision, there is
@@ -179,21 +180,20 @@ class ShelfLayerGroup:
 
     def clamp_to_bounds(self) -> None:
         """
-        Move any object positioned outside this layer's own footprint back
-        to its nearest in-bounds position.
+        Move any object positioned outside this layer's own footprint back to its
+        nearest in-bounds position.
 
-        A resampled object is always re-seated at its previous resting
-        height (see :meth:`resample_and_move`), so nothing else re-checks
-        whether its X/Y position stayed within the layer -- an RSPN sample
-        landing outside the footprint would otherwise keep being treated as
-        a collision-style violation and sent through an expensive resample
-        every pass, which is not conditioned on staying in bounds and can
-        land outside it again just as easily. Moving it back directly is a
-        plain, cheap geometric fix that always succeeds.
+        A resampled object is always re-seated at its previous resting height (see
+        :meth:`resample_and_move`), so nothing else re-checks whether its X/Y position
+        stayed within the layer -- an RSPN sample landing outside the footprint would
+        otherwise keep being treated as a collision-style violation and sent through an
+        expensive resample every pass, which is not conditioned on staying in bounds and
+        can land outside it again just as easily. Moving it back directly is a plain,
+        cheap geometric fix that always succeeds.
         """
         layer = self.shelf.layers[self.layer_index]
-        half_width = layer.scale.width / 2
-        half_length = layer.scale.length / 2
+        half_width = self.shelf.scale.width / 2
+        half_length = self.shelf.scale.length / 2
         for index, object_2d in enumerate(layer.objects):
             if index not in self.bodies:
                 continue
@@ -226,10 +226,6 @@ class ShelfLayerGroup:
                 layer.theme_dominant_type,
                 fixed_objects,
                 len(resampled_objects),
-                layer.scale,
-            ),
-            build_layer_query(
-                layer.theme_dominant_type, [], len(resampled_objects), layer.scale
             ),
             build_layer_query(
                 layer.theme_dominant_type, free_count=len(resampled_objects)
@@ -251,16 +247,15 @@ class ShelfLayerGroup:
 @dataclass
 class InWorldLayoutResolver:
     """
-    Repairs a spawned layout by validating it directly in its :class:`World` and
-    moving offending bodies in place, until every collision group is
-    collision-free and supported.
+    Repairs a spawned layout by validating it directly in its :class:`World` and moving
+    offending bodies in place, until every collision group is collision-free and
+    supported.
 
-    The layout is spawned once; each repair pass redraws only the pose of
-    offending members -- holding their scale, and therefore their mesh, fixed --
-    and moves the corresponding bodies, so meshes are never reloaded. Each
-    :class:`ShelfLayerGroup` owns how it redraws its own members from its
-    layer's fitted circuit, so the resolver just drives the repair loop across
-    every layer of the shelf.
+    The layout is spawned once; each repair pass redraws only the pose of offending
+    members -- holding their scale, and therefore their mesh, fixed -- and moves the
+    corresponding bodies, so meshes are never reloaded. Each :class:`ShelfLayerGroup`
+    owns how it redraws its own members from its layer's fitted circuit, so the resolver
+    just drives the repair loop across every layer of the shelf.
     """
 
     spawned: SpawnedShelf
@@ -272,16 +267,15 @@ class InWorldLayoutResolver:
     """
     Bodies removed because no repair pass could place them.
 
-    A generated shelf comes out sparser than the layout it was built from, and
-    without this count an empty-looking shelf cannot be told apart from a model
-    that simply sampled few pieces.
+    A generated shelf comes out sparser than the layout it was built from, and without
+    this count an empty-looking shelf cannot be told apart from a model that simply
+    sampled few pieces.
     """
 
     groups: list[ShelfLayerGroup]
     """
-    One collision group per shelf layer, to keep collision-free and
-    supported; each knows how to redraw its own offending members from its
-    layer's fitted circuit.
+    One collision group per shelf layer, to keep collision-free and supported; each
+    knows how to redraw its own offending members from its layer's fitted circuit.
     """
 
     max_passes: int = 10
@@ -291,15 +285,14 @@ class InWorldLayoutResolver:
 
     stuck_after_passes: int = 3
     """
-    Consecutive passes a member may remain in violation, unresolved, before
-    it stops being resampled and is left for the final drop instead.
+    Consecutive passes a member may remain in violation, unresolved, before it stops
+    being resampled and is left for the final drop instead.
 
-    A redraw is an independent sample from roughly the same conditional
-    distribution each time, so a member whose redrawn pose keeps landing in
-    the same collision pass after pass is not converging -- it is only
-    burning passes' worth of grounding cost on an object that was never
-    going to resolve, at the expense of the budget every other member in the
-    layout shares.
+    A redraw is an independent sample from roughly the same conditional distribution
+    each time, so a member whose redrawn pose keeps landing in the same collision pass
+    after pass is not converging -- it is only burning passes' worth of grounding cost
+    on an object that was never going to resolve, at the expense of the budget every
+    other member in the layout shares.
     """
 
     @classmethod
@@ -312,17 +305,17 @@ class InWorldLayoutResolver:
         placeholders_for_missing_meshes: bool = False,
     ) -> InWorldLayoutResolver:
         """
-        Spawn *shelf* and build one collision group per layer, each supported by
-        its own slab and checked against the shelf's own corpus walls.
+        Spawn *shelf* and build one collision group per layer, each supported by its own
+        slab and checked against the shelf's own corpus walls.
 
         :param shelf: The sampled shelf to spawn and repair.
         :param rspn: The fitted circuit used to redraw offending object poses.
-        :param placeholders_for_missing_meshes: Stand a plain box in for objects
-            with no cached mesh, so an incomplete mesh library is visible in the
-            render rather than mistaken for a sparse draw.
+        :param placeholders_for_missing_meshes: Stand a plain box in for objects with no
+            cached mesh, so an incomplete mesh library is visible in the render rather
+            than mistaken for a sparse draw.
         :param max_passes: Upper bound on repair passes.
-        :param stuck_after_passes: Consecutive passes a member may remain in
-            violation before it stops being resampled.
+        :param stuck_after_passes: Consecutive passes a member may remain in violation
+            before it stops being resampled.
         :return: A resolver ready to repair the spawned shelf.
         """
         spawned = shelf.spawn_in_world(
@@ -343,9 +336,9 @@ class InWorldLayoutResolver:
         backend: ProbabilisticBackend,
     ) -> list[ShelfLayerGroup]:
         """
-        Build one :class:`ShelfLayerGroup` per layer of *spawned*, each supported
-        by its own slab, checked against the shelf's corpus walls, and resampled
-        from *backend*.
+        Build one :class:`ShelfLayerGroup` per layer of *spawned*, each supported by its
+        own slab, checked against the shelf's corpus walls, and resampled from
+        *backend*.
         """
         return [
             ShelfLayerGroup(
@@ -362,17 +355,16 @@ class InWorldLayoutResolver:
 
     def resolve(self) -> SpawnedShelf:
         """
-        Repair every group until all are collision-free and supported, moving
-        offending bodies in place.
+        Repair every group until all are collision-free and supported, moving offending
+        bodies in place.
 
-        Some sampled arrangements cannot be separated by moving alone -- objects
-        too big or too many for the space. After :attr:`max_passes`, the still
-        offending objects are dropped from the layout, so a best-effort
-        collision-free arrangement is returned rather than failing the whole
-        sample.
+        Some sampled arrangements cannot be separated by moving alone -- objects too big
+        or too many for the space. After :attr:`max_passes`, the still offending objects
+        are dropped from the layout, so a best-effort collision-free arrangement is
+        returned rather than failing the whole sample.
 
-        :raises LayoutResolutionError: If violations remain even after dropping
-            the offending objects -- a state that should not occur.
+        :raises LayoutResolutionError: If violations remain even after dropping the
+            offending objects -- a state that should not occur.
         :return: The spawned, repaired layout.
         """
         detector = FCLCollisionDetector(_world=self.spawned.world)
@@ -388,12 +380,12 @@ class InWorldLayoutResolver:
 
     def _repaired(self, detector: FCLCollisionDetector) -> dict[int, set[int]]:
         """
-        Run the repair passes and report whatever still offends once they, and
-        the final drop, are done.
+        Run the repair passes and report whatever still offends once they, and the final
+        drop, are done.
 
         :param detector: The detector to check the world through.
-        :return: Offending member indices per group index; empty when the layout
-            came out clean.
+        :return: Offending member indices per group index; empty when the layout came
+            out clean.
         """
         stuck_counts: dict[tuple[int, int], int] = {}
         for _ in range(self.max_passes):
@@ -420,16 +412,15 @@ class InWorldLayoutResolver:
         stuck_counts: dict[tuple[int, int], int],
     ) -> tuple[dict[int, set[int]], dict[tuple[int, int], int]]:
         """
-        Split *remaining* into members still worth resampling and an updated
-        stuck-pass count for each, dropping the count for any member no
-        longer in violation so it gets a fresh budget if it offends again
-        later for an unrelated reason.
+        Split *remaining* into members still worth resampling and an updated stuck-pass
+        count for each, dropping the count for any member no longer in violation so it
+        gets a fresh budget if it offends again later for an unrelated reason.
 
         :param remaining: Offending member indices per group index.
-        :param stuck_counts: Consecutive violation-pass counts from the
-            previous pass, keyed by ``(group_index, member_index)``.
-        :return: Members to resample per group index (groups with none are
-            omitted), and the updated stuck counts.
+        :param stuck_counts: Consecutive violation-pass counts from the previous pass,
+            keyed by ``(group_index, member_index)``.
+        :return: Members to resample per group index (groups with none are omitted), and
+            the updated stuck counts.
         """
         updated_counts: dict[tuple[int, int], int] = {}
         to_resample: dict[int, set[int]] = {}
@@ -449,11 +440,11 @@ class InWorldLayoutResolver:
         """
         Move every group's out-of-bounds members back within its footprint.
 
-        Run before each collision check so an RSPN sample that landed outside
-        a group's footprint is fixed by a plain, cheap geometric move rather
-        than being treated as a collision-style violation and sent through
-        an expensive resample that is not conditioned on staying in bounds
-        and so could land outside it again just as easily.
+        Run before each collision check so an RSPN sample that landed outside a group's
+        footprint is fixed by a plain, cheap geometric move rather than being treated as
+        a collision-style violation and sent through an expensive resample that is not
+        conditioned on staying in bounds and so could land outside it again just as
+        easily.
         """
         for group in self.groups:
             group.clamp_to_bounds()
@@ -486,9 +477,9 @@ class InWorldLayoutResolver:
 
     def _drop_objects(self, offenders: dict[int, set[int]]) -> None:
         """
-        Remove *offenders* from their groups and from the world, so an
-        arrangement that cannot be packed is rendered without the objects that
-        do not fit rather than not at all.
+        Remove *offenders* from their groups and from the world, so an arrangement that
+        cannot be packed is rendered without the objects that do not fit rather than not
+        at all.
 
         A dropped piece takes its whole branch with it.
 

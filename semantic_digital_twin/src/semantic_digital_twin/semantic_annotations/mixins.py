@@ -26,6 +26,7 @@ from random_events.set import Set as EventSet
 from random_events.variable import Symbolic
 from typing_extensions import (
     TYPE_CHECKING,
+    Any,
     Generic,
     List,
     Optional,
@@ -311,6 +312,7 @@ class HasRootBody(HasRootKinematicStructureEntity[TBody]):
         world_root_T_self: Optional[HomogeneousTransformationMatrix] = None,
         parent_connection_specification: Optional[ConnectionSpecification] = None,
         scale: Optional[Scale] = None,
+        **geometry_kwargs: Any,
     ) -> Self:
         """
         Create a new semantic annotation with a new body in the given world.
@@ -322,11 +324,14 @@ class HasRootBody(HasRootKinematicStructureEntity[TBody]):
             world root. When omitted, this type's default parent connection applies.
         :param scale: The scale used to generate the geometry of the body. When omitted,
             the type's default geometry scale applies.
+        :param geometry_kwargs: Further geometry parameters forwarded to
+            :meth:`get_default_root_specification`, such as a handle's ``thickness``
+            or a case's ``wall_thickness``. Unused by types whose geometry takes none.
         :return: The created semantic annotation instance.
         """
         return cls.get_specification(
             name,
-            cls.get_default_root_specification(scale=scale),
+            cls.get_default_root_specification(scale=scale, **geometry_kwargs),
             parent_connection_specification=parent_connection_specification,
         ).spawn(world, parent_T_self=world_root_T_self)
 

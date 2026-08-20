@@ -7,7 +7,6 @@ import time
 from collections import Counter
 from enum import StrEnum
 from pathlib import Path
-from typing import Optional
 
 import trimesh
 from ament_index_python.packages import get_package_share_directory
@@ -16,11 +15,17 @@ from scipy.spatial.transform import Rotation
 from sqlalchemy.orm import Session
 from visualization_msgs.msg import Marker, MarkerArray
 
+from coraplex.datastructures.grasp import GraspDescription
+from coraplex.robot_plans.actions.core.pick_up import PickUpAction
 from experiments.scene_generation_experiments.rspn_model_storage import (
     TrainedArbitraryShelfModel,
 )
 from krrood.ormatic.data_access_objects.helper import to_dao
 from krrood.ormatic.utils import create_engine
+from krrood.parametrization.model_registries import (
+    ModelRegistry,
+    RelationalCircuitRegistry,
+)
 from probabilistic_model.probabilistic_circuit.relational.rspn import (
     RelationalProbabilisticCircuit,
 )
@@ -37,16 +42,21 @@ from experiments.scene_generation_experiments.in_world_resolver import (
     InWorldLayoutResolver,
 )
 from experiments.scene_generation_experiments.rspn_sampling import (
-    draw_shelf,
+    build_theme_shelf_query,
+    evaluate_shelf_query,
 )
 from semantic_digital_twin.adapters.ros.visualization.viz_marker import (
     VizMarkerPublisher,
 )
+from semantic_digital_twin.robots.robot_parts import EndEffector
 from semantic_digital_twin.scene_generation.scene_schema import (
     EGShelf,
     EGShelfLayer,
     MeshCandidate,
     ObjectType,
+    EGObject,
+    EGObject2D,
+    SpawnedShelf,
 )
 
 
@@ -342,93 +352,105 @@ def _publish_with_deleteall(viz_marker: VizMarkerPublisher) -> None:
     viz_marker.publisher.publish(viz_marker.markers)
 
 
-def generate_shelf_with_arbitrary_objects(
-    node,
-    theme_dominant_type: ObjectType = ObjectType.BOOK,
-    layer_count: Optional[int] = None,
-    placeholders_for_missing_meshes: bool = True,
-    model_path: Path = Path(__file__).parent / "models" / "arbitrary_shelf_rspn.json",
-    visualization_backend: VisualizationBackend = VisualizationBackend.FOXGLOVE,
-) -> VizMarkerPublisher:
+def _processed_database_session() -> Session:
     """
-    Train an RSPN on whole shelves and visualise a sampled, collision-free shelf of the
-    requested theme via :attr:`visualization_backend`.
+    Open a session on the processed sage10k database, creating its schema if needed.
 
-    The circuit is rooted at the shelf rather than at a loose layer, so a shelf's
-    dimensions, its layers and their contents are drawn together and conditioned
-    on the theme asked for: a book-dominant shelf comes out with the proportions
-    and contents book-dominant shelves were observed to have, a bottle-dominant
-    one with a bottle-dominant shelf's.
-
-    Every object type found on shelves takes part, so the circuit learns the joint
-    spatial distribution across all of them. Mesh assets are drawn at random from
-    the pool of shelf-object PLY files sharing the sampled object's generalized
-    type; an object whose type has no mesh small enough for its layer is left out.
-
-    Training data comes from the processed database built by
-    :func:`preprocess_sage10k_for_training`, so what is read here is already
-    centred, filtered and grouped.
-
-    .. note::
-        Meshes keep their native size rather than being rescaled to the sampled
-        scale, since the dataset's meshes are already modelled at real-world size.
-
-    :param node: An active rclpy node used to publish visualisation markers.
-    :param theme_dominant_type: The dominant object type of the shelf to generate.
-    :param layer_count: Number of layers to draw. Drawn from the theme when
-        omitted, which is what makes a book-dominant shelf deeper-stacked than a
-        tool-dominant one.
-    :param placeholders_for_missing_meshes: Stand a plain box in for objects whose
-        type has no cached mesh, so a sparse render can be told apart from a sparse
-        draw while the mesh library is incomplete.
-    :param model_path: Where the fitted model is exported to and, on a later
-        run, loaded from instead of being refit. Training data is only
-        queried and the RSPN only fit when no model exists at this path yet.
-    :param visualization_backend: Viewer the markers are published for --
-        Foxglove needs its mesh URIs rewritten onto a ``package://`` resource
-        it can serve over its websocket, RViz loads ``file://`` resources
-        directly.
-    :return: The publisher, so a caller can keep it alive and re-trigger its TF
-        publish for viewers that connect after the initial, one-shot publish --
-        TF, unlike the marker publisher, is not transient-local.
+    :return: A session on the processed database.
     """
-    start = time.time()
     uri = os.environ.get("SAGE10K_PROCESSED_DATABASE_URI")
     assert (
         uri is not None
     ), "Please set the SAGE10K_PROCESSED_DATABASE_URI environment variable."
     engine = create_engine(uri)
     Base.metadata.create_all(bind=engine)
-    session = Session(engine)
+    return Session(engine)
 
+
+def _load_or_train_shelf_model(model_path: Path) -> TrainedArbitraryShelfModel:
+    """
+    Load the model cached at *model_path*, training and caching one from the
+    processed database if it doesn't exist yet.
+
+    Every object type found on shelves takes part in training, so the circuit learns
+    the joint spatial distribution across all of them. Training data comes from the
+    processed database built by :func:`preprocess_sage10k_for_training`, so what is
+    read here is already centred, filtered and grouped.
+
+    :param model_path: Where the fitted model is exported to and, on a later run,
+        loaded from instead of being refit. Training data is only queried and the
+        RSPN only fit when no model exists at this path yet.
+    :return: The cached or freshly fitted model.
+    """
     if model_path.exists():
-        trained_model = TrainedArbitraryShelfModel.load(model_path)
-    else:
-        shelves = load_shelves(session)
-        shelf_layers = [layer for shelf in shelves for layer in shelf.layers]
-        frequent_types = _frequent_object_types(shelf_layers, keep_count=20)
-        frequent_themes = _frequent_shelf_themes(shelves, keep_count=20)
-        shelves = _coarsen_rare_object_types_of_shelves(shelves)
-        shelves = _coarsen_rare_shelf_themes(shelves)
+        return TrainedArbitraryShelfModel.load(model_path)
 
-        rspn = RelationalProbabilisticCircuit(
-            EGShelf,
-            min_samples_per_leaf=min_samples_per_leaf_for,
-            min_samples_per_quantile=MINIMUM_SAMPLES_PER_QUANTILE,
-        ).fit([to_dao(shelf) for shelf in shelves])
+    session = _processed_database_session()
+    shelves = load_shelves(session)
+    shelf_layers = [layer for shelf in shelves for layer in shelf.layers]
+    frequent_types = _frequent_object_types(shelf_layers, keep_count=20)
+    frequent_themes = _frequent_shelf_themes(shelves, keep_count=20)
+    shelves = _coarsen_rare_object_types_of_shelves(shelves)
+    shelves = _coarsen_rare_shelf_themes(shelves)
 
-        trained_model = TrainedArbitraryShelfModel(
-            relational_probabilistic_circuit=rspn,
-            frequent_object_types=frequent_types,
-            frequent_theme_types=frequent_themes,
-        )
-        trained_model.save(model_path)
+    rspn = RelationalProbabilisticCircuit(
+        EGShelf,
+        min_samples_per_leaf=min_samples_per_leaf_for,
+        min_samples_per_quantile=MINIMUM_SAMPLES_PER_QUANTILE,
+    ).fit([to_dao(shelf) for shelf in shelves])
 
+    trained_model = TrainedArbitraryShelfModel(
+        relational_probabilistic_circuit=rspn,
+        frequent_object_types=frequent_types,
+        frequent_theme_types=frequent_themes,
+    )
+    trained_model.save(model_path)
+    return trained_model
+
+
+def generate_shelf_with_arbitrary_objects(
+    query,
+    placeholders_for_missing_meshes: bool = True,
+    model_path: Path = (Path(__file__).parent / "models" / "arbitrary_shelf_rspn.json"),
+) -> tuple[SpawnedShelf, TrainedArbitraryShelfModel]:
+    """
+    Evaluate an EGShelf query against a trained RSPN and return a collision-free,
+    spawned shelf, together with the model it was sampled from.
+
+    The circuit is rooted at the shelf rather than at a loose layer, so a shelf's
+    dimensions, its layers and their contents are drawn together, conditioned on
+    whatever evidence *query* carries: a book-dominant shelf comes out with the
+    proportions and contents book-dominant shelves were observed to have, a bottle-
+    dominant one with a bottle-dominant shelf's.
+
+    Mesh assets are drawn at random from the pool of shelf-object PLY files sharing
+    the sampled object's generalized type; an object whose type has no mesh small
+    enough for its layer is left out.
+
+    .. note::
+        Meshes keep their native size rather than being rescaled to the sampled
+        scale, since the dataset's meshes are already modelled at real-world size.
+
+    :param query: An EGShelf query to sample, e.g. built with
+        :func:`~experiments.scene_generation_experiments.rspn_sampling.build_shelf_query`
+        or :func:`~experiments.scene_generation_experiments.rspn_sampling.build_theme_shelf_query`.
+    :param placeholders_for_missing_meshes: Stand a plain box in for objects whose
+        type has no cached mesh, so a sparse render can be told apart from a sparse
+        draw while the mesh library is incomplete.
+    :param model_path: Where the fitted model is exported to and, on a later
+        run, loaded from instead of being refit. Training data is only
+        queried and the RSPN only fit when no model exists at this path yet.
+    :raises NoSolutionFound: If the model gives *query* no probability.
+    :return: The sampled, repaired, spawned shelf and the model it came from.
+    """
+    start = time.time()
+    trained_model = _load_or_train_shelf_model(model_path)
     rspn = trained_model.relational_probabilistic_circuit
     frequent_types = trained_model.frequent_object_types
 
-    shelf_sample = draw_shelf(rspn, theme_dominant_type, layer_count)
+    shelf_sample = evaluate_shelf_query(rspn, query)
 
+    session = _processed_database_session()
     source_ids = _get_source_ids_for_objects(
         load_all_objects(session), object_type=None
     )
@@ -446,14 +468,37 @@ def generate_shelf_with_arbitrary_objects(
     # share of what survived would read as more stand-ins than there are objects.
     placed = sum(len(layer.object_bodies) for layer in spawned_shelf.layers)
     print(
-        f"{theme_dominant_type.value}: {len(spawned_shelf.layers)} layers, "
-        f"{placed} objects standing "
+        f"{shelf_sample.theme_dominant_type.value}: {len(spawned_shelf.layers)} "
+        f"layers, {placed} objects standing "
         f"(spawned with {spawned_shelf.placeholder_count} placeholders, "
         f"{resolver.dropped_body_count} dropped in repair)"
     )
-    world = spawned_shelf.world
+    print(f"Finished generating shelf sample in {time.time() - start:.2f}s")
+    return spawned_shelf, trained_model
+
+
+def visualize_spawned_shelf(
+    node,
+    spawned_shelf: SpawnedShelf,
+    visualization_backend: VisualizationBackend = VisualizationBackend.FOXGLOVE,
+) -> VizMarkerPublisher:
+    """
+    Publish a spawned shelf's world as visualisation markers for
+    :attr:`visualization_backend`.
+
+    :param node: An active rclpy node used to publish visualisation markers.
+    :param spawned_shelf: The shelf to publish, e.g. as returned by
+        :func:`generate_shelf_with_arbitrary_objects`.
+    :param visualization_backend: Viewer the markers are published for --
+        Foxglove needs its mesh URIs rewritten onto a ``package://`` resource
+        it can serve over its websocket, RViz loads ``file://`` resources
+        directly.
+    :return: The publisher, so a caller can keep it alive and re-trigger its TF
+        publish for viewers that connect after the initial, one-shot publish --
+        TF, unlike the marker publisher, is not transient-local.
+    """
     viz_marker = VizMarkerPublisher(
-        _world=world,
+        _world=spawned_shelf.world,
         node=node,
         # depth=1 so a fresh subscriber's transient-local history only ever
         # holds the final, published-below markers, not the file:// URIs this
@@ -465,40 +510,28 @@ def generate_shelf_with_arbitrary_objects(
     if visualization_backend is VisualizationBackend.FOXGLOVE:
         _rewrite_mesh_uris_for_foxglove(viz_marker)
     _publish_with_deleteall(viz_marker)
-    print(f"Finished generating shelf sample in {time.time() - start:.2f}s")
     return viz_marker
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--visualization",
-        type=VisualizationBackend,
-        choices=list(VisualizationBackend),
-        default=VisualizationBackend.FOXGLOVE,
-        help="Viewer to publish markers for.",
-    )
-    parser.add_argument(
-        "--theme",
-        type=ObjectType,
-        default=ObjectType.BOOK,
-        help="Dominant object type of the shelf to sample (e.g. book, bottle, "
-        "candle, jar, vase, cup, art, container, tool). No choices are listed "
-        "since ObjectType has ~100 members; an unrecognised value raises.",
-    )
-    args = parser.parse_args()
 
     with rclpy_node() as node:
-        viz_marker = generate_shelf_with_arbitrary_objects(
-            node,
-            theme_dominant_type=args.theme,
-            visualization_backend=args.visualization,
+        model_path = Path(__file__).parent / "models" / "arbitrary_shelf_rspn.json"
+
+        trained_model = _load_or_train_shelf_model(model_path)
+
+        query = build_theme_shelf_query(
+            trained_model.relational_probabilistic_circuit,
+            ObjectType.BOTTLE,
+            [3, 3, 3, 3],
         )
-        # The MarkerArray publisher is TRANSIENT_LOCAL, so it can still serve a
-        # viewer that connects after this point, but TF is not: a viewer that
-        # connects (or reconnects, e.g. on a page refresh) after the one-shot
-        # publish in with_tf_publisher() would see no transforms at all, so TF
-        # is re-published here on every tick to cover that.
+
+        spawned_shelf, trained_model = generate_shelf_with_arbitrary_objects(
+            query, model_path=model_path
+        )
+        viz_marker = visualize_spawned_shelf(
+            node, spawned_shelf, visualization_backend=VisualizationBackend.FOXGLOVE
+        )
         print(
             "Publishing until interrupted (Ctrl+C); keep this running while "
             "a viewer is connected."
@@ -517,3 +550,24 @@ if __name__ == "__main__":
             viz_marker.publisher.publish(
                 MarkerArray(markers=[Marker(action=Marker.DELETEALL)])
             )
+
+
+@dataclasses.dataclass
+class ShelfTidyingAction:
+    shelf: EGShelf
+
+    obj: EGObject2D
+
+    model_registry: RelationalCircuitRegistry
+
+    arm: EndEffector
+
+    grasp_description: GraspDescription
+
+    def perform(self):
+        # gcs calculate
+        # calculate standing location for object pickup with gcs
+
+        # ask rspn where density is highest for this object
+        # move and place where rspn says it should go; needs condition and gcs
+        pass

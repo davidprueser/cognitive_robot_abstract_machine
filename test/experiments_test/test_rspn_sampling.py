@@ -52,42 +52,8 @@ def test_free_object_slot_pins_roll_and_pitch_to_upright() -> None:
 
 
 # ---------------------------------------------------------------------------
-# build_layer_query - conditioning on EGScale and fixed objects during
-# RSPN sampling
+# build_layer_query - conditioning on fixed objects during RSPN sampling
 # ---------------------------------------------------------------------------
-
-
-def test_build_layer_query_conditions_scale_when_given() -> None:
-    """
-    build_layer_query must register a given scale's width and length as conditioning
-    assignments so the RSPN draws positions that are appropriate for that specific
-    scale.
-    """
-    target_scale = EGScale(width=0.5, length=0.3, height=0.02)
-    query = build_layer_query(ObjectType.BOTTLE, free_count=2, scale=target_scale)
-    params = UnderspecifiedParameters(query)
-    conditioned_names = {
-        variable.name
-        for variable in params.conditioning_assignments_from_literal_values
-    }
-    assert any("scale.width" in name for name in conditioned_names)
-    assert any("scale.length" in name for name in conditioned_names)
-
-
-def test_build_layer_query_leaves_scale_free_without_one() -> None:
-    """
-    build_layer_query must leave scale as a free variable when none is given so the RSPN
-    samples scale from its marginal -- the reference layer for the fixed-scale workflow
-    is obtained this way.
-    """
-    query = build_layer_query(ObjectType.BOTTLE, free_count=2)
-    params = UnderspecifiedParameters(query)
-    conditioned_names = {
-        variable.name
-        for variable in params.conditioning_assignments_from_literal_values
-    }
-    assert not any("scale.width" in name for name in conditioned_names)
-    assert not any("scale.length" in name for name in conditioned_names)
 
 
 def test_build_layer_query_frees_resampled_scale_and_pose() -> None:
@@ -107,7 +73,6 @@ def test_build_layer_query_frees_resampled_scale_and_pose() -> None:
         ObjectType.BOTTLE,
         [_typed_object(ObjectType.BOOK, "fixed")],
         1,
-        EGScale(width=0.5, length=0.3, height=0.02),
     )
     params = UnderspecifiedParameters(query)
     conditioned_names = {
@@ -115,8 +80,6 @@ def test_build_layer_query_frees_resampled_scale_and_pose() -> None:
         for variable in params.conditioning_assignments_from_literal_values
     }
     conditioned_positions = [name for name in conditioned_names if "position.x" in name]
-    # "objects[" scopes to per-object scale, excluding the layer's own
-    # (always-fixed) EGShelfLayer.scale.width.
     conditioned_scales = [
         name
         for name in conditioned_names

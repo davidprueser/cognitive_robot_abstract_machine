@@ -608,14 +608,14 @@ def _elevator_world_setup():
         scale = Scale(1, 1, 1)
         name = PrefixedName("elevator")
         elevator = Elevator.create_with_new_body_in_world(
-            name=PrefixedName("Elevator"),
+            name="Elevator",
             world=world,
             scale=Scale(1, 1, 1),
             wall_thickness=0.05,
         )
 
         vertical_drive = Slider.create_with_new_body_in_world(
-            name=PrefixedName(f"{name.name}_drive", name.prefix),
+            name=f"{name.name}_drive",
             world=world,
             active_axis=Vector3.Z(),
         )
@@ -623,7 +623,7 @@ def _elevator_world_setup():
 
         door_scale = Scale(wall_thickness, scale.y / 2, scale.z)
         door1 = Door.create_with_new_body_in_world(
-            name=PrefixedName(f"{name.name}_door0", name.prefix),
+            name=f"{name.name}_door0",
             world=world,
             world_root_T_self=HomogeneousTransformationMatrix.from_point_rotation_matrix(
                 Point3(-scale.x / 2, -scale.y / 4, 0),
@@ -632,7 +632,7 @@ def _elevator_world_setup():
             scale=door_scale,
         )
         door2 = Door.create_with_new_body_in_world(
-            name=PrefixedName(f"{name.name}_door1", name.prefix),
+            name=f"{name.name}_door1",
             world=world,
             world_root_T_self=HomogeneousTransformationMatrix.from_point_rotation_matrix(
                 Point3(-scale.x / 2, scale.y / 4, 0),
@@ -659,7 +659,7 @@ def _elevator_world_setup():
         )
         for i, (current_door, lower, upper) in enumerate(door_slider_configs):
             door_slider = Slider.create_with_new_body_in_world(
-                name=PrefixedName(f"{name.name}_door{i}_drive", name.prefix),
+                name=f"{name.name}_door{i}_drive",
                 world=world,
                 active_axis=(Vector3.Y() * ((-1) ** (i + 1))),
                 connection_limits=DegreeOfFreedomLimits(lower=lower, upper=upper),

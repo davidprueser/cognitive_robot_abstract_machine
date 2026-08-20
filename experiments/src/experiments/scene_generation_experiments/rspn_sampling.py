@@ -1,9 +1,8 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-import dataclasses
 from dataclasses import dataclass
-from typing import ClassVar, Optional
+from typing import ClassVar, Optional, List
 
 from krrood.entity_query_language.backends import ProbabilisticBackend
 from krrood.entity_query_language.exceptions import NoSolutionFound
@@ -86,9 +85,9 @@ def _free_object_slot(theme_dominant_type: ObjectType):
     the RSPN sampling backend leak the query's placeholder straight through instead of
     resolving it. Only yaw genuinely varies and is left for the RSPN to sample.
 
-    The shelf's theme is pinned rather than left free: it is what decides which
-    objects are drawn, and only the fields a slot carries itself reach the
-    distribution the object is drawn from.
+    The shelf's theme is pinned rather than left free: it is what decides which objects
+    are drawn, and only the fields a slot carries itself reach the distribution the
+    object is drawn from.
 
     :param theme_dominant_type: The shelf's dominant object type.
     :return: An underspecified EGObject2D with position, scale, and yaw unset.
@@ -110,7 +109,6 @@ def build_layer_query(
     theme_dominant_type: ObjectType,
     fixed_objects: Sequence[EGObject2D] = (),
     free_count: int = 0,
-    scale: EGScale | None = None,
 ):
     """
     Build an EGShelfLayer query that keeps *fixed_objects*' spatial fields as
@@ -118,29 +116,18 @@ def build_layer_query(
     underspecified.
 
     Used both to draw a layer from scratch (no fixed objects) and to redraw a layer's
-    offending objects while holding its others in place. Conditioning a resampled slot
-    on its own scale, in addition to the other objects' exact poses, pins the query to
-    the single training example that combination of evidence came from, collapsing the
-    RSPN's posterior for that slot's position back to its original, still-colliding
-    value -- so a fixed object's scale is carried as evidence but a free slot's scale
-    never is. Free slots are appended after the fixed ones, so the caller reads freshly
-    drawn objects off the tail of the result.
+    offending objects while holding its others in place. Free slots are appended after
+    the fixed ones, so the caller reads freshly drawn objects off the tail of the
+    result.
 
-    :param theme_dominant_type: The shelf's dominant object type, held as evidence
-        so the objects drawn onto it are the ones a shelf of that theme holds.
+    :param theme_dominant_type: The shelf's dominant object type, held as evidence so
+        the objects drawn onto it are the ones a shelf of that theme holds.
     :param fixed_objects: Objects whose full pose is held as evidence.
     :param free_count: Number of fully-underspecified object slots to draw.
-    :param scale: The layer dimensions to condition on. When ``None``, the layer's own
-        scale is left free and sampled from the RSPN marginal -- used to draw a
-        reference layer whose scale can then be passed here for subsequent layers.
     :return: An underspecified EGShelfLayer query ready for
         :class:`ProbabilisticBackend` evaluation.
     """
-    scale_argument = (
-        scale if scale is not None else a(EGScale)(width=..., length=..., height=...)
-    )
     return a(EGShelfLayer)(
-        scale=scale_argument,
         objects=[_fixed_object_slot(object_2d) for object_2d in fixed_objects]
         + [_free_object_slot(theme_dominant_type) for _ in range(free_count)],
         theme_dominant_type=theme_dominant_type,
@@ -159,18 +146,11 @@ def evaluate_first_supported(backend: ProbabilisticBackend, *queries):
 
     Each query is expected to hold strictly less evidence than the one before
     it, so the search walks outwards from the most informative conditioning to
-    the least. Two kinds of evidence go unsupported in practice, and both abort
-    the whole layout if the search stops early:
-
-    - **Neighbour poses.** Conditioning a resample on every already-placed
-      neighbour's exact pose pins the query to a region of zero probability
-      mass, and the neighbours drift further from the training distribution
-      with each repair pass.
-    - **The layer's own scale.** Every layer of a shelf is conditioned on the
-      reference layer's drawn scale (see :func:`build_layer_query`),
-      so a later layer's objects are resampled against a scale the circuit only
-      ever saw paired with a different layer's contents. Relaxing only the
-      neighbours keeps that scale pinned and fails again.
+    the least. In practice it is neighbour poses that go unsupported and abort
+    the whole layout if the search stops early: conditioning a resample on
+    every already-placed neighbour's exact pose pins the query to a region of
+    zero probability mass, and the neighbours drift further from the training
+    distribution with each repair pass.
 
     :param backend: The backend to evaluate the queries against.
     :param queries: Progressively less-conditioned forms of the same query.
@@ -256,8 +236,8 @@ class ShelfDimensionSampler:
 
         :param theme_dominant_type: The shelf's dominant object type to draw.
         :return: The drawn shelf-level values.
-        :raises UnknownShelfVariableError: If the circuit models neither the theme
-            nor the layer count, which means it predates them.
+        :raises UnknownShelfVariableError: If the circuit models neither the theme nor
+            the layer count, which means it predates them.
         """
         [count_feature] = EGShelfAggregations.symbolic_features_of_field("layers")
         type_variable = _find_variable(
@@ -312,8 +292,8 @@ class LayerObjectCountSampler:
     _THEME_VARIABLE_NAME: ClassVar[str] = "theme_dominant_type"
     """
     Unlike a root-level circuit's own variables (e.g. ``EGShelf.theme_dominant_type``),
-    a nested exchangeable template's own variables carry no owning-class prefix, so
-    this is the bare name the fitted circuit actually calls the field.
+    a nested exchangeable template's own variables carry no owning-class prefix, so this
+    is the bare name the fitted circuit actually calls the field.
     """
 
     def sample(self, theme_dominant_type: ObjectType) -> int:
@@ -336,47 +316,126 @@ class LayerObjectCountSampler:
 
 def build_shelf_query(
     theme_dominant_type: ObjectType,
-    layer_footprint: Optional[EGScale],
     objects_per_layer: Sequence[int],
 ):
     """
     Build an EGShelf query of ``len(objects_per_layer)`` layers, the i-th holding
     ``objects_per_layer[i]`` underspecified objects.
 
-    The shelf's theme is held as evidence at both levels. It is denormalized onto
-    the layers, and leaving it free there would let the drawn layers disagree with
-    the shelf they belong to -- a book-themed shelf whose layers claim to be
-    bottle-themed.
+    Written as one nested query rather than composed from separate per-layer and
+    per-object builders, so what is pinned as evidence versus left for the RSPN to
+    sample is visible in a single place.
 
-    Every layer is pinned to the shelf's own footprint, which is how real shelves
-    are built and what the training data records. Left free, each layer draws its
-    own footprint: the slabs then disagree with each other, and the object
-    positions drawn against them no longer suit the surface they are spawned on.
-
-    The footprint has to come from a layer that was actually drawn, not from the
-    shelf's own sampled dimensions: with real training data the scale is continuous,
-    so an exact value drawn from the shelf's distribution has no counterpart in the
-    layers' and pinning them to it leaves the query with no solution.
+    The shelf's theme is held as evidence at every level -- shelf, layer and object.
+    It is denormalized onto the layers and objects, and leaving it free there would let
+    the drawn layers and objects disagree with the shelf they belong to -- a book-
+    themed shelf whose layers or objects claim to be bottle-themed. Object id,
+    room_id, place_id and source_id are pinned to ``None`` rather than left
+    underspecified: they are not modelled by the circuit, so there is nothing to
+    sample. ``object_type`` is left underspecified on every object to avoid enum-to-
+    float conversion issues in the RSPN sampling backend. Roll and pitch are pinned to
+    ``0.0`` rather than left underspecified: floor objects always sit upright without
+    tilting, so those two circuit dimensions are constant across every training
+    example, and leaving a constant dimension underspecified lets the RSPN sampling
+    backend leak the query's placeholder straight through instead of resolving it.
+    Only yaw genuinely varies and is left for the RSPN to sample. A layer's own height
+    fields are left free so they carry whatever the objects drawn onto it imply -- a
+    layer of books is drawn low, one of display pieces high -- rather than being
+    pinned by the caller.
 
     :param theme_dominant_type: The shelf's dominant object type to draw.
-    :param layer_footprint: Footprint every layer is pinned to, taken from a layer
-        drawn beforehand. Left free when ``None``, which is how that first draw is
-        made.
-    :param objects_per_layer: Number of objects to draw onto each layer, one entry
-        per layer; its length is the number of layers the shelf gets.
-    :return: An underspecified EGShelf query ready for
-        :class:`ProbabilisticBackend` evaluation.
+    :param objects_per_layer: Number of objects to draw onto each layer, one entry per
+        layer; its length is the number of layers the shelf gets.
+    :return: An underspecified EGShelf query ready for :class:`ProbabilisticBackend`
+        evaluation.
     """
     return a(EGShelf)(
         scale=a(EGScale)(width=..., length=..., height=...),
         layers=[
-            build_layer_query(
-                theme_dominant_type, free_count=count, scale=layer_footprint
+            a(EGShelfLayer)(
+                objects=[
+                    a(EGObject2D)(
+                        id=None,
+                        room_id=None,
+                        place_id=None,
+                        object_type=...,
+                        scale=a(EGScale)(width=..., length=..., height=...),
+                        position=a(EGPoint2D)(x=..., y=...),
+                        orientation=a(EGRotation)(x=0.0, y=0.0, z=...),
+                        source_id=None,
+                        theme_dominant_type=theme_dominant_type,
+                    )
+                    for _ in range(count)
+                ],
+                theme_dominant_type=theme_dominant_type,
+                height_above_shelf_base=...,
+                relative_height=...,
+                vertical_clearance=...,
             )
             for count in objects_per_layer
         ],
         theme_dominant_type=theme_dominant_type,
     )
+
+
+def build_theme_shelf_query(
+    relational_probabilistic_circuit: RelationalProbabilisticCircuit,
+    theme_dominant_type: ObjectType,
+    objects_per_layer: Optional[List[int]] = None,
+):
+    """
+    Sample a shelf's layer count and each layer's object count from
+    *relational_probabilistic_circuit* and build the EGShelf query they imply.
+
+    How many layers there are fixes how many slots the query needs, so it is drawn from
+    the shelf's own distribution first. Each layer's own object count is drawn the same
+    way, from :class:`LayerObjectCountSampler`, rather than taken as a caller-chosen
+    constant -- that is what lets a book-themed shelf's layers come out as full as book-
+    themed layers were trained on.
+
+    The query this returns is not guaranteed to have support in the circuit: a layer
+    count or per-layer object count can carry marginal mass while the shelf it implies
+    has none, since the grounded query conditions on the count, the theme and the layer
+    structure together, which is stricter than any one count's own marginal. Callers
+    that need a query the circuit can actually answer should retry this on
+    :class:`~krrood.entity_query_language.exceptions.NoSolutionFound`, as :func:`draw_shelf`
+    does.
+
+    :param relational_probabilistic_circuit: The fitted circuit, rooted at EGShelf.
+    :param theme_dominant_type: The shelf's dominant object type to draw.
+    :param layer_count: Overrides the drawn number of layers when given.
+    :return: An underspecified EGShelf query ready for :class:`ProbabilisticBackend`
+        evaluation.
+    """
+    # sampler = ShelfDimensionSampler(relational_probabilistic_circuit)
+    # object_count_sampler = LayerObjectCountSampler(
+    #     relational_probabilistic_circuit.exchangeable_distribution_templates[
+    #         "layers"
+    #     ].template_distribution
+    # )
+    # drawn_layer_count = sampler.sample(theme_dominant_type).layer_count
+    # objects_per_layer = objects_per_layer or [
+    #     object_count_sampler.sample(theme_dominant_type)
+    #     for _ in range(drawn_layer_count)
+    # ]
+    return build_shelf_query(theme_dominant_type, objects_per_layer)
+
+
+def evaluate_shelf_query(
+    relational_probabilistic_circuit: RelationalProbabilisticCircuit,
+    query,
+) -> EGShelf:
+    """
+    Draw one sample of *query* from *relational_probabilistic_circuit*.
+
+    :param relational_probabilistic_circuit: The fitted circuit, rooted at EGShelf.
+    :param query: An EGShelf query, e.g. built with :func:`build_shelf_query` or
+        :func:`build_theme_shelf_query`.
+    :raises NoSolutionFound: If the circuit gives *query* no probability.
+    :return: The sampled shelf.
+    """
+    backend = probabilistic_backend(relational_probabilistic_circuit)
+    return next(iter(backend.evaluate(query)))
 
 
 def draw_shelf(
@@ -387,72 +446,29 @@ def draw_shelf(
     """
     Draw one coherent shelf of the given theme.
 
-    Four things have to agree and none can be settled by the query alone. How many
-    layers there are fixes how many slots the query needs, so it is drawn from the
-    shelf's own distribution first. Each layer's own object count is drawn the same way,
-    from :class:`LayerObjectCountSampler`, rather than taken as a caller-chosen constant
-    -- that is what lets a book-themed shelf's layers come out as full as book-themed
-    layers were trained on. The footprint every layer shares is taken from a reference
-    layer, since only a value the layers' own distribution produced can be pinned on
-    them. The shelf's height comes from the shelf, which is what makes a book-themed
-    shelf tall and a tool-themed one low.
+    The shelf's own scale -- a layer carries none of its own -- is drawn jointly with
+    its layers' contents by the query itself, so it agrees with what was placed on it.
 
     :param relational_probabilistic_circuit: The fitted circuit, rooted at EGShelf.
     :param theme_dominant_type: The shelf's dominant object type to draw.
     :param layer_count: Overrides the drawn number of layers when given.
-    :return: A shelf whose layers agree with it in footprint and count.
+    :return: A shelf whose contents agree with its drawn scale and layer count.
     """
     backend = probabilistic_backend(relational_probabilistic_circuit)
-    sampler = ShelfDimensionSampler(relational_probabilistic_circuit)
-    object_count_sampler = LayerObjectCountSampler(
-        relational_probabilistic_circuit.exchangeable_distribution_templates[
-            "layers"
-        ].template_distribution
-    )
 
-    # Drawn by rejection. The layer count comes from the shelf's own distribution,
-    # but a count can carry mass there while the shelf it implies has none -- the
-    # grounded query conditions on the count, the theme and the layer
-    # structure together, which is stricter than the count's own marginal. Asking
-    # again is how a draw from the feasible conditional is obtained; the count is
-    # redrawn each time, since that is what the query rejects.
+    # Drawn by rejection; see :func:`build_theme_shelf_query` for why a freshly
+    # sampled query can still turn out unsupported. The counts are redrawn each
+    # attempt, since that is what the query rejects.
     for _ in range(_DRAW_ATTEMPTS):
-        dimensions = sampler.sample(theme_dominant_type)
-        drawn_layer_count = (
-            layer_count if layer_count is not None else dimensions.layer_count
+        query = build_theme_shelf_query(
+            relational_probabilistic_circuit, theme_dominant_type, layer_count
         )
-        objects_per_layer = [
-            object_count_sampler.sample(theme_dominant_type)
-            for _ in range(drawn_layer_count)
-        ]
-        free_query = build_shelf_query(theme_dominant_type, None, objects_per_layer)
         try:
-            # The footprint every layer shares has to be a value the layers' own
-            # distribution produced, and only a full shelf draw resolves a layer:
-            # the layer template carries a latent from its parent that a bare layer
-            # query never determines.
-            footprint = next(iter(backend.evaluate(free_query))).layers[0].scale
-            shelf = evaluate_first_supported(
-                backend,
-                build_shelf_query(theme_dominant_type, footprint, objects_per_layer),
-                free_query,
-            )
+            return next(iter(backend.evaluate(query)))
         except NoSolutionFound:
             continue
-        shelf.layers = [
-            dataclasses.replace(layer, scale=shelf.layers[0].scale)
-            for layer in shelf.layers
-        ]
-        footprint = shelf.layers[0].scale
-        break
-    else:
-        raise UndrawableShelfError(
-            requested_theme=theme_dominant_type.value,
-            requested_layer_count=layer_count,
-            attempts=_DRAW_ATTEMPTS,
-        )
-
-    shelf.scale = EGScale(
-        width=footprint.width, length=footprint.length, height=dimensions.scale.height
+    raise UndrawableShelfError(
+        requested_theme=theme_dominant_type.value,
+        requested_layer_count=layer_count,
+        attempts=_DRAW_ATTEMPTS,
     )
-    return shelf

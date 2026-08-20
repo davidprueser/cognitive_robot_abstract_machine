@@ -70,10 +70,10 @@ def _move_shelf_to(
     """
     Put a spawned shelf where it stood in the scene it was extracted from.
 
-    A shelf spawns at its parent's origin, so it is placed by moving its corpus,
-    which is the movable branch the whole shelf hangs off. The corpus is built in
-    the content frame, so its yaw carries
-    :attr:`EGShelf.CONTENT_FRAME_YAW_OFFSET_DEGREES` on top of the shelf's own.
+    A shelf spawns at its parent's origin, so it is placed by moving its corpus, which
+    is the movable branch the whole shelf hangs off. The corpus is built in the content
+    frame, so its yaw carries :attr:`EGShelf.CONTENT_FRAME_YAW_OFFSET_DEGREES` on top of
+    the shelf's own.
     """
     origin = spawned.corpus.parent_connection.origin
     spawned.corpus.parent_connection.origin = (
@@ -629,9 +629,9 @@ def test_a_shelf_keeps_its_own_pose_and_measured_height() -> None:
 
 def test_a_shelfs_theme_is_the_object_type_its_objects_have_the_most_of() -> None:
     """
-    A shelf's theme is derived from what is actually placed on it, so two books and
-    one bottle must make the shelf book-themed -- and every layer and object on it
-    must carry that same theme, since it is denormalized onto all three.
+    A shelf's theme is derived from what is actually placed on it, so two books and one
+    bottle must make the shelf book-themed -- and every layer and object on it must
+    carry that same theme, since it is denormalized onto all three.
     """
     objects = [_shelf()] + [
         _eg_object("book_1", _SHELF_ID, ObjectType.BOOK, x=0.0, y=0.0, z=0.5),
@@ -655,9 +655,9 @@ def test_a_shelfs_theme_is_the_object_type_its_objects_have_the_most_of() -> Non
 
 def test_a_tied_theme_breaks_alphabetically_by_type_value() -> None:
     """
-    A tie between equally-frequent types must resolve the same way every time
-    rather than depend on iteration order -- broken here by the type's own,
-    ascending value ("book" < "bottle").
+    A tie between equally-frequent types must resolve the same way every time rather
+    than depend on iteration order -- broken here by the type's own, ascending value
+    ("book" < "bottle").
     """
     objects = [_shelf()] + [
         _eg_object("bottle_1", _SHELF_ID, ObjectType.BOTTLE, x=0.0, y=0.0, z=0.5),
@@ -734,9 +734,7 @@ def test_a_shelf_like_object_is_not_counted_as_another_shelfs_content() -> None:
         MeshMeasurements(source_id_to_path={}),
     )
 
-    content_ids = {
-        obj.id for layer in extracted_shelf.layers for obj in layer.objects
-    }
+    content_ids = {obj.id for layer in extracted_shelf.layers for obj in layer.objects}
     assert content_ids == {"book_1"}
 
 
@@ -795,7 +793,6 @@ def test_kept_shelves_supply_the_vertical_extents_their_layers_need(
 
 def _layer_at(relative_height: float, *objects: EGObject2D) -> EGShelfLayer:
     return EGShelfLayer(
-        scale=EGScale(width=0.4, length=0.3, height=0.02),
         objects=list(objects),
         height_above_shelf_base=relative_height * 2.0,
         relative_height=relative_height,
@@ -989,7 +986,6 @@ def test_extracted_contents_spawn_within_the_layer_footprint(tmp_path: Path) -> 
 def test_affinity_counts_every_pair_sharing_a_layer() -> None:
     layers = [
         EGShelfLayer(
-            scale=EGScale(width=0.4, length=0.3, height=0.02),
             objects=[
                 _object_2d(ObjectType.BOOK, "book_1"),
                 _object_2d(ObjectType.CUP, "cup_1"),
@@ -997,7 +993,6 @@ def test_affinity_counts_every_pair_sharing_a_layer() -> None:
             theme_dominant_type=ObjectType.BOOK,
         ),
         EGShelfLayer(
-            scale=EGScale(width=0.4, length=0.3, height=0.02),
             objects=[
                 _object_2d(ObjectType.BOOK, "book_2"),
                 _object_2d(ObjectType.CUP, "cup_2"),
@@ -1018,7 +1013,6 @@ def test_affinity_pairs_are_stored_in_canonical_order() -> None:
     """
     layers = [
         EGShelfLayer(
-            scale=EGScale(width=0.4, length=0.3, height=0.02),
             objects=[
                 _object_2d(ObjectType.CUP, "cup_1"),
                 _object_2d(ObjectType.BOOK, "book_1"),
@@ -1036,7 +1030,6 @@ def test_affinity_pairs_are_stored_in_canonical_order() -> None:
 def test_affinity_mean_offset_points_from_the_first_type_to_the_second() -> None:
     layers = [
         EGShelfLayer(
-            scale=EGScale(width=0.4, length=0.3, height=0.02),
             objects=[
                 _object_2d(ObjectType.CUP, "cup_1", x=0.3, y=0.1),
                 _object_2d(ObjectType.BOOK, "book_1", x=0.1, y=0.1),
@@ -1054,7 +1047,6 @@ def test_affinity_mean_offset_points_from_the_first_type_to_the_second() -> None
 def test_affinity_averages_the_offset_over_every_observed_pair() -> None:
     layers = [
         EGShelfLayer(
-            scale=EGScale(width=0.4, length=0.3, height=0.02),
             objects=[
                 _object_2d(ObjectType.BOOK, "book_1", x=0.0, y=0.0),
                 _object_2d(ObjectType.CUP, "cup_1", x=0.2, y=0.0),
@@ -1062,7 +1054,6 @@ def test_affinity_averages_the_offset_over_every_observed_pair() -> None:
             theme_dominant_type=ObjectType.BOOK,
         ),
         EGShelfLayer(
-            scale=EGScale(width=0.4, length=0.3, height=0.02),
             objects=[
                 _object_2d(ObjectType.BOOK, "book_2", x=0.0, y=0.0),
                 _object_2d(ObjectType.CUP, "cup_2", x=0.4, y=0.0),
@@ -1083,7 +1074,6 @@ def test_affinity_includes_pairs_of_the_same_type() -> None:
     """
     layers = [
         EGShelfLayer(
-            scale=EGScale(width=0.4, length=0.3, height=0.02),
             objects=[
                 _object_2d(ObjectType.BOOK, "book_1", x=0.0, y=0.0),
                 _object_2d(ObjectType.BOOK, "book_2", x=0.1, y=0.0),
@@ -1102,7 +1092,6 @@ def test_affinity_includes_pairs_of_the_same_type() -> None:
 def test_affinity_is_empty_for_layers_holding_a_single_object() -> None:
     layers = [
         EGShelfLayer(
-            scale=EGScale(width=0.4, length=0.3, height=0.02),
             objects=[_object_2d(ObjectType.BOOK, "book_1")],
             theme_dominant_type=ObjectType.BOOK,
         )

@@ -62,11 +62,6 @@ whether an object really stands on it, so a learned layout never places an
 object where it would protrude.
 """
 
-LAYER_SLAB_HEIGHT = EGShelfLayer.SLAB_THICKNESS
-"""
-Height, in metres, recorded for an extracted layer slab.
-"""
-
 
 @dataclass(frozen=True)
 class CorrectedPosition:
@@ -459,11 +454,6 @@ def _layers_of_shelf(
 
     return [
         EGShelfLayer(
-            scale=EGScale(
-                width=shelf.scale.width,
-                length=shelf.scale.length,
-                height=LAYER_SLAB_HEIGHT,
-            ),
             objects=[
                 _object_in_content_frame(shelf, obj, theme_dominant_type)
                 for obj in layer_objects
@@ -652,9 +642,7 @@ class ShelfContents:
             )
         )
         return cls(
-            shelf_ids={
-                row.id for row in rows if classifier.is_shelf_like(row.type)
-            }
+            shelf_ids={row.id for row in rows if classifier.is_shelf_like(row.type)}
         )
 
     def collect(self, processed_object: EGObject) -> None:

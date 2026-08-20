@@ -751,8 +751,9 @@ class EGShelfLayer(EGBase):
     """
     A shelf layer for environment generation.
 
-    Carries its own physical dimensions so the RSPN can learn width and length alongside
-    object placement, rather than inheriting a fixed size from the parent shelf.
+    A layer's footprint is always its shelf's own width and length -- that is how
+    layers are extracted and how they are spawned -- so it carries no dimensions of
+    its own.
 
     It also carries where it sits vertically in its shelf. An object's own position is
     two-dimensional, since it simply rests on the slab, so without these the height at
@@ -766,15 +767,6 @@ class EGShelfLayer(EGBase):
 
     One value shared by extraction, sampling and spawning: a layer recorded at one
     thickness and spawned at another would seat its objects at the wrong height.
-    """
-
-    scale: EGScale
-    """
-    Physical dimensions of the layer slab (width × length × height).
-
-    Every layer of a shelf carries the shelf's own footprint -- that is how they are
-    extracted and how they are drawn. It is kept per layer because object placement is
-    learned relative to it and collision repair conditions on it.
     """
 
     objects: list[EGObject2D]
@@ -821,7 +813,6 @@ class EGShelfLayer(EGBase):
     def to_json(self) -> dict[str, Any]:
         return {
             **super().to_json(),
-            "scale": to_json(self.scale),
             "objects": to_json(self.objects),
             "theme_dominant_type": self.theme_dominant_type,
             "height_above_shelf_base": self.height_above_shelf_base,
@@ -832,7 +823,6 @@ class EGShelfLayer(EGBase):
     @classmethod
     def _from_json(cls, data: dict[str, Any], **kwargs) -> Self:
         return cls(
-            scale=EGScale._from_json(data["scale"], **kwargs),
             objects=[EGObject2D._from_json(o, **kwargs) for o in data["objects"]],
             theme_dominant_type=ObjectType(data["theme_dominant_type"]),
             height_above_shelf_base=data.get("height_above_shelf_base", 0.0),
@@ -990,6 +980,7 @@ class MeshCandidate:
     ``None`` when the size is unknown, in which case the candidate is treated as always
     fitting. A tuple (not an :class:`EGScale`) keeps :class:`MeshCandidate` hashable.
     """
+
 
 @dataclass
 class _MeshTypeMatcher:
@@ -1175,6 +1166,7 @@ class SpawnedShelf:
     that way.
     """
 
+
 @dataclass
 class EGShelf(EGBase):
     """
@@ -1278,10 +1270,7 @@ class EGShelf(EGBase):
         shelf against a room wall has to reserve this, not the bare footprint, or
         the corpus reaches through by the pad.
 
-        Taken from the shelf's own dimensions rather than from its layers': the
-        layers are drawn independently and disagree with each other, so sizing the
-        corpus from them discards the shelf's learned proportions and makes every
-        kind of shelf spawn the same box.
+        Taken from the shelf's own dimensions -- a layer carries none of its own.
 
         .. note::
             :attr:`CONTENT_FRAME_YAW_OFFSET_DEGREES` and the corpus's own
@@ -1447,7 +1436,7 @@ class EGShelf(EGBase):
         """
         with world.modify_world():
             placeholder = Table.create_with_new_body_in_world(
-                name=PrefixedName(name=f"placeholder_{obj.id}"),
+                name=f"placeholder_{obj.id}",
                 world=world,
                 world_root_T_self=self.object_local_pose(
                     obj, slab_top_z + obj.scale.height / 2, corpus
@@ -1509,7 +1498,7 @@ class EGShelf(EGBase):
         )
         with _world.modify_world():
             corpus_annotation = Cabinet.create_with_new_body_in_world(
-                name=PrefixedName(name="shelf_corpus"),
+                name="shelf_corpus",
                 world=_world,
                 world_root_T_self=corpus_pose,
                 scale=Scale(x=corpus_depth, y=corpus_face, z=corpus_height),
@@ -1527,11 +1516,7 @@ class EGShelf(EGBase):
         spawned_layers: list[SpawnedShelfLayer] = []
         placeholder_count = 0
         for i, (layer, z_height) in enumerate(zip(self.layers, layer_z_heights)):
-            # Every slab spans the shelf's own footprint rather than the layer's.
-            # Layers are drawn independently and their footprints disagree, so a
-            # slab at its own size floats clear of the corpus walls -- and its
-            # objects, whose positions were drawn for a surface of the shelf's
-            # width, would be placed on a differently sized one.
+            # Every slab spans the shelf's own footprint; a layer has none of its own.
             layer_scale = Scale(
                 x=self.scale.length, y=self.scale.width, z=self._LAYER_SLAB_THICKNESS
             )
@@ -1544,7 +1529,7 @@ class EGShelf(EGBase):
             )
             with _world.modify_world():
                 layer_annotation = ShelfLayer.create_with_new_body_in_world(
-                    name=PrefixedName(name=f"layer_{i}"),
+                    name=f"layer_{i}",
                     world=_world,
                     world_root_T_self=layer_pose,
                     scale=layer_scale,
@@ -1574,8 +1559,8 @@ class EGShelf(EGBase):
             else:
                 surface_above_z = corpus_height / 2 - self._CORPUS_WALL_THICKNESS
             max_object_extents = EGScale(
-                width=layer.scale.width,
-                length=layer.scale.length,
+                width=self.scale.width,
+                length=self.scale.length,
                 height=surface_above_z - slab_top_z - self._OBJECT_VERTICAL_MARGIN,
             )
             object_bodies: dict[int, Body] = {}
