@@ -475,6 +475,57 @@ def test_clamp_to_bounds_moves_an_out_of_bounds_object_back_onto_the_layer(
     assert abs(clamped.y) + object_scale.length / 2 <= half_length + 1e-9
 
 
+def test_clamp_to_bounds_keeps_the_object_within_the_spawned_slab(
+    mesh_candidate: MeshCandidate,
+) -> None:
+    """
+    On a non-square footprint, the clamped position must land within the slab
+    :meth:`EGShelf.spawn_in_world` actually builds, not merely within whatever bound
+    :meth:`ShelfLayerGroup.clamp_to_bounds` happens to compute.
+
+    ``spawn_in_world`` builds each layer's slab as ``Scale(x=shelf.scale.length,
+    y=shelf.scale.width, ...)`` -- the content frame's x-axis spans the shelf's
+    *length* (its shallow depth) and y spans its *width* (its wide face), matching
+    :meth:`EGShelf.object_local_pose`, whose own docstring says ``position.x``/``y``
+    "span the layer's length/width". A clamp that instead bounds ``position.x`` by
+    ``scale.width`` and ``position.y`` by ``scale.length`` swaps the two axes: on a
+    shelf shaped like the real sage10k proportions (a wide, shallow face) that lets
+    an object's depth coordinate range far past the slab's actual, shallow depth --
+    landing the object off the front or back of the shelf entirely.
+    """
+    shelf = EGShelf(
+        scale=EGScale(height=2.0, length=0.3, width=1.0),
+        layers=[
+            EGShelfLayer(
+                objects=[_object("book_0", 0.0, 0.0)],
+                theme_dominant_type=ObjectType.BOOK,
+            )
+        ],
+        source_ids=[mesh_candidate],
+        theme_dominant_type=ObjectType.BOOK,
+    )
+    spawned = shelf.spawn_in_world()
+    spawned_layer = spawned.layers[0]
+    group = ShelfLayerGroup(
+        bodies=spawned_layer.object_bodies,
+        supporting_body=spawned_layer.surface.root,
+        backend=MagicMock(),
+        shelf=shelf,
+        layer_index=0,
+        corpus=spawned.corpus,
+    )
+
+    shelf.layers[0].objects[0].position = EGPoint2D(x=0.4, y=0.0)
+    group.clamp_to_bounds()
+
+    clamped = shelf.layers[0].objects[0].position
+    object_scale = shelf.layers[0].objects[0].scale
+    slab_half_x = shelf.scale.length / 2
+    slab_half_y = shelf.scale.width / 2
+    assert abs(clamped.x) + object_scale.length / 2 <= slab_half_x + 1e-9
+    assert abs(clamped.y) + object_scale.width / 2 <= slab_half_y + 1e-9
+
+
 def test_clamp_to_bounds_moves_the_spawned_body_to_match(
     mesh_candidate: MeshCandidate,
 ) -> None:

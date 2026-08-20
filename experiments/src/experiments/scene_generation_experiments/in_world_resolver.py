@@ -191,14 +191,17 @@ class ShelfLayerGroup:
         can land outside it again just as easily. Moving it back directly is a plain,
         cheap geometric fix that always succeeds.
         """
+        # The content frame's x-axis spans the shelf's length (its depth) and y spans
+        # its width (its face) -- the same mapping spawn_in_world's slab Scale and
+        # object_local_pose use, not shelf.scale's own width/length order.
         layer = self.shelf.layers[self.layer_index]
-        half_width = self.shelf.scale.width / 2
-        half_length = self.shelf.scale.length / 2
+        half_x = self.shelf.scale.length / 2
+        half_y = self.shelf.scale.width / 2
         for index, object_2d in enumerate(layer.objects):
             if index not in self.bodies:
                 continue
-            max_x = max(half_width - object_2d.scale.width / 2, 0.0)
-            max_y = max(half_length - object_2d.scale.length / 2, 0.0)
+            max_x = max(half_x - object_2d.scale.length / 2, 0.0)
+            max_y = max(half_y - object_2d.scale.width / 2, 0.0)
             clamped_x = min(max(object_2d.position.x, -max_x), max_x)
             clamped_y = min(max(object_2d.position.y, -max_y), max_y)
             if clamped_x == object_2d.position.x and clamped_y == object_2d.position.y:
