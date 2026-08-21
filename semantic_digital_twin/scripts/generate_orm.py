@@ -13,9 +13,11 @@ from pathlib import Path
 import trimesh
 
 import semantic_digital_twin
+import semantic_digital_twin.orm.model
+
+import semantic_digital_twin.adapters.procthor.procthor_resolver
 from krrood.adapters.json_serializer import SubclassJSONSerializer
 from krrood.ormatic.ormatic import ORMatic
-from semantic_digital_twin.orm.model import TrimeshType
 from semantic_digital_twin.reasoning.predicates import ContainsType
 from semantic_digital_twin.semantic_annotations.position_descriptions import (
     SemanticDirection,
@@ -23,16 +25,23 @@ from semantic_digital_twin.semantic_annotations.position_descriptions import (
 from semantic_digital_twin.spatial_computations.forward_kinematics import (
     ForwardKinematicsManager,
 )
+from semantic_digital_twin.testing import StateChangeCounter
 from semantic_digital_twin.world import (
     ResetStateContextManager,
     WorldModelUpdateContextManager,
+    WorldStateBatchContextManager,
 )
+from semantic_digital_twin.world_description.mesh_file_storage import MeshFileStorage
 
 # remove classes that should not be mapped
 ignore_classes = {
     ResetStateContextManager,
     WorldModelUpdateContextManager,
+    WorldStateBatchContextManager,
+    StateChangeCounter,
     ForwardKinematicsManager,
+    MeshFileStorage,
+    semantic_digital_twin.adapters.procthor.procthor_resolver.ProcthorResolver,
     ContainsType,
     SemanticDirection,
     SubclassJSONSerializer,
@@ -51,7 +60,7 @@ def generate_orm():
         ormatic_interface_dependencies=[],
         ignored_classes=ignore_classes,
         type_mappings={
-            trimesh.Trimesh: TrimeshType,
+            trimesh.Trimesh: semantic_digital_twin.orm.model.TrimeshType,
         },
     )
     ormatic.make_all_tables()

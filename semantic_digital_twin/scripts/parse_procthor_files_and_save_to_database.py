@@ -9,7 +9,7 @@ import tqdm
 from sqlalchemy.orm import Session
 
 from krrood.symbol_graph.symbol_graph import SymbolGraph
-from krrood.ormatic.data_access_objects.dao import to_dao
+from krrood.ormatic.data_access_objects.helper import to_dao
 from krrood.ormatic.utils import drop_database, create_engine
 from krrood.utils import recursive_subclasses
 from semantic_digital_twin.world import World
@@ -142,7 +142,8 @@ def parse_procthor_files_and_save_to_database(
         semantic_digital_twin_database_uri is not None
     ), "Please set the SEMANTIC_DIGITAL_TWIN_DATABASE_URI environment variable."
 
-    procthor_root = os.path.join(os.path.expanduser("~"), "repos", "ai2thor")
+    procthor_root = os.path.join(os.path.expanduser("~"), "ai2thor")
+    procthor_root = os.path.join(os.path.expanduser("~"), "work", "ai2thor")
 
     files = []
     for root, dirs, filenames in os.walk(procthor_root):
