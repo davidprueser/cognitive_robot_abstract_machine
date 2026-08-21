@@ -29,6 +29,7 @@ def regenerate_orm_interfaces() -> bool:
 
     :return: Whether this call built them.
     """
+    return False
     if os.environ.get(PytestEnvironmentVariable.XDIST_WORKER):
         return False
     WORKSPACE_ORM_INTERFACES.regenerate()
