@@ -63,7 +63,7 @@ from semantic_digital_twin.spatial_types import (
 from semantic_digital_twin.world_description.connections import (
     FixedConnection,
 )
-from semantic_digital_twin.world_description.geometry import Scale
+from semantic_digital_twin.world_description.geometry import BoundingBox, Scale
 from semantic_digital_twin.world_description.shape_collection import (
     BoundingBoxCollection,
 )
@@ -91,6 +91,9 @@ if TYPE_CHECKING:
         ShelfLayer,
     )
     from semantic_digital_twin.world import World
+    from semantic_digital_twin.world_description.graph_of_convex_sets.boxes import (
+        GraphOfBoundingBoxes,
+    )
 
 
 @dataclass(eq=False)
@@ -982,6 +985,64 @@ class HasSupportingSurface(IsStorageSpace):
             )
         else:
             return uniform_measure_of_event(truncated_event_2d)
+
+    def calculate_free_space(self) -> GraphOfBoundingBoxes:
+        """
+        Compute the free space on the supporting surface as a graph of bounding boxes,
+        excluding the footprint of every object currently on the surface.
+
+        :return: A graph of bounding boxes decomposing the surface's free space.
+        """
+        # Imported here rather than at module level to avoid a circular import:
+        # GraphOfBoundingBoxes indirectly imports semantic_annotations, which imports
+        # this module.
+        from semantic_digital_twin.world_description.graph_of_convex_sets.boxes import (
+            GraphOfBoundingBoxes,
+        )
+
+        search_space = BoundingBoxCollection.from_shapes(self.supporting_surface.area)
+        search_space.transform_all_shapes_to_own_frame()
+
+        object_footprints = BoundingBoxCollection(
+            [self._object_footprint_as_infinite_column(obj) for obj in self.objects],
+            self.supporting_surface,
+        )
+
+        free_space_event = GraphOfBoundingBoxes.free_space_from_bounding_boxes(
+            object_footprints, search_space.event
+        )
+
+        free_space_graph = GraphOfBoundingBoxes(
+            world=self._world, search_space=search_space
+        )
+        for box in BoundingBoxCollection.from_event(
+            reference_frame=self.supporting_surface, event=free_space_event
+        ):
+            free_space_graph.add_node(box)
+        free_space_graph.calculate_connectivity()
+        return free_space_graph
+
+    def _object_footprint_as_infinite_column(self, object: HasRootBody) -> BoundingBox:
+        """
+        The xy footprint of ``object`` on the supporting surface, extended to span all
+        z, so that it fully covers whatever vertical band the surface's own search
+        space occupies regardless of how high above the surface the object stands.
+
+        :param object: The object standing on the surface.
+        :return: The object's bounding box footprint, in the surface's frame.
+        """
+        footprint = object.root.collision.as_bounding_box_collection_in_frame(
+            self.supporting_surface
+        ).bounding_box()
+        return BoundingBox(
+            footprint.min_x,
+            footprint.min_y,
+            -np.inf,
+            footprint.max_x,
+            footprint.max_y,
+            np.inf,
+            footprint.origin,
+        )
 
     def _2d_surface_sample_space_excluding_objects(self, object_bloat: float) -> Event:
         """
