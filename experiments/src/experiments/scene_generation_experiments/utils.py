@@ -154,10 +154,16 @@ def rclpy_node():
         rclpy.shutdown()
 
 
-def load_all_objects(session: Session) -> list[EGObjectDAO]:
+def load_objects_of_types(
+    session: Session, object_types: Collection[ObjectType]
+) -> list[EGObjectDAO]:
     """
-    Load a broad, capped sample of object DAOs, eagerly joining their
+    Load every object DAO whose type is one of *object_types*, eagerly joining
     scale/position/orientation, for use as a mesh-candidate pool.
+
+    Restricting the query to the types a caller actually needs -- rather than pulling
+    every object regardless of type -- keeps a mesh-candidate lookup proportional to
+    what a sampled shelf or object can use instead of the whole database.
 
     Deliberately independent of :func:`load_shelf_layers`: which layers an RSPN is
     trained on must not also narrow which meshes are available to dress the sampled
@@ -165,17 +171,18 @@ def load_all_objects(session: Session) -> list[EGObjectDAO]:
     objects a training extractor happened to load.
 
     :param session: Database session to query objects from.
-    :return: Loaded object DAOs.
+    :param object_types: Only objects whose type is one of these are included.
+    :return: Loaded object DAOs of the given types.
     """
     return session.scalars(
         select(EGObjectDAO)
+        .where(EGObjectDAO.object_type.in_(object_types))
         .options(
             joinedload(EGObjectDAO.scale),
             joinedload(EGObjectDAO.position),
             joinedload(EGObjectDAO.orientation),
         )
         .distinct()
-        .limit(50000)
     ).all()
 
 

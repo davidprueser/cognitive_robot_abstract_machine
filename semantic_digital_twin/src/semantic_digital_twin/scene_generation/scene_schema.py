@@ -1108,6 +1108,39 @@ class _MeshTypeMatcher:
         )
 
 
+@dataclass(frozen=True)
+class ShelfLayerGeometry:
+    """
+    Where one layer's slab sits in its shelf, and how large an object it accepts.
+
+    Computed from the shelf alone, so a caller that wants to place something on an
+    already-spawned shelf reads the same heights the spawn was built from.
+    """
+
+    height_above_shelf_base: float
+    """
+    Height of the slab above the base of the shelf, in metres.
+    """
+
+    relative_height: float
+    """
+    Where the slab sits between the shelf's base (0) and its top (1).
+    """
+
+    slab_top_height: float
+    """
+    Height of the slab's top face, in the shelf corpus's own frame.
+    """
+
+    maximum_object_extents: EGScale
+    """
+    Largest object the layer accepts.
+
+    Its height is the room up to the surface above, which is infinite for a layer
+    resting on the shelf's top.
+    """
+
+
 @dataclass
 class SpawnedShelfLayer:
     """
@@ -1155,6 +1188,12 @@ class SpawnedShelf:
     """
     The shelf corpus's body, so a caller can check objects for collision against its
     walls in addition to each other.
+    """
+
+    shelf: EGShelf
+    """
+    The shelf this was spawned from, whose layers and objects the spawned bodies
+    stand for.
     """
 
     placeholder_count: int = 0
@@ -1415,6 +1454,68 @@ class EGShelf(EGBase):
         }
         return [height_by_layer[id(layer)] for layer in self.layers]
 
+    def _surface_above_height(
+        self,
+        layer: EGShelfLayer,
+        own_height: float,
+        layer_heights: list[float],
+        corpus_height: float,
+    ) -> float:
+        """
+        Height, in the corpus frame, of the surface a *layer*'s objects would pierce.
+
+        :param layer: The layer whose ceiling is wanted.
+        :param own_height: That layer's own slab height above the shelf base, passed in
+            rather than looked up: layers compare equal whenever they hold equal
+            objects, so searching for one by value finds the wrong height.
+        :param layer_heights: Every layer's slab height above the shelf base.
+        :param corpus_height: Interior height of the shelf corpus, in metres.
+        :return: The next slab's underside, the corpus interior ceiling, or infinity
+            for a layer resting on the shelf's top, which has open air above it.
+        """
+        if self._rests_on_top(layer):
+            return math.inf
+        heights_above = [height for height in layer_heights if height > own_height]
+        if not heights_above:
+            return corpus_height / 2 - self._CORPUS_WALL_THICKNESS
+        return (min(heights_above) - corpus_height / 2) - self._LAYER_SLAB_THICKNESS / 2
+
+    def layer_geometries(self) -> list[ShelfLayerGeometry]:
+        """
+        Where each layer's slab sits and how large an object it accepts, in the order
+        of :attr:`layers`.
+
+        An object taller than the room above its slab would pierce the surface above,
+        which no in-plane repair can fix, so that room is what a layer accepts.
+
+        :return: One geometry per layer.
+        """
+        corpus_height = self.corpus_footprint.height
+        layer_heights = self._layer_heights(corpus_height)
+        geometries = []
+        for layer, height in zip(self.layers, layer_heights):
+            slab_top_height = (
+                height - corpus_height / 2
+            ) + self._LAYER_SLAB_THICKNESS / 2
+            surface_above_height = self._surface_above_height(
+                layer, height, layer_heights, corpus_height
+            )
+            geometries.append(
+                ShelfLayerGeometry(
+                    height_above_shelf_base=height,
+                    relative_height=height / corpus_height,
+                    slab_top_height=slab_top_height,
+                    maximum_object_extents=EGScale(
+                        width=self.scale.width,
+                        length=self.scale.length,
+                        height=surface_above_height
+                        - slab_top_height
+                        - self._OBJECT_VERTICAL_MARGIN,
+                    ),
+                )
+            )
+        return geometries
+
     def _spawn_placeholder(
         self,
         obj: EGObject2D,
@@ -1497,25 +1598,25 @@ class EGShelf(EGBase):
             reference_frame=_parent,
         )
         with _world.modify_world():
-            corpus_annotation = Cabinet.create_with_new_body_in_world(
-                name="shelf_corpus",
-                world=_world,
-                world_root_T_self=corpus_pose,
-                scale=Scale(x=corpus_depth, y=corpus_face, z=corpus_height),
-                wall_thickness=self._CORPUS_WALL_THICKNESS,
-            )
+            corpus_annotation = Cabinet.get_annotation_specification(
+                "shelf_corpus",
+                Cabinet.get_default_root_kinematic_structure_entity_specification(
+                    scale=Scale(x=corpus_depth, y=corpus_face, z=corpus_height),
+                    wall_thickness=self._CORPUS_WALL_THICKNESS,
+                ),
+            ).spawn(_world, parent_T_self=corpus_pose)
         corpus_body = corpus_annotation.root
         # Make the whole shelf a movable unit: a room-level resolver repositions
         # it by setting the corpus origin, and its slabs and objects follow.
         _world.make_branch_movable(corpus_body)
 
-        layer_z_heights = self._layer_heights(corpus_height)
+        layer_geometries = self.layer_geometries()
 
         mesh_matcher = _MeshTypeMatcher(candidates=self.source_ids or [])
 
         spawned_layers: list[SpawnedShelfLayer] = []
         placeholder_count = 0
-        for i, (layer, z_height) in enumerate(zip(self.layers, layer_z_heights)):
+        for i, (layer, geometry) in enumerate(zip(self.layers, layer_geometries)):
             # Every slab spans the shelf's own footprint; a layer has none of its own.
             layer_scale = Scale(
                 x=self.scale.length, y=self.scale.width, z=self._LAYER_SLAB_THICKNESS
@@ -1523,7 +1624,7 @@ class EGShelf(EGBase):
             layer_pose = HomogeneousTransformationMatrix.from_xyz_rpy(
                 x=0.0,
                 y=0.0,
-                z=z_height,
+                z=geometry.height_above_shelf_base,
                 yaw=yaw_radians,
                 reference_frame=_parent,
             )
@@ -1539,30 +1640,11 @@ class EGShelf(EGBase):
             # preserved by the move.
             _world.move_branch(layer_annotation.root, corpus_body)
 
-            # Slab top expressed in the corpus frame (corpus centre is at
-            # z = corpus_height / 2 in the parent frame).
-            slab_top_z = (z_height - corpus_height / 2) + self._LAYER_SLAB_THICKNESS / 2
-            # Vertical room above this slab: up to the next slab's underside, or
-            # the corpus interior ceiling for the topmost layer. Objects taller
-            # than this would pierce the shelf above, which the resolver (it only
-            # moves objects in the plane) can never repair -- so they are dropped
-            # rather than placed. A layer resting on the shelf's top has open air
-            # above it instead, and measuring it against the interior ceiling --
-            # which lies below the top surface -- would reject every object.
-            heights_above = [height for height in layer_z_heights if height > z_height]
-            if self._rests_on_top(layer):
-                surface_above_z = math.inf
-            elif heights_above:
-                surface_above_z = (
-                    min(heights_above) - corpus_height / 2
-                ) - self._LAYER_SLAB_THICKNESS / 2
-            else:
-                surface_above_z = corpus_height / 2 - self._CORPUS_WALL_THICKNESS
-            max_object_extents = EGScale(
-                width=self.scale.width,
-                length=self.scale.length,
-                height=surface_above_z - slab_top_z - self._OBJECT_VERTICAL_MARGIN,
-            )
+            slab_top_z = geometry.slab_top_height
+            # An object taller than the room above its slab would pierce the shelf
+            # above, which the resolver (it only moves objects in the plane) can
+            # never repair -- so they are dropped rather than placed.
+            max_object_extents = geometry.maximum_object_extents
             object_bodies: dict[int, Body] = {}
             for object_index, obj in enumerate(layer.objects):
                 if not isinstance(obj.position.x, (int, float)):
@@ -1609,6 +1691,7 @@ class EGShelf(EGBase):
             parent=_parent,
             layers=spawned_layers,
             corpus=corpus_body,
+            shelf=self,
             placeholder_count=placeholder_count,
         )
 

@@ -75,7 +75,7 @@ def _fixed_object_slot(object_2d: EGObject2D):
     )
 
 
-def _free_object_slot(theme_dominant_type: ObjectType):
+def free_object_slot(theme_dominant_type: ObjectType):
     """
     Build a fully underspecified EGObject2D query slot with all spatial fields free.
 
@@ -129,7 +129,7 @@ def build_layer_query(
     """
     return a(EGShelfLayer)(
         objects=[_fixed_object_slot(object_2d) for object_2d in fixed_objects]
-        + [_free_object_slot(theme_dominant_type) for _ in range(free_count)],
+        + [free_object_slot(theme_dominant_type) for _ in range(free_count)],
         theme_dominant_type=theme_dominant_type,
         # Left free so the layer's height carries whatever the objects drawn
         # onto it imply -- a layer of books is drawn low, one of display pieces

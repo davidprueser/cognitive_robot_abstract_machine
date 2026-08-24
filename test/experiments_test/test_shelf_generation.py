@@ -29,6 +29,7 @@ from experiments.orm.ormatic_interface import (
 )
 from experiments.scene_generation_experiments.utils import (
     _get_source_ids_for_objects,
+    load_objects_of_types,
     load_objects_with_cached_meshes,
     load_shelf_layers,
     min_samples_per_leaf_for,
@@ -45,6 +46,7 @@ from experiments.scene_generation_experiments.rspn_sampling import (
 from experiments.scene_generation_experiments.shelf_generation import (
     _coarsen_mesh_candidate_types,
     _coarsen_rare_object_types,
+    _mesh_candidate_types_for_shelf,
     _rewrite_mesh_uris_for_foxglove,
 )
 from experiments.scene_generation_experiments.exceptions import (
@@ -55,6 +57,7 @@ from experiments.scene_generation_experiments.rspn_model_storage import (
     TrainedArbitraryShelfModel,
 )
 from krrood.ormatic.data_access_objects.helper import to_dao
+from krrood.ormatic.utils import create_engine
 from probabilistic_model.probabilistic_circuit.relational.rspn import (
     RelationalProbabilisticCircuit,
 )
@@ -412,6 +415,54 @@ def test_foxglove_mesh_uri_rewrite_cancels_gltf_up_axis_convention(
         marker.pose.orientation.w,
     ]
     assert np.allclose(actual_orientation, expected_orientation)
+
+
+def test_foxglove_mesh_uri_rewrite_converts_installed_package_mesh_to_package_uri(
+    tmp_path: Path,
+) -> None:
+    """
+    A mesh already installed under a ROS package's share directory (e.g. a robot's
+    URDF meshes) must be rewritten from its local ``file://`` path to the equivalent
+    ``package://`` URI, since ``foxglove_bridge``'s asset allowlist only serves
+    ``package://`` resources and generated ``file:///tmp/...`` meshes -- not arbitrary
+    host paths.
+
+    Unlike a generated shelf mesh, an installed mesh is not converted to glTF and its
+    orientation is left untouched: it is not being reformatted, so no up-axis
+    correction is needed.
+    """
+    marker = Marker()
+    marker.mesh_resource = (
+        "file:///opt/ros/overlay_ws/install/share/hsr_description/"
+        "meshes/arm_v0/arm_flex_light.dae"
+    )
+    original_orientation = Rotation.from_euler("z", 30, degrees=True).as_quat()
+    (
+        marker.pose.orientation.x,
+        marker.pose.orientation.y,
+        marker.pose.orientation.z,
+        marker.pose.orientation.w,
+    ) = original_orientation
+    viz_marker = _MockVizMarkerPublisher(markers=MarkerArray(markers=[marker]))
+
+    with patch(
+        "experiments.scene_generation_experiments.shelf_generation."
+        "get_package_share_directory",
+        return_value=str(tmp_path / "share"),
+    ):
+        _rewrite_mesh_uris_for_foxglove(viz_marker)
+
+    assert (
+        marker.mesh_resource
+        == "package://hsr_description/meshes/arm_v0/arm_flex_light.dae"
+    )
+    actual_orientation = [
+        marker.pose.orientation.x,
+        marker.pose.orientation.y,
+        marker.pose.orientation.z,
+        marker.pose.orientation.w,
+    ]
+    assert np.allclose(actual_orientation, original_orientation)
 
 
 def test_coarsen_rare_object_types_keeps_only_the_most_frequent_types() -> None:
@@ -852,6 +903,15 @@ def test_mesh_type_matcher_treats_unknown_size_as_fitting() -> None:
     assert matcher.random_match(ObjectType.BOOK, max_extents=budget) is unknown
 
 
+@pytest.fixture
+def session() -> Session:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(bind=engine)
+    database_session = Session(engine)
+    yield database_session
+    database_session.close()
+
+
 def test_mesh_pool_loads_every_object_whose_mesh_is_cached(session: Session) -> None:
     """
     The mesh-candidate pool must be selected by mesh availability, not by an arbitrary
@@ -898,6 +958,136 @@ def test_mesh_pool_loads_every_object_whose_mesh_is_cached(session: Session) -> 
     loaded = load_objects_with_cached_meshes(session, cached_source_ids)
 
     assert {obj.source_id for obj in loaded} == cached_source_ids
+
+
+def _typed_dao(object_type: ObjectType, object_id: str) -> EGObjectDAO:
+    return EGObjectDAO(
+        id=object_id,
+        room_id="room_1",
+        place_id="floor",
+        source_id=object_id,
+        object_type=object_type,
+        scale=EGScaleDAO(height=0.1, length=0.1, width=0.1),
+        position=EGPositionDAO(x=0.0, y=0.0, z=0.0),
+        orientation=EGRotationDAO(x=0.0, y=0.0, z=0.0),
+        position_is_mesh_corrected=True,
+    )
+
+
+def test_load_objects_of_types_only_returns_requested_types(session: Session) -> None:
+    """
+    load_objects_of_types must only return objects whose type is one of the requested
+    types, so a caller that already knows a shelf's sampled types is not handed the
+    whole table to filter itself.
+    """
+    session.add_all(
+        [
+            _typed_dao(ObjectType.BOOK, "book_1"),
+            _typed_dao(ObjectType.CUP, "cup_1"),
+            _typed_dao(ObjectType.PLANT, "plant_1"),
+        ]
+    )
+    session.commit()
+
+    loaded = load_objects_of_types(session, {ObjectType.BOOK, ObjectType.CUP})
+
+    assert {obj.source_id for obj in loaded} == {"book_1", "cup_1"}
+
+
+def test_load_objects_of_types_does_not_scale_query_count_with_object_count(
+    session: Session,
+) -> None:
+    """
+    load_objects_of_types must eagerly join scale/position/orientation in the same
+    query, not lazily on first access.
+
+    Without the join, accessing those attributes for every object in the pool issued
+    one extra round-trip per object -- for the full sage10k object table, an 850,000-
+    query storm that dwarfed everything else a shelf draw does.
+    """
+    session.add_all(
+        [_typed_dao(ObjectType.BOOK, f"book_{index}") for index in range(30)]
+    )
+    session.commit()
+    session.expire_all()
+
+    statement_count = 0
+
+    def _count_statement(*args, **kwargs) -> None:
+        nonlocal statement_count
+        statement_count += 1
+
+    engine = session.get_bind()
+    event.listen(engine, "before_cursor_execute", _count_statement)
+    try:
+        loaded = load_objects_of_types(session, {ObjectType.BOOK})
+        for obj in loaded:
+            obj.scale.width
+            obj.position.x
+            obj.orientation.z
+    finally:
+        event.remove(engine, "before_cursor_execute", _count_statement)
+
+    assert len(loaded) == 30
+    assert statement_count <= 5
+
+
+def test_mesh_candidate_types_for_shelf_uses_only_sampled_types() -> None:
+    """
+    Without ObjectType.OTHER among the sampled objects, a mesh-candidate query only
+    needs the exact types the shelf sampled, not every type the database holds.
+    """
+    shelf = EGShelf(
+        scale=EGScale(height=2.0, length=0.6, width=0.8),
+        layers=[
+            EGShelfLayer(
+                objects=[_typed_object(ObjectType.JAR, "jar_1")],
+                theme_dominant_type=ObjectType.JAR,
+            ),
+            EGShelfLayer(
+                objects=[_typed_object(ObjectType.BOTTLE, "bottle_1")],
+                theme_dominant_type=ObjectType.JAR,
+            ),
+        ],
+        source_ids=None,
+        theme_dominant_type=ObjectType.JAR,
+    )
+
+    needed = _mesh_candidate_types_for_shelf(
+        shelf, frequent_types={ObjectType.JAR, ObjectType.BOTTLE, ObjectType.PLANT}
+    )
+
+    assert needed == {ObjectType.JAR, ObjectType.BOTTLE}
+
+
+def test_mesh_candidate_types_for_shelf_resolves_other_to_the_non_frequent_types() -> (
+    None
+):
+    """
+    ObjectType.OTHER is a coarsening sentinel, not a real database value (see
+    _coarsen_rare_object_types), so it must resolve to every type outside the model's
+    frequent set -- the same types _coarsen_mesh_candidate_types would relabel as OTHER
+    again once a candidate is found.
+    """
+    shelf = EGShelf(
+        scale=EGScale(height=2.0, length=0.6, width=0.8),
+        layers=[
+            EGShelfLayer(
+                objects=[
+                    _typed_object(ObjectType.JAR, "jar_1"),
+                    _typed_object(ObjectType.OTHER, "mystery_1"),
+                ],
+                theme_dominant_type=ObjectType.JAR,
+            ),
+        ],
+        source_ids=None,
+        theme_dominant_type=ObjectType.JAR,
+    )
+    frequent_types = {ObjectType.JAR}
+
+    needed = _mesh_candidate_types_for_shelf(shelf, frequent_types)
+
+    assert needed == {ObjectType.JAR} | (set(ObjectType) - frequent_types)
 
 
 # ---- Group F -- conditioning contents and structure on the kind of shelf ----
@@ -1348,3 +1538,4 @@ def test_a_drawn_shelfs_layers_reflect_the_types_object_count(
     book_counts = [len(layer.objects) for layer in book_themed.layers]
     cup_counts = [len(layer.objects) for layer in cup_themed.layers]
     assert min(book_counts) > max(cup_counts)
+

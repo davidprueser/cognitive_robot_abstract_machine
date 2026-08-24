@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import experiments.orm.ormatic_interface  # noqa: F401  registers ORM mappers
 from experiments.scene_generation_experiments.rspn_sampling import (
-    _free_object_slot,
+    free_object_slot,
     build_layer_query,
 )
 from krrood.parametrization.parameterizer import UnderspecifiedParameters
@@ -30,7 +30,7 @@ def _typed_object(object_type: ObjectType, object_id: str) -> EGObject2D:
 
 
 # ---------------------------------------------------------------------------
-# _free_object_slot - free floor object sampling query
+# free_object_slot - free floor object sampling query
 # ---------------------------------------------------------------------------
 
 
@@ -44,7 +44,7 @@ def test_free_object_slot_pins_roll_and_pitch_to_upright() -> None:
     number, so only yaw -- which genuinely varies in the training data -- may be left
     for the RSPN to sample.
     """
-    orientation = _free_object_slot(ObjectType.BOTTLE).kwargs["orientation"]
+    orientation = free_object_slot(ObjectType.BOTTLE).kwargs["orientation"]
 
     assert orientation.kwargs["x"] == 0.0
     assert orientation.kwargs["y"] == 0.0

@@ -15,11 +15,15 @@ from scipy.spatial.transform import Rotation
 from sqlalchemy.orm import Session
 from visualization_msgs.msg import Marker, MarkerArray
 
+from coraplex.datastructures.enums import ApproachDirection, VerticalAlignment
 from coraplex.datastructures.grasp import GraspDescription
-from coraplex.robot_plans.actions.core.pick_up import PickUpAction
+from coraplex.robot_plans.actions.base import ActionDescription
+from coraplex.robot_plans.actions.core.misc import MoveToReach
+from coraplex.robot_plans.actions.core.pick_up import PickUpAction, GraspingAction
 from experiments.scene_generation_experiments.rspn_model_storage import (
     TrainedArbitraryShelfModel,
 )
+from krrood.entity_query_language.factories import an, a, variable
 from krrood.ormatic.data_access_objects.helper import to_dao
 from krrood.ormatic.utils import create_engine
 from krrood.parametrization.model_registries import (
@@ -33,7 +37,7 @@ from experiments.orm.ormatic_interface import *  # type: ignore
 from experiments.scene_generation_experiments.utils import (
     MINIMUM_SAMPLES_PER_QUANTILE,
     _get_source_ids_for_objects,
-    load_all_objects,
+    load_objects_of_types,
     load_shelves,
     rclpy_node,
     min_samples_per_leaf_for,
@@ -57,6 +61,13 @@ from semantic_digital_twin.scene_generation.scene_schema import (
     EGObject,
     EGObject2D,
     SpawnedShelf,
+)
+from semantic_digital_twin.spatial_types import Pose2D, Pose
+from semantic_digital_twin.world_description.graph_of_convex_sets.base import (
+    translate_free_space_to_where_condition,
+)
+from semantic_digital_twin.world_description.graph_of_convex_sets.boxes import (
+    navigation_map_at_target,
 )
 
 
@@ -137,6 +148,31 @@ def _coarsen_mesh_candidate_types(
         )
         for candidate in candidates
     ]
+
+
+def _mesh_candidate_types_for_shelf(
+    shelf: EGShelf, frequent_types: set[ObjectType]
+) -> set[ObjectType]:
+    """
+    Return the object types a mesh-candidate query needs to cover *shelf*.
+
+    A grounded shelf only ever needs meshes for the types it actually sampled, not
+    every type the database holds. ``ObjectType.OTHER`` is the exception: it is a
+    coarsening sentinel, not a real database value (see :func:`_coarsen_rare_object_types`),
+    so it resolves to every type outside *frequent_types* -- the same types
+    :func:`_coarsen_mesh_candidate_types` would relabel as ``OTHER`` again afterwards.
+
+    :param shelf: The grounded shelf whose layers' objects name the needed types.
+    :param frequent_types: The types the shelf's RSPN was trained to sample directly;
+        used to resolve ``ObjectType.OTHER`` back to the types it can stand in for.
+    :return: The set of object types a mesh-candidate query must include.
+    """
+    sampled_types = {
+        object_2d.object_type for layer in shelf.layers for object_2d in layer.objects
+    }
+    if ObjectType.OTHER not in sampled_types:
+        return sampled_types
+    return (sampled_types - {ObjectType.OTHER}) | (set(ObjectType) - frequent_types)
 
 
 def _coarsen_rare_object_types_of_shelves(
@@ -270,6 +306,13 @@ Subdirectory of :data:`_MESH_RESOURCE_PACKAGE`'s share directory that copied mes
 are placed under.
 """
 
+_ROS_PACKAGE_SHARE_SEGMENT = "/share/"
+"""
+Path segment separating a ROS install prefix from the ``<package>/...`` layout every
+package's share directory follows, used to recover a mesh's owning package name from its
+installed ``file://`` path.
+"""
+
 _FOXGLOVE_GLTF_UP_AXIS_CORRECTION = Rotation.from_euler("x", -90, degrees=True)
 """
 Rotation applied to a mesh marker's local orientation to cancel out Foxglove's glTF up-
@@ -287,19 +330,15 @@ no such correction, so this compensation is Foxglove-only.
 
 def _rewrite_mesh_uris_for_foxglove(viz_marker: VizMarkerPublisher) -> None:
     """
-    Convert every mesh a marker references from OBJ to glTF (``.glb``) in a ROS
-    package share directory and rewrite that marker's ``mesh_resource`` to the
-    matching ``package://`` URI, so a browser-based Foxglove client can load it
-    over the websocket instead of a ``file://`` path it cannot fetch.
+    Rewrite every marker's ``mesh_resource`` to a ``package://`` URI a browser-based
+    Foxglove client can fetch over the websocket, instead of a ``file://`` path it
+    cannot load directly.
 
-    ``Mesh.from_ply_file`` exports OBJ with a separate ``.mtl`` sidecar for
-    material/texture, which RViz2 and MuJoCo both read but Foxglove does not --
-    Foxglove only loads material/texture from a self-contained glTF file. Converting
-    here, rather than in ``Mesh.from_ply_file`` itself, keeps that OBJ default intact
-    for every other consumer.
-
-    Also pre-rotates each mesh marker's local orientation to cancel Foxglove's glTF
-    up-axis correction; see :data:`_FOXGLOVE_GLTF_UP_AXIS_CORRECTION`.
+    A generated shelf mesh (``file:///tmp/...``) is converted from OBJ to glTF and
+    copied into a ROS package share directory by
+    :func:`_convert_generated_mesh_to_package_uri`; a mesh already installed under a ROS
+    package's share directory (e.g. a robot's URDF meshes) only needs its URI rewritten,
+    by :func:`_rewrite_installed_package_mesh_uri`. A marker with no mesh is left alone.
 
     :param viz_marker: Publisher whose current markers are rewritten in place.
     """
@@ -308,31 +347,72 @@ def _rewrite_mesh_uris_for_foxglove(viz_marker: VizMarkerPublisher) -> None:
         / _MESH_RESOURCE_SHARE_SUBDIR
     )
     for marker in viz_marker.markers.markers:
-        if not marker.mesh_resource.startswith("file:///tmp/"):
-            continue
-        source_path = Path(marker.mesh_resource[len("file://") :])
-        dest_dir = share_root / source_path.parent.name
-        dest_path = dest_dir / f"{source_path.stem}.glb"
-        if not dest_path.exists():
-            dest_dir.mkdir(parents=True, exist_ok=True)
-            trimesh.load(source_path, force="mesh").export(dest_path, file_type="glb")
-        marker.mesh_resource = (
-            f"package://{_MESH_RESOURCE_PACKAGE}/{_MESH_RESOURCE_SHARE_SUBDIR}/"
-            f"{source_path.parent.name}/{dest_path.name}"
-        )
-        orientation = marker.pose.orientation
-        corrected = (
-            Rotation.from_quat(
-                [orientation.x, orientation.y, orientation.z, orientation.w]
-            )
-            * _FOXGLOVE_GLTF_UP_AXIS_CORRECTION
-        )
-        (
-            orientation.x,
-            orientation.y,
-            orientation.z,
-            orientation.w,
-        ) = corrected.as_quat()
+        if marker.mesh_resource.startswith("file:///tmp/"):
+            _convert_generated_mesh_to_package_uri(marker, share_root)
+        elif marker.mesh_resource.startswith("file://"):
+            _rewrite_installed_package_mesh_uri(marker)
+
+
+def _convert_generated_mesh_to_package_uri(marker: Marker, share_root: Path) -> None:
+    """
+    Convert a generated shelf mesh from OBJ to glTF (``.glb``) in *share_root* and
+    rewrite *marker*'s ``mesh_resource`` to the matching ``package://`` URI.
+
+    ``Mesh.from_ply_file`` exports OBJ with a separate ``.mtl`` sidecar for
+    material/texture, which RViz2 and MuJoCo both read but Foxglove does not --
+    Foxglove only loads material/texture from a self-contained glTF file. Converting
+    here, rather than in ``Mesh.from_ply_file`` itself, keeps that OBJ default intact
+    for every other consumer.
+
+    Also pre-rotates the marker's local orientation to cancel Foxglove's glTF up-axis
+    correction; see :data:`_FOXGLOVE_GLTF_UP_AXIS_CORRECTION`.
+
+    :param marker: Marker whose generated mesh is converted and rewritten in place.
+    :param share_root: Directory converted meshes are copied into.
+    """
+    source_path = Path(marker.mesh_resource[len("file://") :])
+    dest_dir = share_root / source_path.parent.name
+    dest_path = dest_dir / f"{source_path.stem}.glb"
+    if not dest_path.exists():
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        trimesh.load(source_path, force="mesh").export(dest_path, file_type="glb")
+    marker.mesh_resource = (
+        f"package://{_MESH_RESOURCE_PACKAGE}/{_MESH_RESOURCE_SHARE_SUBDIR}/"
+        f"{source_path.parent.name}/{dest_path.name}"
+    )
+    orientation = marker.pose.orientation
+    corrected = (
+        Rotation.from_quat([orientation.x, orientation.y, orientation.z, orientation.w])
+        * _FOXGLOVE_GLTF_UP_AXIS_CORRECTION
+    )
+    (
+        orientation.x,
+        orientation.y,
+        orientation.z,
+        orientation.w,
+    ) = corrected.as_quat()
+
+
+def _rewrite_installed_package_mesh_uri(marker: Marker) -> None:
+    """
+    Rewrite a mesh already installed under a ROS package's share directory (e.g. a
+    robot's URDF meshes) from its local ``file://`` path to the equivalent
+    ``package://`` URI, which ``foxglove_bridge`` resolves and streams over the
+    websocket instead of a host-local path only this machine can read.
+
+    Every ROS package share directory follows the ``<install prefix>/share/<package
+    name>/...`` layout, so the package name is recovered from the path segment right
+    after ``share/`` rather than by querying the ament index for every mesh.
+
+    :param marker: Marker whose installed mesh is rewritten in place. Left untouched if
+        its path does not follow the ``.../share/<package>/...`` layout.
+    """
+    path = marker.mesh_resource[len("file://") :]
+    _, separator, relative_to_share = path.partition(_ROS_PACKAGE_SHARE_SEGMENT)
+    if not separator:
+        return
+    package_name, _, package_relative_path = relative_to_share.partition("/")
+    marker.mesh_resource = f"package://{package_name}/{package_relative_path}"
 
 
 def _publish_with_deleteall(viz_marker: VizMarkerPublisher) -> None:
@@ -451,8 +531,9 @@ def generate_shelf_with_arbitrary_objects(
     shelf_sample = evaluate_shelf_query(rspn, query)
 
     session = _processed_database_session()
+    needed_types = _mesh_candidate_types_for_shelf(shelf_sample, frequent_types)
     source_ids = _get_source_ids_for_objects(
-        load_all_objects(session), object_type=None
+        load_objects_of_types(session, needed_types), object_type=None
     )
     shelf_sample.source_ids = _coarsen_mesh_candidate_types(source_ids, frequent_types)
 
@@ -553,8 +634,10 @@ if __name__ == "__main__":
 
 
 @dataclasses.dataclass
-class ShelfTidyingAction:
+class ShelfTidyingAction(ActionDescription):
     shelf: EGShelf
+
+    shelf_annotation: SpawnedShelf
 
     obj: EGObject2D
 
@@ -565,9 +648,50 @@ class ShelfTidyingAction:
     grasp_description: GraspDescription
 
     def perform(self):
-        # gcs calculate
-        # calculate standing location for object pickup with gcs
-
-        # ask rspn where density is highest for this object
-        # move and place where rspn says it should go; needs condition and gcs
         pass
+        # navigation_map_obj = navigation_map_at_target(self.obj.body)
+        # navigation_map_shelf = navigation_map_at_target(self.shelf_annotation.corpus)
+        #
+        # min_p = self.obj.body.collision.min_point
+        # max_p = self.obj.body.collision.max_point
+        #
+        # x = min_p.x - 0.05
+        # y = (min_p.y + max_p.y) / 2
+        # z = (min_p.z + max_p.z) / 2
+        #
+        # pre_grasp_pose = Pose.from_xyz_rpy(x=x, y=y, z=z, reference_frame=self.obj.body)
+        #
+        # reach_query = a(MoveToReach)(
+        #     target_pose_offset_robot=a(Pose2D)(
+        #         x=..., y=..., yaw=..., reference_frame=None
+        #     ),
+        #     hip_rotation=0.0,
+        #     target_pose_end_effector=pre_grasp_pose,
+        #     grasp_description=a(GraspDescription)(
+        #         approach_direction=ApproachDirection.FRONT,
+        #         vertical_alignment=VerticalAlignment.NoAlignment,
+        #         end_effector=variable(EndEffector, self.world.semantic_annotations),
+        #         rotate_gripper=False,
+        #     ),
+        # )
+        #
+        # where_condition = translate_free_space_to_where_condition(
+        #     navigation_map_obj.free_space_event,
+        #     reach_query.expression,
+        #     x_variable_name="MoveToReach.target_pose_offset_robot.x",
+        #     y_variable_name="MoveToReach.target_pose_offset_robot.y",
+        # )
+        #
+        # reach_action = reach_query.where(where_condition)
+        #
+        # pick_up = PickUpAction(object_designator=self.obj.body, arm=self.arm)
+        #
+        # # calculate where in the shelf a free pose would be for the obj.
+        # # for every layer, new query, condition on everything in the shelf + all the sampled objects, new object unspecified except object_type of obj
+        # # calculate log_mode of every layer, get free variables (position.x, position.y, rotation.z, with their corresponding probabilities
+        # # take the pose that has the highest probability
+        #
+        # # navigateaction to this pose
+        # # placeaction at the pose (maybe use Moveandplace for navigate + place, if easier)
+        #
+        # pass

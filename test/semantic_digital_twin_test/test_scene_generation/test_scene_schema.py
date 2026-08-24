@@ -427,3 +427,96 @@ def test_a_placeholder_can_be_repositioned_like_a_real_object() -> None:
     placeholder.parent_connection.origin = HomogeneousTransformationMatrix.from_xyz_rpy(
         0.1, 0.0, 0.0, reference_frame=placeholder.parent_connection.parent
     )
+
+
+# %% layer geometry
+
+
+def test_layer_geometry_reports_the_height_its_slab_spawns_at() -> None:
+    """
+    A caller placing something on an already-spawned shelf reads its heights from the
+    geometry, so a geometry that disagreed with the spawn would aim at nothing.
+    """
+    shelf = _make_shelf(relative_heights=(0.9, 0.1, 0.5))
+
+    geometries = shelf.layer_geometries()
+
+    assert sorted(
+        geometry.height_above_shelf_base for geometry in geometries
+    ) == pytest.approx(_slab_heights(shelf))
+
+
+def test_layer_geometry_relates_its_height_to_the_shelfs_own() -> None:
+    """
+    The relative height is what the fitted model was trained on -- "books sit low"
+    transfers across shelves of different heights, a height in metres does not.
+    """
+    shelf = _make_shelf(relative_heights=(0.1, 0.5))
+
+    geometries = shelf.layer_geometries()
+
+    for geometry in geometries:
+        assert geometry.relative_height == pytest.approx(
+            geometry.height_above_shelf_base / shelf.corpus_footprint.height
+        )
+
+
+def test_a_layer_accepts_an_object_that_reaches_just_under_the_next_slab() -> None:
+    """
+    An object taller than the room above its slab pierces the shelf above, which no in-
+    plane repair can fix, so that room is exactly what the layer accepts.
+    """
+    shelf = _make_shelf(relative_heights=(0.2, 0.4, 0.6))
+
+    geometries = sorted(
+        shelf.layer_geometries(), key=lambda geometry: geometry.height_above_shelf_base
+    )
+
+    lowest, next_up = geometries[0], geometries[1]
+    slab_underside = next_up.slab_top_height - EGShelfLayer.SLAB_THICKNESS
+    assert lowest.maximum_object_extents.height == pytest.approx(
+        slab_underside - lowest.slab_top_height - EGShelf._OBJECT_VERTICAL_MARGIN
+    )
+
+
+def test_a_layer_on_the_shelfs_top_accepts_an_object_of_any_height() -> None:
+    """
+    Nothing stands above the shelf's top, so a layer resting there is bounded by nothing
+    rather than by the corpus ceiling below it.
+    """
+    shelf = _make_shelf(
+        relative_heights=(0.3, 1.0), scale=EGScale(height=1.0, length=0.4, width=0.8)
+    )
+
+    heights = [
+        geometry.maximum_object_extents.height for geometry in shelf.layer_geometries()
+    ]
+
+    assert heights[1] == math.inf
+    assert heights[0] < math.inf
+
+
+def test_every_layer_accepts_an_object_as_wide_as_the_shelf() -> None:
+    """
+    A slab spans its shelf's own footprint, so nothing narrower than the shelf is
+    rejected for its width or length.
+    """
+    shelf = _make_shelf(relative_heights=(0.2, 0.8))
+
+    for geometry in shelf.layer_geometries():
+        assert geometry.maximum_object_extents.width == shelf.scale.width
+        assert geometry.maximum_object_extents.length == shelf.scale.length
+
+
+def test_identical_layers_still_get_their_own_ceilings() -> None:
+    """
+    Layers compare equal whenever they hold equal objects, so a layer looked up by
+    value finds the first one every time and every slab is measured against the bottom
+    slab's ceiling.
+    """
+    shelf = _make_shelf(relative_heights=(0.5, 0.5, 0.5))
+
+    geometries = shelf.layer_geometries()
+
+    rooms = [geometry.maximum_object_extents.height for geometry in geometries]
+    assert all(room > 0 for room in rooms)
