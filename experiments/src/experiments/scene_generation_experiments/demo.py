@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import math
 import random
 import time
 from dataclasses import dataclass
 from pathlib import Path
+from typing_extensions import TYPE_CHECKING
 from visualization_msgs.msg import Marker, MarkerArray
 
 from coraplex.datastructures.dataclasses import Context
@@ -12,8 +14,14 @@ from coraplex.datastructures.grasp import GraspDescription
 from coraplex.execution_environment import simulated_robot
 from coraplex.plans.factories import sequential
 from coraplex.robot_plans.actions.core.misc import MoveToReach
+from coraplex.robot_plans.actions.core.navigation import NavigateAction
 from coraplex.robot_plans.actions.core.pick_up import PickUpAction
-from experiments.scene_generation_experiments.exceptions import NoFittingObjectError
+from coraplex.robot_plans.actions.core.placing import PlaceAction
+from experiments.scene_generation_experiments.exceptions import (
+    MissingShelfCabinetError,
+    NoFittingObjectError,
+    UnreachableShelfError,
+)
 from experiments.scene_generation_experiments.shelf_placement import (
     most_likely_shelf_placement,
 )
@@ -39,6 +47,7 @@ from semantic_digital_twin.callbacks.callback import StateChangeCallback
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.exceptions import PointOccupiedError
 from semantic_digital_twin.robots.hsrb import HSRB
+from semantic_digital_twin.robots.robot_parts import AbstractRobot
 from semantic_digital_twin.scene_generation.scene_schema import (
     EGObject2D,
     EGPoint2D,
@@ -47,6 +56,7 @@ from semantic_digital_twin.scene_generation.scene_schema import (
     ObjectType,
 )
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
+    Cabinet,
     Floor,
     Table,
 )
@@ -60,6 +70,39 @@ from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.connections import Connection6DoF
 from semantic_digital_twin.world_description.geometry import Scale
 from semantic_digital_twin.world_description.world_entity import Body
+
+if TYPE_CHECKING:
+    from experiments.scene_generation_experiments.shelf_placement import ShelfPlacement
+    from semantic_digital_twin.scene_generation.scene_schema import SpawnedShelf
+
+
+# %% the floor the robot drives on
+
+
+def floor_point(world: World, point: Point3, floor: Floor) -> Point3:
+    """
+    Project *point* onto the height at which the floor's free space is described.
+
+    :meth:`~semantic_digital_twin.semantic_annotations.mixins.HasSupportingSurface.calculate_free_space`
+    decomposes its graph as a thin slab at the supporting surface's own height, so a
+    point only falls inside a node of that graph once it sits at that height.
+
+    :param world: The world both the point and the floor belong to.
+    :param point: The point to project, in any frame.
+    :param floor: The floor whose free space the point is meant for.
+    :return: The point in the floor's supporting-surface frame, at that surface's
+        height.
+    """
+    point_on_surface = world.transform(point, floor.supporting_surface)
+    return Point3(
+        float(point_on_surface.x),
+        float(point_on_surface.y),
+        0.0,
+        reference_frame=floor.supporting_surface,
+    )
+
+
+# %% picking the book up off the table
 
 
 def book_grasp_description(context: Context) -> GraspDescription:
@@ -123,17 +166,7 @@ def move_to_reach_book(
         0.0,
         reference_frame=table.root,
     )
-    standing_point_on_surface = world.transform(
-        standing_point_on_table, floor.supporting_surface
-    )
-    # calculate_free_space()'s graph is decomposed as a thin slab at the surface's
-    # own height, so the query point is projected onto that height.
-    standing_point_on_floor = Point3(
-        float(standing_point_on_surface.x),
-        float(standing_point_on_surface.y),
-        0.0,
-        reference_frame=floor.supporting_surface,
-    )
+    standing_point_on_floor = floor_point(world, standing_point_on_table, floor)
 
     if floor.calculate_free_space().node_of_point(standing_point_on_floor) is None:
         raise PointOccupiedError(world.transform(standing_point_on_floor, world.root))
@@ -151,6 +184,175 @@ def move_to_reach_book(
         target_pose_end_effector=pre_grasp_pose,
         grasp_description=book_grasp_description(context),
     )
+
+
+# %% putting the book on the shelf
+
+SHELF_STANDING_CLEARANCE = 0.5
+"""
+Gap, in metres, the robot keeps between itself and the shelf's open face.
+
+The same standoff :func:`move_to_reach_book` leaves in front of the table, so the arm
+has to reach equally far in both halves of the demo.
+"""
+
+
+def shelf_cabinet(world: World, spawned_shelf: SpawnedShelf) -> Cabinet:
+    """
+    Look up the cabinet annotation the shelf's corpus was spawned as.
+
+    :param world: The world the shelf stands in.
+    :param spawned_shelf: The shelf whose corpus is looked up.
+    :raises MissingShelfCabinetError: If the world holds no cabinet on that corpus.
+    :return: The annotation rooted at the corpus.
+    """
+    cabinets = [
+        cabinet
+        for cabinet in world.get_semantic_annotations_by_type(Cabinet)
+        if cabinet.root is spawned_shelf.corpus
+    ]
+    if not cabinets:
+        raise MissingShelfCabinetError(corpus_name=str(spawned_shelf.corpus.name))
+    return cabinets[0]
+
+
+def shelf_standing_point(
+    spawned_shelf: SpawnedShelf,
+    placement: ShelfPlacement,
+    standing_clearance: float = SHELF_STANDING_CLEARANCE,
+) -> Point3:
+    """
+    Find the spot on the floor from which the robot reaches *placement*.
+
+    A shelf's contents are only reachable through its one open face --
+    :attr:`~semantic_digital_twin.semantic_annotations.semantic_annotations.Cabinet.hole_direction`
+    says which of the corpus's own faces that is -- so the spot lies out that way, clear
+    of the corpus, and level with the placement across the face.
+
+    :param spawned_shelf: The shelf to put something on.
+    :param placement: The placement the robot has to reach.
+    :param standing_clearance: Gap between the shelf's open face and the robot, in
+        metres.
+    :return: The standing point, in the shelf corpus's own frame.
+    """
+    footprint = spawned_shelf.shelf.corpus_footprint
+    standoff = Cabinet.hole_direction * (footprint.length / 2 + standing_clearance)
+    return Point3(
+        float(standoff.x),
+        float(placement.pose.to_position().y),
+        # The corpus's own frame sits halfway up it, so the floor is that far below.
+        -footprint.height / 2,
+        reference_frame=spawned_shelf.corpus,
+    )
+
+
+def move_to_reach_shelf(
+    spawned_shelf: SpawnedShelf,
+    placement: ShelfPlacement,
+    grasp_description: GraspDescription,
+    standing_clearance: float = SHELF_STANDING_CLEARANCE,
+) -> MoveToReach:
+    """
+    Build a move-to-reach action that drives in front of the shelf's open face and
+    reaches in to where *placement* goes.
+
+    The reach pose keeps the corpus's own orientation instead of the placement's, so the
+    arm goes in along the axis the shelf opens on and the robot ends up outside the open
+    face rather than wherever the placement happens to be turned. What the object itself
+    is turned to is left to the place action that follows.
+
+    :param spawned_shelf: The shelf to reach into.
+    :param placement: The placement the robot has to reach.
+    :param grasp_description: How the robot holds what it is about to put down.
+    :param standing_clearance: Gap between the shelf's open face and the robot, in
+        metres.
+    :return: A concrete move-to-reach action.
+    """
+    placement_position = placement.pose.to_position()
+    standing_point = shelf_standing_point(spawned_shelf, placement, standing_clearance)
+    return MoveToReach(
+        # The reach pose below is turned with the corpus, so the offset from it to the
+        # standing point is the plain difference between the two in that frame.
+        target_pose_offset_robot=Pose2D(
+            x=float(standing_point.x) - float(placement_position.x),
+            y=float(standing_point.y) - float(placement_position.y),
+            yaw=0.0,
+            reference_frame=spawned_shelf.corpus,
+        ),
+        hip_rotation=0.0,
+        target_pose_end_effector=Pose.from_xyz_rpy(
+            x=float(placement_position.x),
+            y=float(placement_position.y),
+            z=float(placement_position.z),
+            reference_frame=spawned_shelf.corpus,
+        ),
+        grasp_description=grasp_description,
+    )
+
+
+def path_to_shelf(
+    world: World, floor: Floor, robot: AbstractRobot, standing_point: Point3
+) -> list[Pose]:
+    """
+    Find the navigation goals leading the robot from where it stands to the ground in
+    front of the shelf.
+
+    The route comes out of the floor's free space, a graph of convex sets over the
+    ground its occupants leave, so it goes around what stands on the floor rather than
+    through it. Each goal faces the one it leads to, so the robot drives forwards along
+    the route. The last leg is left out: :func:`move_to_reach_shelf` drives it as part
+    of reaching, so a route with nothing in the way yields no goals at all.
+
+    :param world: The world the robot drives through.
+    :param floor: The floor the route crosses. Its occupant list decides what the route
+        avoids, so everything standing on it must have been added.
+    :param robot: The robot to route, from wherever it currently stands.
+    :param standing_point: Where the route ends.
+    :raises PointOccupiedError: If the robot or *standing_point* is not on free floor.
+    :raises UnreachableShelfError: If the floor's free space connects the two nowhere.
+    :return: The navigation goals, in the world's root frame.
+    """
+    start = floor_point(world, robot.root.global_pose.to_position(), floor)
+    goal = floor_point(world, standing_point, floor)
+    waypoints = floor.calculate_free_space().path_from_to(start, goal)
+    if waypoints is None:
+        raise UnreachableShelfError(
+            walking_distance=float(start.euclidean_distance(goal)),
+            floor_occupants=[str(occupant.root.name) for occupant in floor.objects],
+        )
+    return _navigation_goals(world, waypoints)
+
+
+def _navigation_goals(world: World, waypoints: list[Point3]) -> list[Pose]:
+    """
+    Turn a route's waypoints into poses the robot can be sent to.
+
+    The route's ends are both driven by someone else -- the robot already stands on the
+    first, and the reach action drives to the last -- so only the waypoints in between
+    become goals, each turned towards the waypoint it leads to.
+
+    :param world: The world the waypoints belong to.
+    :param waypoints: The route, from the robot's own position to the standing point.
+    :return: The navigation goals, in the world's root frame.
+    """
+    goals = []
+    for waypoint, next_waypoint in zip(waypoints[1:-1], waypoints[2:]):
+        here = world.transform(waypoint, world.root)
+        onwards = world.transform(next_waypoint, world.root)
+        goals.append(
+            Pose.from_xyz_rpy(
+                x=float(here.x),
+                y=float(here.y),
+                yaw=math.atan2(
+                    float(onwards.y) - float(here.y), float(onwards.x) - float(here.x)
+                ),
+                reference_frame=world.root,
+            )
+        )
+    return goals
+
+
+# %% animating what the plan does
 
 
 @dataclass(eq=False)
@@ -201,7 +403,7 @@ if __name__ == "__main__":
         # book scan in the dataset already does not always fit under.
         query = build_theme_shelf_query(
             trained_model.relational_probabilistic_circuit,
-            ObjectType.JAR,
+            ObjectType.BOOK,
             [3, 3],
         )
 
@@ -257,6 +459,11 @@ if __name__ == "__main__":
             spawned_shelf.parent.name = PrefixedName(name="shelf_origin")
         world.merge_world_at_pose(spawned_shelf.world, shelf_pose)
         spawned_shelf.world = world
+
+        # The shelf has to count as standing on the floor, or the free space the robot
+        # is routed through would run straight across the ground it covers.
+        with world.modify_world():
+            floor.add_object(shelf_cabinet(world, spawned_shelf))
 
         book_candidates = _get_source_ids_for_objects(
             load_objects_of_types(_processed_database_session(), {ObjectType.BOOK})
@@ -372,6 +579,45 @@ if __name__ == "__main__":
             f"  in map coordinates: x={float(placement_in_map.x):.3f} "
             f"y={float(placement_in_map.y):.3f} z={float(placement_in_map.z):.3f}"
         )
+
+        # Routed from where the pick-up left the robot standing, so the path has to be
+        # planned now rather than alongside the reach above.
+        standing_point = shelf_standing_point(spawned_shelf, placement)
+        navigation_goals = path_to_shelf(world, floor, context.robot, standing_point)
+        standing_point_in_map = world.transform(standing_point, world.root)
+        print(
+            f"  approached over {len(navigation_goals)} navigation goal(s), from "
+            f"x={float(standing_point_in_map.x):.3f} "
+            f"y={float(standing_point_in_map.y):.3f} in front of the open face"
+        )
+
+        input("Press Enter to drive to the shelf and put the book down...")
+
+        animation_pacer = _AnimationPacer(_world=world)
+        try:
+            with simulated_robot:
+                sequential(
+                    [NavigateAction(goal) for goal in navigation_goals]
+                    + [
+                        move_to_reach_shelf(
+                            spawned_shelf, placement, book_grasp_description(context)
+                        ),
+                        # Put down with the same front grasp it was picked up with:
+                        # the pick-up ran in a plan of its own, so the action falls
+                        # back to its default, which is that grasp.
+                        PlaceAction(
+                            object_designator=book_body,
+                            # In map coordinates, which is the frame the action's
+                            # post-condition compares the book's own global pose
+                            # against.
+                            target_location=placement_in_map,
+                            arm=Arms.LEFT,
+                        ),
+                    ],
+                    context,
+                ).perform()
+        finally:
+            animation_pacer.stop()
 
         try:
             while True:

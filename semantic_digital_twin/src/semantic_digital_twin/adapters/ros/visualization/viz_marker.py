@@ -38,6 +38,7 @@ class ShapeSource(Enum):
     visual shapes, use collision shapes as a backup.
     """
 
+
 @dataclass(eq=False)
 class VizMarkerPublisher(ModelChangeCallback):
     """
@@ -167,6 +168,17 @@ class VizMarkerPublisher(ModelChangeCallback):
                 region.area.shapes, str(region.name), force_alpha=self.region_alpha
             )
 
+        self.publish_markers()
+
+    def publish_markers(self) -> None:
+        """
+        Send the current markers out on the topic.
+
+        Every rebuild ends here, so a subclass that has to reshape what a particular
+        viewer receives overrides this rather than reaching into :attr:`markers` once:
+        the markers are rebuilt from the world on every model change, and anything done
+        to them by hand is gone at the next one.
+        """
         self.publisher.publish(self.markers)
 
     def _add_markers_for_shapes(

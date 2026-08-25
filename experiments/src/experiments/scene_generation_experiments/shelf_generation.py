@@ -415,6 +415,22 @@ def _rewrite_installed_package_mesh_uri(marker: Marker) -> None:
     marker.mesh_resource = f"package://{package_name}/{package_relative_path}"
 
 
+@dataclasses.dataclass(eq=False)
+class FoxgloveVizMarkerPublisher(VizMarkerPublisher):
+    """
+    A marker publisher whose meshes a browser-based Foxglove client can load.
+
+    Rewriting on the way out rather than once is what makes it hold: markers are rebuilt
+    from the world on every model change, and picking an object up or putting it down
+    re-parents it, which is one. A single rewrite is undone by the first such change,
+    putting ``file://`` paths no browser can fetch back on the topic.
+    """
+
+    def publish_markers(self) -> None:
+        _rewrite_mesh_uris_for_foxglove(self)
+        super().publish_markers()
+
+
 def _publish_with_deleteall(viz_marker: VizMarkerPublisher) -> None:
     """
     Prepend a DELETEALL marker and publish, so a fresh run replaces the previous one
@@ -429,7 +445,7 @@ def _publish_with_deleteall(viz_marker: VizMarkerPublisher) -> None:
         own topic, DELETEALL first.
     """
     viz_marker.markers.markers.insert(0, Marker(action=Marker.DELETEALL))
-    viz_marker.publisher.publish(viz_marker.markers)
+    viz_marker.publish_markers()
 
 
 def _processed_database_session() -> Session:
@@ -578,18 +594,21 @@ def visualize_spawned_shelf(
         publish for viewers that connect after the initial, one-shot publish --
         TF, unlike the marker publisher, is not transient-local.
     """
-    viz_marker = VizMarkerPublisher(
+    publisher_type = (
+        FoxgloveVizMarkerPublisher
+        if visualization_backend is VisualizationBackend.FOXGLOVE
+        else VizMarkerPublisher
+    )
+    viz_marker = publisher_type(
         _world=spawned_shelf.world,
         node=node,
-        # depth=1 so a fresh subscriber's transient-local history only ever
-        # holds the final, published-below markers, not the file:// URIs this
-        # publisher writes on construction -- a Foxglove viewer cannot fetch
-        # those, so that first sample must not linger.
+        # depth=1 so a fresh subscriber's transient-local history holds only the
+        # newest marker set. At a deeper history it would be handed every set the
+        # run has published so far, replaying the scene as it stood before the
+        # robot moved anything on top of how it stands now.
         qos_profile=QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL),
     )
     viz_marker.with_tf_publisher()
-    if visualization_backend is VisualizationBackend.FOXGLOVE:
-        _rewrite_mesh_uris_for_foxglove(viz_marker)
     _publish_with_deleteall(viz_marker)
     return viz_marker
 

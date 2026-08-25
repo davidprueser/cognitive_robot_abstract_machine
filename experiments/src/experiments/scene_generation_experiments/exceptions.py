@@ -197,6 +197,64 @@ class NoShelfPlacementError(DataclassException):
 
 
 @dataclass
+class MissingShelfCabinetError(DataclassException):
+    """
+    Raised when a spawned shelf's corpus carries no cabinet annotation.
+
+    The annotation is what says the corpus is furniture standing on the floor, so
+    without it the shelf is a body the floor's free space knows nothing about and the
+    robot would be routed across the ground it covers.
+    """
+
+    corpus_name: str
+    """
+    Name of the corpus body that was looked up.
+    """
+
+    def error_message(self) -> str:
+        return f"No cabinet annotation is rooted at the corpus {self.corpus_name!r}."
+
+    def suggest_correction(self) -> str:
+        return (
+            "Take the shelf from the world it was merged into; a merge keeps the "
+            "annotations, but a shelf never spawned into this world has none here."
+        )
+
+
+@dataclass
+class UnreachableShelfError(DataclassException):
+    """
+    Raised when the floor's free space holds no route to the shelf.
+
+    Both the robot and the spot it would have to stand on are on free ground, so this
+    says that what stands between them closes every way across -- a different failure
+    from either end being blocked, which the free space reports on its own.
+    """
+
+    walking_distance: float
+    """
+    Straight-line distance from the robot to where it would have to stand, in metres.
+    """
+
+    floor_occupants: list[str]
+    """
+    Names of what stands on the floor and splits its free space.
+    """
+
+    def error_message(self) -> str:
+        return (
+            f"No route across the floor reaches the shelf {self.walking_distance:.3f} m "
+            f"away; {', '.join(self.floor_occupants)} leave no way through."
+        )
+
+    def suggest_correction(self) -> str:
+        return (
+            "Move what stands between the robot and the shelf, or stand the shelf "
+            "somewhere the robot can drive to."
+        )
+
+
+@dataclass
 class NoFittingObjectError(DataclassException):
     """
     Raised when a shelf has no layer that could hold any of the objects on offer.

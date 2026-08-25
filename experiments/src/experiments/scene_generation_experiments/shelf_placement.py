@@ -195,6 +195,7 @@ def most_likely_shelf_placement(
             object_height=held_object.scale.height,
             refusals=outcomes,
         )
+    print({placement: placement.log_likelihood for placement in placements})
     return max(placements, key=lambda placement: placement.log_likelihood)
 
 

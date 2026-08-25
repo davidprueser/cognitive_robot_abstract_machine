@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import tempfile
 import sys
 import dataclasses
 import json
@@ -44,6 +45,9 @@ from experiments.scene_generation_experiments.rspn_sampling import (
     probabilistic_backend,
 )
 from experiments.scene_generation_experiments.shelf_generation import (
+    FoxgloveVizMarkerPublisher,
+    _MESH_RESOURCE_PACKAGE,
+    _MESH_RESOURCE_SHARE_SUBDIR,
     _coarsen_mesh_candidate_types,
     _coarsen_rare_object_types,
     _mesh_candidate_types_for_shelf,
@@ -75,6 +79,9 @@ from semantic_digital_twin.scene_generation.scene_schema import (
 )
 from semantic_digital_twin.semantic_annotations.semantic_annotations import ShelfLayer
 from semantic_digital_twin.world import World
+from semantic_digital_twin.world_description.connections import FixedConnection
+from semantic_digital_twin.world_description.geometry import Mesh
+from semantic_digital_twin.world_description.shape_collection import ShapeCollection
 from semantic_digital_twin.world_description.world_entity import Body
 
 _FAKE_PATH = Path("/fake/scene")
@@ -1001,9 +1008,9 @@ def test_load_objects_of_types_does_not_scale_query_count_with_object_count(
     load_objects_of_types must eagerly join scale/position/orientation in the same
     query, not lazily on first access.
 
-    Without the join, accessing those attributes for every object in the pool issued
-    one extra round-trip per object -- for the full sage10k object table, an 850,000-
-    query storm that dwarfed everything else a shelf draw does.
+    Without the join, accessing those attributes for every object in the pool issued one
+    extra round-trip per object -- for the full sage10k object table, an 850,000- query
+    storm that dwarfed everything else a shelf draw does.
     """
     session.add_all(
         [_typed_dao(ObjectType.BOOK, f"book_{index}") for index in range(30)]
@@ -1539,3 +1546,145 @@ def test_a_drawn_shelfs_layers_reflect_the_types_object_count(
     cup_counts = [len(layer.objects) for layer in cup_themed.layers]
     assert min(book_counts) > max(cup_counts)
 
+
+# %% Foxglove mesh URIs surviving a world model change
+
+
+@dataclass
+class _RecordingPublisher:
+    """
+    Duck-type substitute for a ROS publisher, keeping what was sent to it.
+    """
+
+    published: list[MarkerArray] = field(default_factory=list)
+
+    def publish(self, markers: MarkerArray) -> None:
+        self.published.append(markers)
+
+
+@dataclass
+class _RecordingNode:
+    """
+    Duck-type substitute for an rclpy node, handing out a :class:`_RecordingPublisher`.
+    """
+
+    publisher: _RecordingPublisher = field(default_factory=_RecordingPublisher)
+
+    def create_publisher(self, message_type, topic_name, qos_profile):
+        return self.publisher
+
+
+@pytest.fixture
+def generated_mesh_file() -> Path:
+    """
+    A real mesh under ``/tmp``, where a spawned object's mesh is written and where the
+    rewrite recognises it as one it has to convert to glTF.
+    """
+    mesh_directory = Path(tempfile.mkdtemp(dir="/tmp")) / "spawned_object"
+    mesh_directory.mkdir()
+    resources_root = (
+        Path(files("semantic_digital_twin")).parent.parent / "resources" / "ply"
+    )
+    mesh_path = mesh_directory / "spawned_object.ply"
+    shutil.copy(resources_root / "chair.ply", mesh_path)
+    shutil.copy(
+        resources_root / "chair_texture.png", mesh_directory / "chair_texture.png"
+    )
+    yield mesh_path
+    shutil.rmtree(mesh_directory.parent)
+
+
+def _world_with_mesh_body(mesh_path: Path) -> World:
+    """
+    A world holding one body whose visual is *mesh_path*.
+
+    :param mesh_path: The mesh the body is given.
+    :return: The world.
+    """
+    world = World.create_with_root_body("map")
+    body = Body(
+        name=PrefixedName("spawned_object"),
+        visual=ShapeCollection([Mesh(filename=str(mesh_path))]),
+    )
+    with world.modify_world():
+        world.add_body(body)
+        world.add_connection(FixedConnection(parent=world.root, child=body))
+    return world
+
+
+def _published_mesh_uris(publisher: _RecordingPublisher) -> list[str]:
+    """
+    The mesh URIs of the most recently published marker array.
+
+    :param publisher: The publisher whose last message is read.
+    :return: One URI per marker that carries a mesh.
+    """
+    return [
+        marker.mesh_resource
+        for marker in publisher.published[-1].markers
+        if marker.mesh_resource
+    ]
+
+
+def _served_uri_for(mesh_path: Path) -> str:
+    """
+    :param mesh_path: The generated mesh a marker points at.
+    :return: The ``package://`` URI the rewrite has to turn it into.
+    """
+    return (
+        f"package://{_MESH_RESOURCE_PACKAGE}/{_MESH_RESOURCE_SHARE_SUBDIR}/"
+        f"{mesh_path.parent.name}/{mesh_path.stem}.glb"
+    )
+
+
+def test_foxglove_publisher_rewrites_mesh_uris_it_publishes(
+    generated_mesh_file: Path, tmp_path: Path
+) -> None:
+    """
+    A Foxglove client fetches mesh resources over its websocket and cannot read a
+    ``file://`` path, so nothing the publisher sends may carry one.
+    """
+    world = _world_with_mesh_body(generated_mesh_file)
+    node = _RecordingNode()
+
+    with patch(
+        "experiments.scene_generation_experiments.shelf_generation."
+        "get_package_share_directory",
+        return_value=str(tmp_path / "share"),
+    ):
+        FoxgloveVizMarkerPublisher(_world=world, node=node)
+
+    assert _published_mesh_uris(node.publisher) == [
+        _served_uri_for(generated_mesh_file)
+    ]
+
+
+def test_foxglove_mesh_uris_survive_a_world_model_change(
+    generated_mesh_file: Path, tmp_path: Path
+) -> None:
+    """
+    Markers are rebuilt from the world whenever its model changes -- picking an object
+    up re-parents it, which is one -- so a rewrite applied once to the publisher's
+    markers is undone by the next change.
+
+    Every publish must carry rewritten URIs, not just the first.
+    """
+    world = _world_with_mesh_body(generated_mesh_file)
+    node = _RecordingNode()
+    late_arrival = Body(name=PrefixedName("late_arrival"))
+
+    with patch(
+        "experiments.scene_generation_experiments.shelf_generation."
+        "get_package_share_directory",
+        return_value=str(tmp_path / "share"),
+    ):
+        FoxgloveVizMarkerPublisher(_world=world, node=node)
+        publishes_before_change = len(node.publisher.published)
+        with world.modify_world():
+            world.add_body(late_arrival)
+            world.add_connection(FixedConnection(parent=world.root, child=late_arrival))
+
+    assert len(node.publisher.published) > publishes_before_change
+    assert _published_mesh_uris(node.publisher) == [
+        _served_uri_for(generated_mesh_file)
+    ]
