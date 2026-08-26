@@ -1207,6 +1207,49 @@ def test_calculate_free_space_excludes_objects_on_surface(rclpy_node):
     free_space_graph.plot_and_show_free_space()
 
 
+def test_calculate_free_space_auto_discovers_objects_outside_modify_world():
+    """
+    An object resting on a surface but never registered with :meth:`add_object` --
+    exactly what a shelf's spawned objects are, since they are only seated on their
+    layer's slab, never added to it -- must still be found and excluded from the free
+    space, even when :meth:`calculate_free_space` is called outside a
+    :meth:`World.modify_world` block, as every caller that merely reads free space does.
+    """
+    world = _world_with_root()
+    milk_scale = Scale(0.03, 0.03, 0.1)
+    with world.modify_world():
+        table = Table.create_with_new_body_in_world(
+            name="table", world=world, scale=Scale(1.0, 1.0, 0.1)
+        )
+
+    _, table_max_point = table.min_max_points
+    table_top_z = table.root.global_transform.z + table_max_point.z
+
+    with world.modify_world():
+        milk = Milk.create_with_new_body_in_world(
+            name="milk",
+            world=world,
+            scale=milk_scale,
+            world_root_T_self=HomogeneousTransformationMatrix.from_xyz_rpy(
+                x=0.3, z=table_top_z + milk_scale.z / 2
+            ),
+        )
+        table.calculate_supporting_surface()
+
+    free_space_graph = table.calculate_free_space()
+
+    assert milk in table.objects
+
+    surface_P_milk = world.transform(milk.root.global_transform, table.supporting_surface)
+    milk_point = Point3(
+        float(surface_P_milk.x),
+        float(surface_P_milk.y),
+        0.0,
+        reference_frame=table.supporting_surface,
+    )
+    assert free_space_graph.node_of_point(milk_point) is None
+
+
 def test_add_routes_handle_as_child():
     """
     Add(handle) mounts the handle as a child of the door (default strategy).

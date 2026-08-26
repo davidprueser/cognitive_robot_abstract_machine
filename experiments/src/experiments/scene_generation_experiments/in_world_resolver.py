@@ -230,9 +230,9 @@ class ShelfLayerGroup:
                 fixed_objects,
                 len(resampled_objects),
             ),
-            build_layer_query(
-                layer.theme_dominant_type, free_count=len(resampled_objects)
-            ),
+            # build_layer_query(
+            #     layer.theme_dominant_type, free_count=len(resampled_objects)
+            # ),
         )
         redrawn_objects = new_layer.objects[-len(resampled_objects) :]
 
@@ -321,9 +321,7 @@ class InWorldLayoutResolver:
             before it stops being resampled.
         :return: A resolver ready to repair the spawned shelf.
         """
-        spawned = shelf.spawn_in_world(
-            placeholders_for_missing_meshes=placeholders_for_missing_meshes
-        )
+        spawned = shelf.spawn_in_world()
         groups = cls._shelf_layer_groups(shelf, spawned, probabilistic_backend(rspn))
         return cls(
             spawned=spawned,

@@ -203,11 +203,12 @@ def test_the_corpus_interior_matches_the_shelfs_learned_dimensions() -> None:
     narrow = _make_shelf(scale=EGScale(height=1.5, length=0.26, width=0.62))
     wide = _make_shelf(scale=EGScale(height=1.5, length=0.40, width=1.43))
 
+    corpus_wall_thickness = 0.03
     assert narrow.corpus_footprint.width == pytest.approx(
-        0.62 + 2 * EGShelf._CORPUS_WALL_THICKNESS, abs=1e-6
+        0.62 + 2 * corpus_wall_thickness, abs=1e-6
     )
     assert wide.corpus_footprint.width == pytest.approx(
-        1.43 + 2 * EGShelf._CORPUS_WALL_THICKNESS, abs=1e-6
+        1.43 + 2 * corpus_wall_thickness, abs=1e-6
     )
     assert narrow.corpus_footprint.width < wide.corpus_footprint.width
 
@@ -473,7 +474,7 @@ def test_a_layer_accepts_an_object_that_reaches_just_under_the_next_slab() -> No
     )
 
     lowest, next_up = geometries[0], geometries[1]
-    slab_underside = next_up.slab_top_height - EGShelfLayer.SLAB_THICKNESS
+    slab_underside = next_up.slab_top_height - 0.02
     assert lowest.maximum_object_extents.height == pytest.approx(
         slab_underside - lowest.slab_top_height - EGShelf._OBJECT_VERTICAL_MARGIN
     )

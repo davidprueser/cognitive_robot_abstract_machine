@@ -674,6 +674,38 @@ class MissingSemanticAnnotationError(UsageError):
 
 
 @dataclass
+class MissingLiveSemanticAnnotationError(UsageError):
+    """
+    Raised when no semantic annotation of a given type is rooted at a body that is
+    expected to carry one.
+
+    Seen after merging a world (:meth:`~semantic_digital_twin.world.World.merge_world`),
+    which replaces every semantic annotation on the merged bodies with a fresh
+    instance -- so a body that carried an annotation of this type before merging is
+    expected to still carry one, under a different object, afterward.
+    """
+
+    semantic_annotation_class: Type[SemanticAnnotation]
+    """
+    The semantic annotation type that was looked up.
+    """
+
+    body_name: PrefixedName
+    """
+    Name of the body that was looked up.
+    """
+
+    def error_message(self) -> str:
+        return (
+            f"No {self.semantic_annotation_class.__name__} annotation is rooted at "
+            f"the body {self.body_name!r}."
+        )
+
+    def suggest_correction(self) -> str:
+        return ""
+
+
+@dataclass
 class InvalidPlaneDimensions(UsageError):
     """
     Raised when the depth of a plane is not less than its width or height.

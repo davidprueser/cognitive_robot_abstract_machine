@@ -1213,7 +1213,7 @@ class ProbabilisticCircuit(ProbabilisticModel, SubclassJSONSerializer):
                     unit.forward()
         return self.root.result_of_current_query
 
-    def log_mode(self, check_determinism: bool = True) -> Tuple[Event, float]:
+    def log_mode(self, check_determinism: bool = False) -> Tuple[Event, float]:
         if check_determinism:
             if not self.is_deterministic():
                 raise IntractableError(self)

@@ -6,8 +6,6 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing_extensions import TYPE_CHECKING
-from visualization_msgs.msg import Marker, MarkerArray
-
 from coraplex.datastructures.dataclasses import Context
 from coraplex.datastructures.enums import Arms, ApproachDirection, VerticalAlignment
 from coraplex.datastructures.grasp import GraspDescription
@@ -23,24 +21,31 @@ from experiments.scene_generation_experiments.exceptions import (
     UnreachableShelfError,
 )
 from experiments.scene_generation_experiments.shelf_placement import (
-    most_likely_shelf_placement,
+    mode_query,
 )
 from experiments.scene_generation_experiments.shelf_generation import (
     _load_or_train_shelf_model,
-    _processed_database_session,
     generate_shelf_with_arbitrary_objects,
     visualize_spawned_shelf,
     VisualizationBackend,
 )
 from krrood.entity_query_language.backends import ProbabilisticBackend
-from experiments.orm.ormatic_interface import *  # type: ignore
+from experiments.scene_generation_experiments.processed_database import (
+    load_objects_of_types,
+    _processed_database_session,
+)
 from experiments.scene_generation_experiments.utils import (
     _get_source_ids_for_objects,
-    load_objects_of_types,
     rclpy_node,
 )
 from experiments.scene_generation_experiments.rspn_sampling import (
     build_theme_shelf_query,
+)
+from semantic_digital_twin.adapters.ros.visualization.spatial_type_marker_renderer import (
+    SpatialTypeVisualization,
+)
+from semantic_digital_twin.adapters.ros.visualization.spatial_type_publisher import (
+    SpatialTypePublisher,
 )
 from semantic_digital_twin.adapters.urdf import URDFParser
 from semantic_digital_twin.callbacks.callback import StateChangeCallback
@@ -54,6 +59,7 @@ from semantic_digital_twin.scene_generation.scene_schema import (
     EGRotation,
     EGScale,
     ObjectType,
+    EGShelf,
 )
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Cabinet,
@@ -72,7 +78,6 @@ from semantic_digital_twin.world_description.geometry import Scale
 from semantic_digital_twin.world_description.world_entity import Body
 
 if TYPE_CHECKING:
-    from experiments.scene_generation_experiments.shelf_placement import ShelfPlacement
     from semantic_digital_twin.scene_generation.scene_schema import SpawnedShelf
 
 
@@ -99,29 +104,6 @@ def floor_point(world: World, point: Point3, floor: Floor) -> Point3:
         float(point_on_surface.y),
         0.0,
         reference_frame=floor.supporting_surface,
-    )
-
-
-# %% picking the book up off the table
-
-
-def book_grasp_description(context: Context) -> GraspDescription:
-    """
-    Build the grasp the demo takes the book with, from the front and without turning the
-    gripper.
-
-    Shared by the reach and the pick-up so both approach the book the same way: a
-    pick-up that grasped differently than the reach was aimed for would have to move
-    the arm all over again from the pose the reach left it in.
-
-    :param context: The context whose robot's end effector grasps.
-    :return: The grasp description.
-    """
-    return GraspDescription(
-        approach_direction=ApproachDirection.FRONT,
-        vertical_alignment=VerticalAlignment.NoAlignment,
-        end_effector=context.robot.end_effector,
-        rotate_gripper=False,
     )
 
 
@@ -182,21 +164,16 @@ def move_to_reach_book(
         ),
         hip_rotation=0.0,
         target_pose_end_effector=pre_grasp_pose,
-        grasp_description=book_grasp_description(context),
+        grasp_description=GraspDescription(
+            approach_direction=ApproachDirection.FRONT,
+            vertical_alignment=VerticalAlignment.NoAlignment,
+            end_effector=context.robot.end_effector,
+            rotate_gripper=False,
+        ),
     )
 
 
 # %% putting the book on the shelf
-
-SHELF_STANDING_CLEARANCE = 0.5
-"""
-Gap, in metres, the robot keeps between itself and the shelf's open face.
-
-The same standoff :func:`move_to_reach_book` leaves in front of the table, so the arm
-has to reach equally far in both halves of the demo.
-"""
-
-
 def shelf_cabinet(world: World, spawned_shelf: SpawnedShelf) -> Cabinet:
     """
     Look up the cabinet annotation the shelf's corpus was spawned as.
@@ -216,41 +193,9 @@ def shelf_cabinet(world: World, spawned_shelf: SpawnedShelf) -> Cabinet:
     return cabinets[0]
 
 
-def shelf_standing_point(
-    spawned_shelf: SpawnedShelf,
-    placement: ShelfPlacement,
-    standing_clearance: float = SHELF_STANDING_CLEARANCE,
-) -> Point3:
-    """
-    Find the spot on the floor from which the robot reaches *placement*.
-
-    A shelf's contents are only reachable through its one open face --
-    :attr:`~semantic_digital_twin.semantic_annotations.semantic_annotations.Cabinet.hole_direction`
-    says which of the corpus's own faces that is -- so the spot lies out that way, clear
-    of the corpus, and level with the placement across the face.
-
-    :param spawned_shelf: The shelf to put something on.
-    :param placement: The placement the robot has to reach.
-    :param standing_clearance: Gap between the shelf's open face and the robot, in
-        metres.
-    :return: The standing point, in the shelf corpus's own frame.
-    """
-    footprint = spawned_shelf.shelf.corpus_footprint
-    standoff = Cabinet.hole_direction * (footprint.length / 2 + standing_clearance)
-    return Point3(
-        float(standoff.x),
-        float(placement.pose.to_position().y),
-        # The corpus's own frame sits halfway up it, so the floor is that far below.
-        -footprint.height / 2,
-        reference_frame=spawned_shelf.corpus,
-    )
-
-
 def move_to_reach_shelf(
     spawned_shelf: SpawnedShelf,
-    placement: ShelfPlacement,
-    grasp_description: GraspDescription,
-    standing_clearance: float = SHELF_STANDING_CLEARANCE,
+    shelf: EGShelf,
 ) -> MoveToReach:
     """
     Build a move-to-reach action that drives in front of the shelf's open face and
@@ -262,20 +207,25 @@ def move_to_reach_shelf(
     is turned to is left to the place action that follows.
 
     :param spawned_shelf: The shelf to reach into.
-    :param placement: The placement the robot has to reach.
-    :param grasp_description: How the robot holds what it is about to put down.
-    :param standing_clearance: Gap between the shelf's open face and the robot, in
-        metres.
+    :param shelf: The shelf.
     :return: A concrete move-to-reach action.
     """
-    placement_position = placement.pose.to_position()
-    standing_point = shelf_standing_point(spawned_shelf, placement, standing_clearance)
+    layer = shelf.layers[0]
+    placed_object = layer.objects[-1]
+    placement_position = spawned_shelf.shelf.object_local_pose(
+        placed_object, layer.height_above_shelf_base, spawned_shelf.corpus
+    ).to_position()
+    footprint = spawned_shelf.shelf.corpus_footprint
+    standoff = Cabinet.hole_direction * (footprint.length / 2 + 0.5)
+    standing_pose = Point3(
+        float(standoff.x),
+        float(placement_position.y),
+        reference_frame=spawned_shelf.corpus,
+    )
     return MoveToReach(
-        # The reach pose below is turned with the corpus, so the offset from it to the
-        # standing point is the plain difference between the two in that frame.
         target_pose_offset_robot=Pose2D(
-            x=float(standing_point.x) - float(placement_position.x),
-            y=float(standing_point.y) - float(placement_position.y),
+            x=float(standing_pose.x) - float(placement_position.x),
+            y=float(standing_pose.y) - float(placement_position.y),
             yaw=0.0,
             reference_frame=spawned_shelf.corpus,
         ),
@@ -286,7 +236,12 @@ def move_to_reach_shelf(
             z=float(placement_position.z),
             reference_frame=spawned_shelf.corpus,
         ),
-        grasp_description=grasp_description,
+        grasp_description=GraspDescription(
+            approach_direction=ApproachDirection.FRONT,
+            vertical_alignment=VerticalAlignment.NoAlignment,
+            end_effector=context.robot.end_effector,
+            rotate_gripper=False,
+        ),
     )
 
 
@@ -320,21 +275,7 @@ def path_to_shelf(
             walking_distance=float(start.euclidean_distance(goal)),
             floor_occupants=[str(occupant.root.name) for occupant in floor.objects],
         )
-    return _navigation_goals(world, waypoints)
 
-
-def _navigation_goals(world: World, waypoints: list[Point3]) -> list[Pose]:
-    """
-    Turn a route's waypoints into poses the robot can be sent to.
-
-    The route's ends are both driven by someone else -- the robot already stands on the
-    first, and the reach action drives to the last -- so only the waypoints in between
-    become goals, each turned towards the waypoint it leads to.
-
-    :param world: The world the waypoints belong to.
-    :param waypoints: The route, from the robot's own position to the standing point.
-    :return: The navigation goals, in the world's root frame.
-    """
     goals = []
     for waypoint, next_waypoint in zip(waypoints[1:-1], waypoints[2:]):
         here = world.transform(waypoint, world.root)
@@ -378,59 +319,50 @@ class _AnimationPacer(StateChangeCallback):
 
 
 if __name__ == "__main__":
+    # DB Connection
+    session = _processed_database_session()
+
     with rclpy_node() as node:
         world = World()
 
+        # PREPARATION AND MODEL LOADING
         hsrb_world = URDFParser.from_file(file_path=HSRB.get_ros_file_path()).parse()
         hsrb = HSRB.from_world(hsrb_world)
         shelf_pose = HomogeneousTransformationMatrix.from_xyz_rpy(x=2.0, y=0.0, z=0.0)
         robot_pose = HomogeneousTransformationMatrix.from_xyz_rpy(x=0.0, y=0.0, z=0.0)
         floor_scale = Scale(x=8.0, y=8.0, z=0.02)
-        # Matches the HSRB-reachable counter height already used in
-        # kitchen_environment.py, rather than a human dining-table height the
-        # robot's arm cannot comfortably reach.
-        table_scale = Scale(x=0.9, y=0.6, z=0.6)
-        # Off to the side of both the robot's start and the shelf, so nothing overlaps.
+        table_scale = Scale(x=0.9, y=0.6, z=0.4)
         table_pose = HomogeneousTransformationMatrix.from_xyz_rpy(
             x=1.0, y=-1.5, z=table_scale.z / 2
         )
-
         model_path = Path(__file__).parent / "models" / "arbitrary_shelf_rspn.json"
-        trained_model = _load_or_train_shelf_model(model_path)
+        trained_model = _load_or_train_shelf_model(model_path, session)
 
-        # Two layers rather than four: slabs are spread evenly over the drawn corpus,
-        # and four of them leave 0.07 m to 0.37 m above each slab, which the shortest
-        # book scan in the dataset already does not always fit under.
+        # create query
         query = build_theme_shelf_query(
-            trained_model.relational_probabilistic_circuit,
             ObjectType.BOOK,
             [3, 3],
         )
 
-        spawned_shelf, trained_model = generate_shelf_with_arbitrary_objects(
-            query, model_path=model_path
+        # SHELF
+        #
+        #
+        #
+        spawned_shelf = generate_shelf_with_arbitrary_objects(
+            query, trained_model, session
         )
 
-        # HSRB's URDF only describes the physical robot, with no joint attaching it
-        # to a world frame, so a movable "odom_combined" frame and the robot's own
-        # drive connection are inserted between it and whatever it is merged into --
-        # mirroring the "map -> odom_combined -> urdf tree" that
-        # test.conftest.world_with_urdf_factory builds for the same reason. Without
-        # this, the merged-in root only gets the plain Connection6DoF world.merge_world
-        # defaults to, and navigation actions -- which look up the robot's unique
-        # OmniDrive-typed connection -- have none to find.
         with hsrb_world.modify_world():
-            hsrb_root = hsrb_world.root
             odom_combined = Body(name=PrefixedName("odom_combined"))
             hsrb_world.add_body(odom_combined)
             drive_connection_type = HSRB.get_drive_connection_type()
             odom_C_root = drive_connection_type.create_with_dofs(
-                parent=odom_combined, child=hsrb_root, world=hsrb_world
+                parent=odom_combined, child=hsrb_world.root, world=hsrb_world
             )
             hsrb_world.add_connection(odom_C_root)
             odom_C_root.has_hardware_interface = True
         odom_C_root.origin = robot_pose.copy_with_new_reference_frames(
-            new_reference_frame=odom_combined, new_child_frame=hsrb_root
+            new_reference_frame=odom_combined, new_child_frame=hsrb_world.root
         )
 
         with world.modify_world():
@@ -459,20 +391,14 @@ if __name__ == "__main__":
             spawned_shelf.parent.name = PrefixedName(name="shelf_origin")
         world.merge_world_at_pose(spawned_shelf.world, shelf_pose)
         spawned_shelf.world = world
+        spawned_shelf.refresh_layer_annotations()
 
-        # The shelf has to count as standing on the floor, or the free space the robot
-        # is routed through would run straight across the ground it covers.
         with world.modify_world():
             floor.add_object(shelf_cabinet(world, spawned_shelf))
 
         book_candidates = _get_source_ids_for_objects(
             load_objects_of_types(_processed_database_session(), {ObjectType.BOOK})
         )
-        # sage10k book scans come in two poses: lying flat, cover up, or standing
-        # upright on a shelf, spine down. Only a candidate whose recorded height --
-        # its extent along the scan's up axis -- is its largest side was captured
-        # standing; that is the pose that leaves the book's two covers exposed on its
-        # sides at roll=pitch=0, the faces a parallel gripper can grasp from above.
         book_candidates_standing = [
             candidate
             for candidate in book_candidates
@@ -514,38 +440,51 @@ if __name__ == "__main__":
                 width=book_extents[0], length=book_extents[1], height=book_extents[2]
             ),
             position=EGPoint2D(x=0.0, y=0.0),
-            # Roll and pitch left at 0 so the book stands upright on its spine, the
-            # same way floor and shelf objects are always spawned upright.
             orientation=EGRotation(x=0.0, y=0.0, z=0.0),
             source_id=book_candidate.source_id,
-            theme_dominant_type=ObjectType.BOOK,
         )
         book_body = book.create_in_world(
             world,
             book_candidate.scene_dir,
             parent=table.root,
-            # The book's mesh origin sits at its own lowest point (see
-            # _mesh_centered_on_footprint), so resting it on the table only takes
-            # the table's own half-height -- the table's box is centered on its pose.
             world_pose=HomogeneousTransformationMatrix.from_xyz_rpy(
                 z=table_scale.z / 2, reference_frame=table.root
             ),
         )
 
-        # Published before the robot moves, and with a pause for the viewer to
-        # connect: spawning the shelf's meshes in Foxglove is slow enough that,
-        # published only after the action runs, a viewer only ever sees the robot
-        # already at its final pose and never the move itself.
+        context = Context.from_world(world, query_backend=ProbabilisticBackend())
+        object_goal_pose = mode_query(
+            spawned_shelf, trained_model.relational_probabilistic_circuit, book
+        )
+        position_x = object_goal_pose.layers[-1].objects[-1].position.x
+        position_y = object_goal_pose.layers[-1].objects[-1].position.y
+        orientation_yaw = math.radians(
+            object_goal_pose.layers[-1].objects[-1].orientation.z
+        )
+        pose2d = Pose2D(
+            position_x,
+            position_y,
+            orientation_yaw,
+            reference_frame=spawned_shelf.shelf.layers[-1].annotated_layer.root,
+        )
+        SpatialTypePublisher(
+            node=node, _world=world, topic_name="/demo/goal_pose2d"
+        ).add(SpatialTypeVisualization(spatial_type=pose2d, label="goal_pose2d"))
+        object_goal_pose_in_map = world.transform(pose2d.to_pose(), world.root)
+        footprint = spawned_shelf.shelf.corpus_footprint
+        standoff = Cabinet.hole_direction * (footprint.length / 2 + 0.5)
+        standing_pose = Point3(
+            float(standoff.x),
+            float(position_y),
+            reference_frame=spawned_shelf.corpus,
+        )
+        standing_point_in_map = world.transform(standing_pose, world.root)
+
         viz_marker = visualize_spawned_shelf(
             node, spawned_shelf, visualization_backend=VisualizationBackend.FOXGLOVE
         )
-        input(
-            "Scene published. Connect a Foxglove viewer, then press Enter to run "
-            "the reach action..."
-        )
 
-        context = Context.from_world(world, query_backend=ProbabilisticBackend())
-
+        navigation_goals = path_to_shelf(world, floor, context.robot, standing_pose)
         animation_pacer = _AnimationPacer(_world=world)
         try:
             with simulated_robot:
@@ -555,62 +494,21 @@ if __name__ == "__main__":
                         PickUpAction(
                             object_designator=book_body,
                             arm=Arms.LEFT,
-                            grasp_description=book_grasp_description(context),
+                            grasp_description=GraspDescription(
+                                approach_direction=ApproachDirection.FRONT,
+                                vertical_alignment=VerticalAlignment.NoAlignment,
+                                end_effector=context.robot.end_effector,
+                                rotate_gripper=False,
+                            ),
                         ),
-                    ],
-                    context,
-                ).perform()
-        finally:
-            animation_pacer.stop()
-
-        placement = most_likely_shelf_placement(
-            spawned_shelf, trained_model.relational_probabilistic_circuit, book
-        )
-        placement_in_map = world.transform(placement.pose.to_pose(), world.root)
-        print(
-            f"The book belongs on layer {placement.layer_index} of "
-            f"{len(spawned_shelf.layers)}, at "
-            f"x={placement.placed_object.position.x:.3f} "
-            f"y={placement.placed_object.position.y:.3f} "
-            f"yaw={placement.placed_object.orientation.z:.1f} deg in the shelf's "
-            f"frame (log-likelihood {placement.log_likelihood:.2f})"
-        )
-        print(
-            f"  in map coordinates: x={float(placement_in_map.x):.3f} "
-            f"y={float(placement_in_map.y):.3f} z={float(placement_in_map.z):.3f}"
-        )
-
-        # Routed from where the pick-up left the robot standing, so the path has to be
-        # planned now rather than alongside the reach above.
-        standing_point = shelf_standing_point(spawned_shelf, placement)
-        navigation_goals = path_to_shelf(world, floor, context.robot, standing_point)
-        standing_point_in_map = world.transform(standing_point, world.root)
-        print(
-            f"  approached over {len(navigation_goals)} navigation goal(s), from "
-            f"x={float(standing_point_in_map.x):.3f} "
-            f"y={float(standing_point_in_map.y):.3f} in front of the open face"
-        )
-
-        input("Press Enter to drive to the shelf and put the book down...")
-
-        animation_pacer = _AnimationPacer(_world=world)
-        try:
-            with simulated_robot:
-                sequential(
-                    [NavigateAction(goal) for goal in navigation_goals]
-                    + [
+                        *[NavigateAction(goal) for goal in navigation_goals],
                         move_to_reach_shelf(
-                            spawned_shelf, placement, book_grasp_description(context)
+                            spawned_shelf,
+                            object_goal_pose,
                         ),
-                        # Put down with the same front grasp it was picked up with:
-                        # the pick-up ran in a plan of its own, so the action falls
-                        # back to its default, which is that grasp.
                         PlaceAction(
                             object_designator=book_body,
-                            # In map coordinates, which is the frame the action's
-                            # post-condition compares the book's own global pose
-                            # against.
-                            target_location=placement_in_map,
+                            target_location=object_goal_pose_in_map,
                             arm=Arms.LEFT,
                         ),
                     ],
@@ -618,18 +516,3 @@ if __name__ == "__main__":
                 ).perform()
         finally:
             animation_pacer.stop()
-
-        try:
-            while True:
-                viz_marker._tf_publisher.on_state_change()
-                time.sleep(1)
-        except KeyboardInterrupt:
-            pass
-        finally:
-            # Since the marker publisher is TRANSIENT_LOCAL, its last published
-            # state lingers for any viewer connecting after this process exits.
-            # Clearing it here means markers are only ever on screen while this
-            # script is actively running.
-            viz_marker.publisher.publish(
-                MarkerArray(markers=[Marker(action=Marker.DELETEALL)])
-            )

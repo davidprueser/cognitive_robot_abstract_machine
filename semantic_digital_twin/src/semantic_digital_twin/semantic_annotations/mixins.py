@@ -883,10 +883,12 @@ class HasSupportingSurface(IsStorageSpace):
                 )
             ).where(semantic_annotation.root == body)
         ).evaluate()
-        for obj in objects:
-            if obj in self.objects:
-                continue
-            self.add_object(obj)
+        new_objects = [obj for obj in objects if obj not in self.objects]
+        if not new_objects:
+            return
+        with self._world.modify_world():
+            for obj in new_objects:
+                self.add_object(obj)
 
     @synchronized_attribute_modification
     def add_supporting_surface(self, region: Region):
@@ -986,11 +988,16 @@ class HasSupportingSurface(IsStorageSpace):
         else:
             return uniform_measure_of_event(truncated_event_2d)
 
-    def calculate_free_space(self) -> GraphOfBoundingBoxes:
+    def calculate_free_space(self, object_bloat: float = 0.0) -> GraphOfBoundingBoxes:
         """
         Compute the free space on the supporting surface as a graph of bounding boxes,
         excluding the footprint of every object currently on the surface.
 
+        :param object_bloat: The amount to enlarge every object's footprint by before
+            subtracting it from the surface. The free space graph only ever hands back
+            a point, not a footprint of its own, so a caller placing an object of
+            radius *r* at that point should pass ``object_bloat=r`` to keep the new
+            object's own footprint clear of the objects already on the surface.
         :return: A graph of bounding boxes decomposing the surface's free space.
         """
         # Imported here rather than at module level to avoid a circular import:
@@ -1000,11 +1007,16 @@ class HasSupportingSurface(IsStorageSpace):
             GraphOfBoundingBoxes,
         )
 
+        self.infer_objects_on_surface()
+
         search_space = BoundingBoxCollection.from_shapes(self.supporting_surface.area)
         search_space.transform_all_shapes_to_own_frame()
 
         object_footprints = BoundingBoxCollection(
-            [self._object_footprint_as_infinite_column(obj) for obj in self.objects],
+            [
+                self._object_footprint_as_infinite_column(obj, object_bloat)
+                for obj in self.objects
+            ],
             self.supporting_surface,
         )
 
@@ -1022,18 +1034,24 @@ class HasSupportingSurface(IsStorageSpace):
         free_space_graph.calculate_connectivity()
         return free_space_graph
 
-    def _object_footprint_as_infinite_column(self, object: HasRootBody) -> BoundingBox:
+    def _object_footprint_as_infinite_column(
+        self, object: HasRootBody, object_bloat: float = 0.0
+    ) -> BoundingBox:
         """
-        The xy footprint of ``object`` on the supporting surface, extended to span all
-        z, so that it fully covers whatever vertical band the surface's own search
-        space occupies regardless of how high above the surface the object stands.
+        The xy footprint of ``object`` on the supporting surface, enlarged by
+        *object_bloat* and extended to span all z, so that it fully covers whatever
+        vertical band the surface's own search space occupies regardless of how high
+        above the surface the object stands.
 
         :param object: The object standing on the surface.
+        :param object_bloat: The amount to enlarge the footprint by in every xy
+            direction before it is extended to an infinite column.
         :return: The object's bounding box footprint, in the surface's frame.
         """
         footprint = object.root.collision.as_bounding_box_collection_in_frame(
             self.supporting_surface
         ).bounding_box()
+        footprint.enlarge_all(object_bloat)
         return BoundingBox(
             footprint.min_x,
             footprint.min_y,

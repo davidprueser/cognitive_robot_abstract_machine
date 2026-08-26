@@ -12,6 +12,7 @@ import numpy as np
 
 from krrood.adapters.json_serializer import SubclassJSONSerializer, to_json
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
+from semantic_digital_twin.exceptions import MissingLiveSemanticAnnotationError
 from semantic_digital_twin.datastructures.variables import SpatialVariables
 from semantic_digital_twin.semantic_annotations.natural_language import (
     NaturalLanguageWithTypeDescription,
@@ -615,20 +616,6 @@ class EGObject2D(EGWithID):
     Identifier used to look up the PLY mesh file for this object in the dataset.
     """
 
-    theme_dominant_type: ObjectType
-    """
-    The object type that occurs most often among the objects on the shelf this object
-    was found on.
-
-    Denormalized, like :attr:`EGShelfLayer.theme_dominant_type`, because only
-    aggregation statistics reach a part from its parent. Present on the layer alone it
-    would shape the layer's own dimensions but leave which objects are drawn onto it
-    independent of the shelf's theme -- a book-dominant shelf would fill with a bottle-
-    dominant shelf's contents. Required rather than defaulted, so that an extraction
-    path which forgets it fails outright instead of quietly labelling its objects as
-    belonging to some other shelf's theme.
-    """
-
     def to_json(self) -> dict[str, Any]:
         return {
             **super().to_json(),
@@ -640,7 +627,6 @@ class EGObject2D(EGWithID):
             "rotation": to_json(self.orientation),
             "dimensions": to_json(self.scale),
             "source_id": self.source_id,
-            "theme_dominant_type": self.theme_dominant_type,
         }
 
     @classmethod
@@ -656,7 +642,6 @@ class EGObject2D(EGWithID):
             orientation=EGRotation._from_json(data["rotation"], **kwargs),
             scale=EGScale._from_json(data["dimensions"], **kwargs),
             source_id=data["source_id"],
-            theme_dominant_type=ObjectType(data["theme_dominant_type"]),
         )
 
     def create_in_world(
@@ -761,14 +746,6 @@ class EGShelfLayer(EGBase):
     the data.
     """
 
-    SLAB_THICKNESS: ClassVar[float] = 0.02
-    """
-    Thickness, in metres, of a layer slab.
-
-    One value shared by extraction, sampling and spawning: a layer recorded at one
-    thickness and spawned at another would seat its objects at the wrong height.
-    """
-
     objects: list[EGObject2D]
     """
     Objects placed on this layer, with positions relative to the shelf centre.
@@ -808,6 +785,14 @@ class EGShelfLayer(EGBase):
 
     This is what decides whether an object fits, so keeping it lets that be learned from
     real shelves instead of assumed from evenly spaced layers.
+    """
+
+    annotated_layer: ShelfLayer | None = field(default=None)
+    """
+    The layer's supporting-surface annotation in the world.
+
+    ``None`` until the layer is spawned by :meth:`EGShelf.spawn_in_world`, which sets
+    it to the annotation it creates.
     """
 
     def to_json(self) -> dict[str, Any]:
@@ -1002,16 +987,6 @@ class _MeshTypeMatcher:
         sofa routinely became whichever mesh happened to be drawn.
     """
 
-    MAXIMUM_SIZE_RATIO: ClassVar[float] = 2.0
-    """
-    How far a candidate's real size may differ from a requested target size, as a factor
-    on each axis, before it is rejected.
-
-    A mesh of the right category but the wrong size still looks wrong -- a sampled 0.45
-    m stool spawning as a 1.2 m armchair -- so category alone is not enough once the
-    circuit has sampled a size to aim for.
-    """
-
     candidates: list[MeshCandidate]
     """
     Pool of meshes to choose from.
@@ -1057,7 +1032,7 @@ class _MeshTypeMatcher:
         eligible = [
             (mismatch, candidate)
             for mismatch, candidate in scored
-            if mismatch <= math.log(self.MAXIMUM_SIZE_RATIO)
+            if mismatch <= math.log(2.0)
         ]
         if not eligible:
             return None
@@ -1196,14 +1171,44 @@ class SpawnedShelf:
     stand for.
     """
 
-    placeholder_count: int = 0
-    """
-    Objects standing in as plain boxes because no mesh of their type was cached.
+    def refresh_layer_annotations(self) -> None:
+        """
+        Re-resolve every layer's :class:`ShelfLayer` annotation from :attr:`world`.
 
-    Reported so a render can be read honestly: a shelf that looks sparse because
-    the mesh library is incomplete is a different thing from one the model drew
-    that way.
-    """
+        Merging this shelf's world into another one
+        (:meth:`~semantic_digital_twin.world.World.merge_world`) replaces every
+        semantic annotation on the merged bodies with a fresh instance, though the
+        body itself survives unchanged -- so :attr:`EGShelfLayer.annotated_layer` and
+        :attr:`SpawnedShelfLayer.surface` both keep pointing at an annotation with no
+        world of its own once that happens. Call this once, right after merging
+        :attr:`world` into its final world and updating this attribute to match -- the
+        same point at which a caller of :class:`~semantic_digital_twin.
+        semantic_annotations.semantic_annotations.Floor` or :class:`~semantic_digital_twin.
+        semantic_annotations.semantic_annotations.Table` calls :meth:`~semantic_digital_twin.
+        semantic_annotations.mixins.HasSupportingSurface.calculate_supporting_surface`
+        on its own annotation.
+
+        :raises MissingLiveSemanticAnnotationError: If some layer's body carries no
+            live :class:`ShelfLayer` annotation in :attr:`world`.
+        """
+        for spawned_layer, layer in zip(self.layers, self.shelf.layers):
+            body = spawned_layer.surface.root
+            live_annotation = next(
+                (
+                    annotation
+                    for annotation in self.world.get_semantic_annotations_by_type(
+                        ShelfLayer
+                    )
+                    if annotation.root is body
+                ),
+                None,
+            )
+            if live_annotation is None:
+                raise MissingLiveSemanticAnnotationError(
+                    semantic_annotation_class=ShelfLayer, body_name=body.name
+                )
+            spawned_layer.surface = live_annotation
+            layer.annotated_layer = live_annotation
 
 
 @dataclass
@@ -1215,15 +1220,6 @@ class EGShelf(EGBase):
     frame's origin. Where a shelf happened to stand in the room it was extracted from
     says nothing about shelves, so carrying it would only add a near-unique coordinate
     per training row for a circuit to split on.
-    """
-
-    _CORPUS_WALL_THICKNESS: ClassVar[float] = 0.03
-    """
-    Thickness of the spawned :class:`Cabinet` corpus's walls.
-
-    The corpus is sized larger than the layers' own footprint by this amount (see
-    :meth:`spawn_in_world`), so a wall carved out of that footprint never intrudes into
-    the region objects were trained to occupy.
     """
 
     CONTENT_FRAME_YAW_OFFSET_DEGREES: ClassVar[float] = 90.0
@@ -1242,15 +1238,9 @@ class EGShelf(EGBase):
         away from the viewer; it is chosen by inspecting the render, not derived.
     """
 
-    _LAYER_SLAB_THICKNESS: ClassVar[float] = EGShelfLayer.SLAB_THICKNESS
+    _LAYER_SLAB_THICKNESS: ClassVar[float] = 0.02
     """
     Thickness, in metres, of each spawned layer slab.
-    """
-
-    _OBJECT_VERTICAL_MARGIN: ClassVar[float] = 0.01
-    """
-    Slack, in metres, kept between the tallest object a layer accepts and the surface
-    above it, so a fitting object never grazes the next slab or ceiling.
     """
 
     _TOP_SURFACE_RELATIVE_HEIGHT: ClassVar[float] = 1.0
@@ -1317,7 +1307,8 @@ class EGShelf(EGBase):
             turned by :attr:`orientation` is the span the corpus really
             occupies.
         """
-        wall_margin = 2 * self._CORPUS_WALL_THICKNESS
+        corpus_wall_thickness = 0.03
+        wall_margin = 2 * corpus_wall_thickness
         return EGScale(
             width=self.scale.width + wall_margin,
             length=self.scale.length + wall_margin,
@@ -1476,9 +1467,11 @@ class EGShelf(EGBase):
         if self._rests_on_top(layer):
             return math.inf
         heights_above = [height for height in layer_heights if height > own_height]
+        corpus_wall_thickness = 0.03
+        layer_slab_thickness = 0.02
         if not heights_above:
-            return corpus_height / 2 - self._CORPUS_WALL_THICKNESS
-        return (min(heights_above) - corpus_height / 2) - self._LAYER_SLAB_THICKNESS / 2
+            return corpus_height / 2 - corpus_wall_thickness
+        return (min(heights_above) - corpus_height / 2) - layer_slab_thickness / 2
 
     def layer_geometries(self) -> list[ShelfLayerGeometry]:
         """
@@ -1508,54 +1501,16 @@ class EGShelf(EGBase):
                     maximum_object_extents=EGScale(
                         width=self.scale.width,
                         length=self.scale.length,
-                        height=surface_above_height
-                        - slab_top_height
-                        - self._OBJECT_VERTICAL_MARGIN,
+                        height=surface_above_height - slab_top_height - 0.01,
                     ),
                 )
             )
         return geometries
 
-    def _spawn_placeholder(
-        self,
-        obj: EGObject2D,
-        world: World,
-        corpus: KinematicStructureEntity,
-        slab_top_z: float,
-    ) -> Body:
-        """
-        Stand a plain box where an object should be, at the size it was drawn.
-
-        Used only while inspecting a render: it shows what the model placed when
-        no mesh of that type exists to show it with.
-
-        :param obj: The object that found no mesh.
-        :param world: The world to spawn into.
-        :param corpus: The shelf corpus the box is parented to.
-        :param slab_top_z: Height of the supporting slab in the corpus frame.
-        :return: The spawned placeholder body.
-        """
-        with world.modify_world():
-            placeholder = Table.create_with_new_body_in_world(
-                name=f"placeholder_{obj.id}",
-                world=world,
-                world_root_T_self=self.object_local_pose(
-                    obj, slab_top_z + obj.scale.height / 2, corpus
-                ),
-                scale=Scale(x=obj.scale.length, y=obj.scale.width, z=obj.scale.height),
-            )
-        world.move_branch(placeholder.root, corpus)
-        # Attached movably, like a real object: a placeholder sits in the object
-        # list and collision repair repositions it the same way, which a rigid
-        # attachment refuses outright.
-        world.make_branch_movable(placeholder.root)
-        return placeholder.root
-
     def spawn_in_world(
         self,
         world: World | None = None,
         parent: KinematicStructureEntity | None = None,
-        placeholders_for_missing_meshes: bool = False,
     ) -> SpawnedShelf:
         """
         Instantiate the shelf and its objects inside a :class:`World`, returning handles
@@ -1568,9 +1523,6 @@ class EGShelf(EGBase):
             is created when omitted.
         :param parent: The parent entity the shelf is placed under. Defaults to the
             world's root when omitted.
-        :param placeholders_for_missing_meshes: Stand a plain box in for any object
-            whose type has no cached mesh, instead of leaving it out. For inspecting a
-            render; off so a generation run never gains bodies that stand for nothing.
         :return: The spawned shelf, its world, and per-layer handles.
         """
         _world: World = world if world is not None else World()
@@ -1602,7 +1554,7 @@ class EGShelf(EGBase):
                 "shelf_corpus",
                 Cabinet.get_default_root_kinematic_structure_entity_specification(
                     scale=Scale(x=corpus_depth, y=corpus_face, z=corpus_height),
-                    wall_thickness=self._CORPUS_WALL_THICKNESS,
+                    wall_thickness=0.03,
                 ),
             ).spawn(_world, parent_T_self=corpus_pose)
         corpus_body = corpus_annotation.root
@@ -1614,8 +1566,11 @@ class EGShelf(EGBase):
 
         mesh_matcher = _MeshTypeMatcher(candidates=self.source_ids or [])
 
-        spawned_layers: list[SpawnedShelfLayer] = []
-        placeholder_count = 0
+        # Every slab is created before any object is spawned onto any of them: a
+        # later pass measuring a layer's own clearance against its neighbours'
+        # real geometry needs every slab already standing, not just the ones
+        # before it in layer order.
+        layer_annotations: list[ShelfLayer] = []
         for i, (layer, geometry) in enumerate(zip(self.layers, layer_geometries)):
             # Every slab spans the shelf's own footprint; a layer has none of its own.
             layer_scale = Scale(
@@ -1639,7 +1594,20 @@ class EGShelf(EGBase):
             # unit when it is repositioned at the room level; the world pose is
             # preserved by the move.
             _world.move_branch(layer_annotation.root, corpus_body)
+            layer.annotated_layer = layer_annotation
+            # Calculated eagerly here rather than left to a caller (contrast
+            # Floor/Table, whose callers compute it themselves): a layer's surface
+            # is needed for every placement query, and this region survives a
+            # later World.merge_world of the shelf into another world intact, even
+            # though the annotation object it is calculated on does not.
+            with _world.modify_world():
+                layer_annotation.calculate_supporting_surface()
+            layer_annotations.append(layer_annotation)
 
+        spawned_layers: list[SpawnedShelfLayer] = []
+        for layer, geometry, layer_annotation in zip(
+            self.layers, layer_geometries, layer_annotations
+        ):
             slab_top_z = geometry.slab_top_height
             # An object taller than the room above its slab would pierce the shelf
             # above, which the resolver (it only moves objects in the plane) can
@@ -1663,11 +1631,6 @@ class EGShelf(EGBase):
                 # simply unrenderable, so it is left out unless a stand-in was
                 # asked for.
                 if candidate is None:
-                    if placeholders_for_missing_meshes:
-                        object_bodies[object_index] = self._spawn_placeholder(
-                            obj, _world, corpus_body, slab_top_z
-                        )
-                        placeholder_count += 1
                     continue
                 obj.source_id = candidate.source_id
                 body = obj.create_in_world(
@@ -1692,7 +1655,6 @@ class EGShelf(EGBase):
             layers=spawned_layers,
             corpus=corpus_body,
             shelf=self,
-            placeholder_count=placeholder_count,
         )
 
     def create_in_world(

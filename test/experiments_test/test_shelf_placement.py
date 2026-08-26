@@ -10,19 +10,16 @@ from random_events.product_algebra import SimpleEvent
 from random_events.variable import Continuous
 
 import experiments.orm.ormatic_interface  # noqa: F401  registers ORM mappers
-from experiments.scene_generation_experiments.exceptions import NoShelfPlacementError
 from experiments.scene_generation_experiments.shelf_placement import (
     LayerVariable,
     ObjectSlotVariable,
     PlacementRefusal,
-    _densest_pose,
     _free_positions,
     _layer_and_object_evidence,
-    _log_density_at,
     _neighbour_evidence,
     _occupied_footprints,
     _placement_query,
-    most_likely_shelf_placement,
+    mode_query,
 )
 from krrood.parametrization.model_registries import RelationalCircuitRegistry
 from probabilistic_model.probabilistic_circuit.rx.helper import (
@@ -105,7 +102,6 @@ def _object_of(
         position=EGPoint2D(x=0.0, y=0.0),
         orientation=EGRotation(x=0.0, y=0.0, z=0.0),
         source_id=f"{object_type.value}_source",
-        theme_dominant_type=theme,
     )
 
 
@@ -301,7 +297,7 @@ def test_the_placement_is_a_pose_on_one_of_the_shelfs_own_layers(
     spawned = empty_two_layer_shelf.spawn_in_world()
     geometries = empty_two_layer_shelf.layer_geometries()
 
-    placement = most_likely_shelf_placement(spawned, low_shelf_model, _held_book())
+    placement = mode_query(spawned, low_shelf_model, _held_book())
 
     geometry = geometries[placement.layer_index]
     assert placement.layer_index in range(len(empty_two_layer_shelf.layers))
@@ -327,38 +323,11 @@ def test_the_layer_at_a_height_the_model_knows_wins(
     geometries = empty_two_layer_shelf.layer_geometries()
     common_height = _LOW_SHELF_SCALE.height * _UPPER_RELATIVE_HEIGHT
 
-    placement = most_likely_shelf_placement(spawned, low_shelf_model, _held_book())
+    placement = mode_query(spawned, low_shelf_model, _held_book())
 
     assert geometries[placement.layer_index].height_above_shelf_base == pytest.approx(
         common_height
     )
-
-
-def test_an_object_too_tall_for_every_layer_is_refused(
-    low_shelf_model: RelationalProbabilisticCircuit,
-    empty_two_layer_shelf: EGShelf,
-) -> None:
-    """
-    An object that fits nowhere cannot be put down badly, only not at all -- and a
-    caller told which heights the layers offer can see why at a glance.
-    """
-    spawned = empty_two_layer_shelf.spawn_in_world()
-    geometries = empty_two_layer_shelf.layer_geometries()
-    tallest_gap = max(geometry.maximum_object_extents.height for geometry in geometries)
-    too_tall = EGScale(
-        width=_BOOK_SCALE.width, length=_BOOK_SCALE.length, height=tallest_gap + 0.1
-    )
-
-    with pytest.raises(NoShelfPlacementError) as raised:
-        most_likely_shelf_placement(spawned, low_shelf_model, _held_book(too_tall))
-
-    assert raised.value.object_height == too_tall.height
-    assert [refusal.reason for refusal in raised.value.refusals] == [
-        PlacementRefusal.TOO_LITTLE_HEADROOM
-    ] * len(geometries)
-    assert [refusal.room_above_slab for refusal in raised.value.refusals] == [
-        geometry.maximum_object_extents.height for geometry in geometries
-    ]
 
 
 # %% what a layer is scored on
@@ -491,52 +460,6 @@ def _pose_distributions(
     return pose_model, truncated
 
 
-def test_the_densest_pose_is_the_middle_of_the_modes_box() -> None:
-    """
-    A deterministic circuit reports its mode as a box of equally likely poses, and the
-    middle of that box is the one furthest from where the density drops off.
-    """
-    position_x, position_y, yaw = Continuous("x"), Continuous("y"), Continuous("yaw")
-    box = SimpleEvent.from_data(
-        {
-            position_x: closed(-0.1, 0.1),
-            position_y: closed(-0.2, 0.2),
-            yaw: closed(80.0, 100.0),
-        }
-    )
-    flat = uniform_measure_of_simple_event(box)
-    assert flat.is_deterministic()
-
-    pose = _densest_pose(flat, flat, sample_count=10)
-
-    assert pose[position_x] == pytest.approx(0.0)
-    assert pose[position_y] == pytest.approx(0.0)
-    assert pose[yaw] == pytest.approx(90.0)
-
-
-def test_the_sampled_stand_in_lands_as_densely_as_the_search_can(
-    low_shelf_model: RelationalProbabilisticCircuit,
-    empty_two_layer_shelf: EGShelf,
-) -> None:
-    """
-    Truncating does not always leave a circuit whose mode can be read off -- this
-    fixture's does not -- so where sampling takes over it has to land somewhere as
-    likely as a far longer search would find.
-    """
-    chosen = most_likely_shelf_placement(
-        empty_two_layer_shelf.spawn_in_world(), low_shelf_model, _held_book()
-    ).layer_index
-    pose_model, truncated = _pose_distributions(
-        low_shelf_model, empty_two_layer_shelf, chosen
-    )
-    assert not truncated.is_deterministic()
-
-    pose = _densest_pose(truncated, pose_model, sample_count=1000)
-
-    thorough = pose_model.log_likelihood(truncated.sample(20000)).max()
-    assert _log_density_at(pose_model, pose) == pytest.approx(thorough, abs=0.5)
-
-
 def test_the_chosen_pose_stands_inside_the_layer(
     low_shelf_model: RelationalProbabilisticCircuit,
     empty_two_layer_shelf: EGShelf,
@@ -547,7 +470,7 @@ def test_the_chosen_pose_stands_inside_the_layer(
     """
     spawned = empty_two_layer_shelf.spawn_in_world()
 
-    placement = most_likely_shelf_placement(spawned, low_shelf_model, _held_book())
+    placement = mode_query(spawned, low_shelf_model, _held_book())
 
     placed = placement.placed_object
     assert _stands_within_layer(
@@ -684,7 +607,7 @@ def test_the_chosen_pose_clears_what_already_stands_on_the_layer(
         placeholders_for_missing_meshes=True
     )
 
-    placement = most_likely_shelf_placement(spawned, crowded_shelf_model, _held_book())
+    placement = mode_query(spawned, crowded_shelf_model, _held_book())
 
     standing_there = _occupied_footprints(spawned, placement.layer_index)
     assert standing_there

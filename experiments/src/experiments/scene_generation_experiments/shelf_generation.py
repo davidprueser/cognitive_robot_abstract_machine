@@ -1,9 +1,6 @@
 from __future__ import annotations
 
-import argparse
 import dataclasses
-import os
-import time
 from collections import Counter
 from enum import StrEnum
 from pathlib import Path
@@ -13,41 +10,32 @@ from ament_index_python.packages import get_package_share_directory
 from rclpy.qos import DurabilityPolicy, QoSProfile
 from scipy.spatial.transform import Rotation
 from sqlalchemy.orm import Session
-from visualization_msgs.msg import Marker, MarkerArray
+from visualization_msgs.msg import Marker
 
-from coraplex.datastructures.enums import ApproachDirection, VerticalAlignment
 from coraplex.datastructures.grasp import GraspDescription
 from coraplex.robot_plans.actions.base import ActionDescription
-from coraplex.robot_plans.actions.core.misc import MoveToReach
-from coraplex.robot_plans.actions.core.pick_up import PickUpAction, GraspingAction
 from experiments.scene_generation_experiments.rspn_model_storage import (
     TrainedArbitraryShelfModel,
 )
-from krrood.entity_query_language.factories import an, a, variable
+from krrood.entity_query_language.backends import ProbabilisticBackend
 from krrood.ormatic.data_access_objects.helper import to_dao
-from krrood.ormatic.utils import create_engine
 from krrood.parametrization.model_registries import (
-    ModelRegistry,
     RelationalCircuitRegistry,
 )
 from probabilistic_model.probabilistic_circuit.relational.rspn import (
     RelationalProbabilisticCircuit,
 )
-from experiments.orm.ormatic_interface import *  # type: ignore
+from experiments.scene_generation_experiments.processed_database import (
+    load_objects_of_types,
+    load_shelves,
+)
 from experiments.scene_generation_experiments.utils import (
     MINIMUM_SAMPLES_PER_QUANTILE,
     _get_source_ids_for_objects,
-    load_objects_of_types,
-    load_shelves,
-    rclpy_node,
     min_samples_per_leaf_for,
 )
 from experiments.scene_generation_experiments.in_world_resolver import (
     InWorldLayoutResolver,
-)
-from experiments.scene_generation_experiments.rspn_sampling import (
-    build_theme_shelf_query,
-    evaluate_shelf_query,
 )
 from semantic_digital_twin.adapters.ros.visualization.viz_marker import (
     VizMarkerPublisher,
@@ -58,16 +46,8 @@ from semantic_digital_twin.scene_generation.scene_schema import (
     EGShelfLayer,
     MeshCandidate,
     ObjectType,
-    EGObject,
     EGObject2D,
     SpawnedShelf,
-)
-from semantic_digital_twin.spatial_types import Pose2D, Pose
-from semantic_digital_twin.world_description.graph_of_convex_sets.base import (
-    translate_free_space_to_where_condition,
-)
-from semantic_digital_twin.world_description.graph_of_convex_sets.boxes import (
-    navigation_map_at_target,
 )
 
 
@@ -448,22 +428,9 @@ def _publish_with_deleteall(viz_marker: VizMarkerPublisher) -> None:
     viz_marker.publish_markers()
 
 
-def _processed_database_session() -> Session:
-    """
-    Open a session on the processed sage10k database, creating its schema if needed.
-
-    :return: A session on the processed database.
-    """
-    uri = os.environ.get("SAGE10K_PROCESSED_DATABASE_URI")
-    assert (
-        uri is not None
-    ), "Please set the SAGE10K_PROCESSED_DATABASE_URI environment variable."
-    engine = create_engine(uri)
-    Base.metadata.create_all(bind=engine)
-    return Session(engine)
-
-
-def _load_or_train_shelf_model(model_path: Path) -> TrainedArbitraryShelfModel:
+def _load_or_train_shelf_model(
+    model_path: Path, session: Session
+) -> TrainedArbitraryShelfModel:
     """
     Load the model cached at *model_path*, training and caching one from the
     processed database if it doesn't exist yet.
@@ -481,7 +448,6 @@ def _load_or_train_shelf_model(model_path: Path) -> TrainedArbitraryShelfModel:
     if model_path.exists():
         return TrainedArbitraryShelfModel.load(model_path)
 
-    session = _processed_database_session()
     shelves = load_shelves(session)
     shelf_layers = [layer for shelf in shelves for layer in shelf.layers]
     frequent_types = _frequent_object_types(shelf_layers, keep_count=20)
@@ -505,10 +471,8 @@ def _load_or_train_shelf_model(model_path: Path) -> TrainedArbitraryShelfModel:
 
 
 def generate_shelf_with_arbitrary_objects(
-    query,
-    placeholders_for_missing_meshes: bool = True,
-    model_path: Path = (Path(__file__).parent / "models" / "arbitrary_shelf_rspn.json"),
-) -> tuple[SpawnedShelf, TrainedArbitraryShelfModel]:
+    query, model: TrainedArbitraryShelfModel, session: Session
+) -> SpawnedShelf:
     """
     Evaluate an EGShelf query against a trained RSPN and return a collision-free,
     spawned shelf, together with the model it was sampled from.
@@ -530,48 +494,35 @@ def generate_shelf_with_arbitrary_objects(
     :param query: An EGShelf query to sample, e.g. built with
         :func:`~experiments.scene_generation_experiments.rspn_sampling.build_shelf_query`
         or :func:`~experiments.scene_generation_experiments.rspn_sampling.build_theme_shelf_query`.
-    :param placeholders_for_missing_meshes: Stand a plain box in for objects whose
-        type has no cached mesh, so a sparse render can be told apart from a sparse
-        draw while the mesh library is incomplete.
-    :param model_path: Where the fitted model is exported to and, on a later
-        run, loaded from instead of being refit. Training data is only
-        queried and the RSPN only fit when no model exists at this path yet.
     :raises NoSolutionFound: If the model gives *query* no probability.
     :return: The sampled, repaired, spawned shelf and the model it came from.
     """
-    start = time.time()
-    trained_model = _load_or_train_shelf_model(model_path)
-    rspn = trained_model.relational_probabilistic_circuit
-    frequent_types = trained_model.frequent_object_types
+    circuit = model.relational_probabilistic_circuit
+    frequent_types = model.frequent_object_types
 
-    shelf_sample = evaluate_shelf_query(rspn, query)
+    registry = RelationalCircuitRegistry(relational_probabilistic_circuit=circuit)
+    backend = ProbabilisticBackend(model_registry=registry, number_of_samples=1)
+    sample = next(iter(backend.evaluate(query)))
 
-    session = _processed_database_session()
-    needed_types = _mesh_candidate_types_for_shelf(shelf_sample, frequent_types)
+    needed_types = _mesh_candidate_types_for_shelf(sample, frequent_types)
     source_ids = _get_source_ids_for_objects(
         load_objects_of_types(session, needed_types), object_type=None
     )
-    shelf_sample.source_ids = _coarsen_mesh_candidate_types(source_ids, frequent_types)
+    sample.source_ids = _coarsen_mesh_candidate_types(source_ids, frequent_types)
 
-    layer_template = rspn.exchangeable_distribution_templates["layers"]
+    layer_template = circuit.exchangeable_distribution_templates["layers"]
     resolver = InWorldLayoutResolver.for_shelf(
-        shelf_sample,
+        sample,
         layer_template.template_distribution,
-        placeholders_for_missing_meshes=placeholders_for_missing_meshes,
     )
     spawned_shelf = resolver.resolve()
-    # Counted after repair, which drops what it cannot separate, while the
-    # placeholders were counted when the shelf was spawned. Reporting them as a
-    # share of what survived would read as more stand-ins than there are objects.
     placed = sum(len(layer.object_bodies) for layer in spawned_shelf.layers)
     print(
-        f"{shelf_sample.theme_dominant_type.value}: {len(spawned_shelf.layers)} "
+        f"{sample.theme_dominant_type.value}: {len(spawned_shelf.layers)} "
         f"layers, {placed} objects standing "
-        f"(spawned with {spawned_shelf.placeholder_count} placeholders, "
         f"{resolver.dropped_body_count} dropped in repair)"
     )
-    print(f"Finished generating shelf sample in {time.time() - start:.2f}s")
-    return spawned_shelf, trained_model
+    return spawned_shelf
 
 
 def visualize_spawned_shelf(
@@ -602,54 +553,11 @@ def visualize_spawned_shelf(
     viz_marker = publisher_type(
         _world=spawned_shelf.world,
         node=node,
-        # depth=1 so a fresh subscriber's transient-local history holds only the
-        # newest marker set. At a deeper history it would be handed every set the
-        # run has published so far, replaying the scene as it stood before the
-        # robot moved anything on top of how it stands now.
         qos_profile=QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL),
     )
     viz_marker.with_tf_publisher()
     _publish_with_deleteall(viz_marker)
     return viz_marker
-
-
-if __name__ == "__main__":
-
-    with rclpy_node() as node:
-        model_path = Path(__file__).parent / "models" / "arbitrary_shelf_rspn.json"
-
-        trained_model = _load_or_train_shelf_model(model_path)
-
-        query = build_theme_shelf_query(
-            trained_model.relational_probabilistic_circuit,
-            ObjectType.BOTTLE,
-            [3, 3, 3, 3],
-        )
-
-        spawned_shelf, trained_model = generate_shelf_with_arbitrary_objects(
-            query, model_path=model_path
-        )
-        viz_marker = visualize_spawned_shelf(
-            node, spawned_shelf, visualization_backend=VisualizationBackend.FOXGLOVE
-        )
-        print(
-            "Publishing until interrupted (Ctrl+C); keep this running while "
-            "a viewer is connected."
-        )
-        try:
-            while True:
-                viz_marker._tf_publisher.on_state_change()
-                time.sleep(1)
-        except KeyboardInterrupt:
-            pass
-        finally:
-            # Since the marker publisher is TRANSIENT_LOCAL, its last published
-            # state lingers for any viewer connecting after this process exits.
-            # Clearing it here means markers are only ever on screen while this
-            # script is actively running.
-            viz_marker.publisher.publish(
-                MarkerArray(markers=[Marker(action=Marker.DELETEALL)])
-            )
 
 
 @dataclasses.dataclass

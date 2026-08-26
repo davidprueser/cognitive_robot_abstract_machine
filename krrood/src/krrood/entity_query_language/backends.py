@@ -26,6 +26,8 @@ from krrood.entity_query_language.factories import entity, set_of, variable
 from krrood.entity_query_language.query.match import Match, AttributeMatch
 from krrood.entity_query_language.query.query import Query
 from krrood.ormatic.eql_interface import eql_to_sql
+from probabilistic_model.probabilistic_circuit.rx.helper import uniform_measure_of_event
+
 try:
     from krrood.parametrization.model_registries import (
         ModelRegistry,
@@ -256,7 +258,7 @@ class ProbabilisticBackend(GenerativeBackend):
     This is only used if the query does not specify a limit.
     """
 
-    def _evaluate(self, expression: Match[T]) -> Iterable[T]:
+    def _evaluate(self, expression: Match[T], wants_mode: bool = False) -> Iterable[T]:
 
         # generate parameters from example instance values
         parameters = UnderspecifiedParameters(expression)
@@ -290,9 +292,14 @@ class ProbabilisticBackend(GenerativeBackend):
             if truncated is None:
                 raise NoSolutionFound(expression.expression)
 
-        number_of_samples = expression.expression._limit_ or self.number_of_samples
+        if wants_mode:
+            event, _ = truncated.log_mode()
+            truncated = uniform_measure_of_event(event)
 
-        # sample and sort by log likelihood
+            if truncated is None:
+                raise NoSolutionFound(expression.expression)
+
+        number_of_samples = expression.expression._limit_ or self.number_of_samples
         samples = truncated.sample(number_of_samples)
         log_likelihoods = truncated.log_likelihood(samples)
         samples = samples[log_likelihoods.argsort()[::-1]]
@@ -303,3 +310,25 @@ class ProbabilisticBackend(GenerativeBackend):
                 truncated.variables, sample
             )
             yield instance
+
+    def evaluate_mode(self, expression: Match[T]) -> Iterable[T]:
+        """
+        Evaluate *expression* like :meth:`evaluate`, but draw from the circuit's own
+        highest-density region instead of its whole distribution.
+
+        Unlike :func:`~krrood.entity_query_language.factories.mode`, which aggregates
+        already-materialised results and cannot appear in a query's ``where`` conditions
+        (:class:`~krrood.entity_query_language.exceptions.AggregatorInWhereConditionsError`),
+        this asks the underlying probabilistic circuit itself for its analytic mode. The
+        query is built exactly as for a sampled evaluation; only the caller's choice of
+        :meth:`evaluate` versus this method decides which is drawn.
+
+        :param expression: The underspecified match to evaluate.
+        :raises GenerativeBackendQueryIsNotUnderspecifiedVariable: If *expression* is not
+            a :class:`Match`.
+        :return: Instances drawn from the circuit's highest-density region, most likely
+            first.
+        """
+        if not isinstance(expression, Match):
+            raise GenerativeBackendQueryIsNotUnderspecifiedVariable(expression)
+        yield from self._evaluate(expression, wants_mode=True)

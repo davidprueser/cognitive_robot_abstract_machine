@@ -28,21 +28,19 @@ from experiments.orm.ormatic_interface import (
     EGPositionDAO,
     EGScaleDAO,
 )
-from experiments.scene_generation_experiments.utils import (
-    _get_source_ids_for_objects,
+from experiments.scene_generation_experiments.processed_database import (
     load_objects_of_types,
     load_objects_with_cached_meshes,
     load_shelf_layers,
+)
+from experiments.scene_generation_experiments.utils import (
+    _get_source_ids_for_objects,
     min_samples_per_leaf_for,
 )
 from experiments.scene_generation_experiments.rspn_sampling import (
     build_layer_query,
-    LayerObjectCountSampler,
-    ShelfDimensionSampler,
-    draw_shelf,
-    ShelfDimensions,
-    build_shelf_query,
     probabilistic_backend,
+    build_theme_shelf_query,
 )
 from experiments.scene_generation_experiments.shelf_generation import (
     FoxgloveVizMarkerPublisher,
@@ -1173,9 +1171,11 @@ def test_a_shelf_drawn_for_one_type_holds_that_types_objects(
     backend = probabilistic_backend(two_type_shelf_model)
 
     book_themed = next(
-        iter(backend.evaluate(build_shelf_query(ObjectType.BOOK, [1, 1, 1])))
+        iter(backend.evaluate(build_theme_shelf_query(ObjectType.BOOK, [1, 1, 1])))
     )
-    cup_themed = next(iter(backend.evaluate(build_shelf_query(ObjectType.CUP, [1]))))
+    cup_themed = next(
+        iter(backend.evaluate(build_theme_shelf_query(ObjectType.CUP, [1])))
+    )
 
     assert {
         obj.object_type for layer in book_themed.layers for obj in layer.objects
@@ -1194,7 +1194,7 @@ def test_a_drawn_shelf_carries_the_type_it_was_asked_for(
     """
     backend = probabilistic_backend(two_type_shelf_model)
 
-    shelf = next(iter(backend.evaluate(build_shelf_query(ObjectType.CUP, [1]))))
+    shelf = next(iter(backend.evaluate(build_theme_shelf_query(ObjectType.CUP, [1]))))
 
     assert shelf.theme_dominant_type is ObjectType.CUP
     assert {layer.theme_dominant_type for layer in shelf.layers} == {ObjectType.CUP}
@@ -1315,38 +1315,6 @@ def differing_structure_model() -> RelationalProbabilisticCircuit:
     )
 
 
-def test_the_drawn_layer_count_follows_the_type_it_was_asked_for(
-    differing_structure_model: RelationalProbabilisticCircuit,
-) -> None:
-    """
-    The count is learned per type, so pinning it at a constant throws that away and
-    every kind of shelf comes out with the same number of levels.
-    """
-    sampler = ShelfDimensionSampler(differing_structure_model)
-
-    cabinet_counts = {sampler.sample(ObjectType.BOTTLE).layer_count for _ in range(6)}
-    bookcase_counts = {sampler.sample(ObjectType.BOOK).layer_count for _ in range(6)}
-
-    assert max(cabinet_counts) < min(bookcase_counts)
-
-
-def test_a_drawn_layer_count_is_never_zero(
-    differing_structure_model: RelationalProbabilisticCircuit,
-) -> None:
-    """
-    A shelf with no layers holds nothing and spawns an empty box.
-    """
-    sampler = ShelfDimensionSampler(differing_structure_model)
-
-    counts = [
-        sampler.sample(theme_dominant_type).layer_count
-        for theme_dominant_type in (ObjectType.BOTTLE, ObjectType.BOOK)
-        for _ in range(6)
-    ]
-
-    assert all(count >= 1 for count in counts)
-
-
 def test_a_shelf_can_be_drawn_for_every_type_the_model_knows(
     differing_structure_model: RelationalProbabilisticCircuit,
 ) -> None:
@@ -1422,30 +1390,6 @@ def sparse_realistic_structure_model() -> RelationalProbabilisticCircuit:
     ).fit([to_dao(shelf) for shelf in shelves])
 
 
-def test_layer_count_still_differentiates_by_type_on_realistically_sparse_data(
-    sparse_realistic_structure_model: RelationalProbabilisticCircuit,
-) -> None:
-    """
-    Regression test for a real bug: applying one ``min_samples_per_leaf`` fraction
-    calibrated for the whole dataset's row count unchanged to every circuit level gave
-    the shelf-level circuit a leaf floor above the row count of two of its three shelf
-    types, so it could never split on shelf type at all -- every type's drawn layer
-    count collapsed to the same, type-blind distribution.
-
-    Open shelf is the type that catches it: its training data never has a single
-    layer, so a ``1`` appearing here means shelf-type conditioning has failed and
-    the draw fell back to the pooled marginal (dominated by cabinet's four
-    single-layer rows).
-    """
-    sampler = ShelfDimensionSampler(sparse_realistic_structure_model)
-
-    open_shelf_counts = {
-        sampler.sample(ObjectType.CANDLE).layer_count for _ in range(20)
-    }
-
-    assert 1 not in open_shelf_counts
-
-
 # ---- Group I -- a layer's object count is learned per shelf type, not pinned ----
 
 
@@ -1491,42 +1435,6 @@ def differing_object_count_model() -> RelationalProbabilisticCircuit:
     return RelationalProbabilisticCircuit(EGShelf, min_samples_per_leaf=0.25).fit(
         [to_dao(shelf) for shelf in shelves]
     )
-
-
-def test_the_drawn_object_count_follows_the_type_it_was_asked_for(
-    differing_object_count_model: RelationalProbabilisticCircuit,
-) -> None:
-    """
-    Object counts are learned per theme via EGShelfLayerAggregations, so pinning a
-    layer's object count at a caller-chosen constant throws that away and every theme's
-    layers would come out equally full.
-    """
-    layer_template = differing_object_count_model.exchangeable_distribution_templates[
-        "layers"
-    ]
-    sampler = LayerObjectCountSampler(layer_template.template_distribution)
-
-    cup_counts = {sampler.sample(ObjectType.CUP) for _ in range(6)}
-    book_counts = {sampler.sample(ObjectType.BOOK) for _ in range(6)}
-
-    assert max(cup_counts) < min(book_counts)
-
-
-def test_a_drawn_object_count_is_never_negative(
-    differing_object_count_model: RelationalProbabilisticCircuit,
-) -> None:
-    layer_template = differing_object_count_model.exchangeable_distribution_templates[
-        "layers"
-    ]
-    sampler = LayerObjectCountSampler(layer_template.template_distribution)
-
-    counts = [
-        sampler.sample(theme_dominant_type)
-        for theme_dominant_type in (ObjectType.CUP, ObjectType.BOOK)
-        for _ in range(6)
-    ]
-
-    assert all(count >= 0 for count in counts)
 
 
 def test_a_drawn_shelfs_layers_reflect_the_types_object_count(

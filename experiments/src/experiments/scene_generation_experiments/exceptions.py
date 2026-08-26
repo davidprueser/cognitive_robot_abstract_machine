@@ -7,9 +7,6 @@ from typing_extensions import TYPE_CHECKING
 
 from krrood.exceptions import DataclassException
 
-if TYPE_CHECKING:
-    from experiments.scene_generation_experiments.shelf_placement import LayerRefusal
-
 
 @dataclass
 class LayoutResolutionError(DataclassException):
@@ -150,49 +147,6 @@ class UndrawableShelfError(DataclassException):
         return (
             "Leave the layer count to the model, or refit on data that contains "
             "shelves of this theme and size."
-        )
-
-
-@dataclass
-class NoShelfPlacementError(DataclassException):
-    """
-    Raised when no layer of a shelf can take an object.
-
-    Every layer turned it down, so the object cannot be put on this shelf at all rather
-    than merely being put somewhere poor. Each layer's own reason is carried along,
-    since they differ and the remedy follows from which one it was.
-    """
-
-    object_type: str
-    """
-    Type of the object that was to be placed.
-    """
-
-    object_height: float
-    """
-    Height of that object, in metres.
-    """
-
-    refusals: list[LayerRefusal]
-    """
-    Why each layer turned the object down, in layer order.
-    """
-
-    def error_message(self) -> str:
-        per_layer = "; ".join(
-            f"layer {refusal.layer_index} ({refusal.room_above_slab:.3f} m of room): "
-            f"{refusal.reason.value}"
-            for refusal in self.refusals
-        )
-        return (
-            f"No layer can take a {self.object_type} of {self.object_height:.3f} m. "
-            f"{per_layer}."
-        )
-
-    def suggest_correction(self) -> str:
-        return (
-            "Draw a shelf with fewer layers, which leaves more room above each slab, "
-            "or place a smaller object."
         )
 
 
