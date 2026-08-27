@@ -11,8 +11,11 @@ import trimesh
 from sqlalchemy.orm import Session
 
 import experiments.orm.ormatic_interface  # noqa: F401  registers ORM mappers
+from sqlalchemy import select
 from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
 from experiments.orm.ormatic_interface import (
+    Base,
+    EGObjectDAO,
     Sage10kObjectDAO,
     Sage10kPhysicallyBasedRenderingDAO,
     Sage10kPositionDAO,
@@ -22,12 +25,16 @@ from experiments.orm.ormatic_interface import (
 from experiments.sage_10k.preprocess_sage10k_for_training import (
     MeshMeasurements,
     ShelfContents,
+    _partition_round_robin,
     eg_object_from_sage10k_object,
+    measure_meshes_in_parallel,
     object_type_affinities,
+    process_objects_in_parallel,
     VerticalExtent,
     object_type_height_profiles,
     shelves_with_layers,
 )
+from krrood.ormatic.utils import create_engine
 from semantic_digital_twin.scene_generation.shelf_membership_classifier import (
     ShelfMembershipClassifier,
 )
@@ -284,15 +291,18 @@ def _sage10k_object(
     x: float = 0.0,
     y: float = 0.0,
     object_id: str = "book_1",
+    room_id: str = "room_1",
+    source_id: str = "book_src",
+    place_id: str = _SHELF_ID,
 ) -> Sage10kObjectDAO:
     return Sage10kObjectDAO(
         id=object_id,
-        room_id="room_1",
+        room_id=room_id,
         type=raw_type,
         description=description,
         source="generation",
-        source_id="book_src",
-        place_id=_SHELF_ID,
+        source_id=source_id,
+        place_id=place_id,
         place_guidance=place_guidance,
         mass=0.4,
         position=Sage10kPositionDAO(x=x, y=y, z=0.5),
@@ -1116,3 +1126,135 @@ def test_affinity_is_empty_for_layers_holding_a_single_object() -> None:
     ]
 
     assert object_type_affinities(layers) == []
+
+
+# %% measure_meshes_in_parallel -- mesh measurement split across processes
+
+
+def test_parallel_measurement_matches_sequential_measurement(tmp_path: Path) -> None:
+    """
+    Measuring across worker processes must find the same bounds a single sequential pass
+    would, for both a cached mesh and one that is missing.
+    """
+    scene_directory_a = _cache_off_center_mesh(tmp_path / "a", "mesh_a")
+    scene_directory_b = _cache_off_center_mesh(tmp_path / "b", "mesh_b")
+    source_id_to_path = {"mesh_a": scene_directory_a, "mesh_b": scene_directory_b}
+    sequential = MeshMeasurements(source_id_to_path=source_id_to_path)
+
+    parallel_bounds = measure_meshes_in_parallel(
+        source_id_to_path, ["mesh_a", "mesh_b", "missing"], worker_count=2
+    )
+
+    assert parallel_bounds["mesh_a"] == sequential.bounds("mesh_a")
+    assert parallel_bounds["mesh_b"] == sequential.bounds("mesh_b")
+    assert parallel_bounds["missing"] is None
+
+
+# %% _partition_round_robin -- splitting rooms into shards
+
+
+def test_partition_round_robin_splits_evenly_and_preserves_relative_order() -> None:
+    partitions = _partition_round_robin(["a", "b", "c", "d", "e"], 2)
+
+    assert partitions == [["a", "c", "e"], ["b", "d"]]
+
+
+def test_partition_round_robin_leaves_extra_partitions_empty() -> None:
+    partitions = _partition_round_robin(["a", "b"], 5)
+
+    assert partitions == [["a"], ["b"], [], [], []]
+
+
+# %% process_objects_in_parallel -- the sharded read-convert-write pass
+
+
+def _populated_sqlite_engine(tmp_path: Path, objects: list[Sage10kObjectDAO]):
+    engine = create_engine(f"sqlite:///{tmp_path}/raw.db")
+    Base.metadata.create_all(bind=engine)
+    with Session(engine) as session:
+        session.add_all(objects)
+        session.commit()
+    return engine
+
+
+def test_sharded_object_pass_writes_every_object_exactly_once(tmp_path: Path) -> None:
+    """
+    Splitting the object pass across shards must not drop or duplicate objects: the
+    processed database must end up with exactly the rows a single-shard pass would have
+    written.
+    """
+    objects = [
+        _sage10k_object(object_id="book_1", room_id="room_1", source_id="book_1_src"),
+        _sage10k_object(object_id="book_2", room_id="room_2", source_id="book_2_src"),
+        _sage10k_object(object_id="book_3", room_id="room_3", source_id="book_3_src"),
+    ]
+    _populated_sqlite_engine(tmp_path, objects)
+    raw_uri = f"sqlite:///{tmp_path}/raw.db"
+    processed_uri = f"sqlite:///{tmp_path}/processed.db"
+    processed_engine = create_engine(processed_uri)
+    Base.metadata.create_all(bind=processed_engine)
+
+    results = process_objects_in_parallel(
+        room_ids=["room_1", "room_2", "room_3"],
+        sage10k_database_uri=raw_uri,
+        processed_database_uri=processed_uri,
+        source_id_to_path={},
+        bounds_by_source_id={},
+        shelf_ids=set(),
+        worker_count=2,
+    )
+
+    assert sum(result.stored_count for result in results) == 3
+    with Session(processed_engine) as session:
+        stored_ids = set(session.execute(select(EGObjectDAO.id)).scalars())
+    assert stored_ids == {"book_1", "book_2", "book_3"}
+
+
+def test_sharded_object_pass_keeps_shelf_contents_regardless_of_shard(
+    tmp_path: Path,
+) -> None:
+    """
+    A shelf and everything standing on it always share a room, so no shard should ever
+    lose track of shelf membership by having a shelf and its contents split apart.
+    """
+    objects = [
+        _sage10k_object(
+            object_id="shelf_1",
+            raw_type="bookshelf1",
+            room_id="room_1",
+            source_id="shelf_1_src",
+            place_id="floor",
+        ),
+        _sage10k_object(
+            object_id="book_1",
+            room_id="room_1",
+            source_id="book_1_src",
+            place_id="shelf_1",
+        ),
+        _sage10k_object(
+            object_id="chair_1",
+            raw_type="chair",
+            room_id="room_2",
+            source_id="chair_1_src",
+            place_id="floor",
+        ),
+    ]
+    _populated_sqlite_engine(tmp_path, objects)
+    raw_uri = f"sqlite:///{tmp_path}/raw.db"
+    processed_uri = f"sqlite:///{tmp_path}/processed.db"
+    Base.metadata.create_all(bind=create_engine(processed_uri))
+
+    results = process_objects_in_parallel(
+        room_ids=["room_1", "room_2"],
+        sage10k_database_uri=raw_uri,
+        processed_database_uri=processed_uri,
+        source_id_to_path={},
+        bounds_by_source_id={},
+        shelf_ids={"shelf_1"},
+        worker_count=2,
+    )
+
+    shelf_relevant_ids = {
+        obj.id for result in results for obj in result.shelf_relevant_objects
+    }
+    assert shelf_relevant_ids == {"shelf_1", "book_1"}
