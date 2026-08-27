@@ -373,9 +373,7 @@ class ProbabilisticBackend(GenerativeBackend):
         if not isinstance(expression, Match):
             raise GenerativeBackendQueryIsNotUnderspecifiedVariable(expression)
 
-        parameters, truncated = self._condition_and_truncate(
-            expression
-        )
+        parameters, truncated = self._condition_and_truncate(expression)
 
         event, mode_log_density = truncated.log_mode()
         representative_point = uniform_measure_of_event(event).sample(1)[0]

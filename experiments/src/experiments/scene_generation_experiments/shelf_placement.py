@@ -16,25 +16,23 @@ from probabilistic_model.probabilistic_circuit.relational.rspn import (
 )
 from semantic_digital_twin.scene_generation.scene_schema import (
     EGObject2D,
-    EGPoint2D,
-    EGRotation,
+    EGShelf,
     EGShelfLayer,
-    SpawnedShelf,
 )
 from semantic_digital_twin.semantic_annotations.semantic_annotations import ShelfLayer
+from semantic_digital_twin.spatial_types import Pose2D
 from semantic_digital_twin.world_description.graph_of_convex_sets.base import (
     translate_free_space_to_where_condition,
 )
 
 
 def mode_query(
-    spawned_shelf: SpawnedShelf,
+    shelf: EGShelf,
     shelf_circuit: RelationalProbabilisticCircuit,
     held_object: EGObject2D,
 ) -> tuple[EGObject2D, str]:
     """
-    Ask the fitted shelf model where *held_object* most likely belongs on
-    *spawned_shelf*.
+    Ask the fitted shelf model where *held_object* most likely belongs on *shelf*.
 
     Every layer is asked on its own -- the narrow, per-layer circuit a mode query can
     answer exactly, rather than the shelf's whole joint circuit -- and the layer and
@@ -49,14 +47,14 @@ def mode_query(
         the layers are separated by how typical their own attributes and free space
         are, not by what is being placed on them.
 
-    :param spawned_shelf: The shelf, already standing in a world, to place onto.
+    :param shelf: The shelf, already standing in a world, to place onto.
     :param shelf_circuit: The fitted circuit rooted at :class:`EGShelf`.
     :param held_object: The object to place; its type and size are what the model is
-        asked about, its position and orientation are what the answer replaces.
+        asked about, its pose is what the answer replaces.
     :raises NoShelfPlacementError: If no layer has room for the object.
     :return: The placed object, and the name of the real layer
         (:attr:`~semantic_digital_twin.scene_generation.scene_schema.EGShelfLayer.
-        annotated_layer`'s root body) it was placed on.
+        annotation`'s root body) it was placed on.
     """
     layer_circuit = shelf_circuit.exchangeable_distribution_templates[
         "layers"
@@ -65,7 +63,7 @@ def mode_query(
     backend = ProbabilisticBackend(model_registry=registry)
 
     candidates: list[tuple[float, EGShelfLayer, EGShelfLayer]] = []
-    for layer in spawned_shelf.shelf.layers:
+    for layer in shelf.layers:
         try:
             placed_layer, log_density = next(
                 iter(
@@ -80,28 +78,26 @@ def mode_query(
 
     if not candidates:
         raise NoShelfPlacementError(
-            shelf_name=str(spawned_shelf.corpus.name),
+            shelf_name=str(shelf.corpus.name),
             object_type=held_object.object_type.value,
         )
 
     _, layer, placed_layer = max(candidates, key=lambda candidate: candidate[0])
-    return placed_layer.objects[-1], str(layer.annotated_layer.root.name)
+    return placed_layer.objects[-1], str(layer.annotation.root.name)
 
 
-def layer_named(spawned_shelf: SpawnedShelf, layer_name: str) -> EGShelfLayer:
+def layer_named(shelf: EGShelf, layer_name: str) -> EGShelfLayer:
     """
     Resolve the layer :func:`mode_query` placed onto, from the name it returned
     alongside the placed object.
 
-    :param spawned_shelf: The shelf the layer belongs to.
+    :param shelf: The shelf the layer belongs to.
     :param layer_name: The layer name :func:`mode_query` returned.
-    :raises StopIteration: If no layer of *spawned_shelf* carries that name.
+    :raises StopIteration: If no layer of *shelf* carries that name.
     :return: The matching layer.
     """
     return next(
-        layer
-        for layer in spawned_shelf.shelf.layers
-        if str(layer.annotated_layer.root.name) == layer_name
+        layer for layer in shelf.layers if str(layer.annotation.root.name) == layer_name
     )
 
 
@@ -116,8 +112,8 @@ def _layer_query(layer: EGShelfLayer, held_object: EGObject2D):
 
     :param layer: The layer to place the object onto; its existing objects and its own
         attributes are held as fixed evidence.
-    :param held_object: The object whose type and size are pinned, and whose position
-        and yaw are left for the model to answer.
+    :param held_object: The object whose type and size are pinned, and whose pose is
+        left for the model to answer.
     :return: An underspecified EGShelfLayer query whose last object slot is the held
         one.
     """
@@ -131,7 +127,7 @@ def _layer_query(layer: EGShelfLayer, held_object: EGObject2D):
     )
     query.where(
         _free_space_where_condition(
-            layer.annotated_layer, held_slot.variable.position, held_object
+            layer.annotation, held_slot.variable.pose, held_object
         )
     )
     return query
@@ -139,55 +135,47 @@ def _layer_query(layer: EGShelfLayer, held_object: EGObject2D):
 
 def _held_object_slot(held_object: EGObject2D):
     """
-    Build a query slot for *held_object*, pinning its type and size and leaving its
-    position and yaw for the model to answer.
-
-    Roll and pitch are pinned upright, as everywhere else the model is asked; only yaw
-    genuinely varies.
+    Build a query slot for *held_object*, pinning its type and size and leaving its pose
+    for the model to answer.
 
     :param held_object: The object whose type and size are pinned.
     :return: An underspecified EGObject2D slot.
     """
     return a(EGObject2D)(
-        id=None,
-        room_id=None,
-        place_id=None,
         object_type=held_object.object_type,
         scale=held_object.scale,
-        position=a(EGPoint2D)(x=..., y=...),
-        orientation=a(EGRotation)(x=0.0, y=0.0, z=...),
+        pose=a(Pose2D)(x=..., y=..., yaw=...),
         source_id=None,
     )
 
 
 def _free_space_where_condition(
-    layer_annotation: ShelfLayer, position: EQLVariable, held_object: EGObject2D
+    layer_annotation: ShelfLayer, pose: EQLVariable, held_object: EGObject2D
 ) -> OR:
     """
-    Build the where-condition keeping *position* inside *layer_annotation*'s own free
-    space.
+    Build the where-condition keeping *pose* inside *layer_annotation*'s own free space.
 
-    The free space is bloated by *held_object*'s own circumradius before *position* is
-    constrained to it: the where-condition only pins *position*, never the yaw the
+    The free space is bloated by *held_object*'s own circumradius before *pose* is
+    constrained to it: the where-condition only pins *pose*'s x/y, never the yaw the
     model separately answers for the same slot, so a bloat that only covered the
     object's half-width would still let a corner reach into a neighbour once the model
     picked a diagonal yaw. The circumradius covers the object's reach at every yaw.
 
-    :param layer_annotation: The layer whose free space bounds *position*. Its
+    :param layer_annotation: The layer whose free space bounds *pose*. Its
         supporting surface is expected to already be calculated -- as
         :meth:`~semantic_digital_twin.scene_generation.scene_schema.EGShelf.
-        spawn_in_world` does for every layer it spawns -- and, if the shelf was merged
+        spawn` does for every layer it spawns -- and, if the shelf was merged
         into another world since, to already be live in it -- as
-        :meth:`~semantic_digital_twin.scene_generation.scene_schema.SpawnedShelf.
+        :meth:`~semantic_digital_twin.scene_generation.scene_schema.EGShelf.
         refresh_layer_annotations` makes it.
-    :param position: The query variable to constrain.
-    :param held_object: The object *position* will place; its footprint decides how
+    :param pose: The query variable to constrain.
+    :param held_object: The object *pose* will place; its footprint decides how
         much the free space is bloated by.
-    :return: The where condition restricting *position* to the layer's free space.
+    :return: The where condition restricting *pose* to the layer's free space.
     """
-    object_bloat = max(held_object.scale.width, held_object.scale.length) / 2
+    object_bloat = max(held_object.scale.y, held_object.scale.x) / 2
     free_space = layer_annotation.calculate_free_space(object_bloat=object_bloat)
     return translate_free_space_to_where_condition(
         free_space.free_space_event,
-        position,
+        pose,
     )

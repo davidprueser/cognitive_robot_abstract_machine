@@ -47,7 +47,6 @@ from semantic_digital_twin.scene_generation.scene_schema import (
     MeshCandidate,
     ObjectType,
     EGObject2D,
-    SpawnedShelf,
 )
 
 
@@ -472,7 +471,7 @@ def _load_or_train_shelf_model(
 
 def generate_shelf_with_arbitrary_objects(
     query, model: TrainedArbitraryShelfModel, session: Session
-) -> SpawnedShelf:
+) -> EGShelf:
     """
     Evaluate an EGShelf query against a trained RSPN and return a collision-free,
     spawned shelf, together with the model it was sampled from.
@@ -516,7 +515,12 @@ def generate_shelf_with_arbitrary_objects(
         layer_template.template_distribution,
     )
     spawned_shelf = resolver.resolve()
-    placed = sum(len(layer.object_bodies) for layer in spawned_shelf.layers)
+    placed = sum(
+        1
+        for layer in spawned_shelf.layers
+        for obj in layer.objects
+        if obj.annotation is not None
+    )
     print(
         f"{sample.theme_dominant_type.value}: {len(spawned_shelf.layers)} "
         f"layers, {placed} objects standing "
@@ -527,7 +531,7 @@ def generate_shelf_with_arbitrary_objects(
 
 def visualize_spawned_shelf(
     node,
-    spawned_shelf: SpawnedShelf,
+    spawned_shelf: EGShelf,
     visualization_backend: VisualizationBackend = VisualizationBackend.FOXGLOVE,
 ) -> VizMarkerPublisher:
     """
@@ -563,8 +567,6 @@ def visualize_spawned_shelf(
 @dataclasses.dataclass
 class ShelfTidyingAction(ActionDescription):
     shelf: EGShelf
-
-    shelf_annotation: SpawnedShelf
 
     obj: EGObject2D
 

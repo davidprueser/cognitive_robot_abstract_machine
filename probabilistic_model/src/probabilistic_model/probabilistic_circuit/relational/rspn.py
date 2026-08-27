@@ -542,7 +542,11 @@ class RelationalProbabilisticCircuit:
         if self.class_probabilistic_circuit is None:
             raise CircuitNotFittedError(self.class_)
         circuit = self.class_probabilistic_circuit.__deepcopy__()
-        instance = query.construct_instance()
+        instance = (
+            query.construct_instance()
+            if self.exchangeable_distribution_templates
+            else None
+        )
         for (
             exchangeable_part_name,
             template,

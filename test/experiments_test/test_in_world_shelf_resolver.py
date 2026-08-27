@@ -25,22 +25,20 @@ from semantic_digital_twin.collision_checking.trimesh_collision_detector import 
 )
 from semantic_digital_twin.scene_generation.scene_schema import (
     EGObject2D,
-    EGPoint2D,
-    EGRotation,
-    EGScale,
     EGShelf,
     EGShelfLayer,
     MeshCandidate,
     ObjectType,
-    SpawnedShelf,
 )
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Cabinet,
     ShelfLayer,
 )
-from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
+from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix, Pose2D
 from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.connections import Connection6DoF
+from semantic_digital_twin.world_description.geometry import Scale
+from semantic_digital_twin.world_description.world_entity import Body
 
 
 _RESOURCES_PLY = (
@@ -75,15 +73,11 @@ def mesh_candidate(tmp_path: Path) -> MeshCandidate:
 
 def _object(object_id: str, x: float, y: float) -> EGObject2D:
     return EGObject2D(
-        id=object_id,
-        room_id="room_1",
-        place_id="shelf_1",
         object_type=ObjectType.BOOK,
-        scale=EGScale(height=0.4, length=0.3, width=0.3),
-        position=EGPoint2D(x=x, y=y),
-        orientation=EGRotation(x=0.0, y=0.0, z=0.0),
+        scale=Scale(x=0.3, y=0.3, z=0.4),
+        pose=Pose2D(x=x, y=y, yaw=0.0),
         source_id="test_object",
-        theme_dominant_type=ObjectType.BOOK,
+        name=object_id,
     )
 
 
@@ -97,19 +91,31 @@ def _shelf(objects: list[EGObject2D], candidate: MeshCandidate) -> EGShelf:
         theme_dominant_type=ObjectType.BOOK,
     )
     return EGShelf(
-        scale=EGScale(height=2.0, length=4.0, width=4.0),
+        scale=Scale(x=4.0, y=4.0, z=2.0),
         layers=[layer],
         source_ids=[candidate],
         theme_dominant_type=ObjectType.BOOK,
     )
 
 
-def _colliding_bodies(spawned: SpawnedShelf) -> bool:
+def _object_bodies(layer: EGShelfLayer) -> dict[int, Body]:
+    """
+    The bodies spawned for *layer*'s objects, keyed by their index in
+    :attr:`EGShelfLayer.objects`; objects with no spawned body are omitted.
+    """
+    return {
+        index: obj.annotation
+        for index, obj in enumerate(layer.objects)
+        if obj.annotation is not None
+    }
+
+
+def _colliding_bodies(shelf: EGShelf) -> bool:
     """
     True if any two spawned object bodies on the first layer collide.
     """
-    bodies = list(spawned.layers[0].object_bodies.values())
-    detector = FCLCollisionDetector(_world=spawned.world)
+    bodies = list(_object_bodies(shelf.layers[0]).values())
+    detector = FCLCollisionDetector(_world=shelf.world)
     matrix = CollisionMatrix(
         collision_checks={
             CollisionCheck(body_a=body_a, body_b=body_b, distance=0.0)
@@ -132,7 +138,7 @@ def _multi_layer_shelf(candidate: MeshCandidate, corpus_height: float) -> EGShel
         for _ in range(4)
     ]
     return EGShelf(
-        scale=EGScale(height=corpus_height, length=4.0, width=4.0),
+        scale=Scale(x=4.0, y=4.0, z=corpus_height),
         layers=layers,
         source_ids=[candidate],
         theme_dominant_type=ObjectType.BOOK,
@@ -177,11 +183,12 @@ def test_shelf_layers_are_spread_across_the_corpus_height(
     thickness) keeps the layers from collapsing onto the floor.
     """
     corpus_height = 2.0
-    spawned = _multi_layer_shelf(mesh_candidate, corpus_height).spawn_in_world()
+    shelf = _multi_layer_shelf(mesh_candidate, corpus_height)
+    shelf.spawn()
 
     layer_heights = [
-        layer.surface.root.global_pose.to_position().to_np()[2]
-        for layer in spawned.layers
+        layer.annotation.root.global_pose.to_position().to_np()[2]
+        for layer in shelf.layers
     ]
 
     assert layer_heights == sorted(layer_heights)
@@ -197,11 +204,11 @@ def test_object_spawns_at_its_meshs_native_size(mesh_candidate: MeshCandidate) -
     mesh's native extents.
     """
     sampled = _object("book_0", 0.0, 0.0)
-    sampled.scale = EGScale(height=5.0, length=5.0, width=5.0)
+    sampled.scale = Scale(x=5.0, y=5.0, z=5.0)
     shelf = _shelf([sampled], mesh_candidate)
 
-    spawned = shelf.spawn_in_world()
-    body = spawned.layers[0].object_bodies[0]
+    shelf.spawn()
+    body = _object_bodies(shelf.layers[0])[0]
 
     native_extents = trimesh.load(
         str(mesh_candidate.scene_dir / "objects" / "test_object.ply"), process=False
@@ -211,26 +218,19 @@ def test_object_spawns_at_its_meshs_native_size(mesh_candidate: MeshCandidate) -
     assert spawned_extents == pytest.approx(native_extents, abs=1e-3)
 
 
-def _single_layer_shelf_with(
-    candidate: MeshCandidate, object_scale: EGScale
-) -> EGShelf:
+def _single_layer_shelf_with(candidate: MeshCandidate, object_scale: Scale) -> EGShelf:
     """
     A generous single-layer shelf holding one object, so only the candidate's
     own size decides whether it is placed.
     """
     obj = EGObject2D(
-        id="obj_0",
-        room_id="room_1",
-        place_id="shelf_1",
         object_type=ObjectType.BOOK,
         scale=object_scale,
-        position=EGPoint2D(x=0.0, y=0.0),
-        orientation=EGRotation(x=0.0, y=0.0, z=0.0),
+        pose=Pose2D(x=0.0, y=0.0, yaw=0.0),
         source_id="test_object",
-        theme_dominant_type=ObjectType.BOOK,
     )
     return EGShelf(
-        scale=EGScale(height=2.0, length=1.0, width=1.0),
+        scale=Scale(x=1.0, y=1.0, z=2.0),
         layers=[
             EGShelfLayer(
                 objects=[obj],
@@ -249,13 +249,11 @@ def test_object_too_big_for_the_layer_is_dropped(mesh_candidate: MeshCandidate) 
     in the plane and could never repair a mesh piercing the shelf above.
     """
     too_tall = dataclasses.replace(mesh_candidate, native_extents=(0.1, 0.1, 2.0))
-    shelf = _single_layer_shelf_with(
-        too_tall, EGScale(height=0.1, length=0.1, width=0.1)
-    )
+    shelf = _single_layer_shelf_with(too_tall, Scale(x=0.1, y=0.1, z=0.1))
 
-    spawned = shelf.spawn_in_world()
+    shelf.spawn()
 
-    assert spawned.layers[0].object_bodies == {}
+    assert _object_bodies(shelf.layers[0]) == {}
 
 
 def test_object_that_fits_the_layer_is_kept(mesh_candidate: MeshCandidate) -> None:
@@ -264,13 +262,11 @@ def test_object_that_fits_the_layer_is_kept(mesh_candidate: MeshCandidate) -> No
     spawned as usual.
     """
     fitting = dataclasses.replace(mesh_candidate, native_extents=(0.1, 0.1, 0.1))
-    shelf = _single_layer_shelf_with(
-        fitting, EGScale(height=0.1, length=0.1, width=0.1)
-    )
+    shelf = _single_layer_shelf_with(fitting, Scale(x=0.1, y=0.1, z=0.1))
 
-    spawned = shelf.spawn_in_world()
+    shelf.spawn()
 
-    assert set(spawned.layers[0].object_bodies) == {0}
+    assert set(_object_bodies(shelf.layers[0])) == {0}
 
 
 def test_create_in_world_still_returns_a_world(mesh_candidate: MeshCandidate) -> None:
@@ -282,7 +278,7 @@ def test_create_in_world_still_returns_a_world(mesh_candidate: MeshCandidate) ->
     assert isinstance(shelf.create_in_world(), World)
 
 
-def test_spawn_in_world_returns_a_body_per_object_and_a_layer_annotation(
+def test_spawn_returns_a_body_per_object_and_a_layer_annotation(
     mesh_candidate: MeshCandidate,
 ) -> None:
     """
@@ -293,11 +289,11 @@ def test_spawn_in_world_returns_a_body_per_object_and_a_layer_annotation(
     shelf = _shelf(
         [_object("book_0", 0.0, 0.0), _object("book_1", 1.0, 0.0)], mesh_candidate
     )
-    spawned = shelf.spawn_in_world()
+    shelf.spawn()
 
-    assert len(spawned.layers) == 1
-    assert set(spawned.layers[0].object_bodies) == {0, 1}
-    assert isinstance(spawned.layers[0].surface, ShelfLayer)
+    assert len(shelf.layers) == 1
+    assert set(_object_bodies(shelf.layers[0])) == {0, 1}
+    assert isinstance(shelf.layers[0].annotation, ShelfLayer)
 
 
 def test_spawned_body_pose_matches_object_local_pose(
@@ -310,12 +306,12 @@ def test_spawned_body_pose_matches_object_local_pose(
     drift.
     """
     shelf = _shelf([_object("book_0", 0.5, -0.3)], mesh_candidate)
-    spawned = shelf.spawn_in_world()
-    body = spawned.layers[0].object_bodies[0]
+    shelf.spawn()
+    body = _object_bodies(shelf.layers[0])[0]
 
     resting_z = body.parent_connection.origin.to_position().to_np()[2]
     expected = shelf.object_local_pose(
-        shelf.layers[0].objects[0], resting_z, spawned.corpus
+        shelf.layers[0].objects[0], resting_z, shelf.corpus
     )
     assert body.parent_connection.origin.to_np() == pytest.approx(expected.to_np())
 
@@ -329,9 +325,9 @@ def test_spawned_shelf_corpus_is_movable_as_a_unit(
     objects -- in place by setting the corpus origin, and its contents follow.
     """
     shelf = _shelf([_object("book_0", 0.0, 0.0)], mesh_candidate)
-    spawned = shelf.spawn_in_world()
-    corpus = spawned.corpus
-    object_body = spawned.layers[0].object_bodies[0]
+    shelf.spawn()
+    corpus = shelf.corpus
+    object_body = _object_bodies(shelf.layers[0])[0]
 
     assert isinstance(corpus.parent_connection, Connection6DoF)
 
@@ -350,7 +346,7 @@ def test_spawned_shelf_corpus_is_movable_as_a_unit(
     assert after[1] == pytest.approx(before[1])
 
 
-def test_spawn_in_world_keeps_edge_object_clear_of_the_corpus_walls(
+def test_spawn_keeps_edge_object_clear_of_the_corpus_walls(
     mesh_candidate: MeshCandidate,
 ) -> None:
     """
@@ -368,19 +364,19 @@ def test_spawn_in_world_keeps_edge_object_clear_of_the_corpus_walls(
         theme_dominant_type=ObjectType.BOOK,
     )
     shelf = EGShelf(
-        scale=EGScale(height=2.0, length=_CHAIR_EXTENTS[0], width=_CHAIR_EXTENTS[1]),
+        scale=Scale(x=_CHAIR_EXTENTS[0], y=_CHAIR_EXTENTS[1], z=2.0),
         layers=[layer],
         source_ids=[mesh_candidate],
         theme_dominant_type=ObjectType.BOOK,
     )
 
-    spawned = shelf.spawn_in_world()
-    corpus_body = spawned.world.get_semantic_annotations_by_type(Cabinet)[0].root
-    detector = FCLCollisionDetector(_world=spawned.world)
+    shelf.spawn()
+    corpus_body = shelf.world.get_semantic_annotations_by_type(Cabinet)[0].root
+    detector = FCLCollisionDetector(_world=shelf.world)
     matrix = CollisionMatrix(
         collision_checks={
             CollisionCheck(body_a=corpus_body, body_b=body, distance=0.0)
-            for body in spawned.layers[0].object_bodies.values()
+            for body in _object_bodies(shelf.layers[0]).values()
         }
     )
     assert not detector.check_collisions(matrix).any()
@@ -396,15 +392,15 @@ def test_unsupported_indices_flags_object_that_slid_off_the_layer(
     from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
 
     shelf = _shelf([_object("book_0", 0.0, 0.0)], mesh_candidate)
-    spawned = shelf.spawn_in_world()
-    spawned_layer = spawned.layers[0]
+    shelf.spawn()
+    spawned_layer = shelf.layers[0]
     group = ShelfLayerGroup(
-        bodies=spawned_layer.object_bodies,
-        supporting_body=spawned_layer.surface.root,
+        bodies=_object_bodies(spawned_layer),
+        supporting_body=spawned_layer.annotation.root,
         backend=MagicMock(),
         shelf=shelf,
         layer_index=0,
-        corpus=spawned.corpus,
+        corpus=shelf.corpus,
     )
 
     assert group.unsupported_indices() == set()
@@ -419,20 +415,21 @@ def test_clamp_to_bounds_leaves_an_in_bounds_object_untouched(
     mesh_candidate: MeshCandidate,
 ) -> None:
     shelf = _shelf([_object("book_0", 0.0, 0.0)], mesh_candidate)
-    spawned = shelf.spawn_in_world()
-    spawned_layer = spawned.layers[0]
+    shelf.spawn()
+    spawned_layer = shelf.layers[0]
     group = ShelfLayerGroup(
-        bodies=spawned_layer.object_bodies,
-        supporting_body=spawned_layer.surface.root,
+        bodies=_object_bodies(spawned_layer),
+        supporting_body=spawned_layer.annotation.root,
         backend=MagicMock(),
         shelf=shelf,
         layer_index=0,
-        corpus=spawned.corpus,
+        corpus=shelf.corpus,
     )
 
     group.clamp_to_bounds()
 
-    assert shelf.layers[0].objects[0].position == EGPoint2D(x=0.0, y=0.0)
+    assert float(shelf.layers[0].objects[0].pose.x) == pytest.approx(0.0)
+    assert float(shelf.layers[0].objects[0].pose.y) == pytest.approx(0.0)
 
 
 def test_clamp_to_bounds_moves_an_out_of_bounds_object_back_onto_the_layer(
@@ -453,26 +450,26 @@ def test_clamp_to_bounds_moves_an_out_of_bounds_object_back_onto_the_layer(
     easily, burning through repair passes.
     """
     shelf = _shelf([_object("book_0", 0.0, 0.0)], mesh_candidate)
-    spawned = shelf.spawn_in_world()
-    spawned_layer = spawned.layers[0]
+    shelf.spawn()
+    spawned_layer = shelf.layers[0]
     group = ShelfLayerGroup(
-        bodies=spawned_layer.object_bodies,
-        supporting_body=spawned_layer.surface.root,
+        bodies=_object_bodies(spawned_layer),
+        supporting_body=spawned_layer.annotation.root,
         backend=MagicMock(),
         shelf=shelf,
         layer_index=0,
-        corpus=spawned.corpus,
+        corpus=shelf.corpus,
     )
 
-    shelf.layers[0].objects[0].position = EGPoint2D(x=50.0, y=50.0)
+    shelf.layers[0].objects[0].pose = Pose2D(x=50.0, y=50.0, yaw=0.0)
     group.clamp_to_bounds()
 
-    clamped = shelf.layers[0].objects[0].position
-    half_width = shelf.scale.width / 2
-    half_length = shelf.scale.length / 2
+    clamped = shelf.layers[0].objects[0].pose
+    half_width = shelf.scale.y / 2
+    half_length = shelf.scale.x / 2
     object_scale = shelf.layers[0].objects[0].scale
-    assert abs(clamped.x) + object_scale.width / 2 <= half_width + 1e-9
-    assert abs(clamped.y) + object_scale.length / 2 <= half_length + 1e-9
+    assert abs(float(clamped.x)) + object_scale.y / 2 <= half_width + 1e-9
+    assert abs(float(clamped.y)) + object_scale.x / 2 <= half_length + 1e-9
 
 
 def test_clamp_to_bounds_keeps_the_object_within_the_spawned_slab(
@@ -480,21 +477,21 @@ def test_clamp_to_bounds_keeps_the_object_within_the_spawned_slab(
 ) -> None:
     """
     On a non-square footprint, the clamped position must land within the slab
-    :meth:`EGShelf.spawn_in_world` actually builds, not merely within whatever bound
+    :meth:`EGShelf.spawn` actually builds, not merely within whatever bound
     :meth:`ShelfLayerGroup.clamp_to_bounds` happens to compute.
 
-    ``spawn_in_world`` builds each layer's slab as ``Scale(x=shelf.scale.length,
-    y=shelf.scale.width, ...)`` -- the content frame's x-axis spans the shelf's
-    *length* (its shallow depth) and y spans its *width* (its wide face), matching
-    :meth:`EGShelf.object_local_pose`, whose own docstring says ``position.x``/``y``
-    "span the layer's length/width". A clamp that instead bounds ``position.x`` by
-    ``scale.width`` and ``position.y`` by ``scale.length`` swaps the two axes: on a
+    ``EGShelf.spawn`` builds each layer's slab as ``Scale(x=shelf.scale.x,
+    y=shelf.scale.y, ...)`` -- the content frame's x-axis spans the shelf's own scale
+    x (its shallow depth) and y spans its own scale y (its wide face), matching
+    :meth:`EGShelf.object_local_pose`, whose own docstring says ``pose.x``/``y``
+    "map straight onto the corpus x/y axes". A clamp that instead bounds ``pose.x`` by
+    ``scale.y`` and ``pose.y`` by ``scale.x`` swaps the two axes: on a
     shelf shaped like the real sage10k proportions (a wide, shallow face) that lets
     an object's depth coordinate range far past the slab's actual, shallow depth --
     landing the object off the front or back of the shelf entirely.
     """
     shelf = EGShelf(
-        scale=EGScale(height=2.0, length=0.3, width=1.0),
+        scale=Scale(x=0.3, y=1.0, z=2.0),
         layers=[
             EGShelfLayer(
                 objects=[_object("book_0", 0.0, 0.0)],
@@ -504,26 +501,26 @@ def test_clamp_to_bounds_keeps_the_object_within_the_spawned_slab(
         source_ids=[mesh_candidate],
         theme_dominant_type=ObjectType.BOOK,
     )
-    spawned = shelf.spawn_in_world()
-    spawned_layer = spawned.layers[0]
+    shelf.spawn()
+    spawned_layer = shelf.layers[0]
     group = ShelfLayerGroup(
-        bodies=spawned_layer.object_bodies,
-        supporting_body=spawned_layer.surface.root,
+        bodies=_object_bodies(spawned_layer),
+        supporting_body=spawned_layer.annotation.root,
         backend=MagicMock(),
         shelf=shelf,
         layer_index=0,
-        corpus=spawned.corpus,
+        corpus=shelf.corpus,
     )
 
-    shelf.layers[0].objects[0].position = EGPoint2D(x=0.4, y=0.0)
+    shelf.layers[0].objects[0].pose = Pose2D(x=0.4, y=0.0, yaw=0.0)
     group.clamp_to_bounds()
 
-    clamped = shelf.layers[0].objects[0].position
+    clamped = shelf.layers[0].objects[0].pose
     object_scale = shelf.layers[0].objects[0].scale
-    slab_half_x = shelf.scale.length / 2
-    slab_half_y = shelf.scale.width / 2
-    assert abs(clamped.x) + object_scale.length / 2 <= slab_half_x + 1e-9
-    assert abs(clamped.y) + object_scale.width / 2 <= slab_half_y + 1e-9
+    slab_half_x = shelf.scale.x / 2
+    slab_half_y = shelf.scale.y / 2
+    assert abs(float(clamped.x)) + object_scale.x / 2 <= slab_half_x + 1e-9
+    assert abs(float(clamped.y)) + object_scale.y / 2 <= slab_half_y + 1e-9
 
 
 def test_clamp_to_bounds_moves_the_spawned_body_to_match(
@@ -535,24 +532,24 @@ def test_clamp_to_bounds_moves_the_spawned_body_to_match(
     returned layout stay consistent with each other.
     """
     shelf = _shelf([_object("book_0", 0.0, 0.0)], mesh_candidate)
-    spawned = shelf.spawn_in_world()
-    spawned_layer = spawned.layers[0]
+    shelf.spawn()
+    spawned_layer = shelf.layers[0]
     group = ShelfLayerGroup(
-        bodies=spawned_layer.object_bodies,
-        supporting_body=spawned_layer.surface.root,
+        bodies=_object_bodies(spawned_layer),
+        supporting_body=spawned_layer.annotation.root,
         backend=MagicMock(),
         shelf=shelf,
         layer_index=0,
-        corpus=spawned.corpus,
+        corpus=shelf.corpus,
     )
 
-    shelf.layers[0].objects[0].position = EGPoint2D(x=50.0, y=50.0)
+    shelf.layers[0].objects[0].pose = Pose2D(x=50.0, y=50.0, yaw=0.0)
     group.clamp_to_bounds()
 
-    origin = spawned_layer.object_bodies[0].parent_connection.origin
+    origin = _object_bodies(spawned_layer)[0].parent_connection.origin
     resting_z = origin.to_position().to_np()[2]
     expected = shelf.object_local_pose(
-        shelf.layers[0].objects[0], resting_z, spawned.corpus
+        shelf.layers[0].objects[0], resting_z, shelf.corpus
     )
     assert origin.to_np() == pytest.approx(expected.to_np())
 
@@ -579,7 +576,8 @@ def test_resolver_moves_colliding_object_until_layer_is_collision_free(
         resolver = InWorldLayoutResolver.for_shelf(shelf, rspn=MagicMock())
         spawned = resolver.resolve()
 
-    assert shelf.layers[0].objects[1].position == EGPoint2D(x=0.0, y=1.5)
+    assert float(shelf.layers[0].objects[1].pose.x) == pytest.approx(0.0)
+    assert float(shelf.layers[0].objects[1].pose.y) == pytest.approx(1.5)
     assert not _colliding_bodies(spawned)
 
 
@@ -604,7 +602,7 @@ def test_resolver_moves_object_colliding_with_the_corpus_walls(
         theme_dominant_type=ObjectType.BOOK,
     )
     shelf = EGShelf(
-        scale=EGScale(height=2.0, length=layer_length, width=layer_width),
+        scale=Scale(x=layer_length, y=layer_width, z=2.0),
         layers=[layer],
         source_ids=[mesh_candidate],
         theme_dominant_type=ObjectType.BOOK,
@@ -626,7 +624,7 @@ def test_resolver_moves_object_colliding_with_the_corpus_walls(
     matrix = CollisionMatrix(
         collision_checks={
             CollisionCheck(body_a=corpus_body, body_b=body, distance=0.0)
-            for body in spawned.layers[0].object_bodies.values()
+            for body in _object_bodies(spawned.layers[0]).values()
         }
     )
     assert not detector.check_collisions(matrix).any()
@@ -661,7 +659,8 @@ def test_resolver_falls_back_to_relaxed_query_when_neighbour_evidence_has_no_sol
         spawned = resolver.resolve()
 
     assert backend_factory.return_value.evaluate.call_count == 2
-    assert shelf.layers[0].objects[1].position == EGPoint2D(x=0.0, y=1.5)
+    assert float(shelf.layers[0].objects[1].pose.x) == pytest.approx(0.0)
+    assert float(shelf.layers[0].objects[1].pose.y) == pytest.approx(1.5)
     assert not _colliding_bodies(spawned)
 
 
@@ -691,7 +690,7 @@ def test_resolver_drops_objects_it_cannot_separate(
         spawned = resolver.resolve()
 
     assert not _colliding_bodies(spawned)
-    assert len(spawned.layers[0].object_bodies) < 2
+    assert len(_object_bodies(spawned.layers[0])) < 2
 
 
 def test_resolver_stops_retrying_a_persistently_stuck_object_before_max_passes(
@@ -727,5 +726,5 @@ def test_resolver_stops_retrying_a_persistently_stuck_object_before_max_passes(
         spawned = resolver.resolve()
 
     assert not _colliding_bodies(spawned)
-    assert len(spawned.layers[0].object_bodies) < 2
+    assert len(_object_bodies(spawned.layers[0])) < 2
     assert backend_factory.return_value.evaluate.call_count == 3

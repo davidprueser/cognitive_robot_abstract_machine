@@ -10,19 +10,18 @@ from plyfile import PlyData
 from semantic_digital_twin.scene_generation.scene_schema import (
     EGObject,
     EGObject2D,
-    EGPoint2D,
     EGPosition,
     EGRotation,
-    EGScale,
     ObjectType,
 )
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
-from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
+from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix, Pose2D
 from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.connections import (
     Connection6DoF,
     FixedConnection,
 )
+from semantic_digital_twin.world_description.geometry import Scale
 from semantic_digital_twin.world_description.world_entity import Body
 
 
@@ -34,7 +33,9 @@ def mesh_path(tmp_path: Path) -> Path:
     """
     objects_dir = tmp_path / "objects"
     objects_dir.mkdir()
-    resources_root = Path(files("semantic_digital_twin")).parent.parent / "resources" / "ply"
+    resources_root = (
+        Path(files("semantic_digital_twin")).parent.parent / "resources" / "ply"
+    )
     shutil.copy(resources_root / "chair.ply", objects_dir / "test_object.ply")
     shutil.copy(
         resources_root / "chair_texture.png", objects_dir / "test_object_texture.png"
@@ -50,7 +51,9 @@ def off_center_mesh_path(tmp_path: Path) -> Path:
     """
     objects_dir = tmp_path / "objects"
     objects_dir.mkdir()
-    resources_root = Path(files("semantic_digital_twin")).parent.parent / "resources" / "ply"
+    resources_root = (
+        Path(files("semantic_digital_twin")).parent.parent / "resources" / "ply"
+    )
     ply = PlyData.read(str(resources_root / "chair.ply"))
     vertex = ply["vertex"]
     vertex["x"] += 2.0
@@ -69,7 +72,7 @@ def _object(place_id: str) -> EGObject:
         room_id="room_1",
         place_id=place_id,
         object_type=ObjectType.VASE,
-        scale=EGScale(width=0.3, length=0.3, height=0.5),
+        scale=Scale(x=0.3, y=0.3, z=0.5),
         position=EGPosition(x=1.0, y=2.0, z=0.0),
         orientation=EGRotation(x=0.0, y=0.0, z=0.0),
         source_id="test_object",
@@ -78,15 +81,10 @@ def _object(place_id: str) -> EGObject:
 
 def _object_2d() -> EGObject2D:
     return EGObject2D(
-        id="object_2d",
-        room_id="room_1",
-        place_id="shelf",
         object_type=ObjectType.VASE,
-        scale=EGScale(width=0.3, length=0.3, height=0.5),
-        position=EGPoint2D(x=0.0, y=0.0),
-        orientation=EGRotation(x=0.0, y=0.0, z=0.0),
+        scale=Scale(x=0.3, y=0.3, z=0.5),
+        pose=Pose2D(x=0.0, y=0.0, yaw=0.0),
         source_id="test_object",
-        theme_dominant_type=ObjectType.BOOK,
     )
 
 
@@ -144,13 +142,13 @@ def test_shelf_object_mesh_is_centered_on_its_body_frame(
     off_center_mesh_path: Path,
 ) -> None:
     """
-    A shelf-layer object's mesh, whose own local origin sits away from its
-    footprint, must still render centred on its body's TF frame in x/y and
-    resting on it in z, so the object's visual geometry lines up with its TF
-    root regardless of where the source PLY's local origin happens to be.
+    A shelf-layer object's mesh, whose own local origin sits away from its footprint,
+    must still render centred on its body's TF frame in x/y and resting on it in z, so
+    the object's visual geometry lines up with its TF root regardless of where the
+    source PLY's local origin happens to be.
     """
     world, root = _world_with_root()
-    body = _object_2d().create_in_world(world, off_center_mesh_path, parent=root)
+    body = _object_2d().spawn(world, parent=root, mesh_path=off_center_mesh_path)
 
     minimum_bound, maximum_bound = body.collision.combined_mesh.bounds
     assert (minimum_bound[0] + maximum_bound[0]) / 2 == pytest.approx(0.0, abs=1e-6)

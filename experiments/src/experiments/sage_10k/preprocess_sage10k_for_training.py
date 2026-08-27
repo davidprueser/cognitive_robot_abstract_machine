@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import os
 import time
 from collections import Counter, defaultdict
@@ -30,7 +31,6 @@ from semantic_digital_twin.scene_generation.scene_schema import (
     EGPoint2D,
     EGPosition,
     EGRotation,
-    EGScale,
     EGShelf,
     EGShelfLayer,
     ObjectType,
@@ -38,6 +38,8 @@ from semantic_digital_twin.scene_generation.scene_schema import (
     ObjectTypeHeightProfile,
     wrap_angle_degrees,
 )
+from semantic_digital_twin.spatial_types import Pose2D
+from semantic_digital_twin.world_description.geometry import Scale
 
 COMMIT_BATCH_SIZE = 500
 
@@ -265,10 +267,13 @@ def eg_object_from_sage10k_object(
         room_id=sage10k_object.room_id,
         place_id=sage10k_object.place_id,
         object_type=classifier.classify(sage10k_object.type),
-        scale=EGScale(
-            height=sage10k_object.dimensions.height,
-            length=sage10k_object.dimensions.length,
-            width=sage10k_object.dimensions.width,
+        # x is length (depth), y is width (face), z is height -- see EGShelf's
+        # CONTENT_FRAME_YAW_OFFSET_DEGREES for why the corpus frame needs this axis
+        # convention.
+        scale=Scale(
+            x=sage10k_object.dimensions.length,
+            y=sage10k_object.dimensions.width,
+            z=sage10k_object.dimensions.height,
         ),
         position=EGPosition(
             x=corrected.position.x,
@@ -334,22 +339,17 @@ def _dominant_object_type(objects: Iterable[EGObject]) -> ObjectType:
     )
 
 
-def _object_in_content_frame(
-    shelf: EGObject, obj: EGObject, theme_dominant_type: ObjectType
-) -> EGObject2D:
+def _object_in_content_frame(shelf: EGObject, obj: EGObject) -> EGObject2D:
     """
     Express *obj*'s pose relative to *shelf* in the shelf's content frame.
 
     The content frame is the shelf's own yaw plus
-    :attr:`EGShelf.CONTENT_FRAME_YAW_OFFSET_DEGREES`, the frame
-    :meth:`EGShelf.spawn_in_world` builds its corpus in. Storing the pose in
-    any other frame makes the contents' spread land on the corpus's shallow
-    depth axis and overflow front and back.
+    :attr:`EGShelf.CONTENT_FRAME_YAW_OFFSET_DEGREES`, the frame :meth:`EGShelf.spawn`
+    builds its corpus in. Storing the pose in any other frame makes the contents'
+    spread land on the corpus's shallow depth axis and overflow front and back.
 
     :param shelf: The shelf the object stands on.
     :param obj: The object whose pose is converted.
-    :param theme_dominant_type: The shelf's own dominant object type, carried so
-        that which objects a shelf of that theme holds can be conditioned on it.
     :return: The object with a shelf-relative, content-frame pose.
     """
     content_frame_yaw = shelf.orientation.z + EGShelf.CONTENT_FRAME_YAW_OFFSET_DEGREES
@@ -357,22 +357,12 @@ def _object_in_content_frame(
         x=obj.position.x - shelf.position.x,
         y=obj.position.y - shelf.position.y,
     ).rotated_into_frame(content_frame_yaw)
+    yaw_degrees = wrap_angle_degrees(obj.orientation.z - content_frame_yaw)
     return EGObject2D(
-        id=obj.id,
-        room_id=obj.room_id,
-        place_id=obj.place_id,
         object_type=obj.object_type,
-        scale=EGScale(
-            width=obj.scale.width, length=obj.scale.length, height=obj.scale.height
-        ),
-        position=local_offset,
-        orientation=EGRotation(
-            x=obj.orientation.x,
-            y=obj.orientation.y,
-            z=wrap_angle_degrees(obj.orientation.z - content_frame_yaw),
-        ),
+        scale=obj.scale,
+        pose=Pose2D(x=local_offset.x, y=local_offset.y, yaw=math.radians(yaw_degrees)),
         source_id=obj.source_id,
-        theme_dominant_type=theme_dominant_type,
     )
 
 
@@ -411,8 +401,8 @@ def _layers_of_shelf(
     if not shelf.position_is_mesh_corrected:
         return []
 
-    maximum_relative_x = shelf.scale.width / 2 * (1 - edge_margin_fraction)
-    maximum_relative_y = shelf.scale.length / 2 * (1 - edge_margin_fraction)
+    maximum_relative_x = shelf.scale.y / 2 * (1 - edge_margin_fraction)
+    maximum_relative_y = shelf.scale.x / 2 * (1 - edge_margin_fraction)
     within_bounds = [
         obj
         for obj in members
@@ -454,10 +444,7 @@ def _layers_of_shelf(
 
     return [
         EGShelfLayer(
-            objects=[
-                _object_in_content_frame(shelf, obj, theme_dominant_type)
-                for obj in layer_objects
-            ],
+            objects=[_object_in_content_frame(shelf, obj) for obj in layer_objects],
             theme_dominant_type=theme_dominant_type,
             height_above_shelf_base=slab_height - base_height,
             relative_height=_relative_height(
@@ -588,10 +575,10 @@ def shelves_with_layers(
             continue
         shelves.append(
             EGShelf(
-                scale=EGScale(
-                    width=shelf.scale.width,
-                    length=shelf.scale.length,
-                    height=vertical_extent.height,
+                scale=Scale(
+                    x=shelf.scale.x,
+                    y=shelf.scale.y,
+                    z=vertical_extent.height,
                 ),
                 layers=layers,
                 theme_dominant_type=layers[0].theme_dominant_type,
@@ -748,8 +735,8 @@ def object_type_affinities(
                 )
                 accumulators[pair].add(
                     EGPoint2D(
-                        x=to_object.position.x - from_object.position.x,
-                        y=to_object.position.y - from_object.position.y,
+                        x=float(to_object.pose.x) - float(from_object.pose.x),
+                        y=float(to_object.pose.y) - float(from_object.pose.y),
                     )
                 )
 

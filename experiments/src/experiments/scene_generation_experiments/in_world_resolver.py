@@ -23,11 +23,8 @@ from semantic_digital_twin.collision_checking.trimesh_collision_detector import 
     FCLCollisionDetector,
 )
 from semantic_digital_twin.reasoning.predicates import is_supported_by
-from semantic_digital_twin.scene_generation.scene_schema import (
-    EGPoint2D,
-    EGShelf,
-    SpawnedShelf,
-)
+from semantic_digital_twin.scene_generation.scene_schema import EGShelf
+from semantic_digital_twin.spatial_types import Pose2D
 from semantic_digital_twin.world_description.world_entity import (
     Body,
     KinematicStructureEntity,
@@ -192,21 +189,24 @@ class ShelfLayerGroup:
         cheap geometric fix that always succeeds.
         """
         # The content frame's x-axis spans the shelf's length (its depth) and y spans
-        # its width (its face) -- the same mapping spawn_in_world's slab Scale and
-        # object_local_pose use, not shelf.scale's own width/length order.
+        # its width (its face) -- the same mapping EGShelfLayer.spawn's slab Scale and
+        # object_local_pose use, not shelf.scale's own x/y order confused with a
+        # width/length label.
         layer = self.shelf.layers[self.layer_index]
-        half_x = self.shelf.scale.length / 2
-        half_y = self.shelf.scale.width / 2
+        half_x = self.shelf.scale.x / 2
+        half_y = self.shelf.scale.y / 2
         for index, object_2d in enumerate(layer.objects):
             if index not in self.bodies:
                 continue
-            max_x = max(half_x - object_2d.scale.length / 2, 0.0)
-            max_y = max(half_y - object_2d.scale.width / 2, 0.0)
-            clamped_x = min(max(object_2d.position.x, -max_x), max_x)
-            clamped_y = min(max(object_2d.position.y, -max_y), max_y)
-            if clamped_x == object_2d.position.x and clamped_y == object_2d.position.y:
+            max_x = max(half_x - object_2d.scale.x / 2, 0.0)
+            max_y = max(half_y - object_2d.scale.y / 2, 0.0)
+            clamped_x = min(max(float(object_2d.pose.x), -max_x), max_x)
+            clamped_y = min(max(float(object_2d.pose.y), -max_y), max_y)
+            if clamped_x == float(object_2d.pose.x) and clamped_y == float(
+                object_2d.pose.y
+            ):
                 continue
-            object_2d.position = EGPoint2D(x=clamped_x, y=clamped_y)
+            object_2d.pose = Pose2D(x=clamped_x, y=clamped_y, yaw=object_2d.pose.yaw)
             body = self.bodies[index]
             resting_z = body.parent_connection.origin.to_position().to_np()[2]
             body.parent_connection.origin = self.shelf.object_local_pose(
@@ -238,8 +238,7 @@ class ShelfLayerGroup:
 
         for object_index, redrawn in zip(resampled_indices, redrawn_objects):
             object_2d = layer.objects[object_index]
-            object_2d.position = redrawn.position
-            object_2d.orientation = redrawn.orientation
+            object_2d.pose = redrawn.pose
             body = self.bodies[object_index]
             resting_z = body.parent_connection.origin.to_position().to_np()[2]
             body.parent_connection.origin = self.shelf.object_local_pose(
@@ -261,7 +260,7 @@ class InWorldLayoutResolver:
     just drives the repair loop across every layer of the shelf.
     """
 
-    spawned: SpawnedShelf
+    shelf: EGShelf
     """
     The already-spawned shelf to repair and return.
     """
@@ -321,10 +320,10 @@ class InWorldLayoutResolver:
             before it stops being resampled.
         :return: A resolver ready to repair the spawned shelf.
         """
-        spawned = shelf.spawn_in_world()
-        groups = cls._shelf_layer_groups(shelf, spawned, probabilistic_backend(rspn))
+        shelf.spawn()
+        groups = cls._shelf_layer_groups(shelf, probabilistic_backend(rspn))
         return cls(
-            spawned=spawned,
+            shelf=shelf,
             groups=groups,
             max_passes=max_passes,
             stuck_after_passes=stuck_after_passes,
@@ -333,28 +332,31 @@ class InWorldLayoutResolver:
     @staticmethod
     def _shelf_layer_groups(
         shelf: EGShelf,
-        spawned: SpawnedShelf,
         backend: ProbabilisticBackend,
     ) -> list[ShelfLayerGroup]:
         """
-        Build one :class:`ShelfLayerGroup` per layer of *spawned*, each supported by its
+        Build one :class:`ShelfLayerGroup` per layer of *shelf*, each supported by its
         own slab, checked against the shelf's corpus walls, and resampled from
         *backend*.
         """
         return [
             ShelfLayerGroup(
-                bodies=spawned_layer.object_bodies,
-                supporting_body=spawned_layer.surface.root,
-                static_obstacles=[spawned.corpus],
+                bodies={
+                    index: obj.annotation
+                    for index, obj in enumerate(layer.objects)
+                    if obj.annotation is not None
+                },
+                supporting_body=layer.annotation.root,
+                static_obstacles=[shelf.corpus],
                 backend=backend,
                 shelf=shelf,
                 layer_index=layer_index,
-                corpus=spawned.corpus,
+                corpus=shelf.corpus,
             )
-            for layer_index, spawned_layer in enumerate(spawned.layers)
+            for layer_index, layer in enumerate(shelf.layers)
         ]
 
-    def resolve(self) -> SpawnedShelf:
+    def resolve(self) -> EGShelf:
         """
         Repair every group until all are collision-free and supported, moving offending
         bodies in place.
@@ -366,9 +368,9 @@ class InWorldLayoutResolver:
 
         :raises LayoutResolutionError: If violations remain even after dropping the
             offending objects -- a state that should not occur.
-        :return: The spawned, repaired layout.
+        :return: The spawned, repaired shelf.
         """
-        detector = FCLCollisionDetector(_world=self.spawned.world)
+        detector = FCLCollisionDetector(_world=self.shelf.world)
         remaining = self._repaired(detector)
         detector.stop()
 
@@ -377,7 +379,7 @@ class InWorldLayoutResolver:
                 remaining_groups=frozenset(remaining),
                 passes_attempted=self.max_passes,
             )
-        return self.spawned
+        return self.shelf
 
     def _repaired(self, detector: FCLCollisionDetector) -> dict[int, set[int]]:
         """
@@ -486,12 +488,14 @@ class InWorldLayoutResolver:
 
         :param offenders: Offending member indices per group index.
         """
-        world = self.spawned.world
+        world = self.shelf.world
         with world.modify_world():
             for group_index, indices in offenders.items():
-                bodies = self.groups[group_index].bodies
+                group = self.groups[group_index]
+                layer = self.shelf.layers[group.layer_index]
                 for index in indices:
-                    self._remove_branch(bodies.pop(index))
+                    self._remove_branch(group.bodies.pop(index))
+                    layer.objects[index].annotation = None
                     self.dropped_body_count += 1
             world.delete_orphaned_dofs()
         self._forget_bodies_no_longer_in_the_world()
@@ -502,7 +506,7 @@ class InWorldLayoutResolver:
 
         :param branch_root: The entity whose branch is dropped.
         """
-        world = self.spawned.world
+        world = self.shelf.world
         for entity in world.compute_descendent_child_kinematic_structure_entities(
             branch_root
         ) + [branch_root]:
@@ -516,12 +520,15 @@ class InWorldLayoutResolver:
         without this it keeps referring to bodies the world no longer holds and
         the next collision check raises instead of reporting collisions.
 
-        Entries are popped rather than the dict rebuilt: a group's ``bodies`` is
-        the same object as the spawned layer's own body map, so popping is what
-        keeps the returned layout in step with the world.
+        A group's ``bodies`` is this resolver's own cache of its layer's spawned
+        objects, so a departed entry is also cleared from the corresponding
+        :class:`~semantic_digital_twin.scene_generation.scene_schema.EGObject2D`'s
+        own :attr:`~semantic_digital_twin.scene_generation.scene_schema.EGObject2D.
+        annotation`, keeping the returned layout in step with the world.
         """
-        remaining_bodies = set(self.spawned.world.bodies)
+        remaining_bodies = set(self.shelf.world.bodies)
         for group in self.groups:
+            layer = self.shelf.layers[group.layer_index]
             departed = [
                 index
                 for index, body in group.bodies.items()
@@ -529,6 +536,7 @@ class InWorldLayoutResolver:
             ]
             for index in departed:
                 group.bodies.pop(index)
+                layer.objects[index].annotation = None
             # A dropped obstacle left in place makes the next check ask the
             # detector about a body the world no longer holds.
             group.static_obstacles[:] = [

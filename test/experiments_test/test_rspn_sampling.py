@@ -8,24 +8,18 @@ from experiments.scene_generation_experiments.rspn_sampling import (
 from krrood.parametrization.parameterizer import UnderspecifiedParameters
 from semantic_digital_twin.scene_generation.scene_schema import (
     EGObject2D,
-    EGPoint2D,
-    EGRotation,
-    EGScale,
     ObjectType,
 )
+from semantic_digital_twin.spatial_types import Pose2D
+from semantic_digital_twin.world_description.geometry import Scale
 
 
 def _typed_object(object_type: ObjectType, object_id: str) -> EGObject2D:
     return EGObject2D(
-        id=object_id,
-        room_id="room_1",
-        place_id="shelf_1",
         object_type=object_type,
-        scale=EGScale(height=0.1, length=0.1, width=0.1),
-        position=EGPoint2D(x=0.0, y=0.0),
-        orientation=EGRotation(x=0.0, y=0.0, z=0.0),
+        scale=Scale(x=0.1, y=0.1, z=0.1),
+        pose=Pose2D(x=0.0, y=0.0, yaw=0.0),
         source_id=object_id,
-        theme_dominant_type=ObjectType.BOTTLE,
     )
 
 
@@ -34,21 +28,17 @@ def _typed_object(object_type: ObjectType, object_id: str) -> EGObject2D:
 # ---------------------------------------------------------------------------
 
 
-def test_free_object_slot_pins_roll_and_pitch_to_upright() -> None:
+def test_free_object_slot_leaves_the_whole_pose_free() -> None:
     """
-    Free floor objects always sit upright without tilting (only yaw varies), so roll and
-    pitch must be fixed evidence rather than left underspecified.
-
-    A degenerate (always-constant) circuit dimension left underspecified leaks the
-    query's ``...`` placeholder straight through the sample instead of resolving it to a
-    number, so only yaw -- which genuinely varies in the training data -- may be left
-    for the RSPN to sample.
+    Free floor objects always sit upright without tilting; ``Pose2D`` has no roll/pitch
+    dimensions to pin in the first place (unlike the old ``EGRotation``), so x, y, and
+    yaw are all left underspecified for the RSPN to sample.
     """
-    orientation = free_object_slot(ObjectType.BOTTLE).kwargs["orientation"]
+    pose = free_object_slot().kwargs["pose"]
 
-    assert orientation.kwargs["x"] == 0.0
-    assert orientation.kwargs["y"] == 0.0
-    assert orientation.kwargs["z"] is ...
+    assert pose.kwargs["x"] is ...
+    assert pose.kwargs["y"] is ...
+    assert pose.kwargs["yaw"] is ...
 
 
 # ---------------------------------------------------------------------------
@@ -79,13 +69,11 @@ def test_build_layer_query_frees_resampled_scale_and_pose() -> None:
         variable.name
         for variable in params.conditioning_assignments_from_literal_values
     }
-    conditioned_positions = [name for name in conditioned_names if "position.x" in name]
+    conditioned_positions = [name for name in conditioned_names if "pose.x" in name]
     conditioned_scales = [
-        name
-        for name in conditioned_names
-        if "objects[" in name and "scale.width" in name
+        name for name in conditioned_names if "objects[" in name and "scale.x" in name
     ]
-    # Only the one fixed object's position and scale are conditioned; the
+    # Only the one fixed object's pose and scale are conditioned; the
     # free slot's are left entirely free.
     assert len(conditioned_positions) == 1
     assert len(conditioned_scales) == 1

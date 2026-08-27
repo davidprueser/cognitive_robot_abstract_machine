@@ -27,13 +27,12 @@ from semantic_digital_twin.scene_generation.scene_schema_aggregations import (
 )
 from semantic_digital_twin.scene_generation.scene_schema import (
     EGObject2D,
-    EGPoint2D,
-    EGRotation,
-    EGScale,
     EGShelf,
     EGShelfLayer,
     ObjectType,
 )
+from semantic_digital_twin.spatial_types import Pose2D
+from semantic_digital_twin.world_description.geometry import Scale
 
 
 def probabilistic_backend(rspn: RelationalProbabilisticCircuit) -> ProbabilisticBackend:
@@ -58,18 +57,13 @@ def _fixed_object_slot(object_2d: EGObject2D):
     The object_type is left underspecified to avoid enum-to-float conversion
     issues in the RSPN sampling backend.
 
-    :param object_2d: The object whose position, scale, and orientation are
-        fixed.
+    :param object_2d: The object whose pose and scale are fixed.
     :return: A partially-underspecified EGObject2D holding *object_2d*'s pose.
     """
     return a(EGObject2D)(
-        id=None,
-        room_id=None,
-        place_id=None,
         object_type=...,
         scale=object_2d.scale,
-        position=object_2d.position,
-        orientation=object_2d.orientation,
+        pose=object_2d.pose,
         source_id=None,
     )
 
@@ -78,26 +72,21 @@ def free_object_slot():
     """
     Build a fully underspecified EGObject2D query slot with all spatial fields free.
 
-    Roll and pitch are fixed to ``0.0`` rather than left underspecified: floor objects
-    always sit upright without tilting, so those two circuit dimensions are constant
-    across every training example, and leaving a constant dimension underspecified lets
-    the RSPN sampling backend leak the query's placeholder straight through instead of
-    resolving it. Only yaw genuinely varies and is left for the RSPN to sample.
+    Only yaw genuinely varies and is left for the RSPN to sample; ``x`` and ``y`` are
+    likewise free. :class:`~semantic_digital_twin.spatial_types.spatial_types.Pose2D`
+    carries no roll/pitch dimensions to pin, since floor objects always sit upright
+    without tilting.
 
     The shelf's theme is pinned rather than left free: it is what decides which objects
     are drawn, and only the fields a slot carries itself reach the distribution the
     object is drawn from.
 
-    :return: An underspecified EGObject2D with position, scale, and yaw unset.
+    :return: An underspecified EGObject2D with scale and pose unset.
     """
     return a(EGObject2D)(
-        id=None,
-        room_id=None,
-        place_id=None,
         object_type=...,
-        scale=a(EGScale)(width=..., length=..., height=...),
-        position=a(EGPoint2D)(x=..., y=...),
-        orientation=a(EGRotation)(x=0.0, y=0.0, z=...),
+        scale=a(Scale)(x=..., y=..., z=...),
+        pose=a(Pose2D)(x=..., y=..., yaw=...),
         source_id=None,
     )
 
@@ -187,18 +176,14 @@ def build_theme_shelf_query(
         evaluation.
     """
     return a(EGShelf)(
-        scale=a(EGScale)(width=..., length=..., height=...),
+        scale=a(Scale)(x=..., y=..., z=...),
         layers=[
             a(EGShelfLayer)(
                 objects=[
                     a(EGObject2D)(
-                        id=None,
-                        room_id=None,
-                        place_id=None,
                         object_type=...,
-                        scale=a(EGScale)(width=..., length=..., height=...),
-                        position=a(EGPoint2D)(x=..., y=...),
-                        orientation=a(EGRotation)(x=0.0, y=0.0, z=...),
+                        scale=a(Scale)(x=..., y=..., z=...),
+                        pose=a(Pose2D)(x=..., y=..., yaw=...),
                         source_id=None,
                     )
                     for _ in range(count)

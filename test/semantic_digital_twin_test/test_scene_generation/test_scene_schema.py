@@ -10,16 +10,14 @@ import pytest
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.scene_generation.scene_schema import (
     EGObject2D,
-    EGPoint2D,
-    EGRotation,
     EGShelf,
     EGShelfLayer,
-    EGScale,
     MeshCandidate,
     ObjectType,
 )
-from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
+from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix, Pose2D
 from semantic_digital_twin.world import World
+from semantic_digital_twin.world_description.geometry import Scale
 from semantic_digital_twin.world_description.world_entity import Body
 
 
@@ -74,15 +72,10 @@ def _make_layer(relative_height: float = 0.0) -> EGShelfLayer:
     return EGShelfLayer(
         objects=[
             EGObject2D(
-                id="book_1",
-                room_id="room_1",
-                place_id="shelf_1",
                 object_type=ObjectType.BOOK,
-                scale=EGScale(width=0.1, length=0.05, height=0.2),
-                position=EGPoint2D(x=0.0, y=0.0),
-                orientation=EGRotation(x=0.0, y=0.0, z=0.0),
+                scale=Scale(x=0.05, y=0.1, z=0.2),
+                pose=Pose2D(x=0.0, y=0.0, yaw=0.0),
                 source_id="chair_src",
-                theme_dominant_type=ObjectType.BOOK,
             )
         ],
         theme_dominant_type=ObjectType.BOOK,
@@ -92,26 +85,39 @@ def _make_layer(relative_height: float = 0.0) -> EGShelfLayer:
 
 def _make_shelf(
     relative_heights: tuple[float, ...] = (0.0,),
-    scale: EGScale | None = None,
+    scale: Scale | None = None,
 ) -> EGShelf:
     return EGShelf(
-        scale=scale or EGScale(height=2.0, length=0.4, width=0.8),
+        scale=scale or Scale(x=0.4, y=0.8, z=2.0),
         layers=[_make_layer(height) for height in relative_heights],
         theme_dominant_type=ObjectType.BOOK,
         source_ids=[],
     )
 
 
+def _object_bodies(layer: EGShelfLayer) -> dict[int, Body]:
+    """
+    The bodies spawned for *layer*'s objects, keyed by their index in
+    :attr:`EGShelfLayer.objects`; objects with no spawned body are omitted.
+    """
+    return {
+        index: obj.annotation
+        for index, obj in enumerate(layer.objects)
+        if obj.annotation is not None
+    }
+
+
 def _slab_footprints(shelf: EGShelf) -> set[tuple[float, float]]:
     """
     Every spawned slab's x/y extents, rounded so float noise does not split them.
     """
+    shelf.spawn()
     return {
         (
-            round(float(spawned_layer.surface.root.collision.shapes[0].scale.x), 6),
-            round(float(spawned_layer.surface.root.collision.shapes[0].scale.y), 6),
+            round(float(layer.annotation.root.collision.shapes[0].scale.x), 6),
+            round(float(layer.annotation.root.collision.shapes[0].scale.y), 6),
         )
-        for spawned_layer in shelf.spawn_in_world().layers
+        for layer in shelf.layers
     }
 
 
@@ -122,14 +128,15 @@ def _slab_heights(shelf: EGShelf) -> list[float]:
     Slabs are reparented onto the corpus so the shelf moves as one unit, which puts
     their origins in the corpus frame, centred half a shelf up.
     """
+    shelf.spawn()
     return sorted(
         float(
-            spawned_layer.surface.root.parent_connection.origin.to_position()
+            layer.annotation.root.parent_connection.origin.to_position()
             .to_np()[2]
             .item()
         )
-        + shelf.scale.height / 2
-        for spawned_layer in shelf.spawn_in_world().layers
+        + shelf.scale.z / 2
+        for layer in shelf.layers
     )
 
 
@@ -190,7 +197,7 @@ def test_every_slab_spawns_at_the_shelfs_own_footprint() -> None:
 
     footprints = _slab_footprints(shelf)
 
-    assert footprints == {(shelf.scale.length, shelf.scale.width)}
+    assert footprints == {(shelf.scale.x, shelf.scale.y)}
 
 
 def test_the_corpus_interior_matches_the_shelfs_learned_dimensions() -> None:
@@ -200,17 +207,17 @@ def test_the_corpus_interior_matches_the_shelfs_learned_dimensions() -> None:
 
     They are what distinguishes a narrow bookcase from a wide cabinet.
     """
-    narrow = _make_shelf(scale=EGScale(height=1.5, length=0.26, width=0.62))
-    wide = _make_shelf(scale=EGScale(height=1.5, length=0.40, width=1.43))
+    narrow = _make_shelf(scale=Scale(x=0.26, y=0.62, z=1.5))
+    wide = _make_shelf(scale=Scale(x=0.40, y=1.43, z=1.5))
 
     corpus_wall_thickness = 0.03
-    assert narrow.corpus_footprint.width == pytest.approx(
+    assert narrow.corpus_footprint.y == pytest.approx(
         0.62 + 2 * corpus_wall_thickness, abs=1e-6
     )
-    assert wide.corpus_footprint.width == pytest.approx(
+    assert wide.corpus_footprint.y == pytest.approx(
         1.43 + 2 * corpus_wall_thickness, abs=1e-6
     )
-    assert narrow.corpus_footprint.width < wide.corpus_footprint.width
+    assert narrow.corpus_footprint.y < wide.corpus_footprint.y
 
 
 def test_slabs_are_evenly_spaced_whatever_heights_were_drawn() -> None:
@@ -239,15 +246,16 @@ def test_each_slab_is_placed_at_its_own_layers_height_rank() -> None:
     grid slot the sorted pass happened to produce it in.
     """
     shelf = _make_shelf(relative_heights=(0.9, 0.1, 0.5))
+    shelf.spawn()
 
     spawned_heights = [
         float(
-            spawned_layer.surface.root.parent_connection.origin.to_position()
+            layer.annotation.root.parent_connection.origin.to_position()
             .to_np()[2]
             .item()
         )
-        + shelf.scale.height / 2
-        for spawned_layer in shelf.spawn_in_world().layers
+        + shelf.scale.z / 2
+        for layer in shelf.layers
     ]
 
     ranks = sorted(
@@ -285,12 +293,12 @@ def test_objects_recorded_on_top_of_low_furniture_spawn_above_it() -> None:
     """
     shelf = _make_shelf(
         relative_heights=(0.3, 1.0),
-        scale=EGScale(height=1.0, length=0.4, width=0.8),
+        scale=Scale(x=0.4, y=0.8, z=1.0),
     )
 
     heights = _slab_heights(shelf)
 
-    assert heights[-1] == pytest.approx(shelf.scale.height, abs=1e-6)
+    assert heights[-1] == pytest.approx(shelf.scale.z, abs=1e-6)
 
 
 def test_objects_recorded_on_top_of_tall_furniture_spawn_inside_it() -> None:
@@ -303,12 +311,12 @@ def test_objects_recorded_on_top_of_tall_furniture_spawn_inside_it() -> None:
     """
     shelf = _make_shelf(
         relative_heights=(0.3, 1.0),
-        scale=EGScale(height=2.4, length=0.4, width=0.8),
+        scale=Scale(x=0.4, y=0.8, z=2.4),
     )
 
     heights = _slab_heights(shelf)
 
-    assert all(height < shelf.scale.height for height in heights)
+    assert all(height < shelf.scale.z for height in heights)
     assert len(heights) == 2
 
 
@@ -322,9 +330,7 @@ def test_an_object_on_the_shelfs_top_is_not_rejected_for_lack_of_headroom(
     Measuring its headroom against the corpus ceiling -- which lies *below* the top
     surface -- makes every such object appear too tall and drops the whole layer.
     """
-    shelf = _make_shelf(
-        relative_heights=(1.0,), scale=EGScale(height=1.0, length=0.4, width=0.8)
-    )
+    shelf = _make_shelf(relative_heights=(1.0,), scale=Scale(x=0.4, y=0.8, z=1.0))
     shelf.source_ids = [
         MeshCandidate(
             chair_mesh_directory,
@@ -334,9 +340,9 @@ def test_an_object_on_the_shelfs_top_is_not_rejected_for_lack_of_headroom(
         )
     ]
 
-    spawned = shelf.spawn_in_world()
+    shelf.spawn()
 
-    assert sum(len(layer.object_bodies) for layer in spawned.layers) == 1
+    assert sum(len(_object_bodies(layer)) for layer in shelf.layers) == 1
 
 
 def test_object_mesh_is_matched_to_its_sampled_size_not_just_its_type(
@@ -350,14 +356,12 @@ def test_object_mesh_is_matched_to_its_sampled_size_not_just_its_type(
     unbounded headroom).
     """
     close_match, oversized = close_and_oversized_book_candidates
-    shelf = _make_shelf(
-        relative_heights=(1.0,), scale=EGScale(height=1.0, length=0.4, width=0.8)
-    )
+    shelf = _make_shelf(relative_heights=(1.0,), scale=Scale(x=0.4, y=0.8, z=1.0))
     shelf.source_ids = [oversized, close_match]
 
-    spawned = shelf.spawn_in_world()
+    shelf.spawn()
 
-    assert sum(len(layer.object_bodies) for layer in spawned.layers) == 1
+    assert sum(len(_object_bodies(layer)) for layer in shelf.layers) == 1
     assert shelf.layers[0].objects[0].source_id == "close_match"
 
 
@@ -372,9 +376,9 @@ def test_an_object_with_no_mesh_spawns_a_placeholder_when_asked() -> None:
     shelf = _make_shelf(relative_heights=(0.3,))
     shelf.source_ids = []
 
-    spawned = shelf.spawn_in_world(placeholders_for_missing_meshes=True)
+    spawned = shelf.spawn(placeholders_for_missing_meshes=True)
 
-    assert sum(len(layer.object_bodies) for layer in spawned.layers) == 1
+    assert sum(len(_object_bodies(layer)) for layer in shelf.layers) == 1
     assert spawned.placeholder_count == 1
 
 
@@ -386,9 +390,9 @@ def test_objects_with_no_mesh_are_dropped_by_default() -> None:
     shelf = _make_shelf(relative_heights=(0.3,))
     shelf.source_ids = []
 
-    spawned = shelf.spawn_in_world()
+    spawned = shelf.spawn()
 
-    assert sum(len(layer.object_bodies) for layer in spawned.layers) == 0
+    assert sum(len(_object_bodies(layer)) for layer in shelf.layers) == 0
     assert spawned.placeholder_count == 0
 
 
@@ -402,7 +406,7 @@ def test_only_one_layer_can_occupy_the_shelfs_top() -> None:
     """
     shelf = _make_shelf(
         relative_heights=(0.3, 1.0, 1.0),
-        scale=EGScale(height=1.4, length=0.4, width=0.8),
+        scale=Scale(x=0.4, y=0.8, z=1.4),
     )
 
     heights = _slab_heights(shelf)
@@ -422,9 +426,9 @@ def test_a_placeholder_can_be_repositioned_like_a_real_object() -> None:
     shelf = _make_shelf(relative_heights=(0.3,))
     shelf.source_ids = []
 
-    spawned = shelf.spawn_in_world(placeholders_for_missing_meshes=True)
+    shelf.spawn(placeholders_for_missing_meshes=True)
 
-    [placeholder] = spawned.layers[0].object_bodies.values()
+    [placeholder] = _object_bodies(shelf.layers[0]).values()
     placeholder.parent_connection.origin = HomogeneousTransformationMatrix.from_xyz_rpy(
         0.1, 0.0, 0.0, reference_frame=placeholder.parent_connection.parent
     )
@@ -458,7 +462,7 @@ def test_layer_geometry_relates_its_height_to_the_shelfs_own() -> None:
 
     for geometry in geometries:
         assert geometry.relative_height == pytest.approx(
-            geometry.height_above_shelf_base / shelf.corpus_footprint.height
+            geometry.height_above_shelf_base / shelf.corpus_footprint.z
         )
 
 
@@ -475,7 +479,7 @@ def test_a_layer_accepts_an_object_that_reaches_just_under_the_next_slab() -> No
 
     lowest, next_up = geometries[0], geometries[1]
     slab_underside = next_up.slab_top_height - 0.02
-    assert lowest.maximum_object_extents.height == pytest.approx(
+    assert lowest.maximum_object_extents.z == pytest.approx(
         slab_underside - lowest.slab_top_height - EGShelf._OBJECT_VERTICAL_MARGIN
     )
 
@@ -485,12 +489,10 @@ def test_a_layer_on_the_shelfs_top_accepts_an_object_of_any_height() -> None:
     Nothing stands above the shelf's top, so a layer resting there is bounded by nothing
     rather than by the corpus ceiling below it.
     """
-    shelf = _make_shelf(
-        relative_heights=(0.3, 1.0), scale=EGScale(height=1.0, length=0.4, width=0.8)
-    )
+    shelf = _make_shelf(relative_heights=(0.3, 1.0), scale=Scale(x=0.4, y=0.8, z=1.0))
 
     heights = [
-        geometry.maximum_object_extents.height for geometry in shelf.layer_geometries()
+        geometry.maximum_object_extents.z for geometry in shelf.layer_geometries()
     ]
 
     assert heights[1] == math.inf
@@ -505,19 +507,19 @@ def test_every_layer_accepts_an_object_as_wide_as_the_shelf() -> None:
     shelf = _make_shelf(relative_heights=(0.2, 0.8))
 
     for geometry in shelf.layer_geometries():
-        assert geometry.maximum_object_extents.width == shelf.scale.width
-        assert geometry.maximum_object_extents.length == shelf.scale.length
+        assert geometry.maximum_object_extents.y == shelf.scale.y
+        assert geometry.maximum_object_extents.x == shelf.scale.x
 
 
 def test_identical_layers_still_get_their_own_ceilings() -> None:
     """
-    Layers compare equal whenever they hold equal objects, so a layer looked up by
-    value finds the first one every time and every slab is measured against the bottom
-    slab's ceiling.
+    Layers compare equal whenever they hold equal objects, so a layer looked up by value
+    finds the first one every time and every slab is measured against the bottom slab's
+    ceiling.
     """
     shelf = _make_shelf(relative_heights=(0.5, 0.5, 0.5))
 
     geometries = shelf.layer_geometries()
 
-    rooms = [geometry.maximum_object_extents.height for geometry in geometries]
+    rooms = [geometry.maximum_object_extents.z for geometry in geometries]
     assert all(room > 0 for room in rooms)

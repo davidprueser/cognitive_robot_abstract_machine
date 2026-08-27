@@ -5,7 +5,6 @@ import random
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing_extensions import TYPE_CHECKING
 from coraplex.datastructures.dataclasses import Context
 from coraplex.datastructures.enums import Arms, ApproachDirection, VerticalAlignment
 from coraplex.datastructures.grasp import GraspDescription
@@ -56,9 +55,7 @@ from semantic_digital_twin.robots.hsrb import HSRB
 from semantic_digital_twin.robots.robot_parts import AbstractRobot
 from semantic_digital_twin.scene_generation.scene_schema import (
     EGObject2D,
-    EGPoint2D,
-    EGRotation,
-    EGScale,
+    EGShelf,
     ObjectType,
 )
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
@@ -76,9 +73,6 @@ from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.connections import Connection6DoF
 from semantic_digital_twin.world_description.geometry import Scale
 from semantic_digital_twin.world_description.world_entity import Body
-
-if TYPE_CHECKING:
-    from semantic_digital_twin.scene_generation.scene_schema import SpawnedShelf
 
 
 # %% the floor the robot drives on
@@ -174,7 +168,7 @@ def move_to_reach_book(
 
 
 # %% putting the book on the shelf
-def shelf_cabinet(world: World, spawned_shelf: SpawnedShelf) -> Cabinet:
+def shelf_cabinet(world: World, spawned_shelf: EGShelf) -> Cabinet:
     """
     Look up the cabinet annotation the shelf's corpus was spawned as.
 
@@ -194,7 +188,7 @@ def shelf_cabinet(world: World, spawned_shelf: SpawnedShelf) -> Cabinet:
 
 
 def move_to_reach_shelf(
-    spawned_shelf: SpawnedShelf,
+    spawned_shelf: EGShelf,
     placed_object: EGObject2D,
     layer_name: str,
 ) -> MoveToReach:
@@ -217,11 +211,11 @@ def move_to_reach_shelf(
     :return: A concrete move-to-reach action.
     """
     layer = layer_named(spawned_shelf, layer_name)
-    placement_position = spawned_shelf.shelf.object_local_pose(
+    placement_position = spawned_shelf.object_local_pose(
         placed_object, layer.height_above_shelf_base, spawned_shelf.corpus
     ).to_position()
-    footprint = spawned_shelf.shelf.corpus_footprint
-    standoff = Cabinet.hole_direction * (footprint.length / 2 + 0.5)
+    footprint = spawned_shelf.corpus_footprint
+    standoff = Cabinet.hole_direction * (footprint.x / 2 + 0.5)
     standing_pose = Point3(
         float(standoff.x),
         float(placement_position.y),
@@ -413,9 +407,9 @@ if __name__ == "__main__":
         # The book has to be one this shelf could take back: its layers are spaced
         # evenly across the drawn corpus, so a four-layer shelf leaves under 0.2 m
         # above each slab, while a standing book scan is 0.25 m tall on average.
-        layer_geometries = spawned_shelf.shelf.layer_geometries()
+        layer_geometries = spawned_shelf.layer_geometries()
         tallest_layer_room = max(
-            geometry.maximum_object_extents.height for geometry in layer_geometries
+            geometry.maximum_object_extents.z for geometry in layer_geometries
         )
         book_candidates_fitting = [
             candidate
@@ -430,31 +424,28 @@ if __name__ == "__main__":
                     for candidate in book_candidates_standing
                 ),
                 layer_rooms=[
-                    geometry.maximum_object_extents.height
-                    for geometry in layer_geometries
+                    geometry.maximum_object_extents.z for geometry in layer_geometries
                 ],
             )
         book_candidate = random.choice(book_candidates_fitting)
         book_extents = book_candidate.native_extents
         book = EGObject2D(
-            id="demo_book",
-            room_id="demo_room",
-            place_id="demo_table",
             object_type=ObjectType.BOOK,
-            scale=EGScale(
-                width=book_extents[0], length=book_extents[1], height=book_extents[2]
-            ),
-            position=EGPoint2D(x=0.0, y=0.0),
-            orientation=EGRotation(x=0.0, y=0.0, z=0.0),
+            # x is length (depth), y is width (face), z is height -- see EGShelf's
+            # CONTENT_FRAME_YAW_OFFSET_DEGREES for why the corpus frame needs this axis
+            # convention.
+            scale=Scale(x=book_extents[1], y=book_extents[0], z=book_extents[2]),
+            pose=Pose2D(x=0.0, y=0.0, yaw=0.0),
             source_id=book_candidate.source_id,
+            name="demo_book",
         )
-        book_body = book.create_in_world(
+        book_body = book.spawn(
             world,
-            book_candidate.scene_dir,
             parent=table.root,
-            world_pose=HomogeneousTransformationMatrix.from_xyz_rpy(
+            parent_T_self=HomogeneousTransformationMatrix.from_xyz_rpy(
                 z=table_scale.z / 2, reference_frame=table.root
             ),
+            mesh_path=book_candidate.scene_dir,
         )
 
         context = Context.from_world(world, query_backend=ProbabilisticBackend())
@@ -462,21 +453,21 @@ if __name__ == "__main__":
             spawned_shelf, trained_model.relational_probabilistic_circuit, book
         )
         goal_layer = layer_named(spawned_shelf, layer_name)
-        position_x = placed_object.position.x
-        position_y = placed_object.position.y
-        orientation_yaw = math.radians(placed_object.orientation.z)
+        position_x = float(placed_object.pose.x)
+        position_y = float(placed_object.pose.y)
+        orientation_yaw = float(placed_object.pose.yaw)
         pose2d = Pose2D(
             position_x,
             position_y,
             orientation_yaw,
-            reference_frame=goal_layer.annotated_layer.root,
+            reference_frame=goal_layer.annotation.root,
         )
         SpatialTypePublisher(
             node=node, _world=world, topic_name="/demo/goal_pose2d"
         ).add(SpatialTypeVisualization(spatial_type=pose2d, label="goal_pose2d"))
         object_goal_pose_in_map = world.transform(pose2d.to_pose(), world.root)
-        footprint = spawned_shelf.shelf.corpus_footprint
-        standoff = Cabinet.hole_direction * (footprint.length / 2 + 0.5)
+        footprint = spawned_shelf.corpus_footprint
+        standoff = Cabinet.hole_direction * (footprint.x / 2 + 0.5)
         standing_pose = Point3(
             float(standoff.x),
             float(position_y),

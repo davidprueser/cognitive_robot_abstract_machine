@@ -4,9 +4,6 @@ import pytest
 
 from semantic_digital_twin.scene_generation.scene_schema import (
     EGObject2D,
-    EGPoint2D,
-    EGRotation,
-    EGScale,
     EGShelf,
     EGShelfLayer,
     ObjectType,
@@ -15,19 +12,16 @@ from semantic_digital_twin.scene_generation.scene_schema_aggregations import (
     EGShelfAggregations,
     EGShelfLayerAggregations,
 )
+from semantic_digital_twin.spatial_types import Pose2D
+from semantic_digital_twin.world_description.geometry import Scale
 
 
-def _object(object_id: str) -> EGObject2D:
+def _object(source_id: str) -> EGObject2D:
     return EGObject2D(
-        id=object_id,
-        room_id="room_1",
-        place_id="shelf_1",
         object_type=ObjectType.BOOK,
-        scale=EGScale(width=0.1, length=0.05, height=0.2),
-        position=EGPoint2D(x=0.0, y=0.0),
-        orientation=EGRotation(x=0.0, y=0.0, z=0.0),
-        source_id="book_src",
-        theme_dominant_type=ObjectType.BOOK,
+        scale=Scale(x=0.05, y=0.1, z=0.2),
+        pose=Pose2D(x=0.0, y=0.0, yaw=0.0),
+        source_id=source_id,
     )
 
 
@@ -60,7 +54,7 @@ def test_a_shelf_counts_the_layers_it_holds(layer_count: int) -> None:
     supplies, and it is what decides how many slabs a sampled shelf gets.
     """
     shelf = EGShelf(
-        scale=EGScale(width=0.6, length=0.3, height=2.0),
+        scale=Scale(x=0.3, y=0.6, z=2.0),
         layers=[_layer(1) for _ in range(layer_count)],
         theme_dominant_type=ObjectType.BOOK,
     )

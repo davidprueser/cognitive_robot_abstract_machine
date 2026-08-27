@@ -41,13 +41,14 @@ from semantic_digital_twin.scene_generation.scene_schema import (
     EGPoint2D,
     EGPosition,
     EGRotation,
-    EGScale,
     EGShelf,
     EGShelfLayer,
     MeshCandidate,
     ObjectType,
 )
+from semantic_digital_twin.spatial_types import Pose2D
 from semantic_digital_twin.world import World
+from semantic_digital_twin.world_description.geometry import Scale
 from semantic_digital_twin.world_description.world_entity import Body
 
 _SHELF_ID = "room_1_shelf_1"
@@ -64,9 +65,7 @@ def _empty_world() -> tuple[World, Body]:
     return world, root
 
 
-def _move_shelf_to(
-    spawned: SpawnedShelf, x: float, y: float, yaw_degrees: float
-) -> None:
+def _move_shelf_to(spawned: EGShelf, x: float, y: float, yaw_degrees: float) -> None:
     """
     Put a spawned shelf where it stood in the scene it was extracted from.
 
@@ -105,7 +104,7 @@ def _eg_object(
         room_id="room_1",
         place_id=place_id,
         object_type=object_type,
-        scale=EGScale(width=width, length=length, height=height),
+        scale=Scale(x=length, y=width, z=height),
         position=EGPosition(x=x, y=y, z=z),
         orientation=EGRotation(x=0.0, y=0.0, z=yaw),
         source_id=source_id or f"{object_id}_src",
@@ -133,15 +132,11 @@ def _object_2d(
     object_type: ObjectType, object_id: str, x: float = 0.0, y: float = 0.0
 ) -> EGObject2D:
     return EGObject2D(
-        id=object_id,
-        room_id="room_1",
-        place_id=_SHELF_ID,
         object_type=object_type,
-        scale=EGScale(width=0.1, length=0.1, height=0.1),
-        position=EGPoint2D(x=x, y=y),
-        orientation=EGRotation(x=0.0, y=0.0, z=0.0),
+        scale=Scale(x=0.1, y=0.1, z=0.1),
+        pose=Pose2D(x=x, y=y, yaw=0.0),
         source_id=object_id,
-        theme_dominant_type=ObjectType.BOOK,
+        name=object_id,
     )
 
 
@@ -418,7 +413,11 @@ def test_layers_are_ordered_from_the_bottom_up() -> None:
 
     [layers] = _layers_by_shelf(objects)
 
-    assert [layer.objects[0].id for layer in layers] == ["bottom", "middle", "top"]
+    assert [layer.objects[0].source_id for layer in layers] == [
+        "bottom_src",
+        "middle_src",
+        "top_src",
+    ]
 
 
 def test_objects_at_a_similar_height_share_one_layer() -> None:
@@ -431,7 +430,7 @@ def test_objects_at_a_similar_height_share_one_layer() -> None:
     [layers] = _layers_by_shelf(objects)
 
     assert len(layers) == 1
-    assert {obj.id for obj in layers[0].objects} == {"left", "right"}
+    assert {obj.source_id for obj in layers[0].objects} == {"left_src", "right_src"}
 
 
 def test_a_shelf_whose_own_position_was_not_corrected_yields_no_layers() -> None:
@@ -459,7 +458,9 @@ def test_objects_whose_position_was_not_corrected_are_left_out_of_layers() -> No
 
     [layers] = _layers_by_shelf(objects)
 
-    assert [obj.id for layer in layers for obj in layer.objects] == ["centred"]
+    assert [obj.source_id for layer in layers for obj in layer.objects] == [
+        "centred_src"
+    ]
 
 
 def test_content_orientation_is_stored_relative_to_the_shelfs_content_frame() -> None:
@@ -475,7 +476,7 @@ def test_content_orientation_is_stored_relative_to_the_shelfs_content_frame() ->
     [layers] = _layers_by_shelf(objects)
 
     [stored] = layers[0].objects
-    assert stored.orientation.z == pytest.approx(-70.0)
+    assert math.degrees(float(stored.pose.yaw)) == pytest.approx(-70.0)
 
 
 def test_only_the_requested_object_type_is_extracted() -> None:
@@ -487,7 +488,9 @@ def test_only_the_requested_object_type_is_extracted() -> None:
 
     [layers] = _layers_by_shelf(objects, object_type=ObjectType.BOOK)
 
-    assert [obj.id for layer in layers for obj in layer.objects] == ["book_1"]
+    assert [obj.source_id for layer in layers for obj in layer.objects] == [
+        "book_1_src"
+    ]
 
 
 def test_every_object_type_is_extracted_by_default() -> None:
@@ -499,7 +502,10 @@ def test_every_object_type_is_extracted_by_default() -> None:
 
     [layers] = _layers_by_shelf(objects)
 
-    assert {obj.id for layer in layers for obj in layer.objects} == {"book_1", "cup_1"}
+    assert {obj.source_id for layer in layers for obj in layer.objects} == {
+        "book_1_src",
+        "cup_1_src",
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -618,12 +624,12 @@ def test_a_shelf_keeps_its_own_pose_and_measured_height() -> None:
         MeshMeasurements(source_id_to_path={}),
     )
 
-    assert shelf.scale.height == pytest.approx(2.0)
+    assert shelf.scale.z == pytest.approx(2.0)
     assert len(shelf.layers) == 3
-    assert [obj.id for layer in shelf.layers for obj in layer.objects] == [
-        "bottom",
-        "middle",
-        "top",
+    assert [obj.source_id for layer in shelf.layers for obj in layer.objects] == [
+        "bottom_src",
+        "middle_src",
+        "top_src",
     ]
 
 
@@ -734,8 +740,10 @@ def test_a_shelf_like_object_is_not_counted_as_another_shelfs_content() -> None:
         MeshMeasurements(source_id_to_path={}),
     )
 
-    content_ids = {obj.id for layer in extracted_shelf.layers for obj in layer.objects}
-    assert content_ids == {"book_1"}
+    content_source_ids = {
+        obj.source_id for layer in extracted_shelf.layers for obj in layer.objects
+    }
+    assert content_source_ids == {"book_1_src"}
 
 
 def test_extraction_from_the_kept_objects_matches_extraction_from_all_of_them() -> None:
@@ -754,17 +762,26 @@ def test_extraction_from_the_kept_objects_matches_extraction_from_all_of_them() 
 
     vertical_extents = {_SHELF_SOURCE_ID: _SHELF_EXTENT}
     measurements = MeshMeasurements(source_id_to_path={})
-    assert shelves_with_layers(
-        contents.objects,
-        vertical_extents,
-        contents.shelf_ids,
-        measurements,
-    ) == shelves_with_layers(
-        every_object,
-        vertical_extents,
-        contents.shelf_ids,
-        measurements,
-    )
+    # Compared through to_json() rather than == : EGObject2D.pose is a Pose2D, which
+    # has no meaningful equality (it falls back to identity), so two independently
+    # built shelf trees would never compare equal even when numerically identical.
+    assert [
+        shelf.to_json()
+        for shelf in shelves_with_layers(
+            contents.objects,
+            vertical_extents,
+            contents.shelf_ids,
+            measurements,
+        )
+    ] == [
+        shelf.to_json()
+        for shelf in shelves_with_layers(
+            every_object,
+            vertical_extents,
+            contents.shelf_ids,
+            measurements,
+        )
+    ]
 
 
 def test_kept_shelves_supply_the_vertical_extents_their_layers_need(
@@ -912,7 +929,7 @@ def test_extracted_contents_spawn_back_at_their_original_world_pose(
 
     [layers] = _layers_by_shelf([shelf, book])
     spawned = EGShelf(
-        scale=EGScale(height=2.0, length=1.0, width=1.0),
+        scale=Scale(x=1.0, y=1.0, z=2.0),
         layers=layers,
         source_ids=[
             MeshCandidate(
@@ -920,10 +937,12 @@ def test_extracted_contents_spawn_back_at_their_original_world_pose(
             )
         ],
         theme_dominant_type=ObjectType.BOOK,
-    ).spawn_in_world(*_empty_world())
+    )
+    world, root = _empty_world()
+    spawned.spawn(world, parent=root)
     _move_shelf_to(spawned, shelf_world_x, shelf_world_y, shelf_yaw)
 
-    [body] = spawned.layers[0].object_bodies.values()
+    body = spawned.layers[0].objects[0].annotation
     position = body.global_pose.to_position().to_np()
     assert position[0] == pytest.approx(book_world_x, abs=1e-6)
     assert position[1] == pytest.approx(book_world_y, abs=1e-6)
@@ -962,7 +981,7 @@ def test_extracted_contents_spawn_within_the_layer_footprint(tmp_path: Path) -> 
 
     [layers] = _layers_by_shelf([shelf, book])
     spawned = EGShelf(
-        scale=EGScale(height=2.0, length=shelf_depth, width=shelf_face),
+        scale=Scale(x=shelf_depth, y=shelf_face, z=2.0),
         layers=layers,
         source_ids=[
             MeshCandidate(
@@ -970,9 +989,11 @@ def test_extracted_contents_spawn_within_the_layer_footprint(tmp_path: Path) -> 
             )
         ],
         theme_dominant_type=ObjectType.BOOK,
-    ).spawn_in_world(*_empty_world())
+    )
+    world, root = _empty_world()
+    spawned.spawn(world, parent=root)
 
-    [body] = spawned.layers[0].object_bodies.values()
+    body = spawned.layers[0].objects[0].annotation
     corpus_x, corpus_y = body.parent_connection.origin.to_position().to_np()[:2]
     assert abs(corpus_x) <= shelf_depth / 2
     assert abs(corpus_y) <= shelf_face / 2
