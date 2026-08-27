@@ -409,7 +409,9 @@ class RelationalProbabilisticCircuit:
                 getattr(instance, exchangeable_part) for instance in instances
             )
         ]
-        child_type = type(getattr(instances[0], exchangeable_part)[0].target)
+        child_type = type(
+            getattr(instances[0], exchangeable_part)[0].target
+        ).original_class()
         child_feature_extractor = FeatureExtractor.from_instances(child_instances)
         child_dataframe = self._build_child_joint_dataframe(
             exchangeable_part,

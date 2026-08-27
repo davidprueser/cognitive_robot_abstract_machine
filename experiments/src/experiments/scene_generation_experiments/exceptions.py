@@ -241,3 +241,32 @@ class NoFittingObjectError(DataclassException):
 
     def suggest_correction(self) -> str:
         return "Draw a shelf with fewer layers, which leaves more room above each slab."
+
+
+@dataclass
+class NoShelfPlacementError(DataclassException):
+    """
+    Raised when a mode query finds no layer with free space for the held object.
+
+    Every layer was asked on its own; this is only raised once none of them admitted the
+    object at all, rather than after picking a worst-of-the-bad answer.
+    """
+
+    shelf_name: str
+    """
+    Name of the shelf corpus that was queried.
+    """
+
+    object_type: str
+    """
+    Type of the object that found no room.
+    """
+
+    def error_message(self) -> str:
+        return (
+            f"No layer of shelf {self.shelf_name!r} has room for a "
+            f"{self.object_type} object."
+        )
+
+    def suggest_correction(self) -> str:
+        return "Pick a smaller object, or a shelf whose layers leave more free space."

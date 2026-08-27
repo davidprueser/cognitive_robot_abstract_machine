@@ -10,6 +10,8 @@ from krrood.entity_query_language.backends import ProbabilisticBackend
 from krrood.entity_query_language.factories import a, an
 from krrood.ormatic.data_access_objects.helper import to_dao
 from krrood.parametrization.model_registries import RelationalCircuitRegistry
+from krrood.parametrization.parameterizer import UnderspecifiedParameters
+from probabilistic_model.exceptions import IntractableError
 from probabilistic_model.probabilistic_circuit.relational.exceptions import (
     CircuitNotFittedError,
     InvalidMonteCarloSampleCountError,
@@ -113,6 +115,15 @@ def test_fit_creates_exchangeable_template_for_objects(
         "objects"
     ]
     assert template.template_distribution.class_probabilistic_circuit is not None
+
+
+def test_fit_exchangeable_template_class_is_the_domain_class(
+    relational_probabilistic_circuit,
+):
+    template = relational_probabilistic_circuit.exchangeable_distribution_templates[
+        "objects"
+    ]
+    assert template.template_distribution.class_ is SceneObject
 
 
 def test_fit_exchangeable_template_latent_is_total_count(
@@ -409,9 +420,9 @@ def test_min_samples_per_quantile_is_forwarded_to_exchangeable_part_templates():
     ``objects``), since those are the circuits that get deep-copied once per grounded
     instance during sampling.
     """
-    model = RelationalProbabilisticCircuit(
-        SceneRoom, min_samples_per_quantile=200
-    ).fit(_many_rooms(50))
+    model = RelationalProbabilisticCircuit(SceneRoom, min_samples_per_quantile=200).fit(
+        _many_rooms(50)
+    )
     template = model.exchangeable_distribution_templates["objects"]
     assert template.template_distribution.min_samples_per_quantile == 200
 
@@ -433,9 +444,9 @@ def test_min_samples_per_quantile_bounds_continuous_variable_leaf_count():
     fine = RelationalProbabilisticCircuit(SceneRoom, min_samples_per_quantile=2).fit(
         rooms
     )
-    coarse = RelationalProbabilisticCircuit(
-        SceneRoom, min_samples_per_quantile=20
-    ).fit(rooms)
+    coarse = RelationalProbabilisticCircuit(SceneRoom, min_samples_per_quantile=20).fit(
+        rooms
+    )
 
     assert len(coarse.class_probabilistic_circuit.nodes()) < len(
         fine.class_probabilistic_circuit.nodes()
@@ -656,3 +667,88 @@ def test_conditioning_the_class_circuit_directly_restricts_an_enum_variable(
     )
     assert probability > 0.0
     assert conditioned is not None
+
+
+# ---- Group C -- evaluate_mode_with_log_density ----
+
+
+def test_evaluate_mode_with_log_density_returns_one_scored_instance(
+    relational_probabilistic_circuit, room_query_4
+):
+    backend = ProbabilisticBackend(
+        model_registry=RelationalCircuitRegistry(
+            relational_probabilistic_circuit=relational_probabilistic_circuit
+        )
+    )
+    [(instance, log_density)] = list(
+        backend.evaluate_mode_with_log_density(room_query_4)
+    )
+    assert isinstance(instance, SceneRoom)
+    assert np.isfinite(log_density)
+
+
+def test_evaluate_mode_with_log_density_score_matches_conditioning_plus_mode(
+    object_type_circuit,
+):
+    """
+    The reported score must equal the conditioning step's own log-probability plus the.
+
+    conditioned model's mode log-density, recomputed independently through the model API
+    -- not the backend -- so a future change to how the two are combined is caught.
+    """
+    query = a(SceneObject)(type=SceneObjectType.CHAIR)
+    query.resolve()
+    backend = ProbabilisticBackend(
+        model_registry=RelationalCircuitRegistry(
+            relational_probabilistic_circuit=object_type_circuit
+        )
+    )
+    parameters = UnderspecifiedParameters(query)
+    model = backend.model_registry.get_model(parameters)
+    conditioned, probability = model.conditional(
+        parameters.conditioning_assignments_from_literal_values
+    )
+    _, expected_mode_log_density = conditioned.log_mode()
+    expected_score = expected_mode_log_density + np.log(probability)
+
+    [(instance, log_density)] = list(backend.evaluate_mode_with_log_density(query))
+    assert instance.type is SceneObjectType.CHAIR
+    assert log_density == pytest.approx(expected_score)
+
+
+def test_evaluate_mode_with_log_density_falls_back_to_sampling_when_mode_is_intractable(
+    monkeypatch,
+):
+    """
+    ``log_mode`` raising :class:`IntractableError` must not propagate -- the answer
+    falls back to the highest-likelihood point among the fallback samples instead, its
+    score built from that point's own log-likelihood rather than a mode log-density.
+    """
+
+    class _StubTruncatedModel:
+        variables = ["x"]
+
+        def log_mode(self):
+            raise IntractableError(model=self)
+
+        def sample(self, amount):
+            return np.array([[1.0], [2.0], [3.0]])
+
+        def log_likelihood(self, samples):
+            return np.array([-5.0, -1.0, -3.0])
+
+    class _StubParameters:
+        def construct_instance_from_model_sample(self, variables, sample):
+            return float(sample[0])
+
+    backend = ProbabilisticBackend()
+    monkeypatch.setattr(
+        backend,
+        "_condition_and_truncate",
+        lambda expression: (_StubParameters(), _StubTruncatedModel(), 2.0),
+    )
+
+    query = a(SceneObject)(type=...)
+    [(instance, log_density)] = list(backend.evaluate_mode_with_log_density(query))
+    assert instance == 2.0  # the sample at index 1, the highest log-likelihood
+    assert log_density == pytest.approx(-1.0 + 2.0)

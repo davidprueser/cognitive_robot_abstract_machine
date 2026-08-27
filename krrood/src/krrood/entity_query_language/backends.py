@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from types import NoneType
 from typing import Iterable, TypeVar
 
+import numpy as np
 from sqlalchemy.orm import sessionmaker
 from typing_extensions import ClassVar, Dict, Optional
 
@@ -26,7 +27,9 @@ from krrood.entity_query_language.factories import entity, set_of, variable
 from krrood.entity_query_language.query.match import Match, AttributeMatch
 from krrood.entity_query_language.query.query import Query
 from krrood.ormatic.eql_interface import eql_to_sql
+from probabilistic_model.exceptions import IntractableError
 from probabilistic_model.probabilistic_circuit.rx.helper import uniform_measure_of_event
+from probabilistic_model.probabilistic_model import ProbabilisticModel
 
 try:
     from krrood.parametrization.model_registries import (
@@ -258,7 +261,9 @@ class ProbabilisticBackend(GenerativeBackend):
     This is only used if the query does not specify a limit.
     """
 
-    def _evaluate(self, expression: Match[T], wants_mode: bool = False) -> Iterable[T]:
+    def _condition_and_truncate(
+        self, expression: Match[T]
+    ) -> tuple[UnderspecifiedParameters, ProbabilisticModel]:
 
         # generate parameters from example instance values
         parameters = UnderspecifiedParameters(expression)
@@ -291,6 +296,11 @@ class ProbabilisticBackend(GenerativeBackend):
 
             if truncated is None:
                 raise NoSolutionFound(expression.expression)
+
+        return parameters, truncated
+
+    def _evaluate(self, expression: Match[T], wants_mode: bool = False) -> Iterable[T]:
+        parameters, truncated = self._condition_and_truncate(expression)
 
         if wants_mode:
             event, _ = truncated.log_mode()
@@ -332,3 +342,44 @@ class ProbabilisticBackend(GenerativeBackend):
         if not isinstance(expression, Match):
             raise GenerativeBackendQueryIsNotUnderspecifiedVariable(expression)
         yield from self._evaluate(expression, wants_mode=True)
+
+    def evaluate_mode_with_log_density(
+        self, expression: Match[T], fallback_sample_count: int = 1000
+    ) -> Iterable[tuple[T, float]]:
+        """
+        Evaluate *expression* like :meth:`evaluate_mode`, but also report the answer's
+        absolute log-density, so answers from differently conditioned or truncated
+        evaluations of the same query shape can be ranked against one another.
+
+        The reported log-density is the mode's own log-density inside the truncated
+        model, plus the log-probability :meth:`_condition_and_truncate` accumulated
+        while conditioning and truncating -- the same renormalization
+        :meth:`~probabilistic_model.probabilistic_model.ProbabilisticModel.log_truncated`
+        exposes, so two evaluations that truncated to differently sized regions remain
+        comparable.
+
+        Falls back to the highest-likelihood point among *fallback_sample_count* samples
+        when the truncated model's exact mode is intractable
+        (:class:`~probabilistic_model.exceptions.IntractableError`).
+
+        :param expression: The underspecified match to evaluate.
+        :param fallback_sample_count: Samples drawn when the exact mode cannot be
+            computed.
+        :raises GenerativeBackendQueryIsNotUnderspecifiedVariable: If *expression* is not
+            a :class:`Match`.
+        :raises NoSolutionFound: If *expression*'s evidence has no support.
+        :return: One ``(instance, log_density)`` pair.
+        """
+        if not isinstance(expression, Match):
+            raise GenerativeBackendQueryIsNotUnderspecifiedVariable(expression)
+
+        parameters, truncated = self._condition_and_truncate(
+            expression
+        )
+
+        event, mode_log_density = truncated.log_mode()
+        representative_point = uniform_measure_of_event(event).sample(1)[0]
+        instance = parameters.construct_instance_from_model_sample(
+            truncated.variables, representative_point
+        )
+        yield instance, mode_log_density

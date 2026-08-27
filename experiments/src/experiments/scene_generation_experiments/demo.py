@@ -21,6 +21,7 @@ from experiments.scene_generation_experiments.exceptions import (
     UnreachableShelfError,
 )
 from experiments.scene_generation_experiments.shelf_placement import (
+    layer_named,
     mode_query,
 )
 from experiments.scene_generation_experiments.shelf_generation import (
@@ -59,7 +60,6 @@ from semantic_digital_twin.scene_generation.scene_schema import (
     EGRotation,
     EGScale,
     ObjectType,
-    EGShelf,
 )
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Cabinet,
@@ -195,11 +195,12 @@ def shelf_cabinet(world: World, spawned_shelf: SpawnedShelf) -> Cabinet:
 
 def move_to_reach_shelf(
     spawned_shelf: SpawnedShelf,
-    shelf: EGShelf,
+    placed_object: EGObject2D,
+    layer_name: str,
 ) -> MoveToReach:
     """
     Build a move-to-reach action that drives in front of the shelf's open face and
-    reaches in to where *placement* goes.
+    reaches in to where *placed_object* goes.
 
     The reach pose keeps the corpus's own orientation instead of the placement's, so the
     arm goes in along the axis the shelf opens on and the robot ends up outside the open
@@ -207,11 +208,15 @@ def move_to_reach_shelf(
     is turned to is left to the place action that follows.
 
     :param spawned_shelf: The shelf to reach into.
-    :param shelf: The shelf.
+    :param placed_object: The object :func:`~experiments.scene_generation_experiments.
+        shelf_placement.mode_query` placed, with its pose filled in.
+    :param layer_name: The layer :func:`~experiments.scene_generation_experiments.
+        shelf_placement.mode_query` placed *placed_object* onto, resolved back to the
+        real layer here -- the same resolution the place action's own target pose uses,
+        so both agree on which layer the arm reaches for.
     :return: A concrete move-to-reach action.
     """
-    layer = shelf.layers[0]
-    placed_object = layer.objects[-1]
+    layer = layer_named(spawned_shelf, layer_name)
     placement_position = spawned_shelf.shelf.object_local_pose(
         placed_object, layer.height_above_shelf_base, spawned_shelf.corpus
     ).to_position()
@@ -453,19 +458,18 @@ if __name__ == "__main__":
         )
 
         context = Context.from_world(world, query_backend=ProbabilisticBackend())
-        object_goal_pose = mode_query(
+        placed_object, layer_name = mode_query(
             spawned_shelf, trained_model.relational_probabilistic_circuit, book
         )
-        position_x = object_goal_pose.layers[-1].objects[-1].position.x
-        position_y = object_goal_pose.layers[-1].objects[-1].position.y
-        orientation_yaw = math.radians(
-            object_goal_pose.layers[-1].objects[-1].orientation.z
-        )
+        goal_layer = layer_named(spawned_shelf, layer_name)
+        position_x = placed_object.position.x
+        position_y = placed_object.position.y
+        orientation_yaw = math.radians(placed_object.orientation.z)
         pose2d = Pose2D(
             position_x,
             position_y,
             orientation_yaw,
-            reference_frame=spawned_shelf.shelf.layers[-1].annotated_layer.root,
+            reference_frame=goal_layer.annotated_layer.root,
         )
         SpatialTypePublisher(
             node=node, _world=world, topic_name="/demo/goal_pose2d"
@@ -504,7 +508,8 @@ if __name__ == "__main__":
                         *[NavigateAction(goal) for goal in navigation_goals],
                         move_to_reach_shelf(
                             spawned_shelf,
-                            object_goal_pose,
+                            placed_object,
+                            layer_name,
                         ),
                         PlaceAction(
                             object_designator=book_body,
