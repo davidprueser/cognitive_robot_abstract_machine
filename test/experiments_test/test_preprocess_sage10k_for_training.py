@@ -636,8 +636,8 @@ def test_a_shelf_keeps_its_own_pose_and_measured_height() -> None:
 def test_a_shelfs_theme_is_the_object_type_its_objects_have_the_most_of() -> None:
     """
     A shelf's theme is derived from what is actually placed on it, so two books and one
-    bottle must make the shelf book-themed -- and every layer and object on it must
-    carry that same theme, since it is denormalized onto all three.
+    bottle must make the shelf book-themed -- and every layer on it must carry that same
+    theme, since it is denormalized onto both.
     """
     objects = [_shelf()] + [
         _eg_object("book_1", _SHELF_ID, ObjectType.BOOK, x=0.0, y=0.0, z=0.5),
@@ -654,9 +654,6 @@ def test_a_shelfs_theme_is_the_object_type_its_objects_have_the_most_of() -> Non
 
     assert shelf.theme_dominant_type is ObjectType.BOOK
     assert {layer.theme_dominant_type for layer in shelf.layers} == {ObjectType.BOOK}
-    assert {
-        obj.theme_dominant_type for layer in shelf.layers for obj in layer.objects
-    } == {ObjectType.BOOK}
 
 
 def test_a_tied_theme_breaks_alphabetically_by_type_value() -> None:

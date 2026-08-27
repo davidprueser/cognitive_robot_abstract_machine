@@ -211,8 +211,8 @@ def _coarsen_rare_shelf_themes(
 ) -> list[EGShelf]:
     """
     Return new shelves whose theme, outside the *keep_count* most frequent themes
-    across *shelves*, is replaced with ``ObjectType.OTHER`` on the shelf, every
-    layer, and every object -- the three places it is denormalized onto.
+    across *shelves*, is replaced with ``ObjectType.OTHER`` on the shelf and every
+    layer -- the two places it is denormalized onto.
 
     :param shelves: Shelves whose themes should be coarsened.
     :param keep_count: Number of distinct, most frequent themes to leave unchanged.
@@ -227,16 +227,7 @@ def _coarsen_rare_shelf_themes(
                 shelf,
                 theme_dominant_type=ObjectType.OTHER,
                 layers=[
-                    dataclasses.replace(
-                        layer,
-                        theme_dominant_type=ObjectType.OTHER,
-                        objects=[
-                            dataclasses.replace(
-                                object_2d, theme_dominant_type=ObjectType.OTHER
-                            )
-                            for object_2d in layer.objects
-                        ],
-                    )
+                    dataclasses.replace(layer, theme_dominant_type=ObjectType.OTHER)
                     for layer in shelf.layers
                 ],
             )
