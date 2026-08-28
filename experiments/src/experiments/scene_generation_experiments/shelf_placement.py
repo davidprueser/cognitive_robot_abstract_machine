@@ -125,6 +125,10 @@ def _layer_query(layer: EGShelfLayer, held_object: EGObject2D):
         relative_height=layer.relative_height,
         vertical_clearance=layer.vertical_clearance,
     )
+    # Resolve first: held_slot.variable is only reassigned to its "objects[N]" access-path
+    # variable once query resolves its objects list, and held_slot.variable.pose below
+    # must build on that variable, not a disconnected one truncation could never match.
+    query.resolve()
     query.where(
         _free_space_where_condition(
             layer.annotation, held_slot.variable.pose, held_object

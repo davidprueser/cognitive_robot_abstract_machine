@@ -92,19 +92,18 @@ def load_shelf_layers(
     """
     Load every shelf layer prepared by the preprocessing pipeline.
 
-    The stored layers already carry mesh-centred positions, unified object
-    types and content-frame poses, so fitting a circuit on them needs no
-    further processing -- which is what keeps mesh measurement and clustering
-    out of every training run.
+    The stored layers already carry mesh-centred positions, unified object types and
+    content-frame poses, so fitting a circuit on them needs no further processing --
+    which is what keeps mesh measurement and clustering out of every training run.
 
-    Every relationship reached while converting a layer is eagerly loaded.
-    Leaving the objects' own scale, position and orientation to lazy loading
-    costs three statements per object on the one query path every training run
-    takes -- which is the very cost preprocessing exists to remove.
+    Every relationship reached while converting a layer is eagerly loaded. Leaving the
+    objects' own scale and pose to lazy loading costs two statements per object on the
+    one query path every training run takes -- which is the very cost preprocessing
+    exists to remove.
 
     :param session: Session on the processed database.
-    :param object_type: When given, layers are reduced to their objects of this
-        type and layers left empty are dropped.
+    :param object_type: When given, layers are reduced to their objects of this type and
+        layers left empty are dropped.
     :return: The stored shelf layers.
     """
     from experiments.orm.ormatic_interface import (
@@ -120,8 +119,7 @@ def load_shelf_layers(
                 .joinedload(EGShelfLayerDAO_objects_association.target)
                 .options(
                     joinedload(EGObject2DDAO.scale),
-                    joinedload(EGObject2DDAO.position),
-                    joinedload(EGObject2DDAO.orientation),
+                    joinedload(EGObject2DDAO.pose),
                 ),
             )
         )
@@ -180,8 +178,7 @@ def load_shelves(session: Session) -> list[EGShelf]:
                     .joinedload(EGShelfLayerDAO_objects_association.target)
                     .options(
                         joinedload(EGObject2DDAO.scale),
-                        joinedload(EGObject2DDAO.position),
-                        joinedload(EGObject2DDAO.orientation),
+                        joinedload(EGObject2DDAO.pose),
                     ),
                 ),
             )

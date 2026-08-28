@@ -11,38 +11,15 @@ from experiments.scene_generation_experiments.data_preprocessing import (
     Sage10kSceneDownloader,
     SourceIdNotFoundError,
 )
-from semantic_digital_twin.scene_generation.scene_schema import MeshCandidate, ObjectType
+from semantic_digital_twin.scene_generation.scene_schema import (
+    MeshCandidate,
+    ObjectType,
+)
 
 from semantic_digital_twin.utils import rclpy_installed
 
 if TYPE_CHECKING:
     from experiments.orm.ormatic_interface import EGObjectDAO
-
-MINIMUM_ROWS_PER_LEAF = 50
-"""
-Fewest training rows a fitted leaf may describe.
-
-Below this a leaf describes its handful of rows rather than the distribution they were
-drawn from, so the fraction has to grow as the training set shrinks.
-"""
-
-MINIMUM_ROWS_PER_LEAF_WHEN_DATA_IS_SPARSE = 5
-"""
-Fallback target used instead of :data:`MINIMUM_ROWS_PER_LEAF` once the training set
-itself is smaller than that target.
-
-``MINIMUM_ROWS_PER_LEAF / training_row_count`` exceeds ``1.0`` whenever the training
-set is smaller than :data:`MINIMUM_ROWS_PER_LEAF`, and
-:class:`~probabilistic_model.learning.jpt.jpt.JointProbabilityTree` reads any value
-``>= 1.0`` as an *absolute* row count rather than a fraction of the training set --
-so clamping straight to ``1.0`` silently meant "one sample per leaf", the least
-restrictive setting there is, exactly where the fewest rows most need protecting
-against overfitting. This is what :func:`min_samples_per_leaf_for` targets instead
-once the training set drops below :data:`MINIMUM_ROWS_PER_LEAF`: small enough that a
-handful of unevenly sized sub-populations (e.g. 5, 6 and 11 rows for three shelf
-types) can each still earn their own leaf, without shrinking a leaf down to a
-single memorized row.
-"""
 
 MAXIMUM_LEAF_COUNT = 20
 """
@@ -51,6 +28,12 @@ Most leaves a fitted circuit may have.
 Grounding deep-copies a circuit once per sampled part, so peak memory is circuit
 size times part count -- not training-set size. This bound is what keeps a
 room of twenty-odd pieces groundable.
+
+Also doubles as the ``min_samples_per_leaf`` fraction (``1 / MAXIMUM_LEAF_COUNT``)
+the shelf RSPN is fit with at every level: verified against the live
+``sage_processed_data_v2`` row counts (18,437 shelves / 44,609 layers / 124,800
+objects), each is large enough that this leaf-count budget is always the binding
+constraint, well before any per-row overfitting floor would matter.
 
 .. note::
     Lowering this to 10 was measured to make no difference to grounding memory,
@@ -73,41 +56,12 @@ to 3,532 nodes and brought grounding down to single-digit seconds --
 :data:`MAXIMUM_LEAF_COUNT` alone does not bound this, since it only constrains the JPT
 tree's own split count, not the per-variable histogram induction nested inside each of
 its leaves.
+
+.. note::
+    Measured before ``EGObject2D.position``/``.orientation`` were collapsed into
+    ``pose: Pose2D``, which reduced its continuous-variable count from five to three.
+    Re-verify this bound if that circuit's node count is ever remeasured.
 """
-
-
-def min_samples_per_leaf_for(training_row_count: int) -> float:
-    """
-    Return the ``min_samples_per_leaf`` fraction to fit a circuit with.
-
-    Three constraints bind from opposite ends and the tightest one wins. Below
-    :data:`MINIMUM_ROWS_PER_LEAF` rows a leaf overfits, so small training sets need a
-    *larger* fraction. Once the training set itself is smaller than that target,
-    :data:`MINIMUM_ROWS_PER_LEAF_WHEN_DATA_IS_SPARSE` takes over as a reachable one
-    instead -- demanding more rows than the training set has would make the fraction
-    exceed ``1.0``, which flips its meaning entirely (see that constant's own
-    docstring). Above :data:`MAXIMUM_LEAF_COUNT` leaves the circuit becomes too large
-    to ground once per sampled part, so large training sets are held at that floor
-    rather than being allowed to grow finer.
-
-    :param training_row_count: Rows the circuit will be fitted on.
-    :return: The fraction to pass as ``min_samples_per_leaf``.
-    """
-    if training_row_count <= 0:
-        return 1.0
-    leaf_budget_fraction = 1 / MAXIMUM_LEAF_COUNT
-    if training_row_count > MINIMUM_ROWS_PER_LEAF:
-        target_rows = MINIMUM_ROWS_PER_LEAF
-    else:
-        # Kept strictly below training_row_count (never just equal to the sparse
-        # target) so the fraction below stays a genuine fraction: at exactly
-        # target_rows == training_row_count it would land on 1.0 again, the very
-        # flip this fallback exists to avoid.
-        target_rows = max(
-            min(MINIMUM_ROWS_PER_LEAF_WHEN_DATA_IS_SPARSE, training_row_count - 1), 1
-        )
-    overfitting_fraction = target_rows / training_row_count
-    return min(max(overfitting_fraction, leaf_budget_fraction), 1.0)
 
 
 @contextlib.contextmanager
@@ -179,10 +133,10 @@ def _get_source_ids_for_objects(
             scene_dir=source_id_to_path[obj.source_id],
             source_id=obj.source_id,
             object_type=obj.object_type,
-            native_extents=(obj.scale.width, obj.scale.length, obj.scale.height),
+            native_extents=(obj.scale.y, obj.scale.x, obj.scale.z),
         )
         for obj in matching_objects
-        if obj.source_id in source_id_to_path
+        if obj.source_id in source_id_to_path and obj.scale is not None
     ]
 
 

@@ -30,9 +30,9 @@ from experiments.scene_generation_experiments.processed_database import (
     load_shelves,
 )
 from experiments.scene_generation_experiments.utils import (
+    MAXIMUM_LEAF_COUNT,
     MINIMUM_SAMPLES_PER_QUANTILE,
     _get_source_ids_for_objects,
-    min_samples_per_leaf_for,
 )
 from experiments.scene_generation_experiments.in_world_resolver import (
     InWorldLayoutResolver,
@@ -41,6 +41,7 @@ from semantic_digital_twin.adapters.ros.visualization.viz_marker import (
     VizMarkerPublisher,
 )
 from semantic_digital_twin.robots.robot_parts import EndEffector
+from semantic_digital_twin.world import World
 from semantic_digital_twin.scene_generation.scene_schema import (
     EGShelf,
     EGShelfLayer,
@@ -447,7 +448,7 @@ def _load_or_train_shelf_model(
 
     rspn = RelationalProbabilisticCircuit(
         EGShelf,
-        min_samples_per_leaf=min_samples_per_leaf_for,
+        min_samples_per_leaf=1 / MAXIMUM_LEAF_COUNT,
         min_samples_per_quantile=MINIMUM_SAMPLES_PER_QUANTILE,
     ).fit([to_dao(shelf) for shelf in shelves])
 
@@ -515,23 +516,26 @@ def generate_shelf_with_arbitrary_objects(
     print(
         f"{sample.theme_dominant_type.value}: {len(spawned_shelf.layers)} "
         f"layers, {placed} objects standing "
-        f"{resolver.dropped_body_count} dropped in repair)"
+        f"{resolver.dropped_body_count} dropped in repair"
     )
     return spawned_shelf
 
 
 def visualize_spawned_shelf(
     node,
-    spawned_shelf: EGShelf,
+    world: World,
     visualization_backend: VisualizationBackend = VisualizationBackend.FOXGLOVE,
 ) -> VizMarkerPublisher:
     """
-    Publish a spawned shelf's world as visualisation markers for
-    :attr:`visualization_backend`.
+    Publish a world holding a spawned shelf as visualisation markers for
+    :attr:`visualization_backend`, and keep publishing every later change to it.
 
     :param node: An active rclpy node used to publish visualisation markers.
-    :param spawned_shelf: The shelf to publish, e.g. as returned by
-        :func:`generate_shelf_with_arbitrary_objects`.
+    :param world: The world to publish, e.g. the world a shelf from
+        :func:`generate_shelf_with_arbitrary_objects` was merged into. Every
+        further change to this world -- more bodies merged in, objects moved --
+        is republished automatically, since the returned publisher is registered
+        as a model-change callback on it.
     :param visualization_backend: Viewer the markers are published for --
         Foxglove needs its mesh URIs rewritten onto a ``package://`` resource
         it can serve over its websocket, RViz loads ``file://`` resources
@@ -546,72 +550,10 @@ def visualize_spawned_shelf(
         else VizMarkerPublisher
     )
     viz_marker = publisher_type(
-        _world=spawned_shelf.world,
+        _world=world,
         node=node,
         qos_profile=QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL),
     )
     viz_marker.with_tf_publisher()
     _publish_with_deleteall(viz_marker)
     return viz_marker
-
-
-@dataclasses.dataclass
-class ShelfTidyingAction(ActionDescription):
-    shelf: EGShelf
-
-    obj: EGObject2D
-
-    model_registry: RelationalCircuitRegistry
-
-    arm: EndEffector
-
-    grasp_description: GraspDescription
-
-    def perform(self):
-        pass
-        # navigation_map_obj = navigation_map_at_target(self.obj.body)
-        # navigation_map_shelf = navigation_map_at_target(self.shelf_annotation.corpus)
-        #
-        # min_p = self.obj.body.collision.min_point
-        # max_p = self.obj.body.collision.max_point
-        #
-        # x = min_p.x - 0.05
-        # y = (min_p.y + max_p.y) / 2
-        # z = (min_p.z + max_p.z) / 2
-        #
-        # pre_grasp_pose = Pose.from_xyz_rpy(x=x, y=y, z=z, reference_frame=self.obj.body)
-        #
-        # reach_query = a(MoveToReach)(
-        #     target_pose_offset_robot=a(Pose2D)(
-        #         x=..., y=..., yaw=..., reference_frame=None
-        #     ),
-        #     hip_rotation=0.0,
-        #     target_pose_end_effector=pre_grasp_pose,
-        #     grasp_description=a(GraspDescription)(
-        #         approach_direction=ApproachDirection.FRONT,
-        #         vertical_alignment=VerticalAlignment.NoAlignment,
-        #         end_effector=variable(EndEffector, self.world.semantic_annotations),
-        #         rotate_gripper=False,
-        #     ),
-        # )
-        #
-        # where_condition = translate_free_space_to_where_condition(
-        #     navigation_map_obj.free_space_event,
-        #     reach_query.expression,
-        #     x_variable_name="MoveToReach.target_pose_offset_robot.x",
-        #     y_variable_name="MoveToReach.target_pose_offset_robot.y",
-        # )
-        #
-        # reach_action = reach_query.where(where_condition)
-        #
-        # pick_up = PickUpAction(object_designator=self.obj.body, arm=self.arm)
-        #
-        # # calculate where in the shelf a free pose would be for the obj.
-        # # for every layer, new query, condition on everything in the shelf + all the sampled objects, new object unspecified except object_type of obj
-        # # calculate log_mode of every layer, get free variables (position.x, position.y, rotation.z, with their corresponding probabilities
-        # # take the pose that has the highest probability
-        #
-        # # navigateaction to this pose
-        # # placeaction at the pose (maybe use Moveandplace for navigate + place, if easier)
-        #
-        # pass

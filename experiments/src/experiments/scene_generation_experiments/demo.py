@@ -1,5 +1,11 @@
 from __future__ import annotations
 
+import dataclasses
+from typing import List
+
+import numpy as np
+
+from coraplex.robot_plans.actions.base import ActionDescription
 import math
 import random
 import time
@@ -9,7 +15,8 @@ from coraplex.datastructures.dataclasses import Context
 from coraplex.datastructures.enums import Arms, ApproachDirection, VerticalAlignment
 from coraplex.datastructures.grasp import GraspDescription
 from coraplex.execution_environment import simulated_robot
-from coraplex.plans.factories import sequential
+from coraplex.plans.factories import execute_single, sequential
+from coraplex.plans.plan_node import PlanNode
 from coraplex.robot_plans.actions.core.misc import MoveToReach
 from coraplex.robot_plans.actions.core.navigation import NavigateAction
 from coraplex.robot_plans.actions.core.pick_up import PickUpAction
@@ -211,8 +218,15 @@ def move_to_reach_shelf(
     :return: A concrete move-to-reach action.
     """
     layer = layer_named(spawned_shelf, layer_name)
+    slab_top_height = next(
+        geometry.slab_top_height
+        for shelf_layer, geometry in zip(
+            spawned_shelf.layers, spawned_shelf.layer_geometries()
+        )
+        if shelf_layer is layer
+    )
     placement_position = spawned_shelf.object_local_pose(
-        placed_object, layer.height_above_shelf_base, spawned_shelf.corpus
+        placed_object, slab_top_height, spawned_shelf.corpus
     ).to_position()
     footprint = spawned_shelf.corpus_footprint
     standoff = Cabinet.hole_direction * (footprint.x / 2 + 0.5)
@@ -292,6 +306,45 @@ def path_to_shelf(
     return goals
 
 
+@dataclasses.dataclass
+class ShelfTidyingAction(ActionDescription):
+    floor: Floor = dataclasses.field(default=None)
+    table: Table = dataclasses.field(default=None)
+    obj: Body = dataclasses.field(default=None)
+    obj_goal_pose: Pose = dataclasses.field(default=None)
+    arm: Arms = dataclasses.field(default=None)
+    grasp_description: GraspDescription = dataclasses.field(default=None)
+    navigation_goals: List[Pose] = dataclasses.field(default=None)
+    shelf: EGShelf = dataclasses.field(default=None)
+    layer_name: str = dataclasses.field(default=None)
+    placed_obj: EGObject2D = dataclasses.field(default=None)
+
+    @property
+    def _action_plan(self) -> PlanNode:
+        return sequential(
+            [
+                move_to_reach_book(self.context, self.floor, self.table, self.obj),
+                PickUpAction(
+                    object_designator=self.obj,
+                    arm=self.arm,
+                    grasp_description=self.grasp_description,
+                ),
+                *[NavigateAction(goal) for goal in self.navigation_goals],
+                move_to_reach_shelf(
+                    self.shelf,
+                    self.placed_obj,
+                    self.layer_name,
+                ),
+                PlaceAction(
+                    object_designator=self.obj,
+                    target_location=self.obj_goal_pose,
+                    arm=self.arm,
+                ),
+            ],
+            self.context,
+        )
+
+
 # %% animating what the plan does
 
 
@@ -323,6 +376,8 @@ if __name__ == "__main__":
 
     with rclpy_node() as node:
         world = World()
+        with world.modify_world():
+            world.add_body(Body(name=PrefixedName("map")))
 
         # PREPARATION AND MODEL LOADING
         hsrb_world = URDFParser.from_file(file_path=HSRB.get_ros_file_path()).parse()
@@ -330,7 +385,7 @@ if __name__ == "__main__":
         shelf_pose = HomogeneousTransformationMatrix.from_xyz_rpy(x=2.0, y=0.0, z=0.0)
         robot_pose = HomogeneousTransformationMatrix.from_xyz_rpy(x=0.0, y=0.0, z=0.0)
         floor_scale = Scale(x=8.0, y=8.0, z=0.02)
-        table_scale = Scale(x=0.9, y=0.6, z=0.4)
+        table_scale = Scale(x=0.9, y=0.6, z=0.2)
         table_pose = HomogeneousTransformationMatrix.from_xyz_rpy(
             x=1.0, y=-1.5, z=table_scale.z / 2
         )
@@ -350,6 +405,16 @@ if __name__ == "__main__":
         spawned_shelf = generate_shelf_with_arbitrary_objects(
             query, trained_model, session
         )
+        with spawned_shelf.world.modify_world():
+            spawned_shelf.parent.name = PrefixedName(name="shelf_origin")
+        world.merge_world_at_pose(spawned_shelf.world, shelf_pose)
+        spawned_shelf.refresh_layer_annotations()
+        # Publish the shelf right away, before the slower robot/floor/table setup
+        # below -- the publisher stays registered on `world`, so it keeps publishing
+        # every later change to it automatically.
+        viz_marker = visualize_spawned_shelf(
+            node, world, visualization_backend=VisualizationBackend.FOXGLOVE
+        )
 
         with hsrb_world.modify_world():
             odom_combined = Body(name=PrefixedName("odom_combined"))
@@ -365,7 +430,6 @@ if __name__ == "__main__":
         )
 
         with world.modify_world():
-            world.add_body(Body(name=PrefixedName("map")))
             # Box is centered on its pose; drop it by half its thickness so the
             # top surface sits at z=0, level with the robot's and shelf's base.
             floor = Floor.create_with_new_body_in_world(
@@ -386,14 +450,8 @@ if __name__ == "__main__":
             floor.calculate_supporting_surface()
             floor.add_object(table)
 
-        with spawned_shelf.world.modify_world():
-            spawned_shelf.parent.name = PrefixedName(name="shelf_origin")
-        world.merge_world_at_pose(spawned_shelf.world, shelf_pose)
-        spawned_shelf.world = world
-        spawned_shelf.refresh_layer_annotations()
-
         with world.modify_world():
-            floor.add_object(shelf_cabinet(world, spawned_shelf))
+            floor.add_object(spawned_shelf.annotation)
 
         book_candidates = _get_source_ids_for_objects(
             load_objects_of_types(_processed_database_session(), {ObjectType.BOOK})
@@ -429,13 +487,16 @@ if __name__ == "__main__":
             )
         book_candidate = random.choice(book_candidates_fitting)
         book_extents = book_candidate.native_extents
+        # After the yaw below is applied, the book's footprint on the table is always
+        # its thinner extent along x and its thicker extent along y (whichever native
+        # extent that is), regardless of which one is book_extents[0] vs [1].
+        book_footprint_x = min(book_extents[0], book_extents[1])
+        book_footprint_y = max(book_extents[0], book_extents[1])
+        table_edge_margin = 0.02
         book = EGObject2D(
             object_type=ObjectType.BOOK,
-            # x is length (depth), y is width (face), z is height -- see EGShelf's
-            # CONTENT_FRAME_YAW_OFFSET_DEGREES for why the corpus frame needs this axis
-            # convention.
             scale=Scale(x=book_extents[1], y=book_extents[0], z=book_extents[2]),
-            pose=Pose2D(x=0.0, y=0.0, yaw=0.0),
+            pose=Pose2D(),
             source_id=book_candidate.source_id,
             name="demo_book",
         )
@@ -443,7 +504,7 @@ if __name__ == "__main__":
             world,
             parent=table.root,
             parent_T_self=HomogeneousTransformationMatrix.from_xyz_rpy(
-                z=table_scale.z / 2, reference_frame=table.root
+                x=-0.31, y=0.15, z=table_scale.z / 2, reference_frame=table.root
             ),
             mesh_path=book_candidate.scene_dir,
         )
@@ -462,9 +523,6 @@ if __name__ == "__main__":
             orientation_yaw,
             reference_frame=goal_layer.annotation.root,
         )
-        SpatialTypePublisher(
-            node=node, _world=world, topic_name="/demo/goal_pose2d"
-        ).add(SpatialTypeVisualization(spatial_type=pose2d, label="goal_pose2d"))
         object_goal_pose_in_map = world.transform(pose2d.to_pose(), world.root)
         footprint = spawned_shelf.corpus_footprint
         standoff = Cabinet.hole_direction * (footprint.x / 2 + 0.5)
@@ -475,40 +533,30 @@ if __name__ == "__main__":
         )
         standing_point_in_map = world.transform(standing_pose, world.root)
 
-        viz_marker = visualize_spawned_shelf(
-            node, spawned_shelf, visualization_backend=VisualizationBackend.FOXGLOVE
+        navigation_goals = path_to_shelf(world, floor, context.robot, standing_pose)
+
+        arm = Arms.LEFT
+        grasp_description = GraspDescription(
+            approach_direction=ApproachDirection.FRONT,
+            vertical_alignment=VerticalAlignment.NoAlignment,
+            end_effector=context.robot.end_effector,
+            rotate_gripper=False,
+        )
+        shelf_tidying = ShelfTidyingAction(
+            floor=floor,
+            table=table,
+            obj=book_body,
+            obj_goal_pose=object_goal_pose_in_map,
+            arm=arm,
+            grasp_description=grasp_description,
+            navigation_goals=navigation_goals,
+            shelf=spawned_shelf,
+            layer_name=layer_name,
+            placed_obj=placed_object,
         )
 
-        navigation_goals = path_to_shelf(world, floor, context.robot, standing_pose)
-        animation_pacer = _AnimationPacer(_world=world)
         try:
-            with simulated_robot:
-                sequential(
-                    [
-                        move_to_reach_book(context, floor, table, book_body),
-                        PickUpAction(
-                            object_designator=book_body,
-                            arm=Arms.LEFT,
-                            grasp_description=GraspDescription(
-                                approach_direction=ApproachDirection.FRONT,
-                                vertical_alignment=VerticalAlignment.NoAlignment,
-                                end_effector=context.robot.end_effector,
-                                rotate_gripper=False,
-                            ),
-                        ),
-                        *[NavigateAction(goal) for goal in navigation_goals],
-                        move_to_reach_shelf(
-                            spawned_shelf,
-                            placed_object,
-                            layer_name,
-                        ),
-                        PlaceAction(
-                            object_designator=book_body,
-                            target_location=object_goal_pose_in_map,
-                            arm=Arms.LEFT,
-                        ),
-                    ],
-                    context,
-                ).perform()
+            with simulated_robot():
+                execute_single(shelf_tidying, context).perform()
         finally:
-            animation_pacer.stop()
+            pass
