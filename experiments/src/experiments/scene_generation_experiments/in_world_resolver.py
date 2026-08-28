@@ -24,7 +24,11 @@ from semantic_digital_twin.collision_checking.trimesh_collision_detector import 
 )
 from semantic_digital_twin.reasoning.predicates import is_supported_by
 from semantic_digital_twin.scene_generation.scene_schema import EGShelf
-from semantic_digital_twin.spatial_types import Pose2D
+from semantic_digital_twin.spatial_types import (
+    HomogeneousTransformationMatrix,
+    Pose2D,
+)
+from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.world_entity import (
     Body,
     KinematicStructureEntity,
@@ -305,6 +309,9 @@ class InWorldLayoutResolver:
         max_passes: int = 10,
         stuck_after_passes: int = 3,
         placeholders_for_missing_meshes: bool = False,
+        world: World | None = None,
+        parent: KinematicStructureEntity | None = None,
+        parent_T_self: HomogeneousTransformationMatrix | None = None,
     ) -> InWorldLayoutResolver:
         """
         Spawn *shelf* and build one collision group per layer, each supported by its own
@@ -318,9 +325,17 @@ class InWorldLayoutResolver:
         :param max_passes: Upper bound on repair passes.
         :param stuck_after_passes: Consecutive passes a member may remain in violation
             before it stops being resampled.
+        :param world: World to spawn *shelf* into. A fresh, isolated world is created
+            when omitted, matching every existing caller. Collision checking during
+            repair runs against this whole world, so pass one that holds nothing besides
+            the shelf yet -- unrelated bodies already in it would be treated as
+            obstacles.
+        :param parent: The entity *shelf* is placed under. Defaults to ``world``'s root.
+        :param parent_T_self: Where the shelf's own origin sits in *parent*'s frame. See
+            :meth:`~semantic_digital_twin.scene_generation.scene_schema.EGShelf.spawn`.
         :return: A resolver ready to repair the spawned shelf.
         """
-        shelf.spawn()
+        shelf.spawn(world=world, parent=parent, parent_T_self=parent_T_self)
         groups = cls._shelf_layer_groups(shelf, probabilistic_backend(rspn))
         return cls(
             shelf=shelf,

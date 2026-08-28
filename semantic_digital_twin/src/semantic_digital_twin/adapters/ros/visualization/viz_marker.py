@@ -110,7 +110,7 @@ class VizMarkerPublisher(ModelChangeCallback):
     Reference to a collision marker publisher created by this class.
     """
 
-    _publisher: Publisher = field(init=False)
+    publisher: Publisher = field(init=False)
     """
     The ROS publisher for the marker.
     """

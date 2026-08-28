@@ -41,6 +41,7 @@ from semantic_digital_twin.adapters.ros.visualization.viz_marker import (
     VizMarkerPublisher,
 )
 from semantic_digital_twin.robots.robot_parts import EndEffector
+from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
 from semantic_digital_twin.world import World
 from semantic_digital_twin.scene_generation.scene_schema import (
     EGShelf,
@@ -48,6 +49,9 @@ from semantic_digital_twin.scene_generation.scene_schema import (
     MeshCandidate,
     ObjectType,
     EGObject2D,
+)
+from semantic_digital_twin.world_description.world_entity import (
+    KinematicStructureEntity,
 )
 
 
@@ -462,7 +466,12 @@ def _load_or_train_shelf_model(
 
 
 def generate_shelf_with_arbitrary_objects(
-    query, model: TrainedArbitraryShelfModel, session: Session
+    query,
+    model: TrainedArbitraryShelfModel,
+    session: Session,
+    world: World | None = None,
+    parent: KinematicStructureEntity | None = None,
+    parent_T_self: HomogeneousTransformationMatrix | None = None,
 ) -> EGShelf:
     """
     Evaluate an EGShelf query against a trained RSPN and return a collision-free,
@@ -485,6 +494,12 @@ def generate_shelf_with_arbitrary_objects(
     :param query: An EGShelf query to sample, e.g. built with
         :func:`~experiments.scene_generation_experiments.rspn_sampling.build_shelf_query`
         or :func:`~experiments.scene_generation_experiments.rspn_sampling.build_theme_shelf_query`.
+    :param world: World to spawn the shelf into. A fresh, isolated world is created
+        when omitted. Collision checking during repair runs against this whole world,
+        so pass one that holds nothing besides the shelf yet.
+    :param parent: The entity the shelf is placed under. Defaults to ``world``'s root.
+    :param parent_T_self: Where the shelf's own origin sits in *parent*'s frame. See
+        :meth:`~semantic_digital_twin.scene_generation.scene_schema.EGShelf.spawn`.
     :raises NoSolutionFound: If the model gives *query* no probability.
     :return: The sampled, repaired, spawned shelf and the model it came from.
     """
@@ -505,6 +520,9 @@ def generate_shelf_with_arbitrary_objects(
     resolver = InWorldLayoutResolver.for_shelf(
         sample,
         layer_template.template_distribution,
+        world=world,
+        parent=parent,
+        parent_T_self=parent_T_self,
     )
     spawned_shelf = resolver.resolve()
     placed = sum(

@@ -1552,8 +1552,11 @@ class EGShelf(EGBase, SpawnSpecification[Cabinet]):
         :param name: Overrides :attr:`name` for the spawned corpus annotation and body.
         :param parent: The parent entity the shelf is placed under. Defaults to the
             world's root when omitted.
-        :param parent_T_self: Overrides the shelf's default pose (identity, offset only
-            by :attr:`CONTENT_FRAME_YAW_OFFSET_DEGREES` and half its height).
+        :param parent_T_self: Where the shelf's own origin sits in *parent*'s frame.
+            Applied on top of the shelf's intrinsic offset (identity, shifted only by
+            :attr:`CONTENT_FRAME_YAW_OFFSET_DEGREES` and half its height) rather than
+            replacing it, so the corpus and every layer move together as one rigid
+            placement. Identity when omitted.
         :return: The spawned corpus annotation.
         """
         _world: World = world if world is not None else World()
@@ -1570,12 +1573,26 @@ class EGShelf(EGBase, SpawnSpecification[Cabinet]):
         # built in that same frame -- the offset must match extraction's.
         yaw_radians = math.radians(self.CONTENT_FRAME_YAW_OFFSET_DEGREES)
 
-        default_corpus_pose = HomogeneousTransformationMatrix.from_xyz_rpy(
-            x=0.0,
-            y=0.0,
-            z=footprint.z / 2,
-            yaw=yaw_radians,
-            reference_frame=_parent,
+        def _placed(
+            pose_in_content_frame: HomogeneousTransformationMatrix,
+        ) -> HomogeneousTransformationMatrix:
+            """
+            Apply *parent_T_self* on top of a pose expressed in the shelf's own content
+            frame, so the corpus and its layers -- both built from poses in that same
+            content frame -- move together as *parent_T_self* is varied.
+            """
+            if parent_T_self is None:
+                return pose_in_content_frame
+            return parent_T_self.dot(pose_in_content_frame)
+
+        corpus_pose = _placed(
+            HomogeneousTransformationMatrix.from_xyz_rpy(
+                x=0.0,
+                y=0.0,
+                z=footprint.z / 2,
+                yaw=yaw_radians,
+                reference_frame=_parent,
+            )
         )
         corpus_annotation = Cabinet.get_annotation_specification(
             name or self.name or "shelf_corpus",
@@ -1583,9 +1600,7 @@ class EGShelf(EGBase, SpawnSpecification[Cabinet]):
                 scale=footprint,
                 wall_thickness=0.03,
             ),
-        ).spawn(
-            _world, parent=_parent, parent_T_self=(parent_T_self or default_corpus_pose)
-        )
+        ).spawn(_world, parent=_parent, parent_T_self=corpus_pose)
         corpus_body = corpus_annotation.root
         # Make the whole shelf a movable unit: a room-level resolver repositions
         # it by setting the corpus origin, and its slabs and objects follow.
@@ -1600,12 +1615,14 @@ class EGShelf(EGBase, SpawnSpecification[Cabinet]):
         # real geometry needs every slab already standing, not just the ones
         # before it in layer order.
         for index, (layer, geometry) in enumerate(zip(self.layers, layer_geometries)):
-            layer_pose = HomogeneousTransformationMatrix.from_xyz_rpy(
-                x=0.0,
-                y=0.0,
-                z=geometry.height_above_shelf_base,
-                yaw=yaw_radians,
-                reference_frame=_parent,
+            layer_pose = _placed(
+                HomogeneousTransformationMatrix.from_xyz_rpy(
+                    x=0.0,
+                    y=0.0,
+                    z=geometry.height_above_shelf_base,
+                    yaw=yaw_radians,
+                    reference_frame=_parent,
+                )
             )
             layer.spawn(
                 _world,
@@ -1651,26 +1668,6 @@ class EGShelf(EGBase, SpawnSpecification[Cabinet]):
 
         self.annotation = corpus_annotation
         return corpus_annotation
-
-    def create_in_world(
-        self,
-        world: World | None = None,
-        parent: KinematicStructureEntity | None = None,
-    ) -> World:
-        """
-        Instantiate the shelf and its objects inside a :class:`World`.
-
-        Thin wrapper over :meth:`spawn` for callers that only need the resulting world
-        and not the spawned corpus annotation.
-
-        :param world: Existing world to extend. A fresh world with a ``map`` root body
-            is created when omitted.
-        :param parent: The parent entity the shelf is placed under. Defaults to the
-            world's root when omitted, so standalone callers are unaffected.
-        :return: The world containing the shelf.
-        """
-        self.spawn(world, parent=parent)
-        return self.world
 
     def refresh_layer_annotations(self) -> None:
         """

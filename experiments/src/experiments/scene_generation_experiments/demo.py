@@ -54,9 +54,8 @@ from semantic_digital_twin.adapters.ros.visualization.spatial_type_marker_render
 from semantic_digital_twin.adapters.ros.visualization.spatial_type_publisher import (
     SpatialTypePublisher,
 )
-from semantic_digital_twin.adapters.urdf import URDFParser
+from semantic_digital_twin.api import RobotSpecification
 from semantic_digital_twin.callbacks.callback import StateChangeCallback
-from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.exceptions import PointOccupiedError
 from semantic_digital_twin.robots.hsrb import HSRB
 from semantic_digital_twin.robots.robot_parts import AbstractRobot
@@ -345,43 +344,14 @@ class ShelfTidyingAction(ActionDescription):
         )
 
 
-# %% animating what the plan does
-
-
-@dataclass(eq=False)
-class _AnimationPacer(StateChangeCallback):
-    """
-    Sleeps briefly on every world state change, so a viewer such as Foxglove can render
-    each intermediate pose of a simulated action.
-
-    :class:`~coraplex.execution_environment.simulated_robot` ticks its motion state
-    chart back to back with no delay between ticks, calling
-    :meth:`~semantic_digital_twin.world.World.notify_state_change` -- and so this
-    callback -- on every one; without this pause, a whole reach trajectory finishes
-    faster than any viewer could render it, and only its final pose is ever seen.
-    """
-
-    seconds_per_tick: float = 0.03
-    """
-    Wall-clock delay added per world state change.
-    """
-
-    def on_state_change(self, **kwargs):
-        time.sleep(self.seconds_per_tick)
-
-
 if __name__ == "__main__":
     # DB Connection
     session = _processed_database_session()
 
     with rclpy_node() as node:
-        world = World()
-        with world.modify_world():
-            world.add_body(Body(name=PrefixedName("map")))
+        world = World.create_with_root_body()
 
         # PREPARATION AND MODEL LOADING
-        hsrb_world = URDFParser.from_file(file_path=HSRB.get_ros_file_path()).parse()
-        hsrb = HSRB.from_world(hsrb_world)
         shelf_pose = HomogeneousTransformationMatrix.from_xyz_rpy(x=2.0, y=0.0, z=0.0)
         robot_pose = HomogeneousTransformationMatrix.from_xyz_rpy(x=0.0, y=0.0, z=0.0)
         floor_scale = Scale(x=8.0, y=8.0, z=0.02)
@@ -399,40 +369,21 @@ if __name__ == "__main__":
         )
 
         # SHELF
-        #
-        #
-        #
         spawned_shelf = generate_shelf_with_arbitrary_objects(
-            query, trained_model, session
+            query, trained_model, session, world=world, parent_T_self=shelf_pose
         )
-        with spawned_shelf.world.modify_world():
-            spawned_shelf.parent.name = PrefixedName(name="shelf_origin")
-        world.merge_world_at_pose(spawned_shelf.world, shelf_pose)
-        spawned_shelf.refresh_layer_annotations()
-        # Publish the shelf right away, before the slower robot/floor/table setup
-        # below -- the publisher stays registered on `world`, so it keeps publishing
-        # every later change to it automatically.
         viz_marker = visualize_spawned_shelf(
             node, world, visualization_backend=VisualizationBackend.FOXGLOVE
         )
 
-        with hsrb_world.modify_world():
-            odom_combined = Body(name=PrefixedName("odom_combined"))
-            hsrb_world.add_body(odom_combined)
-            drive_connection_type = HSRB.get_drive_connection_type()
-            odom_C_root = drive_connection_type.create_with_dofs(
-                parent=odom_combined, child=hsrb_world.root, world=hsrb_world
-            )
-            hsrb_world.add_connection(odom_C_root)
-            odom_C_root.has_hardware_interface = True
-        odom_C_root.origin = robot_pose.copy_with_new_reference_frames(
-            new_reference_frame=odom_combined, new_child_frame=hsrb_world.root
-        )
+        RobotSpecification(
+            semantic_annotation_type=HSRB, odom_T_robot_start=robot_pose
+        ).spawn(world)
 
         with world.modify_world():
             # Box is centered on its pose; drop it by half its thickness so the
             # top surface sits at z=0, level with the robot's and shelf's base.
-            floor = Floor.create_with_new_body_in_world(
+            floor: Floor = Floor.create_with_new_body_in_world(
                 name="floor",
                 world=world,
                 world_root_T_self=HomogeneousTransformationMatrix.from_xyz_rpy(
@@ -440,7 +391,6 @@ if __name__ == "__main__":
                 ),
                 scale=floor_scale,
             )
-            world.merge_world(hsrb_world)
             table = Table.create_with_new_body_in_world(
                 name="table",
                 world=world,
@@ -449,8 +399,6 @@ if __name__ == "__main__":
             )
             floor.calculate_supporting_surface()
             floor.add_object(table)
-
-        with world.modify_world():
             floor.add_object(spawned_shelf.annotation)
 
         book_candidates = _get_source_ids_for_objects(
