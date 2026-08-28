@@ -78,6 +78,9 @@ from semantic_digital_twin.spatial_types import (
 from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.connections import Connection6DoF
 from semantic_digital_twin.world_description.geometry import Scale
+from semantic_digital_twin.world_description.graph_of_convex_sets.boxes import (
+    GraphOfBoundingBoxes,
+)
 from semantic_digital_twin.world_description.world_entity import Body
 
 
@@ -107,181 +110,64 @@ def floor_point(world: World, point: Point3, floor: Floor) -> Point3:
     )
 
 
-def move_to_reach_book(
-    context: Context, floor: Floor, table: Table, book: Body
-) -> MoveToReach:
+def robot_shelf_standing_point(
+    spawned_shelf: EGShelf, placed_object: EGObject2D
+) -> Point3:
     """
-    Build a move-to-reach action for a pose, clear of the table, from which the robot
-    could pick up *book*.
+    Where the robot should stand, clear of *spawned_shelf*'s open face, to reach
+    *placed_object*'s spot on it.
 
-    The standing pose is a fixed standoff outside the table's near edge -- the side
-    the pre-grasp pose below already approaches *book* from -- and is checked
-    against the floor's free space, which
-    :meth:`~semantic_digital_twin.semantic_annotations.mixins.HasSupportingSurface.calculate_free_space`
-    computes excluding the table's own footprint, before use.
+    The standoff sits outside the corpus, along the axis its face opens on;
+    *placed_object*'s own y coordinate already reads directly onto the corpus's y axis
+    (see :meth:`~semantic_digital_twin.scene_generation.scene_schema.EGShelf.
+    object_local_pose`), so it carries over unchanged.
 
-    :param context: The context whose world and robot the action is built for.
-    :param floor: The floor the robot stands on. Its supporting surface and occupant
-        list must already be populated (via ``calculate_supporting_surface()`` and
-        ``add_object()``), since both feed the free-space check.
-    :param table: The table the robot must stand clear of, and *book* rests on.
-    :param book: The book to reach for.
-    :return: A concrete move-to-reach action.
-    :raises PointOccupiedError: If the computed standing point is not free.
+    :param spawned_shelf: The shelf to stand in front of.
+    :param placed_object: The object whose on-shelf position decides where along the
+        open face the robot stands.
+    :return: The standing point, in the shelf corpus's own frame.
     """
-    world = context.world
-
-    min_p = book.collision.min_point
-    max_p = book.collision.max_point
-    pre_grasp_pose = Pose.from_xyz_rpy(
-        x=min_p.x - 0.05,
-        y=(min_p.y + max_p.y) / 2,
-        z=(min_p.z + max_p.z) / 2,
-        reference_frame=book,
-    )
-
-    table_min, table_max = table.min_max_points
-    standing_clearance = 0.5
-    standing_point_on_table = Point3(
-        float(table_min.x) - standing_clearance,
-        (float(table_min.y) + float(table_max.y)) / 2,
-        0.0,
-        reference_frame=table.root,
-    )
-    standing_point_on_floor = floor_point(world, standing_point_on_table, floor)
-
-    if floor.calculate_free_space().node_of_point(standing_point_on_floor) is None:
-        raise PointOccupiedError(world.transform(standing_point_on_floor, world.root))
-
-    standing_offset = world.transform(standing_point_on_floor, book)
-
-    return MoveToReach(
-        target_pose_offset_robot=Pose2D(
-            x=float(standing_offset.x),
-            y=float(standing_offset.y),
-            yaw=0.0,
-            reference_frame=book,
-        ),
-        hip_rotation=0.0,
-        target_pose_end_effector=pre_grasp_pose,
-        grasp_description=GraspDescription(
-            approach_direction=ApproachDirection.FRONT,
-            vertical_alignment=VerticalAlignment.NoAlignment,
-            end_effector=context.robot.end_effector,
-            rotate_gripper=False,
-        ),
-    )
-
-
-# %% putting the book on the shelf
-def shelf_cabinet(world: World, spawned_shelf: EGShelf) -> Cabinet:
-    """
-    Look up the cabinet annotation the shelf's corpus was spawned as.
-
-    :param world: The world the shelf stands in.
-    :param spawned_shelf: The shelf whose corpus is looked up.
-    :raises MissingShelfCabinetError: If the world holds no cabinet on that corpus.
-    :return: The annotation rooted at the corpus.
-    """
-    cabinets = [
-        cabinet
-        for cabinet in world.get_semantic_annotations_by_type(Cabinet)
-        if cabinet.root is spawned_shelf.corpus
-    ]
-    if not cabinets:
-        raise MissingShelfCabinetError(corpus_name=str(spawned_shelf.corpus.name))
-    return cabinets[0]
-
-
-def move_to_reach_shelf(
-    spawned_shelf: EGShelf,
-    placed_object: EGObject2D,
-    layer_name: str,
-) -> MoveToReach:
-    """
-    Build a move-to-reach action that drives in front of the shelf's open face and
-    reaches in to where *placed_object* goes.
-
-    The reach pose keeps the corpus's own orientation instead of the placement's, so the
-    arm goes in along the axis the shelf opens on and the robot ends up outside the open
-    face rather than wherever the placement happens to be turned. What the object itself
-    is turned to is left to the place action that follows.
-
-    :param spawned_shelf: The shelf to reach into.
-    :param placed_object: The object :func:`~experiments.scene_generation_experiments.
-        shelf_placement.mode_query` placed, with its pose filled in.
-    :param layer_name: The layer :func:`~experiments.scene_generation_experiments.
-        shelf_placement.mode_query` placed *placed_object* onto, resolved back to the
-        real layer here -- the same resolution the place action's own target pose uses,
-        so both agree on which layer the arm reaches for.
-    :return: A concrete move-to-reach action.
-    """
-    layer = layer_named(spawned_shelf, layer_name)
-    slab_top_height = next(
-        geometry.slab_top_height
-        for shelf_layer, geometry in zip(
-            spawned_shelf.layers, spawned_shelf.layer_geometries()
-        )
-        if shelf_layer is layer
-    )
-    placement_position = spawned_shelf.object_local_pose(
-        placed_object, slab_top_height, spawned_shelf.corpus
-    ).to_position()
     footprint = spawned_shelf.corpus_footprint
     standoff = Cabinet.hole_direction * (footprint.x / 2 + 0.5)
-    standing_pose = Point3(
+    return Point3(
         float(standoff.x),
-        float(placement_position.y),
+        float(placed_object.pose.y),
         reference_frame=spawned_shelf.corpus,
-    )
-    return MoveToReach(
-        target_pose_offset_robot=Pose2D(
-            x=float(standing_pose.x) - float(placement_position.x),
-            y=float(standing_pose.y) - float(placement_position.y),
-            yaw=0.0,
-            reference_frame=spawned_shelf.corpus,
-        ),
-        hip_rotation=0.0,
-        target_pose_end_effector=Pose.from_xyz_rpy(
-            x=float(placement_position.x),
-            y=float(placement_position.y),
-            z=float(placement_position.z),
-            reference_frame=spawned_shelf.corpus,
-        ),
-        grasp_description=GraspDescription(
-            approach_direction=ApproachDirection.FRONT,
-            vertical_alignment=VerticalAlignment.NoAlignment,
-            end_effector=context.robot.end_effector,
-            rotate_gripper=False,
-        ),
     )
 
 
 def path_to_shelf(
-    world: World, floor: Floor, robot: AbstractRobot, standing_point: Point3
+    world: World,
+    floor: Floor,
+    robot: AbstractRobot,
+    standing_point: Point3,
+    free_space: GraphOfBoundingBoxes,
 ) -> list[Pose]:
     """
     Find the navigation goals leading the robot from where it stands to the ground in
     front of the shelf.
 
-    The route comes out of the floor's free space, a graph of convex sets over the
-    ground its occupants leave, so it goes around what stands on the floor rather than
+    The route comes out of *free_space*, a graph of convex sets over the ground the
+    floor's occupants leave, so it goes around what stands on the floor rather than
     through it. Each goal faces the one it leads to, so the robot drives forwards along
     the route. The last leg is left out: :func:`move_to_reach_shelf` drives it as part
     of reaching, so a route with nothing in the way yields no goals at all.
 
     :param world: The world the robot drives through.
-    :param floor: The floor the route crosses. Its occupant list decides what the route
-        avoids, so everything standing on it must have been added.
+    :param floor: The floor the route crosses.
     :param robot: The robot to route, from wherever it currently stands.
     :param standing_point: Where the route ends.
+    :param free_space: The floor's free space, as computed by
+        :meth:`~semantic_digital_twin.semantic_annotations.mixins.HasSupportingSurface.calculate_free_space`.
+        Passed in rather than computed here so a caller building several routes, or
+        move-to-reach actions, for the same floor computes it only once.
     :raises PointOccupiedError: If the robot or *standing_point* is not on free floor.
     :raises UnreachableShelfError: If the floor's free space connects the two nowhere.
     :return: The navigation goals, in the world's root frame.
     """
     start = floor_point(world, robot.root.global_pose.to_position(), floor)
     goal = floor_point(world, standing_point, floor)
-    waypoints = floor.calculate_free_space().path_from_to(start, goal)
+    waypoints = free_space.path_from_to(start, goal)
     if waypoints is None:
         raise UnreachableShelfError(
             walking_distance=float(start.euclidean_distance(goal)),
@@ -322,18 +208,14 @@ class ShelfTidyingAction(ActionDescription):
     def _action_plan(self) -> PlanNode:
         return sequential(
             [
-                move_to_reach_book(self.context, self.floor, self.table, self.obj),
+                self.move_to_reach_book(),
                 PickUpAction(
                     object_designator=self.obj,
                     arm=self.arm,
                     grasp_description=self.grasp_description,
                 ),
                 *[NavigateAction(goal) for goal in self.navigation_goals],
-                move_to_reach_shelf(
-                    self.shelf,
-                    self.placed_obj,
-                    self.layer_name,
-                ),
+                self.move_to_reach_shelf(),
                 PlaceAction(
                     object_designator=self.obj,
                     target_location=self.obj_goal_pose,
@@ -341,6 +223,95 @@ class ShelfTidyingAction(ActionDescription):
                 ),
             ],
             self.context,
+        )
+
+    def move_to_reach_book(self) -> MoveToReach:
+        """
+        Build a move-to-reach action for a pose, clear of the table, from which the
+        robot could pick up *book*.
+
+        The standing pose is a fixed standoff outside the table's near edge -- the side
+        the pre-grasp pose below already approaches *book* from -- and is checked
+        against *free_space* before use.
+
+        :return: A concrete move-to-reach action.
+        :raises PointOccupiedError: If the computed standing point is not free.
+        """
+        world = self.context.world
+
+        min_p = self.obj.collision.min_point
+        max_p = self.obj.collision.max_point
+        pre_grasp_pose = Pose.from_xyz_rpy(
+            x=min_p.x - 0.05,
+            y=(min_p.y + max_p.y) / 2,
+            z=(min_p.z + max_p.z) / 2,
+            reference_frame=self.obj,
+        )
+
+        table_min, table_max = self.table.min_max_points
+        standing_clearance = 0.5
+        standing_point_on_table = Point3(
+            float(table_min.x) - standing_clearance,
+            (float(table_min.y) + float(table_max.y)) / 2,
+            0.0,
+            reference_frame=self.table.root,
+        )
+        standing_point_on_floor = floor_point(
+            world, standing_point_on_table, self.floor
+        )
+
+        standing_offset = world.transform(standing_point_on_floor, self.obj)
+
+        return MoveToReach(
+            target_pose_offset_robot=Pose2D(
+                x=float(standing_offset.x),
+                y=float(standing_offset.y),
+                yaw=0.0,
+                reference_frame=self.obj,
+            ),
+            hip_rotation=0.0,
+            target_pose_end_effector=pre_grasp_pose,
+            grasp_description=self.grasp_description,
+        )
+
+    def move_to_reach_shelf(self) -> MoveToReach:
+        """
+        Build a move-to-reach action that drives in front of the shelf's open face and
+        reaches in to where *placed_object* goes.
+
+        The reach pose keeps the corpus's own orientation instead of the placement's, so
+        the arm goes in along the axis the shelf opens on and the robot ends up outside
+        the open face rather than wherever the placement happens to be turned. What the
+        object itself is turned to is left to the place action that follows.
+        :return: A concrete move-to-reach action.
+        """
+        layer = layer_named(self.shelf, self.layer_name)
+        slab_top_height = next(
+            geometry.slab_top_height
+            for shelf_layer, geometry in zip(
+                self.shelf.layers, self.shelf.layer_geometries()
+            )
+            if shelf_layer is layer
+        )
+        placement_position = self.shelf.object_local_pose(
+            self.placed_obj, slab_top_height, self.shelf.corpus
+        ).to_position()
+        standing_point = robot_shelf_standing_point(self.shelf, self.placed_obj)
+        return MoveToReach(
+            target_pose_offset_robot=Pose2D(
+                x=float(standing_point.x) - float(placement_position.x),
+                y=float(standing_point.y) - float(placement_position.y),
+                yaw=0.0,
+                reference_frame=self.shelf.corpus,
+            ),
+            hip_rotation=0.0,
+            target_pose_end_effector=Pose.from_xyz_rpy(
+                x=float(placement_position.x),
+                y=float(placement_position.y),
+                z=float(placement_position.z),
+                reference_frame=self.shelf.corpus,
+            ),
+            grasp_description=self.grasp_description,
         )
 
 
@@ -435,15 +406,18 @@ if __name__ == "__main__":
             )
         book_candidate = random.choice(book_candidates_fitting)
         book_extents = book_candidate.native_extents
-        # After the yaw below is applied, the book's footprint on the table is always
-        # its thinner extent along x and its thicker extent along y (whichever native
-        # extent that is), regardless of which one is book_extents[0] vs [1].
-        book_footprint_x = min(book_extents[0], book_extents[1])
-        book_footprint_y = max(book_extents[0], book_extents[1])
+        # EGShelf.object_local_pose maps an object's own scale.x/y straight onto the
+        # shelf corpus's x/y axes at yaw 0, and Cabinet.hole_direction is along the
+        # corpus's x axis -- so a book placed at yaw 0 shows its spine to the shelf's
+        # open face only if its thicker (page-width) extent is on scale.x (matching
+        # the corpus's depth) and its thinner (spine-width) extent is on scale.y
+        # (matching the corpus's face), regardless of which native extent is which.
+        book_thin_extent = min(book_extents[0], book_extents[1])
+        book_thick_extent = max(book_extents[0], book_extents[1])
         table_edge_margin = 0.02
         book = EGObject2D(
             object_type=ObjectType.BOOK,
-            scale=Scale(x=book_extents[1], y=book_extents[0], z=book_extents[2]),
+            scale=Scale(x=book_thick_extent, y=book_thin_extent, z=book_extents[2]),
             pose=Pose2D(),
             source_id=book_candidate.source_id,
             name="demo_book",
@@ -458,8 +432,15 @@ if __name__ == "__main__":
         )
 
         context = Context.from_world(world, query_backend=ProbabilisticBackend())
+        # The fitted circuit's own yaw preference is close to uniform (see
+        # project_rspn_placement_constraints memory), so its mode search cannot be
+        # trusted to pick a physically sensible orientation -- pin the book spine-out
+        # (yaw 0, per the scale convention set above) instead of asking it.
         placed_object, layer_name = mode_query(
-            spawned_shelf, trained_model.relational_probabilistic_circuit, book
+            spawned_shelf,
+            trained_model.relational_probabilistic_circuit,
+            book,
+            held_object_yaw=0.0,
         )
         goal_layer = layer_named(spawned_shelf, layer_name)
         position_x = float(placed_object.pose.x)
@@ -472,16 +453,12 @@ if __name__ == "__main__":
             reference_frame=goal_layer.annotation.root,
         )
         object_goal_pose_in_map = world.transform(pose2d.to_pose(), world.root)
-        footprint = spawned_shelf.corpus_footprint
-        standoff = Cabinet.hole_direction * (footprint.x / 2 + 0.5)
-        standing_pose = Point3(
-            float(standoff.x),
-            float(position_y),
-            reference_frame=spawned_shelf.corpus,
-        )
-        standing_point_in_map = world.transform(standing_pose, world.root)
+        free_space = floor.calculate_free_space()
+        standing_pose = robot_shelf_standing_point(spawned_shelf, placed_object)
 
-        navigation_goals = path_to_shelf(world, floor, context.robot, standing_pose)
+        navigation_goals = path_to_shelf(
+            world, floor, context.robot, standing_pose, free_space
+        )
 
         arm = Arms.LEFT
         grasp_description = GraspDescription(

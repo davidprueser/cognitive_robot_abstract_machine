@@ -4,6 +4,7 @@ import math
 
 import experiments.orm.ormatic_interface  # noqa: F401  registers ORM mappers
 from experiments.scene_generation_experiments.shelf_placement import (
+    _held_object_slot,
     _layer_query,
     mode_query,
 )
@@ -99,6 +100,35 @@ def test_mode_query_places_a_held_object_with_a_free_pose() -> None:
     assert math.isfinite(float(placed_object.pose.yaw))
 
 
+def test_held_object_slot_pins_yaw_when_given() -> None:
+    """
+    Regression test: :func:`_held_object_slot` pins its built slot's yaw to
+    *held_object_yaw* when one is given, instead of leaving it underspecified for the
+    circuit's mode search to answer.
+
+    A query-building unit test rather than one that runs a fitted circuit end to end:
+    the fitted circuit's yaw marginal is close to uniform (see
+    ``project_rspn_placement_constraints`` memory) and its leaves are quantile-derived
+    boxes, so conditioning a small, synthetic circuit's literal evidence on an
+    arbitrary yaw not exactly reproduced by a training sample can legitimately find no
+    support -- unrelated to whether the pin itself is wired correctly, which is what
+    this test checks.
+    """
+    held_book = EGObject2D(
+        object_type=ObjectType.BOOK,
+        scale=_BOOK_SCALE,
+        pose=Pose2D(x=0.0, y=0.0, yaw=0.0),
+        source_id="held_book",
+    )
+    pinned_yaw = 0.45
+
+    free_slot = _held_object_slot(held_book)
+    pinned_slot = _held_object_slot(held_book, held_object_yaw=pinned_yaw)
+
+    assert free_slot.kwargs["pose"].kwargs["yaw"] is ...
+    assert pinned_slot.kwargs["pose"].kwargs["yaw"] == pinned_yaw
+
+
 # %% _layer_query where-condition wiring
 
 
@@ -108,9 +138,10 @@ def test_layer_query_where_condition_names_the_query_s_own_pose_variables() -> N
     ``held_slot.variable.pose`` while ``held_slot`` (an :class:`EGObject2D` match) was
     still unresolved, so ``held_slot.variable`` was its own standalone subject variable
     rather than the query's "objects[N]" access-path variable it becomes once the
-    ``EGShelfLayer`` match resolves its ``objects`` list. The where-condition ended up
-    naming a variable the fitted circuit never has, so the free-space truncation it
-    exists for silently never took effect.
+    ``EGShelfLayer`` match resolves its ``objects`` list.
+
+    The where-condition ended up naming a variable the fitted circuit never has, so the
+    free-space truncation it exists for silently never took effect.
     """
     shelf = _single_layer_shelf(index=0)
     shelf.spawn()

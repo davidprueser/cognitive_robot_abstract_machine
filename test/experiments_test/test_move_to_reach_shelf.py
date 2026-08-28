@@ -5,7 +5,6 @@ from dataclasses import dataclass
 import pytest
 
 import experiments.orm.ormatic_interface  # noqa: F401  registers ORM mappers
-import experiments.scene_generation_experiments.demo as demo_module
 from coraplex.datastructures.dataclasses import Context
 from experiments.scene_generation_experiments.demo import move_to_reach_shelf
 from semantic_digital_twin.robots.robot_parts import AbstractRobot, EndEffector
@@ -58,7 +57,7 @@ def test_reach_target_height_matches_the_layers_slab_top(
     seats objects at -- rather than the corpus-center-relative height silently produced by
     passing a shelf-base-relative height straight into a corpus-frame pose.
     """
-    demo_module.context = Context(
+    context = Context(
         world=spawned_shelf.world,
         robot=_RobotWithEndEffector(end_effector=None),
     )
@@ -72,9 +71,9 @@ def test_reach_target_height_matches_the_layers_slab_top(
     )
 
     action = move_to_reach_shelf(
-        spawned_shelf, placed_object, str(layer.annotation.root.name)
+        context, spawned_shelf, placed_object, str(layer.annotation.root.name)
     )
 
-    assert float(
-        action.target_pose_end_effector.to_position().z
-    ) == pytest.approx(expected_slab_top_height)
+    assert float(action.target_pose_end_effector.to_position().z) == pytest.approx(
+        expected_slab_top_height
+    )
