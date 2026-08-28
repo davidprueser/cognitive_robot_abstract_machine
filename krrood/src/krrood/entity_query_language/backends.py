@@ -7,8 +7,8 @@ from typing import Iterable, TypeVar
 import numpy as np
 from sqlalchemy.orm import sessionmaker
 from typing_extensions import ClassVar, Dict, Optional
-
 from krrood import logger
+from krrood.entity_query_language.verbalization.pipeline import verbalize_expression
 from krrood.entity_query_language.verbalization.vocabulary.english import Directive
 
 from krrood.entity_query_language.core.base_expressions import (
@@ -280,11 +280,17 @@ class ProbabilisticBackend(GenerativeBackend):
 
         # apply conditions from the where statements
         if parameters.truncation_assignments_from_where_conditions:
-            truncated, _ = conditioned.truncated(
-                parameters.truncation_assignments_from_where_conditions
+            where_conditions_event = (
+                parameters.truncation_assignments_from_where_conditions.fill_missing_variables_pure(
+                    parameters.variables.values()
+                )
             )
+            truncated, _ = conditioned.truncated(where_conditions_event)
         else:
             truncated = conditioned
+
+        if truncated is None:
+            raise NoSolutionFound(expression.expression)
 
         # apply conditions from variable assignments to underspecified variables
         if parameters.truncation_assignments_from_krrood_variables:
