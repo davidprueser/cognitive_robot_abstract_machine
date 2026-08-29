@@ -87,6 +87,32 @@ def test_size_is_ignored_when_no_target_is_given() -> None:
     assert matcher.random_match(ObjectType.BOOK) is not None
 
 
+def test_footprint_scale_reorders_native_extents_onto_xyz() -> None:
+    """
+    ``native_extents`` is recorded as ``(width, length, height)``;
+    :attr:`~MeshCandidate.
+
+    footprint_scale` must re-order that onto the ``(x, y, z)`` convention
+    :class:`EGObject2D.scale` uses -- ``length`` onto ``x``, ``width`` onto ``y``.
+    """
+    candidate = _candidate(ObjectType.BOOK, width=0.2, length=0.3, height=0.4, name="c")
+
+    footprint = candidate.footprint_scale
+
+    assert footprint == Scale(x=0.3, y=0.2, z=0.4)
+
+
+def test_footprint_scale_is_none_when_native_extents_is_unknown() -> None:
+    unknown = MeshCandidate(
+        scene_dir=Path("/scenes/x"),
+        source_id="unknown",
+        object_type=ObjectType.CHAIR,
+        native_extents=None,
+    )
+
+    assert unknown.footprint_scale is None
+
+
 def test_a_candidate_of_unknown_size_stays_eligible() -> None:
     """
     A pool entry with no recorded extents cannot be judged on size, and dropping it

@@ -4,17 +4,6 @@ from collections import Counter
 from dataclasses import dataclass, field
 from itertools import combinations
 
-from experiments.scene_generation_experiments.exceptions import LayoutResolutionError
-from experiments.scene_generation_experiments.rspn_sampling import (
-    build_free_space_conditioned_layer_query,
-    evaluate_first_supported,
-    probabilistic_backend,
-)
-from krrood.entity_query_language.backends import ProbabilisticBackend
-from krrood.entity_query_language.exceptions import NoSolutionFound
-from probabilistic_model.probabilistic_circuit.relational.rspn import (
-    RelationalProbabilisticCircuit,
-)
 from semantic_digital_twin.collision_checking.collision_matrix import (
     CollisionCheck,
     CollisionMatrix,
@@ -24,11 +13,6 @@ from semantic_digital_twin.collision_checking.trimesh_collision_detector import 
 )
 from semantic_digital_twin.reasoning.predicates import is_supported_by
 from semantic_digital_twin.scene_generation.scene_schema import EGShelf
-from semantic_digital_twin.spatial_types import (
-    HomogeneousTransformationMatrix,
-    Pose2D,
-)
-from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.world_entity import (
     Body,
     KinematicStructureEntity,
@@ -70,8 +54,7 @@ def minimal_resample_set(colliding_pairs: set[tuple[int, int]]) -> set[int]:
 class ShelfLayerGroup:
     """
     The objects on one shelf layer that must not collide with each other or the shelf's
-    corpus, resampled against that layer's learned distribution and re-seated at their
-    existing resting height.
+    corpus, and must rest on their layer's own slab.
     """
 
     bodies: dict[int, Body]
@@ -87,8 +70,7 @@ class ShelfLayerGroup:
 
     shelf: EGShelf
     """
-    The shelf whose layer this group belongs to; its objects are mutated in place as
-    they are resampled.
+    The shelf whose layer this group belongs to.
     """
 
     layer_index: int
@@ -100,12 +82,6 @@ class ShelfLayerGroup:
     """
     The shelf corpus the object bodies hang under; their poses are expressed relative to
     it, so they stay correct after the whole shelf is repositioned.
-    """
-
-    backend: ProbabilisticBackend = field(kw_only=True)
-    """
-    The single-sample backend over this layer's fitted circuit, from which offending
-    object poses are redrawn.
     """
 
     static_obstacles: list[Body] = field(default_factory=list, kw_only=True)
@@ -179,120 +155,23 @@ class ShelfLayerGroup:
                 )
         return minimal_resample_set(colliding_pairs) | obstacle_hit_indices
 
-    def clamp_to_bounds(self) -> None:
-        """
-        Move any object positioned outside this layer's own footprint back to its
-        nearest in-bounds position.
-
-        A resampled object is always re-seated at its previous resting height (see
-        :meth:`resample_and_move`), so nothing else re-checks whether its X/Y position
-        stayed within the layer -- an RSPN sample landing outside the footprint would
-        otherwise keep being treated as a collision-style violation and sent through an
-        expensive resample every pass, which is not conditioned on staying in bounds and
-        can land outside it again just as easily. Moving it back directly is a plain,
-        cheap geometric fix that always succeeds.
-        """
-        # The content frame's x-axis spans the shelf's length (its depth) and y spans
-        # its width (its face) -- the same mapping EGShelfLayer.spawn's slab Scale and
-        # object_local_pose use, not shelf.scale's own x/y order confused with a
-        # width/length label.
-        layer = self.shelf.layers[self.layer_index]
-        half_x = self.shelf.scale.x / 2
-        half_y = self.shelf.scale.y / 2
-        for index, object_2d in enumerate(layer.objects):
-            if index not in self.bodies:
-                continue
-            max_x = max(half_x - object_2d.scale.x / 2, 0.0)
-            max_y = max(half_y - object_2d.scale.y / 2, 0.0)
-            clamped_x = min(max(float(object_2d.pose.x), -max_x), max_x)
-            clamped_y = min(max(float(object_2d.pose.y), -max_y), max_y)
-            if clamped_x == float(object_2d.pose.x) and clamped_y == float(
-                object_2d.pose.y
-            ):
-                continue
-            object_2d.pose = Pose2D(x=clamped_x, y=clamped_y, yaw=object_2d.pose.yaw)
-            body = self.bodies[index]
-            resting_z = body.parent_connection.origin.to_position().to_np()[2]
-            body.parent_connection.origin = self.shelf.object_local_pose(
-                object_2d, resting_z, self.corpus
-            )
-
-    def resample_and_move(self, indices: set[int]) -> None:
-        """
-        Redraw each of *indices*' poses, truncated to the free space its layer's surface
-        actually has left, and move the corresponding body to match.
-
-        A layer's object slots are independent in the fitted circuit, so an
-        unconditioned redraw has no way to avoid a neighbour on its own -- only
-        clearing the space it is drawn from does that (see
-        :func:`~experiments.scene_generation_experiments.rspn_sampling.build_free_space_conditioned_layer_query`).
-        The free space is computed from the *world*, not the query, so members are
-        redrawn one at a time rather than all at once: each newly placed body is
-        real geometry the next member's free-space calculation already sees, which is
-        what keeps two members of the same call from landing on each other. A joint,
-        one-shot draw could not offer that guarantee between its own free slots.
-
-        A member whose layer has no free space left for it -- both the neighbour-
-        conditioned and the relaxed query raise :class:`NoSolutionFound` -- is left
-        where it stands rather than aborting the whole repair; it stays in violation,
-        which lets :class:`InWorldLayoutResolver`'s stuck-pass count eventually drop it
-        the same way a member that keeps landing back in a collision is dropped.
-
-        :param indices: Indices of this group's members to redraw.
-        """
-        layer = self.shelf.layers[self.layer_index]
-        fixed_objects = [
-            object_2d
-            for object_index, object_2d in enumerate(layer.objects)
-            if object_index not in indices and object_index in self.bodies
-        ]
-
-        for index in sorted(indices):
-            object_2d = layer.objects[index]
-            object_bloat = max(object_2d.scale.x, object_2d.scale.y) / 2
-            free_space_event = layer.annotation.calculate_free_space(
-                object_bloat=object_bloat
-            ).free_space_event
-
-            try:
-                redrawn_layer = evaluate_first_supported(
-                    self.backend,
-                    build_free_space_conditioned_layer_query(
-                        layer.theme_dominant_type,
-                        fixed_objects,
-                        object_2d,
-                        free_space_event,
-                    ),
-                    build_free_space_conditioned_layer_query(
-                        layer.theme_dominant_type, [], object_2d, free_space_event
-                    ),
-                )
-            except NoSolutionFound:
-                fixed_objects.append(object_2d)
-                continue
-            redrawn = redrawn_layer.objects[-1]
-
-            object_2d.pose = redrawn.pose
-            body = self.bodies[index]
-            resting_z = body.parent_connection.origin.to_position().to_np()[2]
-            body.parent_connection.origin = self.shelf.object_local_pose(
-                object_2d, resting_z, self.corpus
-            )
-            fixed_objects.append(object_2d)
-
 
 @dataclass
 class InWorldLayoutResolver:
     """
-    Repairs a spawned layout by validating it directly in its :class:`World` and moving
-    offending bodies in place, until every collision group is collision-free and
-    supported.
+    A single-pass safety net that drops whatever a spawned shelf's real mesh geometry
+    turns out to collide with or leave unsupported.
 
-    The layout is spawned once; each repair pass redraws only the pose of offending
-    members -- holding their scale, and therefore their mesh, fixed -- and moves the
-    corresponding bodies, so meshes are never reloaded. Each :class:`ShelfLayerGroup`
-    owns how it redraws its own members from its layer's fitted circuit, so the resolver
-    just drives the repair loop across every layer of the shelf.
+    The heavy lifting -- resampling colliding members against the RSPN, conditioned on
+    free space -- happens before anything is spawned (see
+    :class:`~experiments.scene_generation_experiments.pre_spawn_resolver.
+    PreSpawnLayoutResolver`), on bounding boxes built from each matched mesh candidate's
+    own extents. Those extents only approximate a candidate's true mesh geometry, so
+    this resolver exists to catch whatever that approximation missed once the real
+    mesh is loaded -- by dropping the offender, not by redrawing its pose, since a
+    redraw here would mean reasoning about free space against real geometry again,
+    which is exactly the per-pass cost moving resampling before spawning was meant to
+    remove.
     """
 
     shelf: EGShelf
@@ -302,7 +181,8 @@ class InWorldLayoutResolver:
 
     dropped_body_count: int = field(default=0, init=False)
     """
-    Bodies removed because no repair pass could place them.
+    Bodies removed by :meth:`resolve` because their real mesh geometry collided or lost
+    support.
 
     A generated shelf comes out sparser than the layout it was built from, and without
     this count an empty-looking shelf cannot be told apart from a model that simply
@@ -311,78 +191,26 @@ class InWorldLayoutResolver:
 
     groups: list[ShelfLayerGroup]
     """
-    One collision group per shelf layer, to keep collision-free and supported; each
-    knows how to redraw its own offending members from its layer's fitted circuit.
-    """
-
-    max_passes: int = 10
-    """
-    Upper bound on repair passes before giving up on an unsatisfiable layout.
-    """
-
-    stuck_after_passes: int = 3
-    """
-    Consecutive passes a member may remain in violation, unresolved, before it stops
-    being resampled and is left for the final drop instead.
-
-    A redraw is an independent sample from roughly the same conditional distribution
-    each time, so a member whose redrawn pose keeps landing in the same collision pass
-    after pass is not converging -- it is only burning passes' worth of grounding cost
-    on an object that was never going to resolve, at the expense of the budget every
-    other member in the layout shares.
+    One collision group per shelf layer, to check for a real-mesh collision or lost
+    support.
     """
 
     @classmethod
-    def for_shelf(
-        cls,
-        shelf: EGShelf,
-        rspn: RelationalProbabilisticCircuit,
-        max_passes: int = 10,
-        stuck_after_passes: int = 3,
-        world: World | None = None,
-        parent: KinematicStructureEntity | None = None,
-        parent_T_self: HomogeneousTransformationMatrix | None = None,
-    ) -> InWorldLayoutResolver:
+    def for_shelf(cls, shelf: EGShelf) -> InWorldLayoutResolver:
         """
-        Spawn *shelf* and build one collision group per layer, each supported by its own
-        slab and checked against the shelf's own corpus walls.
+        Build one collision group per layer of an already-spawned *shelf*, each
+        supported by its own slab and checked against the shelf's own corpus walls.
 
-        :param shelf: The sampled shelf to spawn and repair.
-        :param rspn: The fitted circuit used to redraw offending object poses.
-        :param placeholders_for_missing_meshes: Stand a plain box in for objects with no
-            cached mesh, so an incomplete mesh library is visible in the render rather
-            than mistaken for a sparse draw.
-        :param max_passes: Upper bound on repair passes.
-        :param stuck_after_passes: Consecutive passes a member may remain in violation
-            before it stops being resampled.
-        :param world: World to spawn *shelf* into. A fresh, isolated world is created
-            when omitted, matching every existing caller. Collision checking during
-            repair runs against this whole world, so pass one that holds nothing besides
-            the shelf yet -- unrelated bodies already in it would be treated as
-            obstacles.
-        :param parent: The entity *shelf* is placed under. Defaults to ``world``'s root.
-        :param parent_T_self: Where the shelf's own origin sits in *parent*'s frame. See
-            :meth:`~semantic_digital_twin.scene_generation.scene_schema.EGShelf.spawn`.
-        :return: A resolver ready to repair the spawned shelf.
+        :param shelf: The already-spawned shelf to check.
+        :return: A resolver ready to check the spawned shelf.
         """
-        shelf.spawn(world=world, parent=parent, parent_T_self=parent_T_self)
-        groups = cls._shelf_layer_groups(shelf, probabilistic_backend(rspn))
-        return cls(
-            shelf=shelf,
-            groups=groups,
-            max_passes=max_passes,
-            stuck_after_passes=stuck_after_passes,
-        )
+        return cls(shelf=shelf, groups=cls._shelf_layer_groups(shelf))
 
     @staticmethod
-    def _shelf_layer_groups(
-        shelf: EGShelf,
-        backend: ProbabilisticBackend,
-    ) -> list[ShelfLayerGroup]:
+    def _shelf_layer_groups(shelf: EGShelf) -> list[ShelfLayerGroup]:
         """
         Build one :class:`ShelfLayerGroup` per layer of *shelf*, each supported by its
-        own slab, checked against the shelf's corpus walls, and resampled from
-        *backend*.
+        own slab and checked against the shelf's corpus walls.
         """
         return [
             ShelfLayerGroup(
@@ -393,7 +221,6 @@ class InWorldLayoutResolver:
                 },
                 supporting_body=layer.annotation.root,
                 static_obstacles=[shelf.corpus],
-                backend=backend,
                 shelf=shelf,
                 layer_index=layer_index,
                 corpus=shelf.corpus,
@@ -403,118 +230,14 @@ class InWorldLayoutResolver:
 
     def resolve(self) -> EGShelf:
         """
-        Repair every group until all are collision-free and supported, moving offending
-        bodies in place.
+        Drop every member that collides or is unsupported, so a real-mesh mismatch the
+        pre-spawn resolver's own bounding-box approximation could not foresee never
+        reaches the returned shelf.
 
-        Some sampled arrangements cannot be separated by moving alone -- objects too big
-        or too many for the space. After :attr:`max_passes`, the still offending objects
-        are dropped from the layout, so a best-effort collision-free arrangement is
-        returned rather than failing the whole sample.
-
-        :raises LayoutResolutionError: If violations remain even after dropping the
-            offending objects -- a state that should not occur.
-        :return: The spawned, repaired shelf.
+        :return: The spawned shelf, with any offending members dropped.
         """
         detector = FCLCollisionDetector(_world=self.shelf.world)
-        remaining = self._repaired(detector)
-        detector.stop()
-
-        if remaining:
-            raise LayoutResolutionError(
-                remaining_groups=frozenset(remaining),
-                passes_attempted=self.max_passes,
-            )
-        return self.shelf
-
-    def _repaired(self, detector: FCLCollisionDetector) -> dict[int, set[int]]:
-        """
-        Run the repair passes and report whatever still offends once they, and the final
-        drop, are done.
-
-        :param detector: The detector to check the world through.
-        :return: Offending member indices per group index; empty when the layout came
-            out clean.
-        """
-        stuck_counts: dict[tuple[int, int], int] = {}
-        for _ in range(self.max_passes):
-            self._clamp_groups_to_bounds()
-            remaining = self._remaining_violations(detector)
-            if not remaining:
-                return {}
-            to_resample, stuck_counts = self._resamplable(remaining, stuck_counts)
-            if not to_resample:
-                break
-            for group_index, violations in to_resample.items():
-                self.groups[group_index].resample_and_move(violations)
-
-        self._clamp_groups_to_bounds()
-        remaining = self._remaining_violations(detector)
-        if not remaining:
-            return {}
-        self._drop_objects(remaining)
-        return self._remaining_violations(detector)
-
-    def _resamplable(
-        self,
-        remaining: dict[int, set[int]],
-        stuck_counts: dict[tuple[int, int], int],
-    ) -> tuple[dict[int, set[int]], dict[tuple[int, int], int]]:
-        """
-        Split *remaining* into members still worth resampling and an updated stuck-pass
-        count for each, dropping the count for any member no longer in violation so it
-        gets a fresh budget if it offends again later for an unrelated reason.
-
-        :param remaining: Offending member indices per group index.
-        :param stuck_counts: Consecutive violation-pass counts from the previous pass,
-            keyed by ``(group_index, member_index)``.
-        :return: Members to resample per group index (groups with none are omitted), and
-            the updated stuck counts.
-        """
-        updated_counts: dict[tuple[int, int], int] = {}
-        to_resample: dict[int, set[int]] = {}
-        for group_index, violations in remaining.items():
-            resamplable = set()
-            for member_index in violations:
-                key = (group_index, member_index)
-                count = stuck_counts.get(key, 0) + 1
-                updated_counts[key] = count
-                if count <= self.stuck_after_passes:
-                    resamplable.add(member_index)
-            if resamplable:
-                to_resample[group_index] = resamplable
-        return to_resample, updated_counts
-
-    def _clamp_groups_to_bounds(self) -> None:
-        """
-        Move every group's out-of-bounds members back within its footprint.
-
-        Run before each collision check so an RSPN sample that landed outside a group's
-        footprint is fixed by a plain, cheap geometric move rather than being treated as
-        a collision-style violation and sent through an expensive resample that is not
-        conditioned on staying in bounds and so could land outside it again just as
-        easily.
-        """
-        for group in self.groups:
-            group.clamp_to_bounds()
-
-    def _remaining_violations(
-        self, detector: FCLCollisionDetector
-    ) -> dict[int, set[int]]:
-        """
-        Map each group index to its members that collide or are unsupported.
-
-        One detector serves every pass: it registers world callbacks that
-        re-sync it on the model and state changes that moving or dropping a body
-        emits, so it always reflects the current world. Building a fresh one per
-        pass left every previous detector registered on the world and alive,
-        which cost about 230 MB a pass on a 29-piece room and ran the process
-        out of memory before the fiftieth.
-
-        :param detector: The detector to check the world through.
-        :return: Offending member indices per group; groups with none are
-            omitted.
-        """
-        return {
+        offenders = {
             group_index: violations
             for group_index, group in enumerate(self.groups)
             if (
@@ -522,6 +245,10 @@ class InWorldLayoutResolver:
                 | group.unsupported_indices()
             )
         }
+        if offenders:
+            self._drop_objects(offenders)
+        detector.stop()
+        return self.shelf
 
     def _drop_objects(self, offenders: dict[int, set[int]]) -> None:
         """

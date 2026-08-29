@@ -37,6 +37,9 @@ from experiments.scene_generation_experiments.utils import (
 from experiments.scene_generation_experiments.in_world_resolver import (
     InWorldLayoutResolver,
 )
+from experiments.scene_generation_experiments.pre_spawn_resolver import (
+    PreSpawnLayoutResolver,
+)
 from semantic_digital_twin.adapters.ros.visualization.viz_marker import (
     VizMarkerPublisher,
 )
@@ -517,24 +520,29 @@ def generate_shelf_with_arbitrary_objects(
     sample.source_ids = _coarsen_mesh_candidate_types(source_ids, frequent_types)
 
     layer_template = circuit.exchangeable_distribution_templates["layers"]
-    resolver = InWorldLayoutResolver.for_shelf(
-        sample,
-        layer_template.template_distribution,
-        world=world,
-        parent=parent,
-        parent_T_self=parent_T_self,
+    corpus_body, layer_geometries = sample._spawn_corpus_and_slabs(
+        world=world, parent=parent, parent_T_self=parent_T_self
     )
-    spawned_shelf = resolver.resolve()
+    pre_resolver = PreSpawnLayoutResolver.for_shelf(
+        sample, layer_template.template_distribution, corpus_body, layer_geometries
+    )
+    matches = pre_resolver.resolve()
+    sample.spawn_objects(sample.world, corpus_body, layer_geometries, matches)
+
+    post_resolver = InWorldLayoutResolver.for_shelf(sample)
+    spawned_shelf = post_resolver.resolve()
+
     placed = sum(
         1
         for layer in spawned_shelf.layers
         for obj in layer.objects
         if obj.annotation is not None
     )
+    dropped = pre_resolver.dropped_object_count + post_resolver.dropped_body_count
     print(
         f"{sample.theme_dominant_type.value}: {len(spawned_shelf.layers)} "
         f"layers, {placed} objects standing "
-        f"{resolver.dropped_body_count} dropped in repair"
+        f"{dropped} dropped in repair"
     )
     return spawned_shelf
 

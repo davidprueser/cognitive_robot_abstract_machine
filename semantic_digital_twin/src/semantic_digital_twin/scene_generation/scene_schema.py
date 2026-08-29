@@ -44,7 +44,11 @@ from semantic_digital_twin.world_description.connections import (
 from semantic_digital_twin.world_description.degree_of_freedom import (
     DegreeOfFreedomLimits,
 )
-from semantic_digital_twin.world_description.geometry import Mesh, Scale
+from semantic_digital_twin.world_description.geometry import (
+    Mesh,
+    Scale,
+    VolumetricBoundingBox,
+)
 from semantic_digital_twin.world_description.shape_collection import ShapeCollection
 from semantic_digital_twin.world_description.world_entity import (
     KinematicStructureEntity,
@@ -316,8 +320,8 @@ def _scale_to_json(scale: Scale) -> dict[str, Any]:
 
 def _scale_from_json(data: dict[str, Any]) -> Scale:
     """
-    Deserialize a :class:`~semantic_digital_twin.world_description.geometry.Scale`
-    from JSON written by :func:`_scale_to_json`.
+    Deserialize a :class:`~semantic_digital_twin.world_description.geometry.Scale` from
+    JSON written by :func:`_scale_to_json`.
 
     :param data: The JSON representation.
     :return: The deserialized scale.
@@ -655,8 +659,8 @@ class EGObject2D(EGBase, SpawnSpecification[Body]):
         would distort them.
 
         :param world: The world the object is created in.
-        :param name: Overrides :attr:`name` for the spawned body's naming; falls back
-            to :attr:`source_id` when neither is set.
+        :param name: Overrides :attr:`name` for the spawned body's naming; falls back to
+            :attr:`source_id` when neither is set.
         :param parent: The parent kinematic structure entity. Defaults to the world's
             root when omitted.
         :param parent_T_self: When given, the body is placed at this pose and *x*, *y*,
@@ -730,15 +734,53 @@ class EGObject2D(EGBase, SpawnSpecification[Body]):
         self.annotation = body
         return body
 
+    def local_bounding_box(
+        self, footprint: Scale, reference_frame: KinematicStructureEntity
+    ) -> VolumetricBoundingBox:
+        """
+        This object's axis-aligned footprint in *reference_frame*, from *footprint*'s
+        x/y extents rotated by :attr:`pose`'s own yaw around :attr:`pose`'s own
+        position, extended to an infinite z-column.
+
+        Matches :meth:`~semantic_digital_twin.semantic_annotations.mixins.
+        HasSupportingSurface._object_footprint_as_infinite_column`'s own convention, so
+        the result composes directly with :meth:`~semantic_digital_twin.
+        world_description.graph_of_convex_sets.boxes.VolumetricGraphOfBoundingBoxes.
+        free_space_from_bounding_boxes` without a real mesh: an object blocks its whole
+        vertical column regardless of its actual height, since which shelf layer it
+        sits on -- not this bound -- is what decides its z.
+
+        *footprint* is taken as a parameter rather than read from :attr:`scale`, since a
+        caller with a matched mesh candidate's real extents should pass those instead --
+        a spawned object keeps its mesh's native size, not :attr:`scale` (see
+        :meth:`spawn`).
+
+        :param footprint: The x/y extents to rotate and bound.
+        :param reference_frame: The frame the returned box is expressed in.
+        :return: The rotated footprint's axis-aligned bound, extended to all z.
+        """
+        cos_yaw = abs(math.cos(float(self.pose.yaw)))
+        sin_yaw = abs(math.sin(float(self.pose.yaw)))
+        half_x = (cos_yaw * footprint.x + sin_yaw * footprint.y) / 2
+        half_y = (sin_yaw * footprint.x + cos_yaw * footprint.y) / 2
+        origin = HomogeneousTransformationMatrix.from_xyz_rpy(
+            float(self.pose.x),
+            float(self.pose.y),
+            0.0,
+            reference_frame=reference_frame,
+        )
+        return VolumetricBoundingBox(
+            -half_x, -half_y, -math.inf, half_x, half_y, math.inf, origin
+        )
+
 
 @dataclass
 class EGShelfLayer(EGBase, SpawnSpecification[ShelfLayer]):
     """
     A shelf layer for environment generation.
 
-    A layer's footprint is always its shelf's own width and length -- that is how
-    layers are extracted and how they are spawned -- so it carries no dimensions of
-    its own.
+    A layer's footprint is always its shelf's own width and length -- that is how layers
+    are extracted and how they are spawned -- so it carries no dimensions of its own.
 
     It also carries where it sits vertically in its shelf. An object's own position is
     two-dimensional, since it simply rests on the slab, so without these the height at
@@ -1037,6 +1079,19 @@ class MeshCandidate:
     fitting.
     """
 
+    @property
+    def footprint_scale(self) -> Scale | None:
+        """
+        :attr:`native_extents`, re-ordered from ``(width, length, height)`` onto the
+        ``(x, y, z)`` axis convention :class:`EGObject2D.scale` uses.
+
+        ``None`` when :attr:`native_extents` is ``None``.
+        """
+        if self.native_extents is None:
+            return None
+        width, length, height = self.native_extents
+        return Scale(x=length, y=width, z=height)
+
 
 @dataclass
 class _MeshTypeMatcher:
@@ -1126,13 +1181,17 @@ class _MeshTypeMatcher:
             height)`` on ``(x, y, z)``.
         :return: The mismatch, zero being an exact match.
         """
-        native = candidate.native_extents
-        if native is None:
+        footprint = candidate.footprint_scale
+        if footprint is None:
             return 0.0
-        targets = (target_extents.y, target_extents.x, target_extents.z)
+        measured_and_targets = (
+            (footprint.x, target_extents.x),
+            (footprint.y, target_extents.y),
+            (footprint.z, target_extents.z),
+        )
         return max(
             abs(math.log(measured / target))
-            for measured, target in zip(native, targets)
+            for measured, target in measured_and_targets
             if measured > 0 and target > 0
         )
 
@@ -1145,16 +1204,15 @@ class _MeshTypeMatcher:
         :param candidate: The mesh candidate to test.
         :param max_extents: Per-axis upper bound, as ``(length, width, height)`` on
             ``(x, y, z)``.
-        :return: ``True`` if the candidate fits or its size is unknown.
+        :return:``True`` if the candidate fits or its size is unknown.
         """
-        native = candidate.native_extents
-        if native is None:
+        footprint = candidate.footprint_scale
+        if footprint is None:
             return True
-        native_width, native_length, native_height = native
         return (
-            native_width <= max_extents.y
-            and native_length <= max_extents.x
-            and native_height <= max_extents.z
+            footprint.x <= max_extents.x
+            and footprint.y <= max_extents.y
+            and footprint.z <= max_extents.z
         )
 
 
@@ -1245,8 +1303,7 @@ class EGShelf(EGBase, SpawnSpecification[Cabinet]):
     _OBJECT_VERTICAL_MARGIN: ClassVar[float] = 0.01
     """
     Headroom, in metres, subtracted from a layer's measured clearance before it is
-    offered to an object, so a fitted mesh does not sit flush against the surface
-    above.
+    offered to an object, so a fitted mesh does not sit flush against the surface above.
     """
 
     scale: Scale
@@ -1274,8 +1331,9 @@ class EGShelf(EGBase, SpawnSpecification[Cabinet]):
 
     annotation: Optional[Cabinet] = field(default=None, compare=False)
     """
-    The shelf corpus's annotation in the world. ``None`` until :meth:`spawn` is called,
-    which sets it to the annotation it creates.
+    The shelf corpus's annotation in the world.
+
+    ``None`` until :meth:`spawn` is called, which sets it to the annotation it creates.
     """
 
     name: str | None = field(default=None, kw_only=True)
@@ -1306,8 +1364,10 @@ class EGShelf(EGBase, SpawnSpecification[Cabinet]):
     @property
     def corpus(self) -> Optional[Body]:
         """
-        The shelf corpus's body, so a caller can check objects for collision against
-        its walls in addition to each other. ``None`` before :meth:`spawn` is called.
+        The shelf corpus's body, so a caller can check objects for collision against its
+        walls in addition to each other.
+
+        ``None`` before :meth:`spawn` is called.
         """
         return None if self.annotation is None else self.annotation.root
 
@@ -1421,7 +1481,7 @@ class EGShelf(EGBase, SpawnSpecification[Cabinet]):
         Otherwise their slabs would land on each other with no room between them.
 
         :param layer: The layer to classify.
-        :return: ``True`` when its objects belong on the shelf's top surface.
+        :return:``True`` when its objects belong on the shelf's top surface.
         """
         if self.scale.z > self._MAXIMUM_TOP_PLACEMENT_HEIGHT:
             return False
@@ -1496,8 +1556,8 @@ class EGShelf(EGBase, SpawnSpecification[Cabinet]):
 
     def layer_geometries(self) -> list[ShelfLayerGeometry]:
         """
-        Where each layer's slab sits and how large an object it accepts, in the order
-        of :attr:`layers`.
+        Where each layer's slab sits and how large an object it accepts, in the order of
+        :attr:`layers`.
 
         An object taller than the room above its slab would pierce the surface above,
         which no in-plane repair can fix, so that room is what a layer accepts.
@@ -1530,22 +1590,20 @@ class EGShelf(EGBase, SpawnSpecification[Cabinet]):
             )
         return geometries
 
-    def spawn(
+    def _spawn_corpus_and_slabs(
         self,
         world: World | None = None,
         name: str | None = None,
         parent: KinematicStructureEntity | None = None,
         parent_T_self: HomogeneousTransformationMatrix | None = None,
-    ) -> Cabinet:
+    ) -> tuple[Body, list[ShelfLayerGeometry]]:
         """
-        Instantiate the shelf and its objects inside a :class:`World`.
+        Instantiate the shelf's corpus and every layer's slab, but none of its objects.
 
-        Mutates ``self`` in place: :attr:`annotation` is set to the created corpus (so
-        :attr:`world`, :attr:`parent` and :attr:`corpus` read from it), each
-        :class:`EGShelfLayer`'s own :attr:`~EGShelfLayer.annotation` is set to its slab,
-        and each spawned :class:`EGObject2D`'s :attr:`~EGObject2D.annotation` is set to
-        its body -- so a caller keeps using this same shelf afterwards instead of a
-        separate handle.
+        Sets :attr:`annotation` to the created corpus, so :attr:`world`, :attr:`parent`
+        and :attr:`corpus` read from it immediately -- a caller that wants to inspect or
+        resolve the layout before any mesh is loaded can do so between this and
+        :meth:`spawn_objects`.
 
         :param world: Existing world to extend. A fresh world with a ``map`` root body
             is created when omitted.
@@ -1557,7 +1615,7 @@ class EGShelf(EGBase, SpawnSpecification[Cabinet]):
             :attr:`CONTENT_FRAME_YAW_OFFSET_DEGREES` and half its height) rather than
             replacing it, so the corpus and every layer move together as one rigid
             placement. Identity when omitted.
-        :return: The spawned corpus annotation.
+        :return: The spawned corpus body, and :meth:`layer_geometries`.
         """
         _world: World = world if world is not None else World()
         if world is None:
@@ -1605,10 +1663,9 @@ class EGShelf(EGBase, SpawnSpecification[Cabinet]):
         # Make the whole shelf a movable unit: a room-level resolver repositions
         # it by setting the corpus origin, and its slabs and objects follow.
         _world.make_branch_movable(corpus_body)
+        self.annotation = corpus_annotation
 
         layer_geometries = self.layer_geometries()
-
-        mesh_matcher = _MeshTypeMatcher(candidates=self.source_ids or [])
 
         # Every slab is created before any object is spawned onto any of them: a
         # later pass measuring a layer's own clearance against its neighbours'
@@ -1633,13 +1690,34 @@ class EGShelf(EGBase, SpawnSpecification[Cabinet]):
                 shelf_scale=self.scale,
             )
 
-        for layer, geometry in zip(self.layers, layer_geometries):
-            slab_top_z = geometry.slab_top_height
-            # An object taller than the room above its slab would pierce the shelf
-            # above, which the resolver (it only moves objects in the plane) can
-            # never repair -- so they are dropped rather than placed.
+        return corpus_body, layer_geometries
+
+    def match_meshes(
+        self, layer_geometries: list[ShelfLayerGeometry]
+    ) -> dict[int, dict[int, MeshCandidate]]:
+        """
+        Pick a real mesh candidate for every constant-pose object this shelf's layers
+        hold, without spawning anything.
+
+        Needs no live :class:`World`: every input (:attr:`layers`, :attr:`source_ids`,
+        *layer_geometries*) is plain data, so a caller can match meshes -- and read off
+        their :attr:`~MeshCandidate.native_extents`/:attr:`~MeshCandidate.footprint_scale`
+        -- before deciding whether to spawn the layout at all.
+
+        :param layer_geometries: This shelf's own :meth:`layer_geometries`, passed in
+            rather than recomputed so a caller that already has them (e.g. right after
+            :meth:`_spawn_corpus_and_slabs`) reads the same heights spawning used.
+        :return: Per layer index, per object index, the matched candidate. An object
+            with a non-constant pose or no eligible candidate is simply absent.
+        """
+        mesh_matcher = _MeshTypeMatcher(candidates=self.source_ids or [])
+        matches: dict[int, dict[int, MeshCandidate]] = {}
+        for layer_index, (layer, geometry) in enumerate(
+            zip(self.layers, layer_geometries)
+        ):
             max_object_extents = geometry.maximum_object_extents
-            for obj in layer.objects:
+            layer_matches: dict[int, MeshCandidate] = {}
+            for object_index, obj in enumerate(layer.objects):
                 if not obj.pose.x.is_constant():
                     continue
                 candidate = (
@@ -1657,17 +1735,84 @@ class EGShelf(EGBase, SpawnSpecification[Cabinet]):
                 # asked for.
                 if candidate is None:
                     continue
+                layer_matches[object_index] = candidate
+            matches[layer_index] = layer_matches
+        return matches
+
+    def spawn_objects(
+        self,
+        world: World,
+        corpus_body: Body,
+        layer_geometries: list[ShelfLayerGeometry],
+        matches: dict[int, dict[int, MeshCandidate]],
+    ) -> None:
+        """
+        Spawn the real mesh for every object *matches* names, and seat it on its layer.
+
+        Unavoidably needs the real loaded mesh -- seating an object on its slab reads
+        the mesh's own collision bottom (see :meth:`_seat_object_on_layer`) -- so this
+        is the one phase of spawning that cannot run before mesh geometry exists.
+
+        :param world: The world *corpus_body* was spawned into.
+        :param corpus_body: The shelf corpus body, from :meth:`_spawn_corpus_and_slabs`.
+        :param layer_geometries: This shelf's own :meth:`layer_geometries`.
+        :param matches: Per layer index, per object index, the candidate to spawn --
+            typically from :meth:`match_meshes`, possibly narrowed by a resolver. An
+            object absent from its layer's matches is left unspawned.
+        """
+        for layer_index, (layer, geometry) in enumerate(
+            zip(self.layers, layer_geometries)
+        ):
+            slab_top_z = geometry.slab_top_height
+            layer_matches = matches.get(layer_index, {})
+            for object_index, obj in enumerate(layer.objects):
+                candidate = layer_matches.get(object_index)
+                if candidate is None:
+                    continue
                 obj.source_id = candidate.source_id
                 body = obj.spawn(
-                    _world,
+                    world,
                     parent=corpus_body,
                     parent_T_self=self.object_local_pose(obj, slab_top_z, corpus_body),
                     mesh_path=candidate.scene_dir,
                 )
                 self._seat_object_on_layer(obj, body, slab_top_z, corpus_body)
 
-        self.annotation = corpus_annotation
-        return corpus_annotation
+    def spawn(
+        self,
+        world: World | None = None,
+        name: str | None = None,
+        parent: KinematicStructureEntity | None = None,
+        parent_T_self: HomogeneousTransformationMatrix | None = None,
+    ) -> Cabinet:
+        """
+        Instantiate the shelf and its objects inside a :class:`World`.
+
+        Mutates ``self`` in place: :attr:`annotation` is set to the created corpus (so
+        :attr:`world`, :attr:`parent` and :attr:`corpus` read from it), each
+        :class:`EGShelfLayer`'s own :attr:`~EGShelfLayer.annotation` is set to its slab,
+        and each spawned :class:`EGObject2D`'s :attr:`~EGObject2D.annotation` is set to
+        its body -- so a caller keeps using this same shelf afterwards instead of a
+        separate handle.
+
+        :param world: Existing world to extend. A fresh world with a ``map`` root body
+            is created when omitted.
+        :param name: Overrides :attr:`name` for the spawned corpus annotation and body.
+        :param parent: The parent entity the shelf is placed under. Defaults to the
+            world's root when omitted.
+        :param parent_T_self: Where the shelf's own origin sits in *parent*'s frame.
+            Applied on top of the shelf's intrinsic offset (identity, shifted only by
+            :attr:`CONTENT_FRAME_YAW_OFFSET_DEGREES` and half its height) rather than
+            replacing it, so the corpus and every layer move together as one rigid
+            placement. Identity when omitted.
+        :return: The spawned corpus annotation.
+        """
+        corpus_body, layer_geometries = self._spawn_corpus_and_slabs(
+            world, name, parent, parent_T_self
+        )
+        matches = self.match_meshes(layer_geometries)
+        self.spawn_objects(self.world, corpus_body, layer_geometries, matches)
+        return self.annotation
 
     def refresh_layer_annotations(self) -> None:
         """

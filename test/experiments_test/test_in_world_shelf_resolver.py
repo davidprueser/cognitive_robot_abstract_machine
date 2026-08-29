@@ -5,7 +5,6 @@ import shutil
 from importlib.resources import files
 from itertools import combinations
 from pathlib import Path
-from unittest.mock import MagicMock, patch
 
 import pytest
 import trimesh
@@ -15,7 +14,6 @@ from experiments.scene_generation_experiments.in_world_resolver import (
     ShelfLayerGroup,
     minimal_resample_set,
 )
-from krrood.entity_query_language.exceptions import NoSolutionFound
 from semantic_digital_twin.collision_checking.collision_matrix import (
     CollisionCheck,
     CollisionMatrix,
@@ -397,7 +395,6 @@ def test_unsupported_indices_flags_object_that_slid_off_the_layer(
     group = ShelfLayerGroup(
         bodies=_object_bodies(spawned_layer),
         supporting_body=spawned_layer.annotation.root,
-        backend=MagicMock(),
         shelf=shelf,
         layer_index=0,
         corpus=shelf.corpus,
@@ -411,190 +408,42 @@ def test_unsupported_indices_flags_object_that_slid_off_the_layer(
     assert group.unsupported_indices() == {0}
 
 
-def test_clamp_to_bounds_leaves_an_in_bounds_object_untouched(
-    mesh_candidate: MeshCandidate,
-) -> None:
-    shelf = _shelf([_object("book_0", 0.0, 0.0)], mesh_candidate)
-    shelf.spawn()
-    spawned_layer = shelf.layers[0]
-    group = ShelfLayerGroup(
-        bodies=_object_bodies(spawned_layer),
-        supporting_body=spawned_layer.annotation.root,
-        backend=MagicMock(),
-        shelf=shelf,
-        layer_index=0,
-        corpus=shelf.corpus,
-    )
-
-    group.clamp_to_bounds()
-
-    assert float(shelf.layers[0].objects[0].pose.x) == pytest.approx(0.0)
-    assert float(shelf.layers[0].objects[0].pose.y) == pytest.approx(0.0)
-
-
-def test_clamp_to_bounds_moves_an_out_of_bounds_object_back_onto_the_layer(
+def test_resolver_drops_a_really_colliding_object(
     mesh_candidate: MeshCandidate,
 ) -> None:
     """
-    An object whose sampled position lies outside the layer's own footprint
-    must be moved directly back within it, even though it is re-seated at
-    its previous resting height (see :meth:`ShelfLayerGroup.resample_and_move`)
-    and so stays reported as supported regardless of how far off it drifts.
-
-    Observed on real arbitrary-shelf samples, where positions came out
-    several times the layer's half-extent while the object still spawned
-    without complaint -- resting height alone does not catch a piece that
-    has drifted off the side of the slab. Moving it directly, rather than
-    redrawing it from the circuit, is what keeps this cheap: a redraw is not
-    conditioned on staying in bounds and could land outside it again just as
-    easily, burning through repair passes.
-    """
-    shelf = _shelf([_object("book_0", 0.0, 0.0)], mesh_candidate)
-    shelf.spawn()
-    spawned_layer = shelf.layers[0]
-    group = ShelfLayerGroup(
-        bodies=_object_bodies(spawned_layer),
-        supporting_body=spawned_layer.annotation.root,
-        backend=MagicMock(),
-        shelf=shelf,
-        layer_index=0,
-        corpus=shelf.corpus,
-    )
-
-    shelf.layers[0].objects[0].pose = Pose2D(x=50.0, y=50.0, yaw=0.0)
-    group.clamp_to_bounds()
-
-    clamped = shelf.layers[0].objects[0].pose
-    half_width = shelf.scale.y / 2
-    half_length = shelf.scale.x / 2
-    object_scale = shelf.layers[0].objects[0].scale
-    assert abs(float(clamped.x)) + object_scale.y / 2 <= half_width + 1e-9
-    assert abs(float(clamped.y)) + object_scale.x / 2 <= half_length + 1e-9
-
-
-def test_clamp_to_bounds_keeps_the_object_within_the_spawned_slab(
-    mesh_candidate: MeshCandidate,
-) -> None:
-    """
-    On a non-square footprint, the clamped position must land within the slab
-    :meth:`EGShelf.spawn` actually builds, not merely within whatever bound
-    :meth:`ShelfLayerGroup.clamp_to_bounds` happens to compute.
-
-    ``EGShelf.spawn`` builds each layer's slab as ``Scale(x=shelf.scale.x,
-    y=shelf.scale.y, ...)`` -- the content frame's x-axis spans the shelf's own scale
-    x (its shallow depth) and y spans its own scale y (its wide face), matching
-    :meth:`EGShelf.object_local_pose`, whose own docstring says ``pose.x``/``y``
-    "map straight onto the corpus x/y axes". A clamp that instead bounds ``pose.x`` by
-    ``scale.y`` and ``pose.y`` by ``scale.x`` swaps the two axes: on a
-    shelf shaped like the real sage10k proportions (a wide, shallow face) that lets
-    an object's depth coordinate range far past the slab's actual, shallow depth --
-    landing the object off the front or back of the shelf entirely.
-    """
-    shelf = EGShelf(
-        scale=Scale(x=0.3, y=1.0, z=2.0),
-        layers=[
-            EGShelfLayer(
-                objects=[_object("book_0", 0.0, 0.0)],
-                theme_dominant_type=ObjectType.BOOK,
-            )
-        ],
-        source_ids=[mesh_candidate],
-        theme_dominant_type=ObjectType.BOOK,
-    )
-    shelf.spawn()
-    spawned_layer = shelf.layers[0]
-    group = ShelfLayerGroup(
-        bodies=_object_bodies(spawned_layer),
-        supporting_body=spawned_layer.annotation.root,
-        backend=MagicMock(),
-        shelf=shelf,
-        layer_index=0,
-        corpus=shelf.corpus,
-    )
-
-    shelf.layers[0].objects[0].pose = Pose2D(x=0.4, y=0.0, yaw=0.0)
-    group.clamp_to_bounds()
-
-    clamped = shelf.layers[0].objects[0].pose
-    object_scale = shelf.layers[0].objects[0].scale
-    slab_half_x = shelf.scale.x / 2
-    slab_half_y = shelf.scale.y / 2
-    assert abs(float(clamped.x)) + object_scale.x / 2 <= slab_half_x + 1e-9
-    assert abs(float(clamped.y)) + object_scale.y / 2 <= slab_half_y + 1e-9
-
-
-def test_clamp_to_bounds_moves_the_spawned_body_to_match(
-    mesh_candidate: MeshCandidate,
-) -> None:
-    """
-    Clamping must move the spawned body along with the object's recorded
-    position, not just update the dataclass, so the repaired world and the
-    returned layout stay consistent with each other.
-    """
-    shelf = _shelf([_object("book_0", 0.0, 0.0)], mesh_candidate)
-    shelf.spawn()
-    spawned_layer = shelf.layers[0]
-    group = ShelfLayerGroup(
-        bodies=_object_bodies(spawned_layer),
-        supporting_body=spawned_layer.annotation.root,
-        backend=MagicMock(),
-        shelf=shelf,
-        layer_index=0,
-        corpus=shelf.corpus,
-    )
-
-    shelf.layers[0].objects[0].pose = Pose2D(x=50.0, y=50.0, yaw=0.0)
-    group.clamp_to_bounds()
-
-    origin = _object_bodies(spawned_layer)[0].parent_connection.origin
-    resting_z = origin.to_position().to_np()[2]
-    expected = shelf.object_local_pose(
-        shelf.layers[0].objects[0], resting_z, shelf.corpus
-    )
-    assert origin.to_np() == pytest.approx(expected.to_np())
-
-
-def test_resolver_moves_colliding_object_until_layer_is_collision_free(
-    mesh_candidate: MeshCandidate,
-) -> None:
-    """
-    Two overlapping objects must be resolved by moving one body to a redrawn,
-    separated pose, leaving the layer collision-free under a real-mesh check.
+    Two objects spawned on top of each other must be resolved by dropping one,
+    leaving the layer collision-free under a real-mesh check -- the shrunk resolver no
+    longer moves anything, since its own resampling now happens before spawning (see
+    :class:`~experiments.scene_generation_experiments.pre_spawn_resolver.
+    PreSpawnLayoutResolver`); it only cleans up whatever that pre-spawn approximation
+    still let through.
     """
     shelf = _shelf(
         [_object("book_0", 0.0, 0.0), _object("book_1", 0.0, 0.0)], mesh_candidate
     )
-    separated_layer = EGShelfLayer(
-        objects=[_object("fixed", 0.0, 0.0), _object("moved", 0.0, 1.5)],
-        theme_dominant_type=ObjectType.BOOK,
-    )
+    shelf.spawn()
 
-    with patch(
-        "experiments.scene_generation_experiments.in_world_resolver.probabilistic_backend"
-    ) as backend_factory:
-        backend_factory.return_value.evaluate.return_value = [separated_layer]
-        resolver = InWorldLayoutResolver.for_shelf(shelf, rspn=MagicMock())
-        spawned = resolver.resolve()
+    resolver = InWorldLayoutResolver.for_shelf(shelf)
+    spawned = resolver.resolve()
 
-    assert float(shelf.layers[0].objects[1].pose.x) == pytest.approx(0.0)
-    assert float(shelf.layers[0].objects[1].pose.y) == pytest.approx(1.5)
     assert not _colliding_bodies(spawned)
+    assert len(_object_bodies(spawned.layers[0])) == 1
+    assert resolver.dropped_body_count == 1
 
 
-def test_resolver_moves_object_colliding_with_the_corpus_walls(
+def test_resolver_drops_an_object_colliding_with_the_corpus_walls(
     mesh_candidate: MeshCandidate,
 ) -> None:
     """
-    An object sampled close enough to a small shelf's edge to collide with the
-    corpus wall must be resolved by the repair loop.
-
-    The loop previously only checked collisions between an layer's own
-    objects, never against the shelf's own corpus -- so an object placed
-    inside a wall was never flagged and stayed there.
+    An object sampled close enough to a small shelf's edge to collide with the corpus
+    wall must be dropped, since the shrunk resolver only checks collisions between a
+    layer's own objects and against the shelf's own corpus and no longer moves
+    anything.
     """
     # A layer with room to spare around the object's native footprint, so a
-    # centred object clears the walls but one pushed toward the edge pokes into
-    # the corpus wall.
+    # centred object would clear the walls but one pushed toward the edge pokes
+    # into the corpus wall.
     layer_length = _CHAIR_EXTENTS[0] * 1.4
     layer_width = _CHAIR_EXTENTS[1] * 1.4
     layer = EGShelfLayer(
@@ -607,155 +456,25 @@ def test_resolver_moves_object_colliding_with_the_corpus_walls(
         source_ids=[mesh_candidate],
         theme_dominant_type=ObjectType.BOOK,
     )
-    centered_layer = EGShelfLayer(
-        objects=[_object("moved", 0.0, 0.0)],
-        theme_dominant_type=ObjectType.BOOK,
-    )
+    shelf.spawn()
 
-    with patch(
-        "experiments.scene_generation_experiments.in_world_resolver.probabilistic_backend"
-    ) as backend_factory:
-        backend_factory.return_value.evaluate.return_value = [centered_layer]
-        resolver = InWorldLayoutResolver.for_shelf(shelf, rspn=MagicMock())
-        spawned = resolver.resolve()
+    resolver = InWorldLayoutResolver.for_shelf(shelf)
+    spawned = resolver.resolve()
 
-    corpus_body = spawned.world.get_semantic_annotations_by_type(Cabinet)[0].root
-    detector = FCLCollisionDetector(_world=spawned.world)
-    matrix = CollisionMatrix(
-        collision_checks={
-            CollisionCheck(body_a=corpus_body, body_b=body, distance=0.0)
-            for body in _object_bodies(spawned.layers[0]).values()
-        }
-    )
-    assert not detector.check_collisions(matrix).any()
-
-
-def test_resolver_falls_back_to_relaxed_query_when_neighbour_evidence_has_no_solution(
-    mesh_candidate: MeshCandidate,
-) -> None:
-    """
-    When the neighbour-conditioned resample query has no support in the
-    fitted circuit -- a real failure mode once an object's pose has drifted
-    through several repair passes -- the resolver must retry without the
-    fixed neighbour's evidence instead of letting NoSolutionFound abort the
-    whole repair.
-    """
-    shelf = _shelf(
-        [_object("book_0", 0.0, 0.0), _object("book_1", 0.0, 0.0)], mesh_candidate
-    )
-    relaxed_layer = EGShelfLayer(
-        objects=[_object("moved", 0.0, 1.5)],
-        theme_dominant_type=ObjectType.BOOK,
-    )
-
-    with patch(
-        "experiments.scene_generation_experiments.in_world_resolver.probabilistic_backend"
-    ) as backend_factory:
-        backend_factory.return_value.evaluate.side_effect = [
-            NoSolutionFound(expression=MagicMock(), found_number=0),
-            [relaxed_layer],
-        ]
-        resolver = InWorldLayoutResolver.for_shelf(shelf, rspn=MagicMock())
-        spawned = resolver.resolve()
-
-    assert backend_factory.return_value.evaluate.call_count == 2
-    assert float(shelf.layers[0].objects[1].pose.x) == pytest.approx(0.0)
-    assert float(shelf.layers[0].objects[1].pose.y) == pytest.approx(1.5)
-    assert not _colliding_bodies(spawned)
-
-
-def test_resolver_drops_an_object_with_no_free_space_left_instead_of_crashing(
-    mesh_candidate: MeshCandidate,
-) -> None:
-    """
-    When a layer's remaining free space is exhausted -- the objects already there,
-    bloated, cover the whole surface -- a redraw's truncated query has no support at
-    all and raises NoSolutionFound for both the neighbour-conditioned and the relaxed
-    query. The resolver must treat the member as still in violation and let the
-    existing stuck-pass drop machinery remove it, rather than letting the exception
-    abort the whole repair.
-    """
-    shelf = _shelf(
-        [_object("book_0", 0.0, 0.0), _object("book_1", 0.0, 0.0)], mesh_candidate
-    )
-
-    with patch(
-        "experiments.scene_generation_experiments.in_world_resolver.probabilistic_backend"
-    ) as backend_factory:
-        backend_factory.return_value.evaluate.side_effect = NoSolutionFound(
-            expression=MagicMock(), found_number=0
-        )
-        resolver = InWorldLayoutResolver.for_shelf(
-            shelf, rspn=MagicMock(), max_passes=3
-        )
-        spawned = resolver.resolve()
-
-    assert not _colliding_bodies(spawned)
-    assert set(_object_bodies(spawned.layers[0])) == {0}
+    assert _object_bodies(spawned.layers[0]) == {}
     assert resolver.dropped_body_count == 1
 
 
-def test_resolver_drops_objects_it_cannot_separate(
+def test_resolver_leaves_a_collision_free_shelf_untouched(
     mesh_candidate: MeshCandidate,
 ) -> None:
-    """
-    When resampling never separates the objects, the resolver must give up
-    moving them and drop the offenders, returning a collision-free layout rather
-    than spinning forever or failing the whole sample.
-    """
     shelf = _shelf(
-        [_object("book_0", 0.0, 0.0), _object("book_1", 0.0, 0.0)], mesh_candidate
+        [_object("book_0", 0.0, 0.0), _object("book_1", 1.5, 0.0)], mesh_candidate
     )
-    still_overlapping = EGShelfLayer(
-        objects=[_object("fixed", 0.0, 0.0), _object("moved", 0.0, 0.0)],
-        theme_dominant_type=ObjectType.BOOK,
-    )
+    shelf.spawn()
 
-    with patch(
-        "experiments.scene_generation_experiments.in_world_resolver.probabilistic_backend"
-    ) as backend_factory:
-        backend_factory.return_value.evaluate.return_value = [still_overlapping]
-        resolver = InWorldLayoutResolver.for_shelf(
-            shelf, rspn=MagicMock(), max_passes=3
-        )
-        spawned = resolver.resolve()
+    resolver = InWorldLayoutResolver.for_shelf(shelf)
+    spawned = resolver.resolve()
 
-    assert not _colliding_bodies(spawned)
-    assert len(_object_bodies(spawned.layers[0])) < 2
-
-
-def test_resolver_stops_retrying_a_persistently_stuck_object_before_max_passes(
-    mesh_candidate: MeshCandidate,
-) -> None:
-    """
-    An object whose redrawn pose collides again every single time must stop
-    being resampled once it has shown no progress for stuck_after_passes
-    consecutive passes, rather than being resampled -- an expensive RSPN
-    grounding call each time -- for the full max_passes budget.
-
-    Observed on real arbitrary-shelf samples: a persistently colliding
-    object kept drawing fresh, independent poses that landed in another
-    collision every time, each redraw costing seconds of grounding and
-    burning through dozens of passes on one object that was never going to
-    resolve.
-    """
-    shelf = _shelf(
-        [_object("book_0", 0.0, 0.0), _object("book_1", 0.0, 0.0)], mesh_candidate
-    )
-    still_overlapping = EGShelfLayer(
-        objects=[_object("fixed", 0.0, 0.0), _object("moved", 0.0, 0.0)],
-        theme_dominant_type=ObjectType.BOOK,
-    )
-
-    with patch(
-        "experiments.scene_generation_experiments.in_world_resolver.probabilistic_backend"
-    ) as backend_factory:
-        backend_factory.return_value.evaluate.return_value = [still_overlapping]
-        resolver = InWorldLayoutResolver.for_shelf(
-            shelf, rspn=MagicMock(), max_passes=10, stuck_after_passes=3
-        )
-        spawned = resolver.resolve()
-
-    assert not _colliding_bodies(spawned)
-    assert len(_object_bodies(spawned.layers[0])) < 2
-    assert backend_factory.return_value.evaluate.call_count == 3
+    assert set(_object_bodies(spawned.layers[0])) == {0, 1}
+    assert resolver.dropped_body_count == 0
