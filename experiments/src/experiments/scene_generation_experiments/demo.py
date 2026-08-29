@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import dataclasses
+from collections import defaultdict
 from typing import List
 
 import numpy as np
@@ -9,10 +10,9 @@ from coraplex.robot_plans.actions.base import ActionDescription
 import math
 import random
 import time
-from dataclasses import dataclass
 from pathlib import Path
 from coraplex.datastructures.dataclasses import Context
-from coraplex.datastructures.enums import Arms, ApproachDirection, VerticalAlignment
+from coraplex.datastructures.enums import Arms
 from coraplex.datastructures.grasp import GraspDescription
 from coraplex.execution_environment import simulated_robot
 from coraplex.plans.factories import execute_single, sequential
@@ -26,6 +26,9 @@ from experiments.scene_generation_experiments.exceptions import (
     NoFittingObjectError,
     UnreachableShelfError,
 )
+from experiments.scene_generation_experiments.rspn_model_storage import (
+    TrainedArbitraryShelfModel,
+)
 from experiments.scene_generation_experiments.shelf_placement import (
     layer_named,
     mode_query,
@@ -37,7 +40,7 @@ from experiments.scene_generation_experiments.shelf_generation import (
     VisualizationBackend,
 )
 from krrood.entity_query_language.backends import ProbabilisticBackend
-from krrood.entity_query_language.factories import an, entity, variable
+from krrood.entity_query_language.factories import a, an, entity, variable
 from experiments.scene_generation_experiments.processed_database import (
     load_objects_of_types,
     _processed_database_session,
@@ -63,6 +66,7 @@ from semantic_digital_twin.robots.robot_parts import AbstractRobot
 from semantic_digital_twin.scene_generation.scene_schema import (
     EGObject2D,
     EGShelf,
+    MeshCandidate,
     ObjectType,
 )
 from semantic_digital_twin.semantic_annotations.mixins import HasRootBody
@@ -235,7 +239,7 @@ class ShelfTidyingAction(ActionDescription):
     def _action_plan(self) -> PlanNode:
         return sequential(
             [
-                self.move_to_reach_book(),
+                self.move_to_reach_object(),
                 PickUpAction(
                     object_designator=object_annotation(self.context.world, self.obj),
                     arm=self.arm,
@@ -252,13 +256,13 @@ class ShelfTidyingAction(ActionDescription):
             self.context,
         )
 
-    def move_to_reach_book(self) -> MoveToReach:
+    def move_to_reach_object(self) -> MoveToReach:
         """
         Build a move-to-reach action for a pose, clear of the table, from which the
-        robot could pick up *book*.
+        robot could pick up :attr:`obj`.
 
         The standing pose is a fixed standoff outside the table's near edge -- the side
-        the pre-grasp pose below already approaches *book* from -- and is checked
+        the pre-grasp pose below already approaches :attr:`obj` from -- and is checked
         against *free_space* before use.
 
         :return: A concrete move-to-reach action.
@@ -342,6 +346,44 @@ class ShelfTidyingAction(ActionDescription):
         )
 
 
+def frequent_types_for_demo_object(
+    trained_model: TrainedArbitraryShelfModel,
+) -> set[ObjectType]:
+    """
+    Find object types frequent enough to be both a trained shelf theme and a trained
+    held-object type.
+
+    ``ObjectType.OTHER`` is the coarsening sentinel for whatever training left out, not
+    a real category to hold or theme a shelf around, so it is excluded.
+
+    :param trained_model: The fitted shelf model whose frequent-type sets to draw from.
+    :return: Object types usable as both *trained_model*'s theme and held-object type.
+    """
+    return (
+        trained_model.frequent_object_types & trained_model.frequent_theme_types
+    ) - {ObjectType.OTHER}
+
+
+def group_standing_candidates_by_type(
+    candidates: list[MeshCandidate],
+) -> dict[ObjectType, list[MeshCandidate]]:
+    """
+    Group *candidates* whose tallest native extent is their z extent by object type.
+
+    Standing this way is the orientation a held-object slot's mesh is placed in.
+
+    :param candidates: Mesh candidates to filter and group.
+    :return: Standing candidates grouped by object type; a type with none is absent.
+    """
+    grouped = defaultdict(list)
+    for candidate in candidates:
+        if candidate.native_extents is None:
+            continue
+        if candidate.native_extents[2] == max(candidate.native_extents):
+            grouped[candidate.object_type].append(candidate)
+    return grouped
+
+
 if __name__ == "__main__":
     # DB Connection
     session = _processed_database_session()
@@ -360,11 +402,23 @@ if __name__ == "__main__":
         model_path = Path(__file__).parent / "models" / "arbitrary_shelf_rspn.json"
         trained_model = _load_or_train_shelf_model(model_path, session)
 
-        # create query
-        query = build_theme_shelf_query(
-            ObjectType.BOOK,
-            [3, 3, 3],
+        object_type_pool = frequent_types_for_demo_object(trained_model)
+        object_candidates = _get_source_ids_for_objects(
+            load_objects_of_types(session, object_type_pool), object_type=None
         )
+        candidates_by_type = group_standing_candidates_by_type(object_candidates)
+        if not candidates_by_type:
+            raise ValueError(
+                "No frequent object type has a locally cached mesh standing tall "
+                "enough to place."
+            )
+        demo_object_type = random.choice(
+            sorted(candidates_by_type, key=lambda object_type: object_type.value)
+        )
+        standing_candidates = candidates_by_type[demo_object_type]
+
+        # create query
+        query = build_theme_shelf_query(..., [3, 3, 3])
 
         # SHELF
         spawned_shelf = generate_shelf_with_arbitrary_objects(
@@ -399,74 +453,66 @@ if __name__ == "__main__":
             floor.add_object(table)
             floor.add_object(spawned_shelf.annotation)
 
-        book_candidates = _get_source_ids_for_objects(
-            load_objects_of_types(session, {ObjectType.BOOK})
-        )
-        book_candidates_standing = [
-            candidate
-            for candidate in book_candidates
-            if candidate.native_extents is not None
-            and candidate.native_extents[2] == max(candidate.native_extents)
-        ]
-        # The book has to be one this shelf could take back: its layers are spaced
-        # evenly across the drawn corpus, so a four-layer shelf leaves under 0.2 m
-        # above each slab, while a standing book scan is 0.25 m tall on average.
+        # The held object has to be one this shelf could take back: its layers are
+        # spaced evenly across the drawn corpus, so a four-layer shelf leaves under
+        # 0.2 m above each slab.
         layer_geometries = spawned_shelf.layer_geometries()
         tallest_layer_room = max(
             geometry.maximum_object_extents.z for geometry in layer_geometries
         )
-        book_candidates_fitting = [
+        fitting_candidates = [
             candidate
-            for candidate in book_candidates_standing
+            for candidate in standing_candidates
             if candidate.native_extents[2] <= tallest_layer_room
         ]
-        if not book_candidates_fitting:
+        if not fitting_candidates:
             raise NoFittingObjectError(
-                object_type=ObjectType.BOOK.value,
+                object_type=demo_object_type.value,
                 shortest_height=min(
-                    candidate.native_extents[2]
-                    for candidate in book_candidates_standing
+                    candidate.native_extents[2] for candidate in standing_candidates
                 ),
                 layer_rooms=[
                     geometry.maximum_object_extents.z for geometry in layer_geometries
                 ],
             )
-        book_candidate = random.choice(book_candidates_fitting)
-        book_extents = book_candidate.native_extents
+        object_candidate = random.choice(fitting_candidates)
+        object_extents = object_candidate.native_extents
         # EGShelf.object_local_pose maps an object's own scale.x/y straight onto the
         # shelf corpus's x/y axes at yaw 0, and Cabinet.hole_direction is along the
-        # corpus's x axis -- so a book placed at yaw 0 shows its spine to the shelf's
-        # open face only if its thicker (page-width) extent is on scale.x (matching
-        # the corpus's depth) and its thinner (spine-width) extent is on scale.y
-        # (matching the corpus's face), regardless of which native extent is which.
-        book_thin_extent = min(book_extents[0], book_extents[1])
-        book_thick_extent = max(book_extents[0], book_extents[1])
+        # corpus's x axis -- so at yaw 0 the object's thinner extent faces the shelf's
+        # open face only if it is on scale.y (matching the corpus's face), with the
+        # thicker extent on scale.x (matching the corpus's depth), regardless of which
+        # native extent is which.
+        object_thin_extent = min(object_extents[0], object_extents[1])
+        object_thick_extent = max(object_extents[0], object_extents[1])
         table_edge_margin = 0.02
-        book = EGObject2D(
-            object_type=ObjectType.BOOK,
-            scale=Scale(x=book_thick_extent, y=book_thin_extent, z=book_extents[2]),
+        held_object = EGObject2D(
+            object_type=demo_object_type,
+            scale=Scale(
+                x=object_thick_extent, y=object_thin_extent, z=object_extents[2]
+            ),
             pose=Pose2D(),
-            source_id=book_candidate.source_id,
-            name="demo_book",
+            source_id=object_candidate.source_id,
+            name="demo_object",
         )
-        book_body = book.spawn(
+        held_object_body = held_object.spawn(
             world,
             parent=table.root,
             parent_T_self=HomogeneousTransformationMatrix.from_xyz_rpy(
                 x=-0.31, y=0.15, z=table_scale.z / 2, reference_frame=table.root
             ),
-            mesh_path=book_candidate.scene_dir,
+            mesh_path=object_candidate.scene_dir,
         )
 
         context = Context.from_world(world, query_backend=ProbabilisticBackend())
         # The fitted circuit's own yaw preference is close to uniform (see
         # project_rspn_placement_constraints memory), so its mode search cannot be
-        # trusted to pick a physically sensible orientation -- pin the book spine-out
-        # (yaw 0, per the scale convention set above) instead of asking it.
+        # trusted to pick a physically sensible orientation -- pin the thin extent
+        # outward (yaw 0, per the scale convention set above) instead of asking it.
         placed_object, layer_name = mode_query(
             spawned_shelf,
             trained_model.relational_probabilistic_circuit,
-            book,
+            held_object,
             held_object_yaw=0.0,
         )
         goal_layer = layer_named(spawned_shelf, layer_name)
@@ -487,25 +533,51 @@ if __name__ == "__main__":
             world, floor, context.robot, standing_pose, free_space
         )
 
-        arm = Arms.LEFT
-        grasp_description = GraspDescription(
-            approach_direction=ApproachDirection.FRONT,
-            vertical_alignment=VerticalAlignment.NoAlignment,
-            end_effector=context.robot.end_effector,
-            rotate_gripper=False,
-        )
-        shelf_tidying = ShelfTidyingAction(
+        # arm and grasp_description are left underspecified (`...`) below and drawn by
+        # a fully factorized ProbabilisticBackend -- literal guessing, to be compared
+        # against a backend trained on collected outcomes later.
+        #
+        # layer_name, shelf and placed_obj are left out of the query and set on the
+        # result afterwards instead:
+        # - layer_name is a plain str, which UnderspecifiedParameters can neither treat
+        #   as a random_events variable (only bool/int/float/Enum are) nor decompose
+        #   through a DAO (str has none) -- pinning it raises NoDAOFoundError.
+        # - shelf recurses into EGShelfAggregations.layer_count, an aggregation
+        #   statistic whose symbolic type krrood currently fails to resolve (comes back
+        #   None) -- pinning it raises TypeError in random_events.variable_from_name_
+        #   and_type.
+        # - placed_obj recurses into Pose2D.bearing, a computed property whose mapped-
+        #   variable evaluation currently raises StopIteration inside
+        #   MappedVariable.apply_mapping_on_external_root.
+        # Both are bugs in krrood's generic literal-decomposition path, not specific to
+        # this query; pinning the remaining fields below still exercises it and each
+        # decomposes through its DAO, which only registers once its package's
+        # generated ormatic_interface module has been imported somewhere in the
+        # process.
+        import coraplex.orm.ormatic_interface  # noqa: F401
+        import semantic_digital_twin.orm.ormatic_interface  # noqa: F401
+
+        grasp_backend = ProbabilisticBackend()
+        shelf_tidying_query = a(ShelfTidyingAction)(
             floor=floor,
             table=table,
-            obj=book_body,
+            obj=held_object_body,
             obj_goal_pose=object_goal_pose_in_map,
-            arm=arm,
-            grasp_description=grasp_description,
+            arm=...,
+            grasp_description=a(GraspDescription)(
+                approach_direction=...,
+                vertical_alignment=...,
+                end_effector=context.robot.end_effector,
+                rotate_gripper=False,
+            ),
             navigation_goals=navigation_goals,
-            shelf=spawned_shelf,
-            layer_name=layer_name,
-            placed_obj=placed_object,
+            shelf=None,
+            placed_obj=None,
         )
+        shelf_tidying = next(iter(grasp_backend.evaluate(shelf_tidying_query)))
+        shelf_tidying.layer_name = layer_name
+        shelf_tidying.shelf = spawned_shelf
+        shelf_tidying.placed_obj = placed_object
 
         try:
             with simulated_robot():
