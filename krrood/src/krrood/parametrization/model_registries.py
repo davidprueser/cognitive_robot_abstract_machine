@@ -54,6 +54,54 @@ class DictRegistry(ModelRegistry):
         return self.models[parameters.statement._expression.selected_variable._type_]
 
 
+_ALTERNATIVE_MAPPING_ATTRIBUTE_ALIASES: tuple[tuple[str, str], ...] = (
+    (".bearing", ".yaw"),
+    (".position.x", ".x"),
+    (".position.y", ".y"),
+)
+"""
+Suffix rewrites from a circuit variable's fit-time name back to the domain attribute
+name a query built directly against the domain class uses for the same field.
+
+Fitting always goes through a type's DAO representation (JPT needs plain numeric
+leaves, which a symbolic, ``casadi``-backed type like
+:class:`~semantic_digital_twin.spatial_types.spatial_types.Pose2D` is not), and a
+composite field whose DAO representation is an
+:class:`~semantic_digital_twin.orm.model.AlternativeMapping` -- ``Pose2D``'s ``yaw`` is
+stored as ``Pose2DMapping.bearing``, ``x``/``y`` nested a level deeper under
+``position`` -- is therefore fit under names a query naming that field through the
+domain class's own properties never produces. Without this rewrite such a field's
+circuit variable is left under its fit-time name after grounding: a query
+condition/truncation referencing it by its own domain name silently targets an
+unconnected variable that never constrains anything, and reconstructing an instance
+from a sample never finds a matching slot to write the sampled value into (see
+:meth:`~krrood.parametrization.parameterizer.UnderspecifiedParameters.construct_instance_from_model_sample`),
+leaving the field unset.
+
+.. note::
+    Scoped to the ``Pose2D``/``Point2`` mappings this project's spatial queries
+    actually hit, not a general :class:`AlternativeMapping` field-name resolver -- a
+    type registering a new ``AlternativeMapping`` with a differently-named field needs
+    an entry added here too.
+"""
+
+
+def _alternative_mapping_domain_name(qualified_name: str) -> str:
+    """
+    Rewrite a circuit variable's fit-time (DAO/``AlternativeMapping``) name to the
+    domain attribute name a query built against the domain class would use for the
+    same field, if :data:`_ALTERNATIVE_MAPPING_ATTRIBUTE_ALIASES` names a rewrite for
+    it.
+
+    :param qualified_name: The circuit variable's fit-time name.
+    :return: The domain-side name, or *qualified_name* unchanged if no rewrite applies.
+    """
+    for fit_time_suffix, domain_suffix in _ALTERNATIVE_MAPPING_ATTRIBUTE_ALIASES:
+        if qualified_name.endswith(fit_time_suffix):
+            return qualified_name[: -len(fit_time_suffix)] + domain_suffix
+    return qualified_name
+
+
 @dataclass
 class RelationalCircuitRegistry(ModelRegistry):
     """
@@ -72,9 +120,22 @@ class RelationalCircuitRegistry(ModelRegistry):
         class_prefix = self.relational_probabilistic_circuit.class_.__name__
         rename_map = {}
         for circuit_var in grounded.variables:
-            qualified_name = get_class_and_attribute_name(
-                class_prefix, circuit_var.name
-            )
+            # A circuit variable mounted from a nested exchangeable part (e.g. an
+            # EGShelfLayer's "objects") already carries its own full, class-qualified
+            # path by the time grounding is done with it (see
+            # _rename_variables_with_part_prefix in the rspn module) -- prefixing it
+            # again here would double it (e.g. "EGShelfLayer.EGShelfLayer.objects[0]
+            # .pose.bearing"), which can never match anything in parameters.variables.
+            # Only a variable straight off the queried class's own circuit -- never
+            # renamed with a part prefix -- still needs class_prefix added.
+            if circuit_var.name.startswith(f"{class_prefix}."):
+                qualified_name = circuit_var.name
+            else:
+                qualified_name = get_class_and_attribute_name(
+                    class_prefix, circuit_var.name
+                )
+            if qualified_name not in parameters.variables:
+                qualified_name = _alternative_mapping_domain_name(qualified_name)
             if qualified_name in parameters.variables:
                 rename_map[circuit_var] = parameters.variables[qualified_name]
         grounded.update_variables(rename_map)

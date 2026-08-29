@@ -1038,7 +1038,9 @@ class HasSupportingSurface(IsStorageSpace):
         else:
             return uniform_measure_of_event(truncated_event_2d)
 
-    def calculate_free_space(self, object_bloat: float = 0.0) -> GraphOfBoundingBoxes:
+    def calculate_free_space(
+        self, object_bloat: float = 0.0
+    ) -> VolumetricGraphOfBoundingBoxes:
         """
         Compute the free space on the supporting surface as a graph of bounding boxes,
         excluding the footprint of every object currently on the surface.
@@ -1053,8 +1055,15 @@ class HasSupportingSurface(IsStorageSpace):
         # Imported here rather than at module level to avoid a circular import:
         # GraphOfBoundingBoxes indirectly imports semantic_annotations, which imports
         # this module.
+        #
+        # VolumetricGraphOfBoundingBoxes, not the abstract GraphOfBoundingBoxes: the
+        # footprints built below are extended to an infinite z-column
+        # (_object_footprint_as_infinite_column), which is what
+        # VolumetricGraphOfBoundingBoxes.free_space_from_bounding_boxes expects --
+        # GraphOfBoundingBoxes itself declares no free_space_from_bounding_boxes at
+        # all, only its Volumetric/Planar subclasses do.
         from semantic_digital_twin.world_description.graph_of_convex_sets.boxes import (
-            GraphOfBoundingBoxes,
+            VolumetricGraphOfBoundingBoxes,
         )
 
         self.infer_objects_on_surface()
@@ -1070,15 +1079,19 @@ class HasSupportingSurface(IsStorageSpace):
             self.supporting_surface,
         )
 
-        free_space_event = GraphOfBoundingBoxes.free_space_from_bounding_boxes(
-            object_footprints, search_space.event
+        free_space_event = (
+            VolumetricGraphOfBoundingBoxes.free_space_from_bounding_boxes(
+                object_footprints, search_space.event
+            )
         )
 
-        free_space_graph = GraphOfBoundingBoxes(
+        free_space_graph = VolumetricGraphOfBoundingBoxes(
             world=self._world, search_space=search_space
         )
         for box in BoundingBoxCollection.from_event(
-            reference_frame=self.supporting_surface, event=free_space_event
+            box_type=VolumetricBoundingBox,
+            reference_frame=self.supporting_surface,
+            event=free_space_event,
         ):
             free_space_graph.add_node(box)
         free_space_graph.calculate_connectivity()

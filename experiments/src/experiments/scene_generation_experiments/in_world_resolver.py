@@ -6,7 +6,7 @@ from itertools import combinations
 
 from experiments.scene_generation_experiments.exceptions import LayoutResolutionError
 from experiments.scene_generation_experiments.rspn_sampling import (
-    build_layer_query,
+    build_free_space_conditioned_layer_query,
     evaluate_first_supported,
     probabilistic_backend,
 )
@@ -218,36 +218,57 @@ class ShelfLayerGroup:
             )
 
     def resample_and_move(self, indices: set[int]) -> None:
+        """
+        Redraw each of *indices*' poses, truncated to the free space its layer's
+        surface actually has left, and move the corresponding body to match.
+
+        A layer's object slots are independent in the fitted circuit, so an
+        unconditioned redraw has no way to avoid a neighbour on its own -- only
+        clearing the space it is drawn from does that (see
+        :func:`~experiments.scene_generation_experiments.rspn_sampling.build_free_space_conditioned_layer_query`).
+        The free space is computed from the *world*, not the query, so members are
+        redrawn one at a time rather than all at once: each newly placed body is
+        real geometry the next member's free-space calculation already sees, which is
+        what keeps two members of the same call from landing on each other. A joint,
+        one-shot draw could not offer that guarantee between its own free slots.
+
+        :param indices: Indices of this group's members to redraw.
+        """
         layer = self.shelf.layers[self.layer_index]
         fixed_objects = [
             object_2d
             for object_index, object_2d in enumerate(layer.objects)
             if object_index not in indices and object_index in self.bodies
         ]
-        resampled_indices = sorted(indices)
-        resampled_objects = [layer.objects[index] for index in resampled_indices]
 
-        new_layer = evaluate_first_supported(
-            self.backend,
-            build_layer_query(
-                layer.theme_dominant_type,
-                fixed_objects,
-                len(resampled_objects),
-            ),
-            # build_layer_query(
-            #     layer.theme_dominant_type, free_count=len(resampled_objects)
-            # ),
-        )
-        redrawn_objects = new_layer.objects[-len(resampled_objects) :]
+        for index in sorted(indices):
+            object_2d = layer.objects[index]
+            object_bloat = max(object_2d.scale.x, object_2d.scale.y) / 2
+            free_space_event = layer.annotation.calculate_free_space(
+                object_bloat=object_bloat
+            ).free_space_event
 
-        for object_index, redrawn in zip(resampled_indices, redrawn_objects):
-            object_2d = layer.objects[object_index]
+            redrawn_layer = evaluate_first_supported(
+                self.backend,
+                build_free_space_conditioned_layer_query(
+                    layer.theme_dominant_type,
+                    fixed_objects,
+                    object_2d,
+                    free_space_event,
+                ),
+                build_free_space_conditioned_layer_query(
+                    layer.theme_dominant_type, [], object_2d, free_space_event
+                ),
+            )
+            redrawn = redrawn_layer.objects[-1]
+
             object_2d.pose = redrawn.pose
-            body = self.bodies[object_index]
+            body = self.bodies[index]
             resting_z = body.parent_connection.origin.to_position().to_np()[2]
             body.parent_connection.origin = self.shelf.object_local_pose(
                 object_2d, resting_z, self.corpus
             )
+            fixed_objects.append(object_2d)
 
 
 @dataclass

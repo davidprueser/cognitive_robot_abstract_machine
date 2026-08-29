@@ -14,6 +14,7 @@ from probabilistic_model.probabilistic_circuit.relational.rspn import (
 from probabilistic_model.probabilistic_circuit.rx.probabilistic_circuit import (
     ProbabilisticCircuit,
 )
+from random_events.product_algebra import Event
 from random_events.variable import Variable
 
 from experiments.scene_generation_experiments.exceptions import (
@@ -33,6 +34,9 @@ from semantic_digital_twin.scene_generation.scene_schema import (
 )
 from semantic_digital_twin.spatial_types import Pose2D
 from semantic_digital_twin.world_description.geometry import Scale
+from semantic_digital_twin.world_description.graph_of_convex_sets.base import (
+    translate_free_space_to_where_condition,
+)
 
 
 def probabilistic_backend(rspn: RelationalProbabilisticCircuit) -> ProbabilisticBackend:
@@ -57,13 +61,48 @@ def _fixed_object_slot(object_2d: EGObject2D):
     The object_type is left underspecified to avoid enum-to-float conversion
     issues in the RSPN sampling backend.
 
+    Pose is pinned field by field rather than as one ``Pose2D`` literal: a whole-object
+    literal for a type the ORM represents through an
+    :class:`~semantic_digital_twin.orm.model.AlternativeMapping` (``Pose2D``'s ``yaw``
+    is stored as ``bearing``, see
+    :class:`~semantic_digital_twin.orm.model.Pose2DMapping`) fails to condition at all:
+    the plain-attribute lookup ``hasattr(pose, "bearing")`` the parametrizer falls back
+    to for an external literal never finds it, since only ``Pose2DMapping`` -- not
+    ``Pose2D`` itself -- carries that name, and grounding then raises ``StopIteration``
+    instead of conditioning. Pinning ``x``/``y``/``yaw`` individually conditions on the
+    same evidence through plain float literals, which need no such mapping.
+
     :param object_2d: The object whose pose and scale are fixed.
     :return: A partially-underspecified EGObject2D holding *object_2d*'s pose.
     """
     return a(EGObject2D)(
         object_type=...,
         scale=object_2d.scale,
-        pose=object_2d.pose,
+        pose=a(Pose2D)(
+            x=float(object_2d.pose.x),
+            y=float(object_2d.pose.y),
+            yaw=float(object_2d.pose.yaw),
+        ),
+        source_id=None,
+    )
+
+
+def _pose_free_object_slot(object_2d: EGObject2D):
+    """
+    Build an EGObject2D query slot whose scale is pinned to *object_2d* as
+    conditioning evidence and whose pose is left fully underspecified.
+
+    Unlike :func:`free_object_slot`, this is for redrawing an object that is already
+    on a layer: its scale (and therefore which mesh it needs) must survive the
+    redraw unchanged, only where it stands is being asked for again.
+
+    :param object_2d: The object whose scale is pinned.
+    :return: A partially-underspecified EGObject2D slot with a free pose.
+    """
+    return a(EGObject2D)(
+        object_type=...,
+        scale=object_2d.scale,
+        pose=a(Pose2D)(x=..., y=..., yaw=...),
         source_id=None,
     )
 
@@ -121,6 +160,53 @@ def build_layer_query(
         relative_height=...,
         vertical_clearance=...,
     )
+
+
+def build_free_space_conditioned_layer_query(
+    theme_dominant_type: ObjectType,
+    fixed_objects: Sequence[EGObject2D],
+    held_object: EGObject2D,
+    free_space_event: Event,
+):
+    """
+    Build an EGShelfLayer query with exactly one free slot -- for *held_object* --
+    whose pose is truncated to *free_space_event* rather than left unconstrained.
+
+    A layer's object slots are independent in the fitted circuit -- pinning
+    *fixed_objects*' poses as evidence changes nothing about where an independent
+    slot's own redraw lands (see
+    :func:`~experiments.scene_generation_experiments.shelf_placement._layer_query`,
+    which relies on the same fact to place a *new* held object). *fixed_objects* is
+    still passed as evidence here, because it is what keeps the layer's own object
+    count correct for the circuit, but it is :func:`translate_free_space_to_where_condition`
+    truncating the free slot's own pose -- not the neighbour evidence -- that keeps a
+    redraw off of them.
+
+    :param theme_dominant_type: The shelf's dominant object type, held as evidence.
+    :param fixed_objects: Objects whose full pose is held as evidence.
+    :param held_object: The object being resampled; its scale is pinned as evidence,
+        its pose is drawn from the truncated distribution.
+    :param free_space_event: The region *held_object*'s pose is truncated to, e.g.
+        from :meth:`~semantic_digital_twin.semantic_annotations.mixins.calculate_free_space`.
+    :return: A where-conditioned EGShelfLayer query ready for
+        :class:`ProbabilisticBackend` evaluation.
+    """
+    held_slot = _pose_free_object_slot(held_object)
+    query = a(EGShelfLayer)(
+        objects=[_fixed_object_slot(object_2d) for object_2d in fixed_objects]
+        + [held_slot],
+        theme_dominant_type=theme_dominant_type,
+        height_above_shelf_base=...,
+        relative_height=...,
+        vertical_clearance=...,
+    )
+    query.resolve()
+    query.where(
+        translate_free_space_to_where_condition(
+            free_space_event, held_slot.variable.pose
+        )
+    )
+    return query
 
 
 def evaluate_first_supported(backend: ProbabilisticBackend, *queries):
