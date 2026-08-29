@@ -5,6 +5,7 @@ from dataclasses import dataclass
 
 import numpy as np
 from krrood.entity_query_language.core.variable import Variable
+from krrood.entity_query_language.exceptions import NoSolutionFound
 from krrood.entity_query_language.operators.core_logical_operators import (
     OR,
     AND,
@@ -164,8 +165,13 @@ def translate_free_space_to_where_condition(
 
     :param free_space: The free space to parse
     :param variable: The variable whose `x` and `y` properties are constrained
+    :raises NoSolutionFound: If *free_space* holds no room at all, e.g. because the
+        objects already on a surface, bloated, cover it completely.
     :return: The where condition describing the constraints of X and Y variables
     """
+    if free_space.is_empty():
+        raise NoSolutionFound(variable)
+
     x_var = variable.x
     y_var = variable.y
 

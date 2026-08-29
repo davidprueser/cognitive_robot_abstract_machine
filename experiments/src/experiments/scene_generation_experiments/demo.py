@@ -37,6 +37,7 @@ from experiments.scene_generation_experiments.shelf_generation import (
     VisualizationBackend,
 )
 from krrood.entity_query_language.backends import ProbabilisticBackend
+from krrood.entity_query_language.factories import an, entity, variable
 from experiments.scene_generation_experiments.processed_database import (
     load_objects_of_types,
     _processed_database_session,
@@ -64,6 +65,7 @@ from semantic_digital_twin.scene_generation.scene_schema import (
     EGShelf,
     ObjectType,
 )
+from semantic_digital_twin.semantic_annotations.mixins import HasRootBody
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Cabinet,
     Floor,
@@ -108,6 +110,31 @@ def floor_point(world: World, point: Point3, floor: Floor) -> Point3:
         0.0,
         reference_frame=floor.supporting_surface,
     )
+
+
+def object_annotation(world: World, body: Body) -> HasRootBody:
+    """
+    Resolve the semantic annotation *body* was spawned with.
+
+    :meth:`~semantic_digital_twin.scene_generation.scene_schema.EGObject2D.spawn`
+    registers a :class:`~semantic_digital_twin.semantic_annotations.natural_language.
+    NaturalLanguageWithTypeDescription` for the body it creates, but hands the plain
+    :class:`Body` back rather than that annotation. Actions such as
+    :class:`~coraplex.robot_plans.actions.core.pick_up.PickUpAction` are typed against
+    the annotation, not the body it wraps, so a caller holding only the body needs
+    this to look the annotation back up.
+
+    :param world: The world *body* was spawned into.
+    :param body: The body to find the annotation of.
+    :return: The body's own semantic annotation.
+    """
+    return an(
+        entity(
+            semantic_annotation := variable(
+                HasRootBody, domain=world.semantic_annotations
+            )
+        ).where(semantic_annotation.root == body)
+    ).first()
 
 
 def robot_shelf_standing_point(
@@ -210,7 +237,7 @@ class ShelfTidyingAction(ActionDescription):
             [
                 self.move_to_reach_book(),
                 PickUpAction(
-                    object_designator=self.obj,
+                    object_designator=object_annotation(self.context.world, self.obj),
                     arm=self.arm,
                     grasp_description=self.grasp_description,
                 ),
@@ -336,7 +363,7 @@ if __name__ == "__main__":
         # create query
         query = build_theme_shelf_query(
             ObjectType.BOOK,
-            [3, 3],
+            [3, 3, 3],
         )
 
         # SHELF
@@ -373,7 +400,7 @@ if __name__ == "__main__":
             floor.add_object(spawned_shelf.annotation)
 
         book_candidates = _get_source_ids_for_objects(
-            load_objects_of_types(_processed_database_session(), {ObjectType.BOOK})
+            load_objects_of_types(session, {ObjectType.BOOK})
         )
         book_candidates_standing = [
             candidate

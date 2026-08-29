@@ -219,8 +219,8 @@ class ShelfLayerGroup:
 
     def resample_and_move(self, indices: set[int]) -> None:
         """
-        Redraw each of *indices*' poses, truncated to the free space its layer's
-        surface actually has left, and move the corresponding body to match.
+        Redraw each of *indices*' poses, truncated to the free space its layer's surface
+        actually has left, and move the corresponding body to match.
 
         A layer's object slots are independent in the fitted circuit, so an
         unconditioned redraw has no way to avoid a neighbour on its own -- only
@@ -231,6 +231,12 @@ class ShelfLayerGroup:
         real geometry the next member's free-space calculation already sees, which is
         what keeps two members of the same call from landing on each other. A joint,
         one-shot draw could not offer that guarantee between its own free slots.
+
+        A member whose layer has no free space left for it -- both the neighbour-
+        conditioned and the relaxed query raise :class:`NoSolutionFound` -- is left
+        where it stands rather than aborting the whole repair; it stays in violation,
+        which lets :class:`InWorldLayoutResolver`'s stuck-pass count eventually drop it
+        the same way a member that keeps landing back in a collision is dropped.
 
         :param indices: Indices of this group's members to redraw.
         """
@@ -248,18 +254,22 @@ class ShelfLayerGroup:
                 object_bloat=object_bloat
             ).free_space_event
 
-            redrawn_layer = evaluate_first_supported(
-                self.backend,
-                build_free_space_conditioned_layer_query(
-                    layer.theme_dominant_type,
-                    fixed_objects,
-                    object_2d,
-                    free_space_event,
-                ),
-                build_free_space_conditioned_layer_query(
-                    layer.theme_dominant_type, [], object_2d, free_space_event
-                ),
-            )
+            try:
+                redrawn_layer = evaluate_first_supported(
+                    self.backend,
+                    build_free_space_conditioned_layer_query(
+                        layer.theme_dominant_type,
+                        fixed_objects,
+                        object_2d,
+                        free_space_event,
+                    ),
+                    build_free_space_conditioned_layer_query(
+                        layer.theme_dominant_type, [], object_2d, free_space_event
+                    ),
+                )
+            except NoSolutionFound:
+                fixed_objects.append(object_2d)
+                continue
             redrawn = redrawn_layer.objects[-1]
 
             object_2d.pose = redrawn.pose
@@ -329,7 +339,6 @@ class InWorldLayoutResolver:
         rspn: RelationalProbabilisticCircuit,
         max_passes: int = 10,
         stuck_after_passes: int = 3,
-        placeholders_for_missing_meshes: bool = False,
         world: World | None = None,
         parent: KinematicStructureEntity | None = None,
         parent_T_self: HomogeneousTransformationMatrix | None = None,

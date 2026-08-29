@@ -786,6 +786,20 @@ class IsStorageSpace(HasRootBody, Generic[THasRootBody], SubClassSafeGeneric):
         )
         self.objects.append(object)
 
+    @synchronized_attribute_modification
+    def remove_object(self, object: HasRootBody):
+        """
+        Drop *object* from :attr:`objects` without touching the world.
+
+        Unlike :meth:`add_object`, this never moves a branch: it is meant for an
+        occupant whose body has already left the world by some other route (for
+        example a layout-repair pass dropping a piece that could not be packed), where
+        there is no branch left to move.
+
+        :param object: The occupant to drop.
+        """
+        self.objects.remove(object)
+
     def get_objects_of_type(
         self, object_type: Type[SemanticAnnotation]
     ) -> List[HasRootBody]:
@@ -917,8 +931,15 @@ class HasSupportingSurface(IsStorageSpace):
 
         This method queries the world for bodies that are supported by this annotation's
         root body, finds their corresponding semantic annotations, and adds them to the
-        objects list if they are not already present.
+        objects list if they are not already present. Occupants whose body has since
+        left the world entirely -- for example a shelf-layout repair pass dropping a
+        piece it could not pack -- are removed from the list first, so a departed
+        occupant does not linger and get treated as still standing on the surface.
         """
+        departed_objects = [
+            obj for obj in self.objects if obj.root._world is not self._world
+        ]
+
         bodies = variable_from(self._world.bodies_with_collision)
         body = entity(bodies).where(
             is_supported_by(
@@ -934,9 +955,11 @@ class HasSupportingSurface(IsStorageSpace):
             ).where(semantic_annotation.root == body)
         ).evaluate()
         new_objects = [obj for obj in objects if obj not in self.objects]
-        if not new_objects:
+        if not new_objects and not departed_objects:
             return
         with self._world.modify_world():
+            for obj in departed_objects:
+                self.remove_object(obj)
             for obj in new_objects:
                 self.add_object(obj)
 

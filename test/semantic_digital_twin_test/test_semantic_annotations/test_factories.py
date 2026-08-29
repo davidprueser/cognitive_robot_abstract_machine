@@ -1249,7 +1249,9 @@ def test_calculate_free_space_auto_discovers_objects_outside_modify_world():
 
     assert milk in table.objects
 
-    surface_P_milk = world.transform(milk.root.global_transform, table.supporting_surface)
+    surface_P_milk = world.transform(
+        milk.root.global_transform, table.supporting_surface
+    )
     milk_point = Point3(
         float(surface_P_milk.x),
         float(surface_P_milk.y),
@@ -1257,6 +1259,49 @@ def test_calculate_free_space_auto_discovers_objects_outside_modify_world():
         reference_frame=table.supporting_surface,
     )
     assert free_space_graph.node_of_point(milk_point) is None
+
+
+def test_calculate_free_space_prunes_objects_removed_from_the_world():
+    """
+    An object counted as an occupant by a previous :meth:`calculate_free_space` call
+    (via :meth:`infer_objects_on_surface`'s auto-discovery) but since removed from the
+    world entirely -- exactly what a shelf-layout repair pass does to a piece that
+    cannot be packed -- must not still be counted as an occupant on a later call.
+
+    Its root body's reference frame is gone, so treating it as a live occupant crashes
+    computing its footprint.
+    """
+    world = _world_with_root()
+    milk_scale = Scale(0.03, 0.03, 0.1)
+    with world.modify_world():
+        table = Table.create_with_new_body_in_world(
+            name="table", world=world, scale=Scale(1.0, 1.0, 0.1)
+        )
+
+    _, table_max_point = table.min_max_points
+    table_top_z = table.root.global_transform.z + table_max_point.z
+
+    with world.modify_world():
+        milk = Milk.create_with_new_body_in_world(
+            name="milk",
+            world=world,
+            scale=milk_scale,
+            world_root_T_self=HomogeneousTransformationMatrix.from_xyz_rpy(
+                x=0.3, z=table_top_z + milk_scale.z / 2
+            ),
+        )
+        table.calculate_supporting_surface()
+
+    table.calculate_free_space()
+    assert milk in table.objects
+
+    with world.modify_world():
+        world.remove_kinematic_structure_entity(milk.root)
+
+    free_space_graph = table.calculate_free_space()
+
+    assert milk not in table.objects
+    assert isinstance(free_space_graph, GraphOfBoundingBoxes)
 
 
 def test_add_routes_handle_as_child():

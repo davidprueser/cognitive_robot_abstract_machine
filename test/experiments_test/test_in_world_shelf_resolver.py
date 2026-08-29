@@ -664,6 +664,37 @@ def test_resolver_falls_back_to_relaxed_query_when_neighbour_evidence_has_no_sol
     assert not _colliding_bodies(spawned)
 
 
+def test_resolver_drops_an_object_with_no_free_space_left_instead_of_crashing(
+    mesh_candidate: MeshCandidate,
+) -> None:
+    """
+    When a layer's remaining free space is exhausted -- the objects already there,
+    bloated, cover the whole surface -- a redraw's truncated query has no support at
+    all and raises NoSolutionFound for both the neighbour-conditioned and the relaxed
+    query. The resolver must treat the member as still in violation and let the
+    existing stuck-pass drop machinery remove it, rather than letting the exception
+    abort the whole repair.
+    """
+    shelf = _shelf(
+        [_object("book_0", 0.0, 0.0), _object("book_1", 0.0, 0.0)], mesh_candidate
+    )
+
+    with patch(
+        "experiments.scene_generation_experiments.in_world_resolver.probabilistic_backend"
+    ) as backend_factory:
+        backend_factory.return_value.evaluate.side_effect = NoSolutionFound(
+            expression=MagicMock(), found_number=0
+        )
+        resolver = InWorldLayoutResolver.for_shelf(
+            shelf, rspn=MagicMock(), max_passes=3
+        )
+        spawned = resolver.resolve()
+
+    assert not _colliding_bodies(spawned)
+    assert set(_object_bodies(spawned.layers[0])) == {0}
+    assert resolver.dropped_body_count == 1
+
+
 def test_resolver_drops_objects_it_cannot_separate(
     mesh_candidate: MeshCandidate,
 ) -> None:

@@ -196,7 +196,6 @@ def test_a_sampled_one_layer_one_object_shelf_spawns_its_object_in_a_fresh_world
 
     with rclpy_node() as node:
         viz_marker = VizMarkerPublisher(node=node, _world=world)
-        viz_marker.with_tf_publisher()
         gcs: GraphOfBoundingBoxes = sample.layers[0].annotation.calculate_free_space()
         gcs.plot_and_show_free_space()
         gcs.plot_and_show_occupied_space()

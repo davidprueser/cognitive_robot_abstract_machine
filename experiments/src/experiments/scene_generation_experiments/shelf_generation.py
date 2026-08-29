@@ -572,6 +572,5 @@ def visualize_spawned_shelf(
         node=node,
         qos_profile=QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL),
     )
-    viz_marker.with_tf_publisher()
     _publish_with_deleteall(viz_marker)
     return viz_marker
