@@ -12,6 +12,7 @@ Relational probabilistic circuits ("RSPNs").
 from __future__ import annotations
 
 import itertools
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -76,8 +77,16 @@ def _rename_variables_with_part_prefix(
     """
     Rename each variable in the circuit to include ``prefix`` as a namespace.
 
-    Produces names of the form ``"{prefix}.{variable.name}"``. Variables listed in
-    ``excluded_variables`` are left unchanged.
+    Produces names of the form ``"{prefix}.{variable.name}"``.
+    Variables listed in ``excluded_variables`` are left unchanged. ``prefix`` is
+    a full match-tree path (e.g. ``"EGShelf.layers[0]"``, from ``str(part.variable)``),
+    not a single namespace segment. At nesting depth >= 2, a variable arriving here
+    may already have been fully qualified by a deeper part's own prefixing (e.g. an
+    "objects" part mounted into this "layers" part already carries a name like
+    ``"EGShelf.layers[0].objects[0].scale.height"``); such variables are left
+    unchanged too, since prefixing them again would duplicate the path
+    (``"EGShelf.layers[0].EGShelf.layers[0].objects[0].scale.height"``) and produce a
+    name nothing downstream looks up, silently leaving that field unresolved.
 
     :param circuit: The circuit whose variables are renamed in-place.
     :param prefix: String prefix to prepend to every variable name.
@@ -89,6 +98,7 @@ def _rename_variables_with_part_prefix(
         )
         for variable in circuit.variables
         if variable not in excluded_variables
+        and not variable.name.startswith(f"{prefix}.")
     }
     circuit.update_variables(variable_renames)
 
@@ -208,6 +218,59 @@ class RelationalProbabilisticCircuit:
     Must be a positive integer.
     """
 
+    min_samples_per_leaf: int | float | Callable[[int], int | float] = 1
+    """
+    Minimum number of samples required to create another sum node in the class-level
+    :class:`~probabilistic_model.learning.jpt.jpt.JointProbabilityTree`, forwarded
+    unchanged to every recursively fitted exchangeable part's
+    ``RelationalProbabilisticCircuit``.
+
+    A value below one is interpreted as a fraction of the training set size.
+    With the default of one, near-unique training columns (e.g. an ``id`` or
+    other identifier-like field) can grow one leaf per sample, so a class
+    fitted on many thousands of instances produces a circuit with as many
+    nodes; grounding then deep-copies that circuit once per exchangeable
+    part instance, which can exhaust memory. Callers fitting on large,
+    high-cardinality datasets should pass a fractional value to bound the
+    circuit's size.
+
+    A class-level and its exchangeable parts' circuits are fitted on very
+    different row counts (e.g. a shelf's own rows vs. its layers' vs. its
+    objects'), so a single precomputed fraction calibrated for one of them
+    miscalibrates the others. Passing a callable instead of a plain number
+    defers that calculation: it is invoked with each level's own row count
+    right before that level's ``JointProbabilityTree`` is fitted, and the
+    *callable itself* -- not a resolved value -- is what gets forwarded to
+    every recursively fitted exchangeable part, so each level resolves its
+    own floor independently.
+    """
+
+    min_samples_per_quantile: int = 10
+    """
+    Minimum number of samples per histogram piece when a continuous variable's
+    Nyga distribution is induced, forwarded unchanged to every recursively
+    fitted exchangeable part's ``RelationalProbabilisticCircuit``. Passed
+    through to
+    :func:`~probabilistic_model.learning.jpt.variables.infer_variables_from_dataframe`,
+    whose own default of 10 this mirrors.
+
+    Unlike :attr:`min_samples_per_leaf`, this bounds a *fixed* per-piece
+    sample count rather than a fraction of the training set, so it does not
+    need to scale with dataset size: a training set below the bound simply
+    fits an unsplit, single-piece distribution for that variable, which is
+    the same graceful degradation :attr:`min_samples_per_leaf`'s sparse
+    fallback gives the class-level tree.
+
+    Left at the library default, a continuous variable can fragment into one
+    histogram piece per handful of samples. On a class fitted over many
+    thousands of instances this produced a circuit two to three orders of
+    magnitude larger than :attr:`min_samples_per_leaf` alone would suggest --
+    68,893 nodes measured on 124,800 training rows -- and grounding deep-
+    copies that circuit once per exchangeable part instance, the same cost
+    :attr:`min_samples_per_leaf` exists to bound. Callers fitting on large
+    datasets should raise this well above the library default.
+    """
+
     schema_information: Optional[DataAccessObjectSchema] = field(
         init=False, default=None
     )
@@ -252,14 +315,30 @@ class RelationalProbabilisticCircuit:
         child_feature_extractor: FeatureExtractor,
     ) -> pd.DataFrame:
         """
-        Build a dataframe combining aggregation statistics with per-child-object
+        Build a dataframe combining aggregation statistics with per-child- object
         attributes.
 
         Each row corresponds to one child object and contains the parent instance's
         aggregation values followed by all child features (including nested unique-part
-        attributes). Column names are the access-path names produced by
-        :meth:`~krrood.entity_query_language.core.mapped_variable.MappedVariable.get_clean_name_from_mapped_variable`
-        so that, after part-prefix renaming, they align with the krrood access-path convention.
+        attributes). Regular attribute columns are named via the access-path names
+        produced by :meth:`~krrood.entity_query_language.core.mapped_variable.MappedVariable.get_clean_name_from_mapped_variable`,
+        so that, after part-prefix renaming, they align with the krrood access-path
+        convention used to reconstruct instances downstream. The child's own
+        aggregation-statistic features (if it has an exchangeable relation of its
+        own) are named via :attr:`~krrood.entity_query_language.core.mapped_variable.MappedVariable._name_`
+        instead: an aggregation feature's access path is rooted at its aggregation
+        class rather than the owning instance, so its clean name would just be the
+        bare statistic name (e.g. ``"total_count"``) with no owning-relation
+        qualifier. That bare name collides with whatever
+        :meth:`_fit_exchangeable_part` later names the *same* feature when it
+        becomes a latent variable one level down (it always uses ``_name_``,
+        e.g. ``"EGShelfLayerAggregations.total_count()"``), since ``_name_`` for an
+        aggregation feature is stable regardless of nesting depth. Without this,
+        grounding a nested (depth >= 2) exchangeable relation silently fails to
+        find the mounting product node for the inner relation (the two names
+        never match), leaving its grounded instance mounted but never attached to
+        the rest of the circuit -- surfacing later as a "more than one root"
+        error when the disconnected circuit's root is accessed.
 
         :param exchangeable_part: Field name of the one-to-many relation on each instance.
         :param instances: Training instances from which rows are generated.
@@ -277,8 +356,17 @@ class RelationalProbabilisticCircuit:
                     association.target
                 )
                 rows.append(aggregation_row + child_features)
+        child_aggregation_features = {
+            aggregation
+            for aggregations in child_feature_extractor.exchangeable_features.values()
+            for aggregation in aggregations
+        }
         child_column_names = [
-            f.get_clean_name_from_mapped_variable()
+            (
+                f._name_
+                if f in child_aggregation_features
+                else f.get_clean_name_from_mapped_variable()
+            )
             for f in child_feature_extractor.features
         ]
         return pd.DataFrame(columns=aggregation_names + child_column_names, data=rows)
@@ -321,7 +409,9 @@ class RelationalProbabilisticCircuit:
                 getattr(instance, exchangeable_part) for instance in instances
             )
         ]
-        child_type = type(getattr(instances[0], exchangeable_part)[0].target)
+        child_type = type(
+            getattr(instances[0], exchangeable_part)[0].target
+        ).original_class()
         child_feature_extractor = FeatureExtractor.from_instances(child_instances)
         child_dataframe = self._build_child_joint_dataframe(
             exchangeable_part,
@@ -336,7 +426,11 @@ class RelationalProbabilisticCircuit:
             if inferred.variable.name in aggregation_names
         ]
         template = ExchangeableDistributionTemplate(
-            RelationalProbabilisticCircuit(child_type),
+            RelationalProbabilisticCircuit(
+                child_type,
+                min_samples_per_leaf=self.min_samples_per_leaf,
+                min_samples_per_quantile=self.min_samples_per_quantile,
+            ),
             latent_variables,
         )
         template.template_distribution.fit(
@@ -367,9 +461,17 @@ class RelationalProbabilisticCircuit:
         class_dataframe = self._build_class_dataframe(
             self.feature_extractor, instances, dataframe_from_parent
         )
-        variables = infer_variables_from_dataframe(class_dataframe)
+        variables = infer_variables_from_dataframe(
+            class_dataframe, min_samples_per_quantile=self.min_samples_per_quantile
+        )
+        min_samples_per_leaf = (
+            self.min_samples_per_leaf(len(instances))
+            if callable(self.min_samples_per_leaf)
+            else self.min_samples_per_leaf
+        )
         self.class_probabilistic_circuit = JointProbabilityTree(
-            annotated_variables=variables
+            annotated_variables=variables,
+            min_samples_per_leaf=min_samples_per_leaf,
         ).fit(class_dataframe)
         self.schema_information = get_dao_schema(type(instances[0]))
         for collection_relationship in self.schema_information.collection_relationships:
@@ -379,6 +481,13 @@ class RelationalProbabilisticCircuit:
             self.exchangeable_distribution_templates[exchangeable_part] = (
                 self._fit_exchangeable_part(exchangeable_part, instances)
             )
+        # Recorded only now, after every exchangeable part has been fitted with the
+        # still-callable strategy: overwriting it earlier would hand children this
+        # circuit's own resolved bound instead of letting them resolve their own.
+        # A resolved number (unlike the callable) is also what a serializer can
+        # round-trip, and for a caller that already passed a plain number this is a
+        # no-op, since resolving one just returns it unchanged.
+        self.min_samples_per_leaf = min_samples_per_leaf
         return self
 
     def _condition_class_circuit(
@@ -433,7 +542,11 @@ class RelationalProbabilisticCircuit:
         if self.class_probabilistic_circuit is None:
             raise CircuitNotFittedError(self.class_)
         circuit = self.class_probabilistic_circuit.__deepcopy__()
-        instance = query.construct_instance()
+        instance = (
+            query.construct_instance()
+            if self.exchangeable_distribution_templates
+            else None
+        )
         for (
             exchangeable_part_name,
             template,
@@ -454,21 +567,25 @@ class RelationalProbabilisticCircuit:
         """
         Ground one exchangeable part and attach it to the class circuit.
 
-        Aggregation statistics determinable from the query condition the class circuit
-        directly. Monte-Carlo integrates out undetermined statistics: they are sampled
-        from the conditioned class circuit and each sampled value yields its own
-        exchangeable distribution instance.
+        Aggregation statistics determinable from the query condition the
+        class circuit directly. Monte-Carlo integrates out undetermined
+        statistics: they are sampled from the conditioned class circuit
+        and each sampled value yields its own exchangeable distribution
+        instance.
 
         :param circuit: The current working copy of the class circuit.
-        :param exchangeable_part_name: Field name of the exchangeable relation.
+        :param exchangeable_part_name: Field name of the exchangeable
+            relation.
         :param template: The fitted template for this relation.
         :param query: The grounding query.
-        :param instance: The concrete instance constructed from the query.
-        :return: The class circuit extended with the grounded exchangeable part.
+        :param instance: The concrete instance constructed from the
+            query.
+        :return: The class circuit extended with the grounded
+            exchangeable part.
         """
         aggregation_statistics = compute_aggregation_statistics(
             instance,
-            self.feature_extractor.exchangeable_features[exchangeable_part_name],
+            exchangeable_part_name,
             template.latent_variables,
         )
         determined_statistics = {
@@ -661,7 +778,21 @@ class RelationalProbabilisticCircuit:
             for product_node in product_nodes_to_extend
         ]
         retained_variables = SortedSet(circuit.variables) - undetermined_latents
+        # Marginalizing can simplify a mounting node away: once its latent-valued
+        # children are gone a product node left with a single child is collapsed into
+        # its parent. What each node still shares with the circuit is therefore
+        # recorded first, so the node that inherited its role can be found afterwards.
+        retained_per_node = [
+            SortedSet(product_node.variables) & retained_variables
+            for product_node in product_nodes_to_extend
+        ]
         circuit.marginal_in_place(retained_variables)
+        surviving_product_nodes = [
+            self._mounting_node_after_marginalization(circuit, product_node, retained)
+            for product_node, retained in zip(
+                product_nodes_to_extend, retained_per_node
+            )
+        ]
         mounted_roots = [
             self._mount_instance(
                 circuit, template, query_parts, {**determined_statistics, **assignment}
@@ -669,11 +800,41 @@ class RelationalProbabilisticCircuit:
             for assignment in sampled_assignments
         ]
         for product_node, log_weights in zip(
-            product_nodes_to_extend, log_weights_per_node
+            surviving_product_nodes, log_weights_per_node
         ):
             self._attach_mixture_to_node(
                 circuit, product_node, mounted_roots, log_weights
             )
+
+    @staticmethod
+    def _mounting_node_after_marginalization(
+        circuit: ProbabilisticCircuit,
+        product_node: ProductUnit,
+        retained_variables: SortedSet[Variable],
+    ) -> Unit:
+        """
+        Find the node that carries *product_node*'s mounting role after marginalization.
+
+        A node that survived marginalization keeps its role. One that was simplified
+        away is replaced by the lowest product node still modelling the variables it
+        retained, which is the node its children were reparented onto. A node that
+        modelled nothing but the integrated-out latents leaves no such trace, so the
+        mixture goes to the root, the only node guaranteed to dominate its position.
+
+        :param circuit: The marginalized class circuit.
+        :param product_node: The mounting node chosen before marginalization.
+        :param retained_variables: The variables *product_node* modelled that survived.
+        :return: The node the exchangeable mixture must be attached to.
+        """
+        if product_node.probabilistic_circuit is circuit:
+            return product_node
+        if retained_variables:
+            candidates = find_lowest_product_nodes_that_model_variables(
+                circuit, retained_variables
+            )
+            if candidates:
+                return candidates[0]
+        return circuit.root
 
     @staticmethod
     def _attach_mixture_to_node(

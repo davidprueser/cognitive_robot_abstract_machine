@@ -16,6 +16,7 @@ from typing import Self
 
 from typing_extensions import (
     TYPE_CHECKING,
+    Callable,
     Iterable,
     Any,
     Type,

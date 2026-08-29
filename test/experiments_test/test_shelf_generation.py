@@ -1,0 +1,1598 @@
+# from __future__ import annotations
+#
+# import os
+# import shutil
+# import subprocess
+# import tempfile
+# import sys
+# import dataclasses
+# import json
+# from dataclasses import dataclass, field
+# from importlib.resources import files
+# from pathlib import Path
+# from unittest.mock import MagicMock, patch
+#
+# import numpy as np
+# import pytest
+# import trimesh
+# from scipy.spatial.transform import Rotation
+# from sqlalchemy import event
+# from sqlalchemy.orm import Session
+# from visualization_msgs.msg import Marker, MarkerArray
+#
+# import experiments.orm.ormatic_interface  # noqa: F401  registers ORM mappers
+# from experiments.orm.ormatic_interface import (
+#     Base,
+#     EGObjectDAO,
+#     EGRotationDAO,
+#     EGPositionDAO,
+#     EGScaleDAO,
+# )
+# from experiments.scene_generation_experiments.processed_database import (
+#     load_objects_of_types,
+#     load_objects_with_cached_meshes,
+#     load_shelf_layers,
+# )
+# from experiments.scene_generation_experiments.utils import (
+#     _get_source_ids_for_objects,
+#     min_samples_per_leaf_for,
+# )
+# from experiments.scene_generation_experiments.rspn_sampling import (
+#     build_layer_query,
+#     probabilistic_backend,
+#     build_theme_shelf_query,
+# )
+# from experiments.scene_generation_experiments.shelf_generation import (
+#     FoxgloveVizMarkerPublisher,
+#     _MESH_RESOURCE_PACKAGE,
+#     _MESH_RESOURCE_SHARE_SUBDIR,
+#     _coarsen_mesh_candidate_types,
+#     _coarsen_rare_object_types,
+#     _mesh_candidate_types_for_shelf,
+#     _rewrite_mesh_uris_for_foxglove,
+# )
+# from experiments.scene_generation_experiments.exceptions import (
+#     OutdatedTrainedModelError,
+#     UndrawableShelfError,
+# )
+# from experiments.scene_generation_experiments.rspn_model_storage import (
+#     TrainedArbitraryShelfModel,
+# )
+# from krrood.ormatic.data_access_objects.helper import to_dao
+# from krrood.ormatic.utils import create_engine
+# from probabilistic_model.probabilistic_circuit.relational.rspn import (
+#     RelationalProbabilisticCircuit,
+# )
+# from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
+# from semantic_digital_twin.scene_generation.scene_schema import (
+#     EGObject2D,
+#     EGPoint2D,
+#     EGRotation,
+#     EGShelf,
+#     EGShelfLayer,
+#     EGScale,
+#     MeshCandidate,
+#     ObjectType,
+#     _MeshTypeMatcher,
+# )
+# from semantic_digital_twin.semantic_annotations.semantic_annotations import ShelfLayer
+# from semantic_digital_twin.world import World
+# from semantic_digital_twin.world_description.connections import FixedConnection
+# from semantic_digital_twin.world_description.geometry import Mesh
+# from semantic_digital_twin.world_description.shape_collection import ShapeCollection
+# from semantic_digital_twin.world_description.world_entity import Body
+#
+# _FAKE_PATH = Path("/fake/scene")
+# _SHELF_ID = "room_1_shelf_1"
+#
+#
+# @dataclass
+# class _MockShelfObject:
+#     """
+#     Duck-type substitute for EGObjectDAO in source-ID filtering tests.
+#     """
+#
+#     object_type: ObjectType
+#     source_id: str
+#     scale: EGScale = field(
+#         default_factory=lambda: EGScale(width=0.1, length=0.1, height=0.1)
+#     )
+#     place_id: str = "floor"
+#
+#
+# @pytest.fixture
+# def source_path_map() -> dict[str, Path]:
+#     return {"book_src": _FAKE_PATH, "cup_src": _FAKE_PATH}
+#
+#
+# @pytest.fixture
+# def mixed_mock_objects() -> list[_MockShelfObject]:
+#     return [
+#         _MockShelfObject(object_type=ObjectType.BOOK, source_id="book_src"),
+#         _MockShelfObject(object_type=ObjectType.CUP, source_id="cup_src"),
+#         _MockShelfObject(object_type=ObjectType.SHELF, source_id="shelf_src"),
+#     ]
+#
+#
+# # ---------------------------------------------------------------------------
+# # Group A – _get_source_ids_for_objects (no DB required)
+# # ---------------------------------------------------------------------------
+#
+#
+# def test_default_object_type_includes_only_books(
+#     mixed_mock_objects: list[_MockShelfObject], source_path_map: dict[str, Path]
+# ) -> None:
+#     """
+#     The default (``ObjectType.BOOK``) filter must include books and exclude cups and
+#     shelf-furniture objects.
+#     """
+#     with patch(
+#         "experiments.scene_generation_experiments.utils.build_source_id_to_path",
+#         return_value=source_path_map,
+#     ):
+#         result = _get_source_ids_for_objects(mixed_mock_objects)
+#     source_ids = {candidate.source_id for candidate in result}
+#     assert "book_src" in source_ids
+#     assert "cup_src" not in source_ids
+#     assert "shelf_src" not in source_ids
+#
+#
+# def test_no_object_type_filter_includes_every_type(
+#     mixed_mock_objects: list[_MockShelfObject], source_path_map: dict[str, Path]
+# ) -> None:
+#     """
+#     Passing ``object_type=None`` must include every type present in the input, subject
+#     only to source_id availability.
+#     """
+#     with patch(
+#         "experiments.scene_generation_experiments.utils.build_source_id_to_path",
+#         return_value=source_path_map,
+#     ):
+#         result = _get_source_ids_for_objects(mixed_mock_objects, object_type=None)
+#     source_ids = {candidate.source_id for candidate in result}
+#     assert "book_src" in source_ids
+#     assert "cup_src" in source_ids
+#     assert "shelf_src" not in source_ids
+#
+#
+# def test_objects_resting_on_furniture_are_kept(
+#     source_path_map: dict[str, Path],
+# ) -> None:
+#     """
+#     The pool must contain objects resting on furniture, since shelf and table contents
+#     are exactly the objects a shelf demo needs meshes for.
+#     """
+#     objects = [
+#         _MockShelfObject(
+#             object_type=ObjectType.BOOK, source_id="book_src", place_id=_SHELF_ID
+#         )
+#     ]
+#     with patch(
+#         "experiments.scene_generation_experiments.utils.build_source_id_to_path",
+#         return_value=source_path_map,
+#     ):
+#         result = _get_source_ids_for_objects(objects)
+#     assert [candidate.source_id for candidate in result] == ["book_src"]
+#
+#
+# def test_missing_source_id_is_excluded(source_path_map: dict[str, Path]) -> None:
+#     """
+#     Objects whose source_id has no corresponding PLY path must be silently dropped
+#     regardless of the object-type filter.
+#     """
+#     objects_without_path = [
+#         _MockShelfObject(object_type=ObjectType.BOOK, source_id="nonexistent_src"),
+#     ]
+#     with patch(
+#         "experiments.scene_generation_experiments.utils.build_source_id_to_path",
+#         return_value=source_path_map,
+#     ):
+#         result = _get_source_ids_for_objects(objects_without_path, object_type=None)
+#     assert result == []
+#
+#
+# def test_downloader_fills_pool_up_to_minimum_candidates() -> None:
+#     """
+#     With no book meshes cached locally, a downloader must be used to fetch scenes for
+#     distinct book source_ids until minimum_candidates is reached.
+#     """
+#     books = [
+#         _MockShelfObject(object_type=ObjectType.BOOK, source_id=f"book_{i}")
+#         for i in range(5)
+#     ]
+#     downloader = MagicMock()
+#     downloader.download_scene_for_source_id.side_effect = lambda source_id: (
+#         _FAKE_PATH / source_id
+#     )
+#
+#     with patch(
+#         "experiments.scene_generation_experiments.utils.build_source_id_to_path",
+#         return_value={},
+#     ):
+#         result = _get_source_ids_for_objects(
+#             books, downloader=downloader, minimum_candidates=3
+#         )
+#
+#     assert len(result) == 3
+#     assert downloader.download_scene_for_source_id.call_count == 3
+#
+#
+# def test_downloader_is_not_used_once_the_pool_already_meets_the_minimum(
+#     source_path_map: dict[str, Path],
+# ) -> None:
+#     """
+#     A downloader must not be consulted at all when enough matching meshes are already
+#     cached locally.
+#     """
+#     books = [_MockShelfObject(object_type=ObjectType.BOOK, source_id="book_src")]
+#     downloader = MagicMock()
+#
+#     with patch(
+#         "experiments.scene_generation_experiments.utils.build_source_id_to_path",
+#         return_value=source_path_map,
+#     ):
+#         _get_source_ids_for_objects(books, downloader=downloader, minimum_candidates=1)
+#
+#     downloader.download_scene_for_source_id.assert_not_called()
+#
+#
+# def test_downloader_skips_source_ids_the_sage10k_database_does_not_know() -> None:
+#     """
+#     A source_id the Sage-10k database has no record of must be skipped rather than
+#     aborting the whole pool -- objects can come from a different data source than the
+#     one the downloader looks scenes up in.
+#     """
+#     from experiments.scene_generation_experiments.data_preprocessing import (
+#         SourceIdNotFoundError,
+#     )
+#
+#     books = [
+#         _MockShelfObject(object_type=ObjectType.BOOK, source_id="unknown_book"),
+#         _MockShelfObject(object_type=ObjectType.BOOK, source_id="known_book"),
+#     ]
+#     downloader = MagicMock()
+#
+#     def _download(source_id: str) -> Path:
+#         if source_id == "unknown_book":
+#             raise SourceIdNotFoundError(source_id)
+#         return _FAKE_PATH / source_id
+#
+#     downloader.download_scene_for_source_id.side_effect = _download
+#
+#     with patch(
+#         "experiments.scene_generation_experiments.utils.build_source_id_to_path",
+#         return_value={},
+#     ):
+#         result = _get_source_ids_for_objects(
+#             books, downloader=downloader, minimum_candidates=5
+#         )
+#
+#     assert [candidate.source_id for candidate in result] == ["known_book"]
+#
+#
+# def test_no_downloader_never_attempts_a_mesh_pool_download(
+#     source_path_map: dict[str, Path],
+# ) -> None:
+#     """
+#     Without a downloader the candidate pool must be built from the local cache alone,
+#     never entering the download path -- this is what keeps the demos fast for iterative
+#     testing.
+#     """
+#     books = [_MockShelfObject(object_type=ObjectType.BOOK, source_id="book_src")]
+#
+#     with (
+#         patch(
+#             "experiments.scene_generation_experiments.utils.build_source_id_to_path",
+#             return_value=source_path_map,
+#         ),
+#         patch(
+#             "experiments.scene_generation_experiments.utils._ensure_minimum_mesh_pool"
+#         ) as ensure_minimum_mesh_pool,
+#     ):
+#         _get_source_ids_for_objects(books)
+#
+#     ensure_minimum_mesh_pool.assert_not_called()
+#
+#
+# # ---------------------------------------------------------------------------
+# # load_shelf_layers – the one query path every training run takes
+# # ---------------------------------------------------------------------------
+#
+#
+# def test_loading_layers_does_not_scale_query_count_with_object_count(
+#     session: Session,
+# ) -> None:
+#     """
+#     Loading the stored layers must not issue a statement per object for each of its
+#     scale, position and orientation relationships.
+#
+#     Preprocessing exists to take that cost out of every training run, so leaving those
+#     to lazy loading would put it straight back on the read path.
+#     """
+#     session.add_all(
+#         to_dao(
+#             EGShelfLayer(
+#                 objects=[
+#                     _typed_object(ObjectType.BOOK, f"book_{layer_index}_{index}")
+#                     for index in range(10)
+#                 ],
+#                 theme_dominant_type=ObjectType.BOOK,
+#             )
+#         )
+#         for layer_index in range(5)
+#     )
+#     session.commit()
+#     session.expire_all()
+#
+#     statement_count = 0
+#
+#     def _count_statement(*args, **kwargs) -> None:
+#         nonlocal statement_count
+#         statement_count += 1
+#
+#     engine = session.get_bind()
+#     event.listen(engine, "before_cursor_execute", _count_statement)
+#     try:
+#         layers = load_shelf_layers(session)
+#     finally:
+#         event.remove(engine, "before_cursor_execute", _count_statement)
+#
+#     assert sum(len(layer.objects) for layer in layers) == 50
+#     assert statement_count <= 5
+#
+#
+# # ---------------------------------------------------------------------------
+# # Object-type coarsening – keep RSPN training's categorical domain small
+# # ---------------------------------------------------------------------------
+#
+#
+# def _typed_object(object_type: ObjectType, object_id: str) -> EGObject2D:
+#     return EGObject2D(
+#         id=object_id,
+#         room_id="room_1",
+#         place_id="shelf_1",
+#         object_type=object_type,
+#         scale=EGScale(height=0.1, length=0.1, width=0.1),
+#         position=EGPoint2D(x=0.0, y=0.0),
+#         orientation=EGRotation(x=0.0, y=0.0, z=0.0),
+#         source_id=object_id,
+#         theme_dominant_type=ObjectType.BOOK,
+#     )
+#
+#
+# @dataclass
+# class _MockVizMarkerPublisher:
+#     """
+#     Duck-type substitute for VizMarkerPublisher exposing only the ``markers`` attribute
+#     :func:`_rewrite_mesh_uris_for_foxglove` reads and mutates.
+#     """
+#
+#     markers: MarkerArray
+#
+#
+# def test_foxglove_mesh_uri_rewrite_cancels_gltf_up_axis_convention(
+#     tmp_path: Path,
+# ) -> None:
+#     """
+#     Foxglove's 3D panel documents that its "Mesh up axis" override does not apply to
+#     glTF/``.glb`` files, since they are assumed to already be authored Y-up -- unlike
+#     STL/OBJ, there is no toggle to disable this.
+#
+#     Meshes are authored with Z-up (ROS/world) vertex data unmodified, so Foxglove's
+#     built-in Y-up-to-Z-up correction misinterprets them, rendering objects tipped onto
+#     their side. Every mesh marker rewritten for Foxglove must therefore be pre-rotated
+#     -90 degrees about X to cancel that correction. The rewrite must also convert the
+#     source OBJ to a self-contained ``.glb``, since Foxglove does not read the separate
+#     ``.mtl`` sidecar OBJ relies on for material/texture.
+#     """
+#     mesh_dir = tmp_path / "source_mesh_dir"
+#     mesh_dir.mkdir()
+#     mesh_file = mesh_dir / "object.obj"
+#     mesh_file.write_text("v 0.0 0.0 0.0\nv 1.0 0.0 0.0\nv 0.0 1.0 0.0\nf 1 2 3\n")
+#
+#     marker = Marker()
+#     marker.mesh_resource = f"file://{mesh_file}"
+#     original_orientation = Rotation.from_euler("z", 30, degrees=True).as_quat()
+#     (
+#         marker.pose.orientation.x,
+#         marker.pose.orientation.y,
+#         marker.pose.orientation.z,
+#         marker.pose.orientation.w,
+#     ) = original_orientation
+#     viz_marker = _MockVizMarkerPublisher(markers=MarkerArray(markers=[marker]))
+#
+#     with patch(
+#         "experiments.scene_generation_experiments.shelf_generation."
+#         "get_package_share_directory",
+#         return_value=str(tmp_path / "share"),
+#     ):
+#         _rewrite_mesh_uris_for_foxglove(viz_marker)
+#
+#     assert marker.mesh_resource.endswith(".glb")
+#     expected_orientation = (
+#         Rotation.from_quat(original_orientation)
+#         * Rotation.from_euler("x", -90, degrees=True)
+#     ).as_quat()
+#     actual_orientation = [
+#         marker.pose.orientation.x,
+#         marker.pose.orientation.y,
+#         marker.pose.orientation.z,
+#         marker.pose.orientation.w,
+#     ]
+#     assert np.allclose(actual_orientation, expected_orientation)
+#
+#
+# def test_foxglove_mesh_uri_rewrite_converts_installed_package_mesh_to_package_uri(
+#     tmp_path: Path,
+# ) -> None:
+#     """
+#     A mesh already installed under a ROS package's share directory (e.g. a robot's
+#     URDF meshes) must be rewritten from its local ``file://`` path to the equivalent
+#     ``package://`` URI, since ``foxglove_bridge``'s asset allowlist only serves
+#     ``package://`` resources and generated ``file:///tmp/...`` meshes -- not arbitrary
+#     host paths.
+#
+#     Unlike a generated shelf mesh, an installed mesh is not converted to glTF and its
+#     orientation is left untouched: it is not being reformatted, so no up-axis
+#     correction is needed.
+#     """
+#     marker = Marker()
+#     marker.mesh_resource = (
+#         "file:///opt/ros/overlay_ws/install/share/hsr_description/"
+#         "meshes/arm_v0/arm_flex_light.dae"
+#     )
+#     original_orientation = Rotation.from_euler("z", 30, degrees=True).as_quat()
+#     (
+#         marker.pose.orientation.x,
+#         marker.pose.orientation.y,
+#         marker.pose.orientation.z,
+#         marker.pose.orientation.w,
+#     ) = original_orientation
+#     viz_marker = _MockVizMarkerPublisher(markers=MarkerArray(markers=[marker]))
+#
+#     with patch(
+#         "experiments.scene_generation_experiments.shelf_generation."
+#         "get_package_share_directory",
+#         return_value=str(tmp_path / "share"),
+#     ):
+#         _rewrite_mesh_uris_for_foxglove(viz_marker)
+#
+#     assert (
+#         marker.mesh_resource
+#         == "package://hsr_description/meshes/arm_v0/arm_flex_light.dae"
+#     )
+#     actual_orientation = [
+#         marker.pose.orientation.x,
+#         marker.pose.orientation.y,
+#         marker.pose.orientation.z,
+#         marker.pose.orientation.w,
+#     ]
+#     assert np.allclose(actual_orientation, original_orientation)
+#
+#
+# def test_coarsen_rare_object_types_keeps_only_the_most_frequent_types() -> None:
+#     """
+#     Object types outside the keep_count most frequent ones must be replaced with
+#     ObjectType.OTHER; every other field must be preserved unchanged.
+#
+#     The sage10k dataset's object_type labels are close to per-instance identifiers (128
+#     distinct values observed across ~8k objects, most seen only a handful of times).
+#     Training the RSPN on that raw label space made grounding a single query take upwards
+#     of ten seconds, since grounding deep-copies every leaf of the categorical domain.
+#     Collapsing rare types into ObjectType.OTHER keeps the signal for common categories
+#     while cutting that domain -- and therefore grounding cost -- down sharply.
+#     """
+#     layer = EGShelfLayer(
+#         objects=[
+#             _typed_object(ObjectType.CUP, "cup_1"),
+#             _typed_object(ObjectType.CUP, "cup_2"),
+#             _typed_object(ObjectType.PLANT, "plant_1"),
+#             _typed_object(ObjectType.CHAIR, "chair_1"),
+#         ],
+#         theme_dominant_type=ObjectType.BOOK,
+#     )
+#
+#     result = _coarsen_rare_object_types([layer], keep_count=1)
+#
+#     resulting_types = [obj.object_type for obj in result[0].objects]
+#     assert resulting_types == [
+#         ObjectType.CUP,
+#         ObjectType.CUP,
+#         ObjectType.OTHER,
+#         ObjectType.OTHER,
+#     ]
+#     assert [obj.id for obj in result[0].objects] == [
+#         "cup_1",
+#         "cup_2",
+#         "plant_1",
+#         "chair_1",
+#     ]
+#
+#
+# def test_coarsen_rare_object_types_leaves_layer_within_keep_count_unchanged() -> None:
+#     """
+#     When every observed type already fits within keep_count, no object's type must be
+#     touched -- coarsening must not fall back to ObjectType.OTHER for types that were
+#     never actually rare.
+#     """
+#     layer = EGShelfLayer(
+#         objects=[
+#             _typed_object(ObjectType.CUP, "cup_1"),
+#             _typed_object(ObjectType.PLANT, "plant_1"),
+#         ],
+#         theme_dominant_type=ObjectType.BOOK,
+#     )
+#
+#     result = _coarsen_rare_object_types([layer], keep_count=2)
+#
+#     assert [obj.object_type for obj in result[0].objects] == [
+#         ObjectType.CUP,
+#         ObjectType.PLANT,
+#     ]
+#
+#
+# def test_coarsen_mesh_candidate_types_relabels_candidates_outside_frequent_types() -> (
+#     None
+# ):
+#     """
+#     _coarsen_mesh_candidate_types must relabel every candidate whose type falls outside
+#     frequent_types as ObjectType.OTHER, mirroring _coarsen_rare_object_types.
+#
+#     Without this, a sampled ObjectType.OTHER object could never find a same-type mesh
+#     candidate in _MeshTypeMatcher.random_match, since every candidate would still carry
+#     its original, uncoarsened type -- silently falling back to a random mesh from the
+#     whole pool for every object outside the most frequent types.
+#     """
+#     cup_candidate = MeshCandidate(_FAKE_PATH, "cup_src", ObjectType.CUP)
+#     plant_candidate = MeshCandidate(_FAKE_PATH, "plant_src", ObjectType.PLANT)
+#
+#     result = _coarsen_mesh_candidate_types(
+#         [cup_candidate, plant_candidate], frequent_types={ObjectType.CUP}
+#     )
+#
+#     assert result[0] == cup_candidate
+#     assert result[1] == MeshCandidate(_FAKE_PATH, "plant_src", ObjectType.OTHER)
+#
+#
+# def test_coarsen_mesh_candidate_types_leaves_frequent_types_unchanged() -> None:
+#     """
+#     Candidates whose type is already within frequent_types must not be touched.
+#     """
+#     cup_candidate = MeshCandidate(_FAKE_PATH, "cup_src", ObjectType.CUP)
+#     plant_candidate = MeshCandidate(_FAKE_PATH, "plant_src", ObjectType.PLANT)
+#
+#     result = _coarsen_mesh_candidate_types(
+#         [cup_candidate, plant_candidate],
+#         frequent_types={ObjectType.CUP, ObjectType.PLANT},
+#     )
+#
+#     assert result == [cup_candidate, plant_candidate]
+#
+#
+# # ---------------------------------------------------------------------------
+# # TrainedArbitraryShelfModel – exporting and reloading a fitted RSPN
+# # ---------------------------------------------------------------------------
+#
+#
+# @pytest.fixture
+# def fitted_arbitrary_shelf_model() -> TrainedArbitraryShelfModel:
+#     layers = [
+#         EGShelfLayer(
+#             objects=[
+#                 dataclasses.replace(
+#                     _typed_object(ObjectType.CUP, f"cup_{index}"),
+#                     theme_dominant_type=ObjectType.BOOK,
+#                 ),
+#                 dataclasses.replace(
+#                     _typed_object(ObjectType.PLANT, f"plant_{index}"),
+#                     theme_dominant_type=ObjectType.BOOK,
+#                 ),
+#             ],
+#             theme_dominant_type=ObjectType.BOOK,
+#         )
+#         for index in range(5)
+#     ]
+#     rspn = RelationalProbabilisticCircuit(EGShelfLayer, min_samples_per_leaf=0.5).fit(
+#         [to_dao(layer) for layer in layers]
+#     )
+#     return TrainedArbitraryShelfModel(
+#         relational_probabilistic_circuit=rspn,
+#         frequent_object_types={ObjectType.CUP, ObjectType.PLANT},
+#     )
+#
+#
+# def test_save_writes_a_loadable_file_and_creates_parent_directories(
+#     fitted_arbitrary_shelf_model: TrainedArbitraryShelfModel, tmp_path: Path
+# ) -> None:
+#     export_path = tmp_path / "nested" / "arbitrary_shelf_rspn.json"
+#
+#     fitted_arbitrary_shelf_model.save(export_path)
+#
+#     assert export_path.is_file()
+#
+#
+# def test_load_restores_the_frequent_object_types(
+#     fitted_arbitrary_shelf_model: TrainedArbitraryShelfModel, tmp_path: Path
+# ) -> None:
+#     export_path = tmp_path / "arbitrary_shelf_rspn.json"
+#     fitted_arbitrary_shelf_model.save(export_path)
+#
+#     restored = TrainedArbitraryShelfModel.load(export_path)
+#
+#     assert restored.frequent_object_types == {ObjectType.CUP, ObjectType.PLANT}
+#
+#
+# def test_load_restores_a_circuit_that_can_still_be_grounded_and_sampled(
+#     fitted_arbitrary_shelf_model: TrainedArbitraryShelfModel, tmp_path: Path
+# ) -> None:
+#     """
+#     A restored circuit must still answer queries through the same ProbabilisticBackend
+#     path :func:`generate_shelf_with_arbitrary_objects` uses, not just round-trip its
+#     structure.
+#     """
+#     export_path = tmp_path / "arbitrary_shelf_rspn.json"
+#     fitted_arbitrary_shelf_model.save(export_path)
+#
+#     restored = TrainedArbitraryShelfModel.load(export_path)
+#     backend = probabilistic_backend(restored.relational_probabilistic_circuit)
+#
+#     sample = next(
+#         iter(backend.evaluate(build_layer_query(ObjectType.BOOK, free_count=2)))
+#     )
+#
+#     assert len(sample.objects) == 2
+#
+#
+# _SAVE_SCRIPT = """
+# from krrood.ormatic.data_access_objects.helper import to_dao
+# from probabilistic_model.probabilistic_circuit.relational.rspn import RelationalProbabilisticCircuit
+# from experiments.orm.ormatic_interface import *  # noqa: F401,F403  registers ORM mappers
+# from experiments.scene_generation_experiments.shelf_generation import TrainedArbitraryShelfModel
+# from semantic_digital_twin.scene_generation.scene_schema import (
+#     EGObject2D, EGPoint2D, EGRotation, EGScale, EGShelfLayer, ObjectType,
+# )
+# from pathlib import Path
+# import sys
+#
+# def typed_object(object_type, object_id):
+#     return EGObject2D(
+#         id=object_id, room_id="room_1", place_id="shelf_1", object_type=object_type,
+#         scale=EGScale(height=0.1, length=0.1, width=0.1),
+#         position=EGPoint2D(x=0.0, y=0.0), orientation=EGRotation(x=0.0, y=0.0, z=0.0),
+#         source_id=object_id, theme_dominant_type=ObjectType.BOOK,
+#     )
+#
+# types = [ObjectType.CUP, ObjectType.PLANT, ObjectType.BOOK, ObjectType.SHELF, ObjectType.CHAIR]
+# layers = [
+#     EGShelfLayer(
+#         objects=[typed_object(t, f"{t.value}_{i}") for t in types],
+#         theme_dominant_type=ObjectType.BOOK,
+#     )
+#     for i in range(10)
+# ]
+# rspn = RelationalProbabilisticCircuit(EGShelfLayer, min_samples_per_leaf=0.5).fit(
+#     [to_dao(layer) for layer in layers]
+# )
+# TrainedArbitraryShelfModel(
+#     relational_probabilistic_circuit=rspn, frequent_object_types=set(types)
+# ).save(Path(sys.argv[1]))
+# """
+#
+# _LOAD_SCRIPT = """
+# from experiments.orm.ormatic_interface import *  # noqa: F401,F403  registers ORM mappers
+# from experiments.scene_generation_experiments.shelf_generation import TrainedArbitraryShelfModel
+# from experiments.scene_generation_experiments.rspn_sampling import build_layer_query, probabilistic_backend
+# from semantic_digital_twin.scene_generation.scene_schema import ObjectType
+# from pathlib import Path
+# import sys
+#
+# model = TrainedArbitraryShelfModel.load(Path(sys.argv[1]))
+# backend = probabilistic_backend(model.relational_probabilistic_circuit)
+# sample = next(iter(backend.evaluate(build_layer_query(ObjectType.BOOK, free_count=2))))
+# assert len(sample.objects) == 2
+# print("GROUNDED_OK")
+# """
+#
+#
+# def test_load_survives_a_different_hash_seed_process(tmp_path: Path) -> None:
+#     """
+#     A model exported by one process must still ground and sample correctly when loaded
+#     by a different process with a different PYTHONHASHSEED.
+#
+#     Python randomizes hash() for str-backed types -- including the StrEnum
+#     ObjectType -- independently per process, so fitting and loading in the
+#     same process (as the other tests in this module do) cannot expose a
+#     regression here: only two genuinely separate processes with different
+#     seeds can.
+#     """
+#     export_path = tmp_path / "arbitrary_shelf_rspn.json"
+#
+#     subprocess.run(
+#         [sys.executable, "-c", _SAVE_SCRIPT, str(export_path)],
+#         env={**os.environ, "PYTHONHASHSEED": "1"},
+#         check=True,
+#     )
+#     result = subprocess.run(
+#         [sys.executable, "-c", _LOAD_SCRIPT, str(export_path)],
+#         env={**os.environ, "PYTHONHASHSEED": "2"},
+#         check=True,
+#         capture_output=True,
+#         text=True,
+#     )
+#
+#     assert "GROUNDED_OK" in result.stdout
+#
+#
+# # ---------------------------------------------------------------------------
+# # Layer scale fix – EGShelf.create_in_world must use per-layer scale
+# # ---------------------------------------------------------------------------
+#
+#
+# def test_slab_size_does_not_depend_on_which_layers_are_present() -> None:
+#     """
+#     A slab spans the shelf's own footprint, so adding a layer of some other size must
+#     not resize the others.
+#
+#     Slab size was once taken from the widest layer, which made every slab an accident of
+#     the company it kept; taking it from each layer's own scale instead let independently
+#     drawn layers disagree and leave the narrow ones floating clear of the corpus walls.
+#     The shelf is the one thing all its layers share.
+#     """
+#     shelf_scale = EGScale(height=2.0, length=0.6, width=0.8)
+#
+#     def face_widths(layer_widths: tuple[float, ...]) -> list[float]:
+#         shelf = EGShelf(
+#             scale=shelf_scale,
+#             layers=[
+#                 EGShelfLayer(
+#                     objects=[],
+#                     theme_dominant_type=ObjectType.BOOK,
+#                 )
+#                 for width in layer_widths
+#             ],
+#             source_ids=None,
+#             theme_dominant_type=ObjectType.BOOK,
+#         )
+#         world = shelf.create_in_world()
+#         return sorted(
+#             annotation.root.collision.shapes[0].scale.y
+#             for annotation in world.get_semantic_annotations_by_type(ShelfLayer)
+#         )
+#
+#     assert face_widths((0.4,)) == [pytest.approx(shelf_scale.width)]
+#     assert face_widths((0.4, 0.8)) == [pytest.approx(shelf_scale.width)] * 2
+#
+#
+# # ---------------------------------------------------------------------------
+# # Mesh rescaling – rendered geometry must match the declared EGSize
+# # ---------------------------------------------------------------------------
+#
+#
+# def test_object_mesh_keeps_its_native_size(tmp_path: Path) -> None:
+#     """
+#     EGObject2D.create_in_world must render the loaded mesh at its own native PLY size,
+#     not stretch it to the object's declared EGSize.
+#
+#     sage10k meshes already carry their real-world size, so rescaling a randomly matched
+#     mesh to an independently sampled scale distorts its proportions. The declared scale
+#     therefore must not drive the rendered geometry.
+#     """
+#     resources_root = (
+#         Path(files("semantic_digital_twin")).parent.parent / "resources" / "ply"
+#     )
+#     objects_dir = tmp_path / "objects"
+#     objects_dir.mkdir()
+#     shutil.copy(resources_root / "chair.ply", objects_dir / "test_object.ply")
+#     shutil.copy(
+#         resources_root / "chair_texture.png", objects_dir / "test_object_texture.png"
+#     )
+#
+#     native_extents = trimesh.load(
+#         str(objects_dir / "test_object.ply"), process=False
+#     ).extents
+#     obj = EGObject2D(
+#         id="obj_1",
+#         room_id="room_1",
+#         place_id="shelf_1",
+#         object_type=ObjectType.CHAIR,
+#         scale=EGScale(width=0.2, length=0.3, height=0.4),
+#         position=EGPoint2D(x=0.0, y=0.0),
+#         orientation=EGRotation(x=0.0, y=0.0, z=0.0),
+#         source_id="test_object",
+#         theme_dominant_type=ObjectType.BOOK,
+#     )
+#
+#     world = World()
+#     root = Body(name=PrefixedName(name="root"))
+#     with world.modify_world():
+#         world.add_body(root)
+#
+#     body = obj.create_in_world(world, tmp_path, parent=root)
+#
+#     rendered_extents = body.collision.shapes[0].mesh.extents
+#     assert rendered_extents == pytest.approx(native_extents, abs=1e-3)
+#
+#
+# # ---------------------------------------------------------------------------
+# # Mesh selection – pick a random mesh whose object shares the sampled type
+# # ---------------------------------------------------------------------------
+#
+#
+# def test_mesh_type_matcher_only_returns_candidates_of_the_requested_type() -> None:
+#     """
+#     _MeshTypeMatcher.random_match must only return candidates whose object_type equals
+#     the requested type when at least one such candidate exists in the pool.
+#
+#     ObjectType labels in the source dataset are effectively per-instance identifiers
+#     (tens of thousands of distinct values), so picking a mesh at random from the same
+#     generalized ObjectType -- rather than matching by declared size -- is what keeps an
+#     assigned mesh semantically plausible for the category an object was sampled as.
+#     """
+#     book_candidate = MeshCandidate(_FAKE_PATH, "book_src", ObjectType.BOOK)
+#     cup_candidate = MeshCandidate(_FAKE_PATH, "cup_src", ObjectType.CUP)
+#     matcher = _MeshTypeMatcher(candidates=[book_candidate, cup_candidate])
+#
+#     results = {matcher.random_match(ObjectType.BOOK) for _ in range(30)}
+#     assert results == {book_candidate}
+#
+#
+# def test_mesh_type_matcher_returns_nothing_when_the_type_is_absent() -> None:
+#     """
+#     When the pool holds no candidate of the requested type, random_match must return
+#     ``None`` so the caller can drop the piece.
+#
+#     Replaces two earlier tests that asserted the opposite -- that a candidate
+#     was returned from the full pool regardless of type, so sampling could never
+#     fail outright. That fallback is precisely what strewed generated rooms with
+#     arbitrary objects: the mesh cache covers only a few dozen of the hundred-odd
+#     object types, so a sampled sofa or bed routinely spawned as whatever was
+#     drawn, commonly a book or a piece of wall art. Dropping the piece is honest
+#     and is now counted in :class:`RoomGenerationReport`.
+#     """
+#     cup_candidate = MeshCandidate(_FAKE_PATH, "cup_src", ObjectType.CUP)
+#     plant_candidate = MeshCandidate(_FAKE_PATH, "plant_src", ObjectType.PLANT)
+#     matcher = _MeshTypeMatcher(candidates=[cup_candidate, plant_candidate])
+#
+#     assert matcher.random_match(ObjectType.BOOK) is None
+#
+#
+# def test_mesh_type_matcher_excludes_candidates_larger_than_the_budget() -> None:
+#     """
+#     With a size budget, only candidates whose own real-world size fits are eligible, so
+#     an oversized mesh is never chosen when a fitting one exists.
+#     """
+#     fitting = MeshCandidate(_FAKE_PATH, "small", ObjectType.BOOK, (0.1, 0.1, 0.1))
+#     oversized = MeshCandidate(_FAKE_PATH, "big", ObjectType.BOOK, (0.1, 0.1, 1.0))
+#     matcher = _MeshTypeMatcher(candidates=[fitting, oversized])
+#     budget = EGScale(width=0.5, length=0.5, height=0.5)
+#
+#     results = {
+#         matcher.random_match(ObjectType.BOOK, max_extents=budget) for _ in range(30)
+#     }
+#     assert results == {fitting}
+#
+#
+# def test_mesh_type_matcher_drops_when_no_candidate_of_type_fits() -> None:
+#     """
+#     When every candidate of the requested type is too big for the budget, random_match
+#     returns None so the caller can leave the object out rather than force an overflowing
+#     mesh into the space.
+#     """
+#     oversized = MeshCandidate(_FAKE_PATH, "big", ObjectType.BOOK, (0.1, 0.1, 1.0))
+#     matcher = _MeshTypeMatcher(candidates=[oversized])
+#     budget = EGScale(width=0.5, length=0.5, height=0.5)
+#
+#     assert matcher.random_match(ObjectType.BOOK, max_extents=budget) is None
+#
+#
+# def test_mesh_type_matcher_ignores_size_without_a_budget() -> None:
+#     """
+#     Without a budget, size is not considered, so callers that do not constrain space
+#     (chairs, floor objects) keep the original type-only behaviour.
+#     """
+#     oversized = MeshCandidate(_FAKE_PATH, "big", ObjectType.BOOK, (1.0, 1.0, 1.0))
+#     matcher = _MeshTypeMatcher(candidates=[oversized])
+#
+#     assert matcher.random_match(ObjectType.BOOK) is oversized
+#
+#
+# def test_mesh_type_matcher_treats_unknown_size_as_fitting() -> None:
+#     """
+#     A candidate whose native size is unknown must be treated as fitting, so manually
+#     built pools without size information are not silently emptied.
+#     """
+#     unknown = MeshCandidate(_FAKE_PATH, "unknown", ObjectType.BOOK)
+#     matcher = _MeshTypeMatcher(candidates=[unknown])
+#     budget = EGScale(width=0.01, length=0.01, height=0.01)
+#
+#     assert matcher.random_match(ObjectType.BOOK, max_extents=budget) is unknown
+#
+#
+# @pytest.fixture
+# def session() -> Session:
+#     engine = create_engine("sqlite:///:memory:")
+#     Base.metadata.create_all(bind=engine)
+#     database_session = Session(engine)
+#     yield database_session
+#     database_session.close()
+#
+#
+# def test_mesh_pool_loads_every_object_whose_mesh_is_cached(session: Session) -> None:
+#     """
+#     The mesh-candidate pool must be selected by mesh availability, not by an arbitrary
+#     row cap.
+#
+#     Capping an unordered query and only then intersecting with the cached
+#     meshes made the pool an accident of which rows the database happened to
+#     return -- a handful of candidates dominated by whichever types earlier demos
+#     had downloaded, so most sampled object types found no mesh of their own kind
+#     and silently fell back to the whole pool.
+#     """
+#     cached_source_ids = {f"cached_{index}" for index in range(30)}
+#     session.add_all(
+#         [
+#             EGObjectDAO(
+#                 id=f"object_{index}",
+#                 room_id="room_1",
+#                 place_id="floor",
+#                 source_id=f"cached_{index}",
+#                 object_type=ObjectType.PLANT,
+#                 scale=EGScaleDAO(height=1.0, length=0.5, width=0.5),
+#                 position=EGPositionDAO(x=float(index), y=0.0, z=0.5),
+#                 orientation=EGRotationDAO(x=0.0, y=0.0, z=0.0),
+#                 position_is_mesh_corrected=True,
+#             )
+#             for index in range(30)
+#         ]
+#         + [
+#             EGObjectDAO(
+#                 id="uncached_object",
+#                 room_id="room_1",
+#                 place_id="floor",
+#                 source_id="not_downloaded",
+#                 object_type=ObjectType.PLANT,
+#                 scale=EGScaleDAO(height=1.0, length=0.5, width=0.5),
+#                 position=EGPositionDAO(x=99.0, y=0.0, z=0.5),
+#                 orientation=EGRotationDAO(x=0.0, y=0.0, z=0.0),
+#                 position_is_mesh_corrected=True,
+#             )
+#         ]
+#     )
+#     session.commit()
+#
+#     loaded = load_objects_with_cached_meshes(session, cached_source_ids)
+#
+#     assert {obj.source_id for obj in loaded} == cached_source_ids
+#
+#
+# def _typed_dao(object_type: ObjectType, object_id: str) -> EGObjectDAO:
+#     return EGObjectDAO(
+#         id=object_id,
+#         room_id="room_1",
+#         place_id="floor",
+#         source_id=object_id,
+#         object_type=object_type,
+#         scale=EGScaleDAO(height=0.1, length=0.1, width=0.1),
+#         position=EGPositionDAO(x=0.0, y=0.0, z=0.0),
+#         orientation=EGRotationDAO(x=0.0, y=0.0, z=0.0),
+#         position_is_mesh_corrected=True,
+#     )
+#
+#
+# def test_load_objects_of_types_only_returns_requested_types(session: Session) -> None:
+#     """
+#     load_objects_of_types must only return objects whose type is one of the requested
+#     types, so a caller that already knows a shelf's sampled types is not handed the
+#     whole table to filter itself.
+#     """
+#     session.add_all(
+#         [
+#             _typed_dao(ObjectType.BOOK, "book_1"),
+#             _typed_dao(ObjectType.CUP, "cup_1"),
+#             _typed_dao(ObjectType.PLANT, "plant_1"),
+#         ]
+#     )
+#     session.commit()
+#
+#     loaded = load_objects_of_types(session, {ObjectType.BOOK, ObjectType.CUP})
+#
+#     assert {obj.source_id for obj in loaded} == {"book_1", "cup_1"}
+#
+#
+# def test_load_objects_of_types_does_not_scale_query_count_with_object_count(
+#     session: Session,
+# ) -> None:
+#     """
+#     load_objects_of_types must eagerly join scale/position/orientation in the same
+#     query, not lazily on first access.
+#
+#     Without the join, accessing those attributes for every object in the pool issued one
+#     extra round-trip per object -- for the full sage10k object table, an 850,000- query
+#     storm that dwarfed everything else a shelf draw does.
+#     """
+#     session.add_all(
+#         [_typed_dao(ObjectType.BOOK, f"book_{index}") for index in range(30)]
+#     )
+#     session.commit()
+#     session.expire_all()
+#
+#     statement_count = 0
+#
+#     def _count_statement(*args, **kwargs) -> None:
+#         nonlocal statement_count
+#         statement_count += 1
+#
+#     engine = session.get_bind()
+#     event.listen(engine, "before_cursor_execute", _count_statement)
+#     try:
+#         loaded = load_objects_of_types(session, {ObjectType.BOOK})
+#         for obj in loaded:
+#             obj.scale.width
+#             obj.position.x
+#             obj.orientation.z
+#     finally:
+#         event.remove(engine, "before_cursor_execute", _count_statement)
+#
+#     assert len(loaded) == 30
+#     assert statement_count <= 5
+#
+#
+# def test_mesh_candidate_types_for_shelf_uses_only_sampled_types() -> None:
+#     """
+#     Without ObjectType.OTHER among the sampled objects, a mesh-candidate query only
+#     needs the exact types the shelf sampled, not every type the database holds.
+#     """
+#     shelf = EGShelf(
+#         scale=EGScale(height=2.0, length=0.6, width=0.8),
+#         layers=[
+#             EGShelfLayer(
+#                 objects=[_typed_object(ObjectType.JAR, "jar_1")],
+#                 theme_dominant_type=ObjectType.JAR,
+#             ),
+#             EGShelfLayer(
+#                 objects=[_typed_object(ObjectType.BOTTLE, "bottle_1")],
+#                 theme_dominant_type=ObjectType.JAR,
+#             ),
+#         ],
+#         source_ids=None,
+#         theme_dominant_type=ObjectType.JAR,
+#     )
+#
+#     needed = _mesh_candidate_types_for_shelf(
+#         shelf, frequent_types={ObjectType.JAR, ObjectType.BOTTLE, ObjectType.PLANT}
+#     )
+#
+#     assert needed == {ObjectType.JAR, ObjectType.BOTTLE}
+#
+#
+# def test_mesh_candidate_types_for_shelf_resolves_other_to_the_non_frequent_types() -> (
+#     None
+# ):
+#     """
+#     ObjectType.OTHER is a coarsening sentinel, not a real database value (see
+#     _coarsen_rare_object_types), so it must resolve to every type outside the model's
+#     frequent set -- the same types _coarsen_mesh_candidate_types would relabel as OTHER
+#     again once a candidate is found.
+#     """
+#     shelf = EGShelf(
+#         scale=EGScale(height=2.0, length=0.6, width=0.8),
+#         layers=[
+#             EGShelfLayer(
+#                 objects=[
+#                     _typed_object(ObjectType.JAR, "jar_1"),
+#                     _typed_object(ObjectType.OTHER, "mystery_1"),
+#                 ],
+#                 theme_dominant_type=ObjectType.JAR,
+#             ),
+#         ],
+#         source_ids=None,
+#         theme_dominant_type=ObjectType.JAR,
+#     )
+#     frequent_types = {ObjectType.JAR}
+#
+#     needed = _mesh_candidate_types_for_shelf(shelf, frequent_types)
+#
+#     assert needed == {ObjectType.JAR} | (set(ObjectType) - frequent_types)
+#
+#
+# # ---- Group F -- conditioning contents and structure on the kind of shelf ----
+#
+#
+# def _layer_of(
+#     theme_dominant_type: ObjectType, object_type: ObjectType, index: int
+# ) -> EGShelfLayer:
+#     return EGShelfLayer(
+#         objects=[
+#             dataclasses.replace(
+#                 _typed_object(object_type, f"{object_type.value}_{index}"),
+#                 theme_dominant_type=theme_dominant_type,
+#             )
+#         ],
+#         theme_dominant_type=theme_dominant_type,
+#         relative_height=0.2,
+#     )
+#
+#
+# _BOOKCASE_SCALE = EGScale(height=2.0, length=0.3, width=0.4)
+# """
+# Dimensions of the synthetic bookcases, so a query can pin what was fitted.
+# """
+#
+# _CABINET_SCALE = EGScale(height=1.0, length=0.3, width=0.4)
+# """
+# Dimensions of the synthetic cabinets.
+# """
+#
+#
+# def _two_type_shelves() -> list[EGShelf]:
+#     """
+#     Shelves of two kinds whose contents and layer counts do not overlap.
+#
+#     Disjoint object types are what makes conditioning observable: a draw for one
+#     kind that produced the other kind's objects could not be explained away as
+#     the model's own uncertainty.
+#     """
+#     bookcases = [
+#         EGShelf(
+#             scale=_BOOKCASE_SCALE,
+#             layers=[_layer_of(ObjectType.BOOK, ObjectType.BOOK, index)] * 3,
+#             theme_dominant_type=ObjectType.BOOK,
+#         )
+#         for index in range(8)
+#     ]
+#     cup_shelves = [
+#         EGShelf(
+#             scale=_CABINET_SCALE,
+#             layers=[_layer_of(ObjectType.CUP, ObjectType.CUP, index)],
+#             theme_dominant_type=ObjectType.CUP,
+#         )
+#         for index in range(8)
+#     ]
+#     return bookcases + cup_shelves
+#
+#
+# @pytest.fixture
+# def two_type_shelf_model() -> RelationalProbabilisticCircuit:
+#     return RelationalProbabilisticCircuit(EGShelf, min_samples_per_leaf=0.25).fit(
+#         [to_dao(shelf) for shelf in _two_type_shelves()]
+#     )
+#
+#
+# def test_a_shelf_drawn_for_one_type_holds_that_types_objects(
+#     two_type_shelf_model: RelationalProbabilisticCircuit,
+# ) -> None:
+#     """
+#     The whole point of the theme: a book-themed shelf must be filled with what book-
+#     themed shelves hold, not with the global mixture of everything on any shelf.
+#
+#     Conditioning that quietly failed would still return a shelf, so the objects
+#     themselves are checked rather than merely that a draw succeeded.
+#     """
+#     backend = probabilistic_backend(two_type_shelf_model)
+#
+#     book_themed = next(
+#         iter(backend.evaluate(build_theme_shelf_query(ObjectType.BOOK, [1, 1, 1])))
+#     )
+#     cup_themed = next(
+#         iter(backend.evaluate(build_theme_shelf_query(ObjectType.CUP, [1])))
+#     )
+#
+#     assert {
+#         obj.object_type for layer in book_themed.layers for obj in layer.objects
+#     } == {ObjectType.BOOK}
+#     assert {
+#         obj.object_type for layer in cup_themed.layers for obj in layer.objects
+#     } == {ObjectType.CUP}
+#
+#
+# def test_a_drawn_shelf_carries_the_type_it_was_asked_for(
+#     two_type_shelf_model: RelationalProbabilisticCircuit,
+# ) -> None:
+#     """
+#     The theme is denormalized onto the layers, so a shelf whose layers disagreed with it
+#     would resample its contents against the wrong theme during repair.
+#     """
+#     backend = probabilistic_backend(two_type_shelf_model)
+#
+#     shelf = next(iter(backend.evaluate(build_theme_shelf_query(ObjectType.CUP, [1]))))
+#
+#     assert shelf.theme_dominant_type is ObjectType.CUP
+#     assert {layer.theme_dominant_type for layer in shelf.layers} == {ObjectType.CUP}
+#
+#
+# def test_a_shelf_model_learns_a_template_for_its_layers(
+#     two_type_shelf_model: RelationalProbabilisticCircuit,
+# ) -> None:
+#     """
+#     Layers are only reachable by fitting when an aggregation statistic declares them;
+#     without one a shelf-rooted circuit models the shelf's own dimensions and nothing of
+#     what it holds.
+#     """
+#     templates = two_type_shelf_model.exchangeable_distribution_templates
+#
+#     assert "layers" in templates
+#     assert (
+#         "objects"
+#         in templates["layers"].template_distribution.exchangeable_distribution_templates
+#     )
+#
+#
+# def test_loading_a_model_fitted_before_themes_is_refused(tmp_path: Path) -> None:
+#     """
+#     A model predating the theme loads and samples perfectly well, so nothing would look
+#     wrong -- every theme would simply come out identical.
+#
+#     It is refused rather than served, since a cached model outliving a schema change is
+#     the ordinary case, not an exotic one.
+#     """
+#     layers = [
+#         EGShelfLayer(
+#             objects=[_typed_object(ObjectType.CUP, f"cup_{index}")],
+#             theme_dominant_type=ObjectType.BOOK,
+#         )
+#         for index in range(5)
+#     ]
+#     without_theme = [
+#         dataclasses.replace(
+#             layer,
+#             objects=[
+#                 dataclasses.replace(obj, theme_dominant_type=ObjectType.BOOK)
+#                 for obj in layer.objects
+#             ],
+#         )
+#         for layer in layers
+#     ]
+#     model = TrainedArbitraryShelfModel(
+#         relational_probabilistic_circuit=RelationalProbabilisticCircuit(
+#             EGObject2D, min_samples_per_leaf=0.5
+#         ).fit([to_dao(obj) for layer in without_theme for obj in layer.objects]),
+#         frequent_object_types={ObjectType.CUP},
+#     )
+#     export_path = tmp_path / "outdated.json"
+#     model.save(export_path)
+#     stored = json.loads(export_path.read_text())
+#     _drop_theme_variables(stored)
+#     export_path.write_text(json.dumps(stored))
+#
+#     with pytest.raises(OutdatedTrainedModelError):
+#         TrainedArbitraryShelfModel.load(export_path)
+#
+#
+# def _drop_theme_variables(node: object) -> None:
+#     """
+#     Rename every stored ``theme_dominant_type`` variable, as a pre-theme fit had none.
+#     """
+#     if isinstance(node, dict):
+#         for key, value in node.items():
+#             if (
+#                 key == "name"
+#                 and isinstance(value, str)
+#                 and value.endswith("theme_dominant_type")
+#             ):
+#                 node[key] = "legacy_field"
+#             else:
+#                 _drop_theme_variables(value)
+#     elif isinstance(node, list):
+#         for item in node:
+#             _drop_theme_variables(item)
+#
+#
+# # ---- Group G -- drawing the shelf's own attributes before its layers ----
+#
+#
+# def _shelf_of(
+#     theme_dominant_type: ObjectType, layer_count: int, width: float
+# ) -> EGShelf:
+#     return EGShelf(
+#         scale=EGScale(height=2.0, length=0.3, width=width),
+#         layers=[
+#             EGShelfLayer(
+#                 objects=[
+#                     dataclasses.replace(
+#                         _typed_object(ObjectType.BOOK, f"book_{index}"),
+#                         theme_dominant_type=theme_dominant_type,
+#                     )
+#                 ],
+#                 theme_dominant_type=theme_dominant_type,
+#                 relative_height=0.2,
+#             )
+#             for index in range(layer_count)
+#         ],
+#         theme_dominant_type=theme_dominant_type,
+#     )
+#
+#
+# @pytest.fixture
+# def differing_structure_model() -> RelationalProbabilisticCircuit:
+#     """
+#     A model where one type has one narrow layer and the other has five wide ones.
+#     """
+#     shelves = [_shelf_of(ObjectType.BOTTLE, 1, 1.4) for _ in range(8)] + [
+#         _shelf_of(ObjectType.BOOK, 5, 0.6) for _ in range(8)
+#     ]
+#     return RelationalProbabilisticCircuit(EGShelf, min_samples_per_leaf=0.25).fit(
+#         [to_dao(shelf) for shelf in shelves]
+#     )
+#
+#
+# def test_a_shelf_can_be_drawn_for_every_type_the_model_knows(
+#     differing_structure_model: RelationalProbabilisticCircuit,
+# ) -> None:
+#     """
+#     A shelf of every theme the model has seen must be drawable end to end, not just the
+#     ones exercised by other tests.
+#     """
+#     for theme_dominant_type in (ObjectType.BOOK, ObjectType.BOTTLE):
+#         shelf = draw_shelf(differing_structure_model, theme_dominant_type)
+#
+#         assert shelf.theme_dominant_type is theme_dominant_type
+#         assert shelf.layers
+#
+#
+# def test_a_shelf_is_drawn_even_when_a_layer_count_has_no_support(
+#     differing_structure_model: RelationalProbabilisticCircuit,
+# ) -> None:
+#     """
+#     A layer count can carry mass in the shelf's own distribution while the shelf it
+#     implies has none: the grounded query conditions on the count, the kind of shelf
+#     and the layer structure together, which is stricter than the count's marginal.
+#     Drawing repeatedly is what turns that into a sample from the feasible
+#     conditional rather than an outright failure.
+#     """
+#     for _ in range(8):
+#         shelf = draw_shelf(differing_structure_model, ObjectType.BOTTLE)
+#
+#         assert shelf.layers
+#         assert shelf.theme_dominant_type is ObjectType.BOTTLE
+#
+#
+# def test_a_layer_count_the_model_rejects_outright_is_reported(
+#     differing_structure_model: RelationalProbabilisticCircuit,
+# ) -> None:
+#     """
+#     A count the caller pins is never redrawn, so one the model gives no probability to
+#     has to be reported rather than retried into a different shelf than asked for.
+#
+#     Five is the telling case: the fit has seen five-layer shelves, just never
+#     five-layer cabinets. A count it has never seen at all lies outside the modelled
+#     range and is integrated out instead of rejected, so it would not exercise this.
+#     """
+#     with pytest.raises(UndrawableShelfError):
+#         draw_shelf(differing_structure_model, ObjectType.BOTTLE, layer_count=5)
+#
+#
+# # ---- Group H -- calibration must not block type differentiation on realistically
+# # sparse, uneven data ----
+#
+#
+# @pytest.fixture
+# def sparse_realistic_structure_model() -> RelationalProbabilisticCircuit:
+#     """
+#     Mirrors the real processed database's per-type shelf counts and layer counts (5
+#     cabinets mostly single-layer with one four-layer outlier, 6 bookcases spread 1-3, 11
+#     open shelves that are never single-layer and spread 2-5), fitted with the production
+#     calibration function rather than a hand-picked lenient fraction.
+#
+#     A fixed fraction like the one :func:`differing_structure_model` uses never exercises
+#     the sparse-data calibration path an imbalanced, 22-row dataset this size triggers in
+#     production, so it could not have caught the regression this fixture guards against.
+#     """
+#     shelves = (
+#         [_shelf_of(ObjectType.BOTTLE, count, 1.4) for count in (1, 1, 1, 1, 4)]
+#         + [_shelf_of(ObjectType.BOOK, count, 0.7) for count in (1, 1, 2, 3, 3, 3)]
+#         + [
+#             _shelf_of(ObjectType.CANDLE, count, 1.1)
+#             for count in (2, 2, 2, 3, 3, 4, 5, 5, 5, 5, 5)
+#         ]
+#     )
+#     return RelationalProbabilisticCircuit(
+#         EGShelf, min_samples_per_leaf=min_samples_per_leaf_for
+#     ).fit([to_dao(shelf) for shelf in shelves])
+#
+#
+# # ---- Group I -- a layer's object count is learned per shelf type, not pinned ----
+#
+#
+# def _layer_with_object_count(
+#     theme_dominant_type: ObjectType, count: int, index: int
+# ) -> EGShelfLayer:
+#     object_type = (
+#         ObjectType.BOOK if theme_dominant_type is ObjectType.BOOK else ObjectType.CUP
+#     )
+#     return EGShelfLayer(
+#         objects=[
+#             dataclasses.replace(
+#                 _typed_object(object_type, f"{object_type.value}_{index}_{i}"),
+#                 theme_dominant_type=theme_dominant_type,
+#             )
+#             for i in range(count)
+#         ],
+#         theme_dominant_type=theme_dominant_type,
+#         relative_height=0.2,
+#     )
+#
+#
+# @pytest.fixture
+# def differing_object_count_model() -> RelationalProbabilisticCircuit:
+#     """
+#     A model where book-themed layers hold many objects and cup-themed layers hold few.
+#     """
+#     shelves = [
+#         EGShelf(
+#             scale=_BOOKCASE_SCALE,
+#             layers=[_layer_with_object_count(ObjectType.BOOK, 4, index)] * 3,
+#             theme_dominant_type=ObjectType.BOOK,
+#         )
+#         for index in range(8)
+#     ] + [
+#         EGShelf(
+#             scale=_CABINET_SCALE,
+#             layers=[_layer_with_object_count(ObjectType.CUP, 1, index)],
+#             theme_dominant_type=ObjectType.CUP,
+#         )
+#         for index in range(8)
+#     ]
+#     return RelationalProbabilisticCircuit(EGShelf, min_samples_per_leaf=0.25).fit(
+#         [to_dao(shelf) for shelf in shelves]
+#     )
+#
+#
+# def test_a_drawn_shelfs_layers_reflect_the_types_object_count(
+#     differing_object_count_model: RelationalProbabilisticCircuit,
+# ) -> None:
+#     """
+#     draw_shelf must use the aggregation-sampled object count for each layer rather than
+#     a caller-supplied constant, so a book-themed shelf comes out with fuller layers than
+#     a cup-themed one without either being asked for by count.
+#     """
+#     book_themed = draw_shelf(
+#         differing_object_count_model, ObjectType.BOOK, layer_count=3
+#     )
+#     cup_themed = draw_shelf(differing_object_count_model, ObjectType.CUP, layer_count=1)
+#
+#     book_counts = [len(layer.objects) for layer in book_themed.layers]
+#     cup_counts = [len(layer.objects) for layer in cup_themed.layers]
+#     assert min(book_counts) > max(cup_counts)
+#
+#
+# # %% Foxglove mesh URIs surviving a world model change
+#
+#
+# @dataclass
+# class _RecordingPublisher:
+#     """
+#     Duck-type substitute for a ROS publisher, keeping what was sent to it.
+#     """
+#
+#     published: list[MarkerArray] = field(default_factory=list)
+#
+#     def publish(self, markers: MarkerArray) -> None:
+#         self.published.append(markers)
+#
+#
+# @dataclass
+# class _RecordingNode:
+#     """
+#     Duck-type substitute for an rclpy node, handing out a :class:`_RecordingPublisher`.
+#     """
+#
+#     publisher: _RecordingPublisher = field(default_factory=_RecordingPublisher)
+#
+#     def create_publisher(self, message_type, topic_name, qos_profile):
+#         return self.publisher
+#
+#
+# @pytest.fixture
+# def generated_mesh_file() -> Path:
+#     """
+#     A real mesh under ``/tmp``, where a spawned object's mesh is written and where the
+#     rewrite recognises it as one it has to convert to glTF.
+#     """
+#     mesh_directory = Path(tempfile.mkdtemp(dir="/tmp")) / "spawned_object"
+#     mesh_directory.mkdir()
+#     resources_root = (
+#         Path(files("semantic_digital_twin")).parent.parent / "resources" / "ply"
+#     )
+#     mesh_path = mesh_directory / "spawned_object.ply"
+#     shutil.copy(resources_root / "chair.ply", mesh_path)
+#     shutil.copy(
+#         resources_root / "chair_texture.png", mesh_directory / "chair_texture.png"
+#     )
+#     yield mesh_path
+#     shutil.rmtree(mesh_directory.parent)
+#
+#
+# def _world_with_mesh_body(mesh_path: Path) -> World:
+#     """
+#     A world holding one body whose visual is *mesh_path*.
+#
+#     :param mesh_path: The mesh the body is given.
+#     :return: The world.
+#     """
+#     world = World.create_with_root_body("map")
+#     body = Body(
+#         name=PrefixedName("spawned_object"),
+#         visual=ShapeCollection([Mesh(filename=str(mesh_path))]),
+#     )
+#     with world.modify_world():
+#         world.add_body(body)
+#         world.add_connection(FixedConnection(parent=world.root, child=body))
+#     return world
+#
+#
+# def _published_mesh_uris(publisher: _RecordingPublisher) -> list[str]:
+#     """
+#     The mesh URIs of the most recently published marker array.
+#
+#     :param publisher: The publisher whose last message is read.
+#     :return: One URI per marker that carries a mesh.
+#     """
+#     return [
+#         marker.mesh_resource
+#         for marker in publisher.published[-1].markers
+#         if marker.mesh_resource
+#     ]
+#
+#
+# def _served_uri_for(mesh_path: Path) -> str:
+#     """
+#     :param mesh_path: The generated mesh a marker points at.
+#     :return: The ``package://`` URI the rewrite has to turn it into.
+#     """
+#     return (
+#         f"package://{_MESH_RESOURCE_PACKAGE}/{_MESH_RESOURCE_SHARE_SUBDIR}/"
+#         f"{mesh_path.parent.name}/{mesh_path.stem}.glb"
+#     )
+#
+#
+# def test_foxglove_publisher_rewrites_mesh_uris_it_publishes(
+#     generated_mesh_file: Path, tmp_path: Path
+# ) -> None:
+#     """
+#     A Foxglove client fetches mesh resources over its websocket and cannot read a
+#     ``file://`` path, so nothing the publisher sends may carry one.
+#     """
+#     world = _world_with_mesh_body(generated_mesh_file)
+#     node = _RecordingNode()
+#
+#     with patch(
+#         "experiments.scene_generation_experiments.shelf_generation."
+#         "get_package_share_directory",
+#         return_value=str(tmp_path / "share"),
+#     ):
+#         FoxgloveVizMarkerPublisher(_world=world, node=node)
+#
+#     assert _published_mesh_uris(node.publisher) == [
+#         _served_uri_for(generated_mesh_file)
+#     ]
+#
+#
+# def test_foxglove_mesh_uris_survive_a_world_model_change(
+#     generated_mesh_file: Path, tmp_path: Path
+# ) -> None:
+#     """
+#     Markers are rebuilt from the world whenever its model changes -- picking an object
+#     up re-parents it, which is one -- so a rewrite applied once to the publisher's
+#     markers is undone by the next change.
+#
+#     Every publish must carry rewritten URIs, not just the first.
+#     """
+#     world = _world_with_mesh_body(generated_mesh_file)
+#     node = _RecordingNode()
+#     late_arrival = Body(name=PrefixedName("late_arrival"))
+#
+#     with patch(
+#         "experiments.scene_generation_experiments.shelf_generation."
+#         "get_package_share_directory",
+#         return_value=str(tmp_path / "share"),
+#     ):
+#         FoxgloveVizMarkerPublisher(_world=world, node=node)
+#         publishes_before_change = len(node.publisher.published)
+#         with world.modify_world():
+#             world.add_body(late_arrival)
+#             world.add_connection(FixedConnection(parent=world.root, child=late_arrival))
+#
+#     assert len(node.publisher.published) > publishes_before_change
+#     assert _published_mesh_uris(node.publisher) == [
+#         _served_uri_for(generated_mesh_file)
+#     ]

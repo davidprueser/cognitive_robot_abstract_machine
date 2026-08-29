@@ -213,6 +213,20 @@ class CollisionDetector(WorldEntityWithClassBasedID, abc.ABC):
         self.world_model_updater.on_model_change()
         self.world_state_updater.on_state_change()
 
+    def stop(self) -> None:
+        """
+        Unregister this detector's world callbacks, releasing it and everything
+        it holds.
+
+        A detector registers a model- and a state-change callback that the world
+        keeps alive, so one built per collision check is never released: the
+        callbacks accumulate, each holding a compiled forward-kinematics
+        function and one collision model per body, and every later state change
+        pays for all of them.
+        """
+        self.world_model_updater.stop()
+        self.world_state_updater.stop()
+
     def get_all_collision_fks(self) -> np.ndarray:
         return self.world_model_updater.compiled_collision_fks._out
 

@@ -45,10 +45,23 @@ def uniform_measure_of_simple_event(simple_event: SimpleEvent) -> ProbabilisticC
             # create a uniform distribution for every interval in a continuous variables description
             distribution = SumUnit(probabilistic_circuit=result)
             for assignment_ in assignment:
-                uniform = UniformDistribution(variable=variable, interval=assignment_)
+                assignment_: SimpleInterval
+                if assignment_.upper - assignment_.lower < 1e-6:
+                    leaf_distribution = DiracDeltaDistribution(
+                        variable=variable, location=assignment_.center(), tolerance=1e-6
+                    )
+                    log_weight = 0.0
+
+                else:
+                    leaf_distribution = UniformDistribution(
+                        variable=variable, interval=assignment_
+                    )
+                    log_weight = -leaf_distribution.probability_density_function_value()
                 distribution.add_subcircuit(
-                    UnivariateContinuousLeaf(uniform, probabilistic_circuit=result),
-                    1 / uniform.probability_density_function_value(),
+                    UnivariateContinuousLeaf(
+                        leaf_distribution, probabilistic_circuit=result
+                    ),
+                    log_weight=log_weight,
                 )
             distribution.normalize()
 

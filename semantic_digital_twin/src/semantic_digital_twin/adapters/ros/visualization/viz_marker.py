@@ -38,7 +38,8 @@ class ShapeSource(Enum):
 
     VISUAL_WITH_COLLISION_BACKUP = "visual_with_collision_backup"
     """
-    The shapes to use for visualization are visual shapes, but if there are no visual shapes, use collision shapes as a backup.
+    The shapes to use for visualization are visual shapes, but if there are no
+    visual shapes, use collision shapes as a backup.
     """
 
 
@@ -64,19 +65,22 @@ class VizMarkerPublisher(ModelChangeCallback):
 
     topic_name: str = "/semworld/viz_marker"
     """
-    The name of the topic to which the Visualization Marker should be published.
+    The name of the topic to which the Visualization Marker should be
+    published.
     """
 
     shape_source: ShapeSource = field(
         kw_only=True, default=ShapeSource.VISUAL_WITH_COLLISION_BACKUP
     )
     """
-    Which shapes to use for each body
+    Which shapes to use for each body.
     """
 
     alpha: float = field(kw_only=True, default=1.0)
     """
-    Marker transparency in [0.0, 1.0]. 0.0 is fully transparent.
+    Marker transparency in [0.0, 1.0].
+
+    0.0 is fully transparent.
     """
 
     region_alpha: float = field(kw_only=True, default=0.2)
@@ -86,13 +90,18 @@ class VizMarkerPublisher(ModelChangeCallback):
     """
 
     markers: MarkerArray = field(init=False, default_factory=MarkerArray)
-    """Maker message to be published."""
+    """
+    Maker message to be published.
+    """
+
     qos_profile: QoSProfile = field(
         default_factory=lambda: QoSProfile(
             depth=10, durability=DurabilityPolicy.TRANSIENT_LOCAL
         )
     )
-    """QoS profile for the publisher."""
+    """
+    QoS profile for the publisher.
+    """
 
     tf_publisher: Optional[TFPublisher] = field(default=None, kw_only=True)
     """
@@ -198,6 +207,17 @@ class VizMarkerPublisher(ModelChangeCallback):
                 force_alpha=self.region_alpha,
             )
 
+        self.publish_markers()
+
+    def publish_markers(self) -> None:
+        """
+        Send the current markers out on the topic.
+
+        Every rebuild ends here, so a subclass that has to reshape what a particular
+        viewer receives overrides this rather than reaching into :attr:`markers` once:
+        the markers are rebuilt from the world on every model change, and anything done
+        to them by hand is gone at the next one.
+        """
         self.publisher.publish(self.markers)
 
     def _add_markers_for_shapes(

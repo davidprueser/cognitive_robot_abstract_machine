@@ -145,7 +145,11 @@ class Symbolic(Variable):
         )
 
     def make_value(self, value) -> Set:
-        if not isinstance(value, Iterable):
+        # A string is a value in its own right, not a collection of its
+        # characters. Taking one apart would look each character up separately
+        # and find none of them, reporting a value the domain plainly holds as
+        # absent. String-valued enums reach this as strings, so they rely on it.
+        if isinstance(value, str) or not isinstance(value, Iterable):
             value = [value]
 
         parsed_value = []

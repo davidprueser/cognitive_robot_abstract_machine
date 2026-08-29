@@ -23,6 +23,7 @@ from krrood.entity_query_language.factories import (
     a,
     flat_variable,
 )
+from random_events.interval import SimpleInterval, Bound
 from krrood.inheritance_path_length import inheritance_path_length
 try:
     from random_events.interval import SimpleInterval, Bound

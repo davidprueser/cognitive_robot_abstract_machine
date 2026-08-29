@@ -411,6 +411,30 @@ def test_supporting(two_block_world):
     assert not is_supported_by(center, top)
 
 
+def test_supporting_excludes_a_body_from_itself():
+    """
+    A body's bounding box always intersects itself over its own full height, so a slab
+    thin enough to be under ``max_intersection_height`` would otherwise be reported as
+    supported by itself.
+    """
+    world = World()
+    slab = Body(name=PrefixedName("slab"))
+    slab.collision = ShapeCollection(
+        [
+            Box(
+                scale=Scale(1.0, 1.0, 0.02),
+                origin=HomogeneousTransformationMatrix.from_xyz_rpy(
+                    reference_frame=slab
+                ),
+            )
+        ],
+        reference_frame=slab,
+    )
+    with world.modify_world():
+        world.add_body(slab)
+    assert not is_supported_by(slab, slab)
+
+
 def test_is_body_in_gripper(pr2_world_copy):
     pr2 = pr2_world_copy.get_semantic_annotations_by_type(PR2)[0]
 

@@ -260,6 +260,8 @@ def is_supported_by(
         due to unhandled clipping.
     :return: True if the second object is supported by the first object, False otherwise
     """
+    if supported_body == supporting_body:
+        return False
     if Below(
         supported_body.center_of_mass,
         supporting_body.center_of_mass,

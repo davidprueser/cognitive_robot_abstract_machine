@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing_extensions import Type
+from krrood.exceptions import DataclassException
 
 from typing_extensions import Type, Any
 
@@ -49,7 +51,9 @@ class OutOfDomainValueError(DataclassException):
     feature_name: str
     """
     The name of the feature whose value was out of domain.
+class MissingBaseClassForClassWithExchangeableParts(DataclassException, TypeError):
     """
+
 
     value: Any
     """

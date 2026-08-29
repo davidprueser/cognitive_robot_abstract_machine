@@ -52,7 +52,8 @@ from random_events.variable import Variable, Symbolic, Continuous, Integer
 
 def invalidates_topology_cache(method):
     """
-    Decorator for :class:`ProbabilisticCircuit` methods that change the graph topology.
+    Decorator for :class:`ProbabilisticCircuit` methods that change the graph
+    topology.
 
     After the wrapped method has run, the circuit's cached root and layers are
     invalidated so that they are recomputed on the next access. Use this only for
@@ -79,7 +80,7 @@ class PlotAlignment(IntEnum):
     VERTICAL = 1
 
 
-@dataclass
+@dataclass(eq=False)
 class Unit(SubclassJSONSerializer, ABC):
     """
     Class for all units of a probabilistic circuit.
@@ -328,7 +329,8 @@ class LeafUnit(Unit):
 
     def sample(self, samples: npt.NDArray, variable_to_index_map: Dict[Variable, int]):
         """
-        Sample from the distribution and write the samples into the samples array.
+        Sample from the distribution and write the samples into the samples
+        array.
 
         During sampling each node accumulates, in ``result_of_current_query``, the
         indices of the rows in ``samples`` that are routed to it (as a list of index
@@ -523,7 +525,8 @@ class SumUnit(InnerUnit):
 
     def sample(self, *args, **kwargs):
         """
-        Route the sample rows accumulated from this unit's parents to its subcircuits.
+        Route the sample rows accumulated from this unit's parents to its
+        subcircuits.
 
         Every row routed to a mixture is assigned to exactly one subcircuit, drawn
         according to the subcircuit weights. The rows are partitioned in a single
@@ -713,7 +716,8 @@ class SumUnit(InnerUnit):
 
     def normalize(self):
         """
-        Normalize the log_weights of the subcircuits such that they sum up to 1 inplace.
+        Normalize the log_weights of the subcircuits such that they sum up to 1
+        inplace.
         """
         total_weight = logsumexp(self.log_weights)
         for log_weight, subcircuit in self.log_weighted_subcircuits:
@@ -863,7 +867,8 @@ class ProductUnit(InnerUnit):
 
     def sample(self, *args, **kwargs):
         """
-        Route the sample rows accumulated from this unit's parents to its subcircuits.
+        Route the sample rows accumulated from this unit's parents to its
+        subcircuits.
 
         A decomposable product factorizes over disjoint variables, so every sample row
         is forwarded unchanged to each subcircuit; the subcircuits then fill in their
@@ -1208,7 +1213,7 @@ class ProbabilisticCircuit(ProbabilisticModel, SubclassJSONSerializer):
                     unit.forward()
         return self.root.result_of_current_query
 
-    def log_mode(self, check_determinism: bool = True) -> Tuple[Event, float]:
+    def log_mode(self, check_determinism: bool = False) -> Tuple[Event, float]:
         if check_determinism:
             if not self.is_deterministic():
                 raise IntractableError(self)
@@ -1371,7 +1376,7 @@ class ProbabilisticCircuit(ProbabilisticModel, SubclassJSONSerializer):
         # clean the circuit up
         root = self.root
         [
-            self.graph.remove_node(node.index)
+            self.remove_node(node)
             for layer in reversed(self.layers)
             for node in layer
             if node.result_of_current_query == -np.inf
@@ -1577,9 +1582,18 @@ class ProbabilisticCircuit(ProbabilisticModel, SubclassJSONSerializer):
         """
         Update the variables of this unit and its descendants.
 
+        Every leaf in the graph is visited rather than only the root's
+        descendants, because a leaf reports no descendants of its own. Delegating
+        to the root would therefore leave a circuit that *is* a single leaf
+        untouched, silently keeping the old names.
+
         :param new_variables: The new variables to set.
         """
-        self.root.update_variables(new_variables)
+        for node in self.graph.nodes():
+            if not node.is_leaf:
+                continue
+            if node.variable in new_variables:
+                node.distribution.variable = new_variables[node.variable]
 
     def is_deterministic(self) -> bool:
         """

@@ -49,11 +49,31 @@ class HasFactoryAndKwargs(Generic[T]):
         """
         Recursively construct an instance and return it.
 
+        Most factories merely store whatever they are given, so a keyword argument
+        still holding ``...`` -- something the caller has not determined yet --
+        passes through unnoticed and construction succeeds, exactly as it always
+        has. A factory that instead computes something from its arguments in its
+        own constructor (for example a symbolic spatial type) cannot accept ``...``
+        there and raises. Only then, and only when this value's own keyword
+        arguments are the ones directly holding ``...`` (rather than some
+        unrelated failure), is it left as ``None`` instead; any *other* value
+        nested deeper in the same tree is unaffected and still constructed
+        normally.
+
         :param value: The value to construct.
-        :return: The constructed instance.
+        :return: The constructed instance; ``None`` if constructing *value* failed
+            because one of its own keyword arguments is still unresolved; or
+            *value* unchanged if it is not itself constructible.
+        :raises TypeError: If constructing *value* fails for a reason other than
+            one of its own keyword arguments still being unresolved.
         """
         if isinstance(value, HasFactoryAndKwargs):
-            return value.construct_instance()
+            try:
+                return value.construct_instance()
+            except TypeError:
+                if any(kwarg_value is ... for kwarg_value in value.kwargs.values()):
+                    return None
+                raise
         return value
 
     def __deepcopy__(self, memo):

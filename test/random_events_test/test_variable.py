@@ -1,5 +1,5 @@
 import unittest
-from enum import IntEnum
+from enum import IntEnum, StrEnum
 
 import numpy as np
 
@@ -94,6 +94,44 @@ class CustomObjectSetTestCase(unittest.TestCase):
         self.assertEqual(x.name, "x")
         se = SimpleEvent.from_data({x: e1}).as_composite_set()
         self.assertFalse(se.is_empty())
+
+
+class StringValuedMemberTestCase(unittest.TestCase):
+    """
+    A value that is itself a string must be matched whole.
+
+    Strings are iterable, so a value taken apart before matching is looked up one
+    character at a time and never found -- which reads as the value being absent
+    from a domain that plainly contains it. String-valued enums are the usual way
+    this arises, since they are strings as far as any type check is concerned.
+    """
+
+    class Material(StrEnum):
+        WOOD = "wood"
+        STEEL = "steel"
+
+    def test_a_string_enum_member_is_matched_against_the_domain(self):
+        variable = Symbolic(name="material", domain=Set.from_iterable(self.Material))
+
+        matched = variable.make_value(self.Material.STEEL)
+
+        self.assertEqual(len(matched.simple_sets), 1)
+        self.assertEqual(list(matched.simple_sets)[0].element, self.Material.STEEL)
+
+    def test_a_plain_string_is_matched_against_the_domain(self):
+        variable = Symbolic(name="letter", domain=Set.from_iterable(str_set))
+
+        matched = variable.make_value("a")
+
+        self.assertEqual(len(matched.simple_sets), 1)
+        self.assertEqual(list(matched.simple_sets)[0].element, "a")
+
+    def test_several_values_are_still_matched_one_by_one(self):
+        variable = Symbolic(name="letter", domain=Set.from_iterable(str_set))
+
+        matched = variable.make_value(["a", "b"])
+
+        self.assertEqual(len(matched.simple_sets), 2)
 
 
 if __name__ == "__main__":
