@@ -2,8 +2,10 @@ import os
 import subprocess
 import sys
 import unittest
-from enum import IntEnum
+from enum import IntEnum, StrEnum
 from pathlib import Path
+
+import pytest
 
 from krrood.adapters.json_serializer import to_json, from_json
 
@@ -176,6 +178,40 @@ class SymbolicDistributionTestCase(unittest.TestCase):
 
         prob = self.model.probability(event)
         self.assertEqual(prob, 1)
+
+
+class StringBackedSymbolicCategory(StrEnum):
+    ALPHA = "ALPHA"
+    BETA = "BETA"
+
+
+def test_likelihood_for_string_backed_symbolic_category() -> None:
+    """
+    ``log_likelihood`` must recover a category's own fitted probability for a
+    :class:`~enum.StrEnum`-backed category.
+
+    A ``StrEnum`` member's hash is derived from its string content and routinely exceeds
+    float64's exact integer range (unlike a small :class:`~enum.IntEnum`, where the hash
+    equals the member's own value and never surfaces this), so this case is a distinct
+    regression from :class:`SymbolicDistributionTestCase`.
+    """
+    variable = Symbolic(
+        name="category", domain=Set.from_iterable(StringBackedSymbolicCategory)
+    )
+    probabilities = MissingDict(float)
+    probabilities[hash(StringBackedSymbolicCategory.ALPHA)] = 0.25
+    probabilities[hash(StringBackedSymbolicCategory.BETA)] = 0.75
+    distribution = SymbolicDistribution(variable=variable, probabilities=probabilities)
+
+    likelihoods = distribution.likelihood(
+        np.array(
+            [[StringBackedSymbolicCategory.ALPHA], [StringBackedSymbolicCategory.BETA]],
+            dtype=object,
+        )
+    )
+
+    assert likelihoods[0] == pytest.approx(0.25)
+    assert likelihoods[1] == pytest.approx(0.75)
 
 
 class DiracDeltaDistributionTestCase(unittest.TestCase):
