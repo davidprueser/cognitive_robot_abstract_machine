@@ -18,10 +18,10 @@ import tqdm
 from sqlalchemy import select
 from sqlalchemy.orm import sessionmaker
 
-import coraplex.orm.ormatic_interface  # type: ignore  # noqa: F401
+import experiments.orm.ormatic_interface  # type: ignore  # noqa: F401
 from coraplex.datastructures.dataclasses import Context
 from coraplex.execution_environment import simulated_robot
-from coraplex.orm.ormatic_interface import Base, PlanMappingDAO  # type: ignore
+from experiments.orm.ormatic_interface import Base, PlanMappingDAO  # type: ignore
 from coraplex.plans.factories import sequential
 from coraplex.robot_plans.actions.core.navigation import NavigateAction
 from experiments.experiment_definitions import (

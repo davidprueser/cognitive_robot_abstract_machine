@@ -18,7 +18,7 @@ from typing import Type, List, Set, Tuple
 import plotly.graph_objects as go
 import tqdm
 
-import coraplex.orm.ormatic_interface  # type: ignore
+import experiments.orm.ormatic_interface  # type: ignore
 import coraplex.plans.plan_node
 import semantic_digital_twin  # type: ignore
 from experiments.experiment_definitions import (
@@ -39,7 +39,7 @@ from coraplex.robot_plans.actions.base import ActionDescription
 def build_cram_class_sets() -> Tuple[Set[Type], List[Type], dict]:
     """
     Collect all mappable classes, alternative mappings, and type mappings from the
-    coraplex ORM interface.
+    experiments ORM interface.
 
     Filters out non-dataclasses and AlternativeMapping subclasses from the raw
     interface, then augments with the original classes of every registered
@@ -49,7 +49,7 @@ def build_cram_class_sets() -> Tuple[Set[Type], List[Type], dict]:
         :func:`run_scalability_experiment`.
     """
     classes, alternative_mappings, type_mappings = get_classes_of_ormatic_interface(
-        coraplex.orm.ormatic_interface
+        experiments.orm.ormatic_interface
     )
     classes = set(classes)
 
