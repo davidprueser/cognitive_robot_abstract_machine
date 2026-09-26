@@ -56,6 +56,7 @@ from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Table,
 )
 from semantic_digital_twin.spatial_types import (
+    Point3,
     Quaternion,
     Vector3,
     RotationMatrix,
@@ -708,11 +709,22 @@ class MobileBase(AbstractRobotPart, Generic[TGenericDrive], ABC):
 
         ``heading``'s orientation says where the robot's front should point, written as
         its x-axis, so the same heading serves bases modelled with different axes. Its
-        position is kept as it is.
+        position names where on the floor to stand: a drive moves the robot across the
+        floor only, so the base keeps the height its robot's root stands at, which lies
+        above the floor for a robot rooted above its feet.
         """
         base_R_forward = RotationMatrix.from_vectors(x=self.forward_axis, z=Vector3.Z())
+        heading_T_root = self._world.compute_forward_kinematics(
+            heading.reference_frame, self._robot.root
+        )
+        standing_position = Point3(
+            heading.x,
+            heading.y,
+            heading_T_root.z,
+            reference_frame=heading.reference_frame,
+        )
         return HomogeneousTransformationMatrix.from_point_rotation_matrix(
-            heading.to_position(),
+            standing_position,
             heading.to_rotation_matrix() @ base_R_forward.inverse(),
             reference_frame=heading.reference_frame,
         ).to_pose()

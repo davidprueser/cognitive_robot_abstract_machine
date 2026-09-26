@@ -20,6 +20,7 @@ from semantic_digital_twin.api import RobotSpecification
 from semantic_digital_twin.exceptions import ParsingError
 from semantic_digital_twin.robots.robot_part_mixins import HasMobileBase
 from semantic_digital_twin.robots.robot_parts import AbstractRobot, MobileBase
+from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
 from semantic_digital_twin.spatial_types.spatial_types import Pose, Vector3
 from semantic_digital_twin.world import World
 
@@ -231,3 +232,32 @@ def test_an_x_forward_base_takes_the_heading_unchanged(
     np.testing.assert_allclose(
         mobile_base.pose_facing(heading).to_np(), heading.to_np(), atol=1e-9
     )
+
+
+# %% a base stands at its own height, wherever on the floor it is sent
+
+ROOT_HEIGHT_ABOVE_THE_FLOOR = 0.9
+"""
+How high a lifted robot's root stands, as a humanoid's pelvis does above its feet.
+"""
+
+
+def test_the_base_keeps_the_height_it_stands_at(x_forward_robot: Type[AbstractRobot]):
+    """
+    A drive moves the robot across the floor only, so a heading on the floor names where
+    to stand, and the base stays at the height its root stands at.
+    """
+    world = World.create_with_root_body("root")
+    robot = RobotSpecification(
+        semantic_annotation_type=x_forward_robot,
+        world_T_odom=HomogeneousTransformationMatrix.from_xyz_rpy(
+            z=ROOT_HEIGHT_ABOVE_THE_FLOOR
+        ),
+    ).spawn(world)
+    heading = Pose.from_xyz_rpy(1.3, 2.0, 0.0, yaw=0.3, reference_frame=world.root)
+
+    base_pose = robot.mobile_base.pose_facing(heading)
+
+    assert float(base_pose.z) == pytest.approx(float(robot.root.global_pose.z))
+    assert float(base_pose.x) == pytest.approx(float(heading.x))
+    assert float(base_pose.y) == pytest.approx(float(heading.y))
