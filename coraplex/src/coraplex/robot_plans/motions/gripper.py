@@ -1,7 +1,11 @@
 from dataclasses import dataclass, field
 from typing import Optional, List
 
-from giskardpy.motion_statechart.data_types import DefaultWeights
+from giskardpy.motion_statechart.context import MotionStatechartContext
+from giskardpy.motion_statechart.data_types import (
+    DefaultWeights,
+    ObservationStateValues,
+)
 from giskardpy.motion_statechart.goals.templates import Parallel, Sequence
 from giskardpy.motion_statechart.graph_node import MotionStatechartNode, Task
 from giskardpy.motion_statechart.binding_policy import GoalBindingPolicy
@@ -119,6 +123,20 @@ class ReachMotion(BaseMotion, HasTcpGoalThresholds):
         return Sequence(nodes=nodes)
 
 
+@dataclass(eq=False, repr=False)
+class NothingToMove(MotionStatechartNode):
+    """
+    The motion of an end effector that has no joints to move.
+
+    Jaws fixed in the assembly cannot open or close: an object is held by being seated
+    between them. Such an end effector declares no open and no closed joint state, and a
+    gripper motion asked of it is over the moment it starts.
+    """
+
+    def on_tick(self, context: MotionStatechartContext) -> ObservationStateValues:
+        return ObservationStateValues.TRUE
+
+
 @dataclass
 class MoveGripperMotion(BaseMotion, GripperStallToleranceParameters):
     """
@@ -148,6 +166,8 @@ class MoveGripperMotion(BaseMotion, GripperStallToleranceParameters):
         arm = ViewManager().get_end_effector_view(self.gripper, self.robot)
 
         name = "OpenGripper" if self.motion == GripperState.OPEN else "CloseGripper"
+        if not arm.has_joint_state_of_type(self.motion):
+            return NothingToMove(name=name)
         goal_state = arm.get_joint_state_by_type(self.motion)
         joint_task = JointPositionList(goal_state=goal_state, name=name)
 

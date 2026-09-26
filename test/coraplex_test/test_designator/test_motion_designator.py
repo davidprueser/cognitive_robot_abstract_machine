@@ -25,8 +25,10 @@ from coraplex.robot_plans.actions.core.pick_up import GraspingAction, PickUpActi
 from coraplex.robot_plans.actions.core.placing import PlaceAction
 from coraplex.robot_plans.actions.core.robot_body import MoveTorsoAction
 from coraplex.robot_plans.motions.container import ClosingMotion, OpeningMotion
+from coraplex.view_manager import ViewManager
 from coraplex.robot_plans.motions.gripper import (
     MoveGripperMotion,
+    NothingToMove,
     MoveTCPWaypointsMotion,
     MoveTCPWaypointsAlignedMotion,
 )
@@ -400,6 +402,26 @@ def test_move_gripper_motion_tolerate_stall_defaults_to_false(immutable_model_wo
     open_motion = MoveGripperMotion(motion=GripperState.OPEN, gripper=Arms.LEFT)
     execute_single(open_motion, context=context)
     assert isinstance(open_motion.motion_chart, JointPositionList)
+
+
+@pytest.mark.parametrize("state", [GripperState.OPEN, GripperState.CLOSE])
+def test_a_gripper_without_the_state_has_nothing_to_move(
+    immutable_model_world, monkeypatch, state
+):
+    """
+    Jaws fixed in the assembly declare no open and no closed state, so moving them is
+    over the moment it starts instead of failing for want of a goal.
+    """
+    world, view, context = immutable_model_world
+    end_effector = ViewManager().get_end_effector_view(Arms.LEFT, view)
+    monkeypatch.setattr(
+        type(end_effector), "has_joint_state_of_type", lambda self, state_type: False
+    )
+
+    motion = MoveGripperMotion(motion=state, gripper=Arms.LEFT)
+    execute_single(motion, context=context)
+
+    assert isinstance(motion.motion_chart, NothingToMove)
 
 
 def test_move_gripper_motion_tolerate_stall_can_be_explicitly_enabled(
