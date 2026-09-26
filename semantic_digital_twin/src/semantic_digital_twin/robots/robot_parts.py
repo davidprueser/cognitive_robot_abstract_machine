@@ -30,6 +30,7 @@ from krrood.class_diagrams.attribute_introspector import (
 from krrood.entity_query_language.factories import variable, contains, a, entity
 from krrood.ormatic.utils import classproperty
 from krrood.utils import get_generic_type_parameters
+from semantic_digital_twin.adapters.urdf import URDFParser
 from semantic_digital_twin.datastructures.definitions import JointStateType
 from semantic_digital_twin.datastructures.field_of_view import FieldOfView
 from semantic_digital_twin.datastructures.joint_state import JointState
@@ -859,6 +860,24 @@ class AbstractRobot(Agent, HasRobotParts, ABC):
         Sets up the semantic annotations for all robot parts of this robot.
         """
         super().setup_robot_part_semantic_annotations()
+
+    @classmethod
+    def from_description(cls, prefix: str | None = None) -> Self:
+        """
+        Create the robot in a world of its own, from its description.
+
+        Parses the file :meth:`get_ros_file_path` names and annotates what it parsed. A
+        robot without a description file overrides this to build itself into a fresh
+        world instead.
+
+        :param prefix: Namespace for the robot's bodies, connections and degrees of
+            freedom. None keeps the description's own namespace.
+        :return: The annotated robot. Its world holds nothing but the robot.
+        """
+        robot_world = URDFParser.from_file(
+            cls.get_ros_file_path(), prefix=prefix
+        ).parse()
+        return cls.from_world(robot_world)
 
     @classmethod
     def from_world(cls, world: World) -> Self:

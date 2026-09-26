@@ -1101,8 +1101,9 @@ class RobotSpecification:
 
     def spawn(self, world: World) -> AbstractRobot:
         """
-        Parse the robot from its own description and merge it into ``world`` as
-        ``world.root -> odom -> connection -> robot``.
+        Create the robot from its own description (see
+        :meth:`~semantic_digital_twin.robots.robot_parts.AbstractRobot.from_description`)
+        and merge it into ``world`` as ``world.root -> odom -> connection -> robot``.
 
         The ``odom`` is fixed to the world root at the localization pose. The
         connection attaching the robot to it is the drive declared by the robot's
@@ -1110,7 +1111,7 @@ class RobotSpecification:
         drive is marked as controlled and its start pose is applied afterwards, that of
         a fixed one at creation.
 
-        The robot is annotated while it still owns the world it was parsed into, so that
+        The robot is annotated while it still owns the world it was created in, so that
         the annotation's name-based lookups cannot be confused by an equally named joint
         of a robot already present in ``world``.
 
@@ -1120,10 +1121,9 @@ class RobotSpecification:
         connection_type = self.semantic_annotation_type.get_drive_connection_type()
         is_active = issubclass(connection_type, ActiveConnection)
 
-        robot_world = URDFParser.from_file(
-            self.semantic_annotation_type.get_ros_file_path(), prefix=self.prefix
-        ).parse()
-        robot_id = self.semantic_annotation_type.from_world(robot_world).id
+        robot = self.semantic_annotation_type.from_description(prefix=self.prefix)
+        robot_world = robot._world
+        robot_id = robot.id
 
         with world.modify_world():
             odom_body = self._create_odom_body(self.prefix)

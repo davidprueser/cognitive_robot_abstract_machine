@@ -1,11 +1,15 @@
+from __future__ import annotations
+
 import copy
 import inspect
 import os
+from dataclasses import dataclass
 from uuid import uuid4
 from pathlib import Path
 
 import numpy as np
 import pytest
+from typing_extensions import Self
 
 from krrood.utils import recursive_subclasses
 from semantic_digital_twin.api import (
@@ -36,6 +40,7 @@ from semantic_digital_twin.exceptions import (
     UnknownPartWholeRelationshipField,
     UselessConceptError,
 )
+from semantic_digital_twin.robots.minimal_robot import MinimalRobot
 from semantic_digital_twin.robots.pr2 import PR2
 from semantic_digital_twin.robots.robot_parts import AbstractRobotPart
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
@@ -304,6 +309,41 @@ def test_world_specification_from_gazebo_environment():
 
     assert not world.is_empty()
     assert world.get_body_by_name("obj") is not None
+
+
+# %% robots built rather than parsed
+
+
+BUILT_ROBOT_ROOT_NAME = "built_root"
+"""
+Name of the only body of :class:`RobotBuiltWithoutDescription`.
+"""
+
+
+@dataclass(eq=False)
+class RobotBuiltWithoutDescription(MinimalRobot):
+    """
+    A robot that has no description file and builds itself into a world of its own.
+    """
+
+    @classmethod
+    def from_description(cls, prefix: str | None = None) -> Self:
+        world = World.create_with_root_body(BUILT_ROBOT_ROOT_NAME)
+        return cls.from_world(world)
+
+
+def test_a_robot_without_a_description_file_spawns_from_what_it_builds():
+    world = WorldSpecification(
+        world_parser=None,
+        robots=[
+            RobotSpecification(semantic_annotation_type=RobotBuiltWithoutDescription)
+        ],
+    ).to_domain_object()
+
+    [robot] = world.get_semantic_annotations_by_type(RobotBuiltWithoutDescription)
+    assert robot.root.name.name == BUILT_ROBOT_ROOT_NAME
+    odom = robot.root.parent_connection.parent
+    assert odom.parent_connection.parent is world.root
 
 
 # %% shape constructors
