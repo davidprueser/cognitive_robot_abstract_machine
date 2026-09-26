@@ -3,6 +3,7 @@ from __future__ import annotations
 import math
 from copy import deepcopy
 from dataclasses import dataclass, field
+from abc import ABC
 from typing import Tuple
 
 import numpy as np
@@ -433,9 +434,14 @@ class GraspDescription:
         :param pose: The pose of the object to grasp.
         :param body: The object body, used to decide side-vs-top from its geometry.
         :param grasp_alignment: Optional explicit preferred alignment (overrides the
-            auto side/top choice).
+            auto side/top choice). Left out, an end effector that declares one (see
+            :class:`HasPreferredGraspAlignment`) is planned with that one.
         :return: The grasp description to approach with.
         """
+        if grasp_alignment is None and isinstance(
+            end_effector, HasPreferredGraspAlignment
+        ):
+            grasp_alignment = end_effector.preferred_grasp_alignment
         best = cls._approach_side(end_effector, pose, grasp_alignment)
         # auto top grasp for flat objects, unless the caller asked for a specific alignment
         if grasp_alignment is None and body is not None and cls._is_flat(body):
@@ -610,6 +616,23 @@ class PreferredGraspAlignment:
     with_rotated_gripper: bool
     """
     Indicates if the gripper should be rotated by 90° around X.
+    """
+
+
+class HasPreferredGraspAlignment(ABC):
+    """
+    Mixin for an end effector that grasps one way whatever the object.
+
+    A parallel gripper can take an object from any side, so its grasp is chosen from
+    where the object stands relative to the robot. An end effector built for a single
+    alignment, such as a cradle that closes over an object from above, declares that
+    alignment here.
+    """
+
+    preferred_grasp_alignment: ClassVar[PreferredGraspAlignment]
+    """
+    The alignment every grasp of this end effector is planned with, unless the caller
+    names another.
     """
 
 

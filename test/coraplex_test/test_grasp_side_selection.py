@@ -6,7 +6,10 @@ this differently: the driving one has not arrived yet when the side is chosen, s
 current position must not decide it.
 """
 
+from dataclasses import dataclass
+
 import numpy as np
+from typing_extensions import ClassVar
 
 from coraplex.datastructures.enums import (
     ApproachDirection,
@@ -14,10 +17,14 @@ from coraplex.datastructures.enums import (
     AxisIdentifier,
     VerticalAlignment,
 )
-from coraplex.datastructures.grasp import GraspDescription, PreferredGraspAlignment
+from coraplex.datastructures.grasp import (
+    GraspDescription,
+    HasPreferredGraspAlignment,
+    PreferredGraspAlignment,
+)
 from coraplex.view_manager import ViewManager
 from semantic_digital_twin.robots.pr2 import PR2
-from semantic_digital_twin.robots.tracy import Tracy
+from semantic_digital_twin.robots.tracy import Tracy, TracyLeftGripper
 from semantic_digital_twin.spatial_types.spatial_types import Pose
 
 # %% the object the robot is asked to grasp
@@ -65,6 +72,7 @@ class TestSideForADrivingRobot:
     ):
         """
         Standing to the object's side, the side facing the robot is the object's y face.
+
         Choosing that one sends the robot around the object instead of to the front it
         could have driven to.
         """
@@ -132,3 +140,75 @@ class TestSideForAStandingRobot:
         )
 
         assert grasp.approach_direction.axis is AxisIdentifier.Y
+
+
+# %% an end effector built for one alignment
+
+FROM_ABOVE = PreferredGraspAlignment(
+    preferred_axis=AxisIdentifier.Undefined,
+    with_vertical_alignment=True,
+    with_rotated_gripper=False,
+)
+"""
+The alignment of an end effector that can only close over an object from above.
+"""
+
+
+@dataclass(eq=False)
+class GripperThatGraspsOnlyFromAbove(TracyLeftGripper, HasPreferredGraspAlignment):
+    """
+    A gripper that declares the one alignment it can grasp with.
+    """
+
+    preferred_grasp_alignment: ClassVar[PreferredGraspAlignment] = FROM_ABOVE
+
+
+def only_from_above(end_effector: TracyLeftGripper, monkeypatch) -> None:
+    """
+    Let the gripper declare, for the rest of the test, that it grasps only from above.
+    """
+    monkeypatch.setattr(end_effector, "__class__", GripperThatGraspsOnlyFromAbove)
+
+
+class TestAlignmentOfAnEndEffectorBuiltForOne:
+    """
+    An end effector that can only grasp one way is planned with that alignment unless
+    the caller names another.
+    """
+
+    def test_the_declared_alignment_is_used_when_the_caller_names_none(
+        self, tracy_world, monkeypatch
+    ):
+        end_effector = end_effector_of(tracy_world, Tracy)
+        pose = pose_in(tracy_world, OBJECT_BESIDE_THE_ROBOT)
+        declared = GraspDescription.robot_relative_default(
+            end_effector, pose, grasp_alignment=FROM_ABOVE
+        )
+
+        only_from_above(end_effector, monkeypatch)
+
+        grasp = GraspDescription.robot_relative_default(end_effector, pose)
+
+        assert grasp.approach_direction is declared.approach_direction
+        assert grasp.vertical_alignment is declared.vertical_alignment
+
+    def test_an_alignment_the_caller_names_wins(self, tracy_world, monkeypatch):
+        end_effector = end_effector_of(tracy_world, Tracy)
+        pose = pose_in(tracy_world, OBJECT_BESIDE_THE_ROBOT)
+        along_the_y_axis = PreferredGraspAlignment(
+            preferred_axis=AxisIdentifier.Y,
+            with_vertical_alignment=False,
+            with_rotated_gripper=False,
+        )
+        named = GraspDescription.robot_relative_default(
+            end_effector, pose, grasp_alignment=along_the_y_axis
+        )
+
+        only_from_above(end_effector, monkeypatch)
+
+        grasp = GraspDescription.robot_relative_default(
+            end_effector, pose, grasp_alignment=along_the_y_axis
+        )
+
+        assert grasp.approach_direction is named.approach_direction
+        assert grasp.vertical_alignment is named.vertical_alignment
