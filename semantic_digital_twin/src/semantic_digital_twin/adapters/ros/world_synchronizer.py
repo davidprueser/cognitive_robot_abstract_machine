@@ -80,6 +80,13 @@ class PublicationProgress(ABC):
         raise NotImplementedError
 
 
+DEFAULT_QUEUE_DEPTH = 10
+"""
+How many messages a synchronizer's publisher and subscription keep unless told
+otherwise.
+"""
+
+
 @dataclass
 class Synchronizer(WorldEntityWithClassBasedID, PublicationProgress):
     """
@@ -102,6 +109,16 @@ class Synchronizer(WorldEntityWithClassBasedID, PublicationProgress):
     topic_name: Optional[str] = None
     """
     The topic name of the publisher and subscriber.
+    """
+
+    queue_depth: int = field(default=DEFAULT_QUEUE_DEPTH, kw_only=True)
+    """
+    How many messages the publisher and the subscription keep in their history.
+
+    Messages are applied under the world's lock, so they queue up while the world is
+    busy with a long modification, and the oldest are lost once more arrive than fit. A
+    process receiving from several publishers, or modifying its world for long
+    stretches, needs a deeper history.
     """
 
     connection_timeout: timedelta = timedelta(seconds=5)
@@ -161,10 +178,10 @@ class Synchronizer(WorldEntityWithClassBasedID, PublicationProgress):
             std_msgs.msg.String,
             topic=self.topic_name,
             callback=self.subscription_callback,
-            qos_profile=10,
+            qos_profile=self.queue_depth,
         )
         self.publisher = self.node.create_publisher(
-            std_msgs.msg.String, topic=self.topic_name, qos_profile=10
+            std_msgs.msg.String, topic=self.topic_name, qos_profile=self.queue_depth
         )
         self.wait_until_connected()
 

@@ -30,6 +30,7 @@ from semantic_digital_twin.adapters.ros.messages import (
     WorldUpdate,
 )
 from semantic_digital_twin.adapters.ros.world_synchronizer import (
+    DEFAULT_QUEUE_DEPTH,
     ModelReloadSynchronizer,
     Synchronizer,
     WorldSynchronizer,
@@ -251,6 +252,34 @@ def test_state_synchronization(rclpy_node):
 
     synchronizer_1.close()
     synchronizer_2.close()
+
+
+def test_the_queue_depth_is_applied_to_the_publisher_and_the_subscription(
+    rclpy_node,
+):
+    """
+    A process receiving from several publishers while its world is busy needs a deeper
+    history than the default, on both ends of the topic.
+    """
+    queue_depth = DEFAULT_QUEUE_DEPTH * 25
+    synchronizer = WorldSynchronizer(
+        node=rclpy_node, _world=create_dummy_world(), queue_depth=queue_depth
+    )
+    try:
+        assert synchronizer.subscriber.qos_profile.depth == queue_depth
+        assert synchronizer.publisher.qos_profile.depth == queue_depth
+    finally:
+        synchronizer.close()
+
+
+def test_a_synchronizer_keeps_the_default_queue_depth_unless_told_otherwise(
+    rclpy_node,
+):
+    synchronizer = WorldSynchronizer(node=rclpy_node, _world=create_dummy_world())
+    try:
+        assert synchronizer.subscriber.qos_profile.depth == DEFAULT_QUEUE_DEPTH
+    finally:
+        synchronizer.close()
 
 
 def test_state_synchronization_world_model_change_after_init(rclpy_node):
