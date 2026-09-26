@@ -132,11 +132,14 @@ class TransportAction(ActionDescription):
         ]
 
     def _make_torso_actions(self) -> list[MoveTorsoAction]:
-        """Raise the torso when one is specified by the robot annotation.
+        """Raise the torso when the robot annotation specifies one that can be raised.
 
-        :return: The torso preparation action, or an empty list without a torso.
+        :return: The torso preparation action, or an empty list for a robot without a
+            torso or with one that declares no raised state, such as a humanoid's
+            waist.
         """
-        if self.robot.get_torso_if_specified() is None:
+        torso = self.robot.get_torso_if_specified()
+        if torso is None or not torso.has_joint_state_of_type(TorsoState.HIGH):
             return []
         return [MoveTorsoAction(TorsoState.HIGH)]
 

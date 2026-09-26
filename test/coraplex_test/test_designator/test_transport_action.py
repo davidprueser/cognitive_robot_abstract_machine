@@ -15,6 +15,8 @@ from coraplex.robot_plans.actions.composite.transporting import TransportAction
 from coraplex.robot_plans.actions.core.navigation import LookAtAction
 from coraplex.robot_plans.actions.core.pick_up import PickUpAction
 from coraplex.robot_plans.actions.core.placing import PlaceAction
+from coraplex.robot_plans.actions.core.robot_body import MoveTorsoAction
+from semantic_digital_twin.robots.robot_parts import Torso
 from semantic_digital_twin.spatial_types import Point3
 from semantic_digital_twin.spatial_types.spatial_types import Pose
 from typing_extensions import List, Type
@@ -83,4 +85,29 @@ def test_a_looking_transport_looks_at_the_object_and_then_at_the_target(
         at_target.target.to_np(),
         Pose(Point3.from_iterable([1, 1, 1]), reference_frame=world.root).to_np(),
         atol=1e-6,
+    )
+
+
+# %% raising the torso before driving off with the object
+def test_a_transport_raises_a_torso_that_has_a_raised_state(immutable_model_world):
+    """
+    The PR2's torso lifts, so the transport brings it up before it drives to the place.
+    """
+    world, view, context = immutable_model_world
+    assert MoveTorsoAction in performed_actions(transport_plan(world, context, False))
+
+
+def test_a_transport_leaves_a_torso_without_a_raised_state_alone(
+    mutable_model_world, monkeypatch
+):
+    """
+    A humanoid's waist bends rather than lifts and declares no raised state; a transport
+    on such a robot has no torso step rather than one that cannot be resolved.
+    """
+    world, view, context = mutable_model_world
+    monkeypatch.setattr(
+        Torso, "has_joint_state_of_type", lambda self, state_type: False
+    )
+    assert MoveTorsoAction not in performed_actions(
+        transport_plan(world, context, False)
     )
