@@ -3,11 +3,15 @@ The apartment described by the ``iai_apartment`` package, built from its visual 
 """
 
 from dataclasses import dataclass
+from enum import StrEnum
 
 import numpy as np
 
 from semantic_digital_twin.adapters.package_resolver import CompositePathResolver
 from semantic_digital_twin.api import BodySpecification
+from semantic_digital_twin.pipeline.mesh_decomposition.box_decomposer import (
+    BoxDecomposer,
+)
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Door,
     Handle,
@@ -26,6 +30,7 @@ from semantic_digital_twin.world_description.degree_of_freedom import (
     DegreeOfFreedomLimits,
 )
 from semantic_digital_twin.world_description.geometry import Scale
+from semantic_digital_twin.world_description.shape_collection import ShapeCollection
 
 WARDROBE_DOOR_VELOCITY_LIMIT = np.pi / 2
 """
@@ -34,6 +39,36 @@ Angular velocity limit of a wardrobe door in rad/s.
 Taken from the ``wardrobe_door_*_joint`` limits of the apartment's own URDF, which
 describes the same wardrobe this map spawns from meshes.
 """
+
+
+WALL_DECOMPOSITION_VOXEL_SIZE = 0.05
+"""
+Edge length in metres of the voxels the walls mesh is decomposed into boxes with.
+
+Measured on the walls mesh: 59 boxes in about 3 s, against 160 boxes in about 29 s at
+the decomposer's default of 0.02, which every spawn of the apartment would pay.
+"""
+
+
+class ApartmentFurniture(StrEnum):
+    """
+    The names of the furniture roots the apartment is spawned as, one per piece.
+
+    A mesh-built piece is named after its mesh file, as the demos address it.
+    """
+
+    SHELF = "shelf"
+    """The shelf with its four layers."""
+    WALL = "wall"
+    """The box-shaped wall segment next to the shelf."""
+    BEDSIDE_TABLE = "bedside_table.dae"
+    """The bedside table."""
+    SOFA = "sofa_bed.obj"
+    """The sofa bed."""
+    WALLS = "walls.dae"
+    """The apartment's walls, one mesh."""
+    WARDROBE = "wardrobe.dae"
+    """The two-leaf wardrobe."""
 
 
 @dataclass
@@ -63,13 +98,28 @@ class ApartmentEnvironment:
         self._build_wardrobe(world)
 
     @staticmethod
-    def mesh_path(mesh_file_name: str) -> str:
+    def is_populated(world: World) -> bool:
+        """
+        Whether every piece of the apartment's furniture already stands in a world.
+        """
+        return all(
+            world.is_kinematic_structure_entity_in_world_by_name(name)
+            for name in ApartmentFurniture
+        )
+
+    @staticmethod
+    def mesh_url(mesh_file_name: str) -> str:
+        """
+        The package URL of one of the apartment's visual meshes.
+        """
+        return f"package://iai_apartment/meshes/visual/{mesh_file_name}"
+
+    @classmethod
+    def mesh_path(cls, mesh_file_name: str) -> str:
         """
         Resolve one of the apartment's visual meshes to a local file path.
         """
-        return CompositePathResolver().resolve(
-            f"package://iai_apartment/meshes/visual/{mesh_file_name}"
-        )
+        return CompositePathResolver().resolve(cls.mesh_url(mesh_file_name))
 
     # %% shelf
 
@@ -79,7 +129,7 @@ class ApartmentEnvironment:
         """
         with world.modify_world():
             shelf = Shelf.get_annotation_specification(
-                "shelf",
+                ApartmentFurniture.SHELF,
                 Shelf.get_default_root_kinematic_structure_entity_specification(
                     scale=Scale(0.305, 0.85, 1.9), wall_thickness=0.035
                 ),
@@ -123,7 +173,7 @@ class ApartmentEnvironment:
         with world.modify_world():
             Wall.create_with_new_body_in_world(
                 world=world,
-                name="wall",
+                name=ApartmentFurniture.WALL,
                 world_root_T_self=HomogeneousTransformationMatrix.from_xyz_rpy(
                     0, (2.81 / 2), 0, reference_frame=world.root
                 ),
@@ -137,10 +187,10 @@ class ApartmentEnvironment:
         Spawn the bedside table.
         """
         SideTable.get_annotation_specification(
-            "bedside_table.dae",
+            ApartmentFurniture.BEDSIDE_TABLE,
             BodySpecification.mesh(
-                "bedside_table.dae",
-                self.mesh_path("bedside_table.dae"),
+                ApartmentFurniture.BEDSIDE_TABLE,
+                self.mesh_path(ApartmentFurniture.BEDSIDE_TABLE),
                 parent_T_self=HomogeneousTransformationMatrix.from_xyz_rpy(
                     x=1.92, y=2.68, yaw=17.8 * (-np.pi / 32)
                 ),
@@ -156,9 +206,9 @@ class ApartmentEnvironment:
         # The sofa rests on the floor, so its placement needs the height of its own
         # geometry, which only the specification can measure.
         sofa_body = BodySpecification.mesh(
-            "sofa_bed.obj", self.mesh_path("sofa_bed.obj")
+            ApartmentFurniture.SOFA, self.mesh_path(ApartmentFurniture.SOFA)
         )
-        Sofa.get_annotation_specification("sofa_bed.obj", sofa_body).spawn(
+        Sofa.get_annotation_specification(ApartmentFurniture.SOFA, sofa_body).spawn(
             world,
             parent_T_self=HomogeneousTransformationMatrix.from_xyz_rpy(
                 x=1.0, y=3.15, z=sofa_body.scale.z / 2, yaw=17.75 * (-np.pi / 32)
@@ -169,18 +219,26 @@ class ApartmentEnvironment:
 
     def _build_wall_meshes(self, world: World) -> None:
         """
-        Spawn the apartment's walls as one mesh.
+        Spawn the apartment's walls, which look like their one mesh and collide as the
+        boxes it is made of.
+
+        The mesh encloses every room, so as a collision shape its bounding box would
+        cover the whole floor.
         """
-        Wall.get_annotation_specification(
-            "walls.dae",
-            BodySpecification.mesh(
-                "walls.dae",
-                self.mesh_path("walls.dae"),
-                parent_T_self=HomogeneousTransformationMatrix.from_xyz_rpy(
-                    x=-7.34, y=1.43, z=-0.2, yaw=0
-                ),
+        walls = BodySpecification.mesh(
+            ApartmentFurniture.WALLS,
+            self.mesh_path(ApartmentFurniture.WALLS),
+            parent_T_self=HomogeneousTransformationMatrix.from_xyz_rpy(
+                x=-7.34, y=1.43, z=-0.2, yaw=0
             ),
-        ).spawn(world)
+        )
+        walls.visual_shapes = walls.shapes
+        walls.shapes = ShapeCollection(
+            BoxDecomposer(voxel_size=WALL_DECOMPOSITION_VOXEL_SIZE).apply_to_mesh(
+                walls.shapes[0]
+            )
+        )
+        Wall.get_annotation_specification(ApartmentFurniture.WALLS, walls).spawn(world)
 
     # %% wardrobe
 
@@ -239,10 +297,10 @@ class ApartmentEnvironment:
         ]
 
         Wardrobe.get_annotation_specification(
-            "wardrobe.dae",
+            ApartmentFurniture.WARDROBE,
             BodySpecification.mesh(
-                "wardrobe.dae",
-                self.mesh_path("wardrobe.dae"),
+                ApartmentFurniture.WARDROBE,
+                self.mesh_path(ApartmentFurniture.WARDROBE),
                 parent_T_self=HomogeneousTransformationMatrix.from_xyz_rpy(
                     x=2, y=-0.15, yaw=-np.pi / 2
                 ),

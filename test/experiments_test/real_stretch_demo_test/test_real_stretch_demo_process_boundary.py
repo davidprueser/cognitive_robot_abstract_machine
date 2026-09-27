@@ -88,3 +88,21 @@ def test_the_scene_counts_as_populated_once_the_cereal_is_spawned(apartment_mesh
     demonstration.populate_scene(world)
 
     assert demonstration.is_scene_populated(world)
+
+
+def test_demonstration_runs_in_simulation(apartment_meshes):
+    """
+    The simulated run plans its base routes through the apartment's walls and furniture,
+    so it only finishes if the walls leave the floor between them free.
+    """
+    world = StretchApartmentDemonstration(used_robot=Stretch).run()
+
+    cereal = world.get_body_by_name(CEREAL_NAME)
+    shelf_layer = world.get_body_by_name(CEREAL_SHELF_LAYER_NAME)
+    root_T_shelf_layer = world.compute_forward_kinematics_np(world.root, shelf_layer)
+    root_T_cereal = world.compute_forward_kinematics_np(world.root, cereal)
+    np.testing.assert_allclose(
+        root_T_cereal[:2, 3],
+        (root_T_shelf_layer @ CEREAL_SHELF_LAYER_T_CEREAL.to_np())[:2, 3],
+        atol=PLACEMENT_TOLERANCE,
+    )
