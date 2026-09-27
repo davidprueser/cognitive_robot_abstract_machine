@@ -76,6 +76,30 @@ class UnknownEnvironmentJointError(ValueError):
         return f"the environment has no joints {self.names}"
 
 
+@dataclass
+class RobotPlacementNotFixedError(ValueError):
+    """
+    Raised for moving a robot whose localization frame is not fixed to the world, such
+    as one following a real robot's localization, which would stop following if moved.
+    """
+
+    robot_name: str
+    """
+    The name of the robot's root body.
+    """
+
+    connection_type: type
+    """
+    The type of the connection attaching the robot's localization frame to the world.
+    """
+
+    def __str__(self) -> str:
+        return (
+            f"robot {self.robot_name} is attached to the world by a "
+            f"{self.connection_type.__name__}, not a fixed placement, so it cannot be moved"
+        )
+
+
 # %% independently named robot instances
 @dataclass(frozen=True)
 class RobotInstance:
@@ -350,8 +374,12 @@ def _placement_of(robot: AbstractRobot) -> FixedConnection:
     """
     :param robot: A spawned robot.
     :return: The connection fixing the robot's localization frame to the world.
+    :raises RobotPlacementNotFixedError: If that connection is not a fixed one.
     """
-    return robot.root.parent_connection.parent.parent_connection
+    placement = robot.root.parent_connection.parent.parent_connection
+    if not isinstance(placement, FixedConnection):
+        raise RobotPlacementNotFixedError(str(robot.root.name), type(placement))
+    return placement
 
 
 def _replace_placement(

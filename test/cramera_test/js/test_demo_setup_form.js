@@ -104,3 +104,29 @@ test('a builder that was never told how to draw the environment draws it as it l
 
   assert.strictEqual(Form.toPayload(state, [], '/lab/world.usda').environmentGeometry, 'visual');
 });
+
+// %% how a setup placed its USD scene
+function openedWithPlacement() {
+  const {state} = twoRobots();
+  const payload = Form.toPayload(state, [], '/lab/world.usda');
+  payload.environment = {path: '/lab/world.usda', rootPlacement: 'stage_origin'};
+  const opened = new State([humanoid, arm]);
+  Form.applyTo(opened, payload, function (type, params) { return {id: 'n', type: type, params: params}; });
+  return {opened: opened, placement: payload.environment.rootPlacement};
+}
+
+test('a setup opened and saved again keeps how it placed its scene', function () {
+  const {opened, placement} = openedWithPlacement();
+
+  const saved = Form.toPayload(opened, [], '/lab/world.usda');
+
+  assert.strictEqual(saved.environment.rootPlacement, placement);
+});
+
+test('a scene placement is not carried over to another environment', function () {
+  const {opened} = openedWithPlacement();
+
+  const saved = Form.toPayload(opened, [], '/lab/other.usda');
+
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(saved.environment)), {path: '/lab/other.usda'});
+});

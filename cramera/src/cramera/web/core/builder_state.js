@@ -94,6 +94,9 @@
       // where the environment's own joints stand, by connection name: a door's opening
       this.environmentJointPositions = {};
       this.environmentGeometry = PlanBuilderState.DRAWN_GEOMETRY.VISUAL;
+      // how an opened setup placed its USD scene, kept with the scene's path so it is
+      // written back only while that scene is still the environment: {path, rootPlacement}
+      this.environmentRootPlacement = null;
     }
 
     /** @param {string} model Installed model name. @param {object} [pose] Starting world-frame pose. @returns {object} The newly selected instance. */

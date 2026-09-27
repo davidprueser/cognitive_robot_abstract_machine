@@ -7,13 +7,23 @@
   'use strict';
 
   function plainStep(step) { return {type: step.type, params: Object.assign({}, step.params)}; }
+  // a file by its path, with the placement an opened setup gave that same file
+  function filePayload(path, rootPlacement) {
+    if (rootPlacement && rootPlacement.path === path) return {path: path, rootPlacement: rootPlacement.rootPlacement};
+    return {path: path};
+  }
   // the environment as the server reads it: a file by its path; a map by its kind and
   // class, for the server to refuse by name, since a setup names a file
-  function environmentPayload(environment) {
+  function environmentPayload(environment, rootPlacement) {
     if (!environment) return null;
-    if (typeof environment === 'string') return {path: environment};
-    if (environment.path) return {path: environment.path};
+    if (typeof environment === 'string') return filePayload(environment, rootPlacement);
+    if (environment.path) return filePayload(environment.path, rootPlacement);
     return {kind: environment.kind, cls: environment.cls};
+  }
+  // how a setup placed its USD scene, or null for a setup that left the default
+  function rootPlacementOf(environment) {
+    if (!environment || !environment.rootPlacement) return null;
+    return {path: environment.path, rootPlacement: environment.rootPlacement};
   }
 
   window.DemoSetupForm = {
@@ -27,7 +37,7 @@
      */
     toPayload: function (state, activeSteps, environment) {
       return {
-        environment: environmentPayload(environment),
+        environment: environmentPayload(environment, state.environmentRootPlacement),
         robots: state.instances.map(function (robot) {
           const steps = robot.id === state.activeIdentifier ? activeSteps : robot.steps;
           return {
@@ -70,6 +80,7 @@
       state.authoredRobotPoses = new Map();
       state.environmentJointPositions = Object.assign({}, payload.environmentJointPositions || {});
       state.environmentGeometry = payload.environmentGeometry || window.PlanBuilderState.DRAWN_GEOMETRY.VISUAL;
+      state.environmentRootPlacement = rootPlacementOf(payload.environment);
       state.activeIdentifier = state.instances[0].id;
       return state.instances[0];
     },

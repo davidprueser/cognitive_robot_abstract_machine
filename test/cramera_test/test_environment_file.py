@@ -17,10 +17,16 @@ from cramera.environment_file import (
     URDFEnvironmentFile,
     USDSceneEnvironmentFile,
 )
-from cramera.multi_robot import RobotInstance, RobotScene, move_robot_to
+from cramera.multi_robot import (
+    RobotInstance,
+    RobotPlacementNotFixedError,
+    RobotScene,
+    move_robot_to,
+)
 from semantic_digital_twin.adapters.urdf import URDFParser
 from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
 from semantic_digital_twin.world import World
+from semantic_digital_twin.world_description.connections import Connection6DoF
 
 from .dataset.standing_robot import StandingRobot
 
@@ -154,6 +160,30 @@ def test_a_robot_moved_off_a_floor_stands_on_the_ground() -> None:
     move_robot_to(world, robot, x=10.0, y=0.0, yaw=0.0)
 
     assert lowest_point_of(world, "standing") == pytest.approx(0.0, abs=1e-6)
+
+
+def test_a_robot_following_its_localization_is_not_moved() -> None:
+    """
+    A robot whose localization frame moves freely follows a real robot's localization;
+    fixing it at a new place would stop that, so the move is refused and the robot keeps
+    following.
+    """
+    world = standing_scene(x=0.0).build_world()
+    [robot] = world.get_semantic_annotations_by_type(StandingRobot)
+    odom = robot.root.parent_connection.parent
+    placement = odom.parent_connection
+    with world.modify_world():
+        world.remove_connection(placement)
+        world.add_connection(
+            Connection6DoF.create_with_dofs(
+                world=world, parent=placement.parent, child=odom
+            )
+        )
+
+    with pytest.raises(RobotPlacementNotFixedError):
+        move_robot_to(world, robot, x=1.0, y=0.0, yaw=0.0)
+
+    assert isinstance(odom.parent_connection, Connection6DoF)
 
 
 # %% the environment's own joints

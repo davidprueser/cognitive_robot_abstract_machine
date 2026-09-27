@@ -1687,6 +1687,7 @@ class Bridge:
         :param request: Which robot goes where.
         :raises RobotSelectionBusy: If a plan is running or paused.
         :raises UnknownRobot: If the requested robot is absent.
+        :raises RobotPlacementNotFixedError: If the robot follows its localization.
         """
         if any(
             node.parent is None

@@ -86,6 +86,7 @@ from cramera.live.recording_save_request import (
 from cramera.live.live_bundle import build_live_scene
 from cramera.live.recording import Recording, RecordingState
 from cramera.live.robot_models import RobotSelectionBusy, UnknownRobot
+from cramera.multi_robot import RobotPlacementNotFixedError
 from cramera.robot_fields import RobotField
 from cramera.live.recording_bundle import finalize_recording
 from cramera.live.recording_storage import (
@@ -390,7 +391,7 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
             self.bridge.place_robot(request)
         except (MalformedRobotPlacementRequest, UnknownRobot) as error:
             return self._send_json({"ok": False, "error": str(error)}, code=400)
-        except RobotSelectionBusy as error:
+        except (RobotSelectionBusy, RobotPlacementNotFixedError) as error:
             return self._send_json({"ok": False, "error": str(error)}, code=409)
         return self._send_json({"ok": True, **self.bridge.get_robots()})
 
