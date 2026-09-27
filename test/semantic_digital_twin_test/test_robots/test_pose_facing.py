@@ -17,12 +17,15 @@ from krrood.entity_query_language.factories import (
 from krrood.utils import get_generic_type_parameters, recursive_subclasses
 from semantic_digital_twin.adapters.package_resolver import CompositePathResolver
 from semantic_digital_twin.api import RobotSpecification
+from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.exceptions import ParsingError
 from semantic_digital_twin.robots.robot_part_mixins import HasMobileBase
 from semantic_digital_twin.robots.robot_parts import AbstractRobot, MobileBase
 from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
 from semantic_digital_twin.spatial_types.spatial_types import Pose, Vector3
 from semantic_digital_twin.world import World
+from semantic_digital_twin.world_description.connections import FixedConnection
+from semantic_digital_twin.world_description.world_entity import Body
 
 # %% the forward axes the declared robots use
 
@@ -261,3 +264,50 @@ def test_the_base_keeps_the_height_it_stands_at(x_forward_robot: Type[AbstractRo
     assert float(base_pose.z) == pytest.approx(float(robot.root.global_pose.z))
     assert float(base_pose.x) == pytest.approx(float(heading.x))
     assert float(base_pose.y) == pytest.approx(float(heading.y))
+
+
+TILTED_FRAME_PITCH = 0.4
+"""
+How far the frame a heading is written in leans away from the floor.
+"""
+
+
+def test_a_heading_in_a_tilted_frame_keeps_the_standing_height(
+    x_forward_robot: Type[AbstractRobot],
+):
+    """
+    The standing height is measured in the plane the drive moves in, so a heading
+    written in a frame that leans away from the floor still puts the root at its own
+    height, directly above where the heading lies on the floor.
+    """
+    world = World.create_with_root_body("root")
+    robot = RobotSpecification(
+        semantic_annotation_type=x_forward_robot,
+        world_T_odom=HomogeneousTransformationMatrix.from_xyz_rpy(
+            z=ROOT_HEIGHT_ABOVE_THE_FLOOR
+        ),
+    ).spawn(world)
+    tilted_frame = Body(name=PrefixedName("tilted_frame"))
+    with world.modify_world():
+        world.add_kinematic_structure_entity(tilted_frame)
+        world.add_connection(
+            FixedConnection(
+                parent=world.root,
+                child=tilted_frame,
+                parent_T_connection_expression=HomogeneousTransformationMatrix.from_xyz_rpy(
+                    pitch=TILTED_FRAME_PITCH,
+                    reference_frame=world.root,
+                    child_frame=tilted_frame,
+                ),
+            )
+        )
+    heading = Pose.from_xyz_rpy(1.3, 2.0, 0.5, reference_frame=tilted_frame)
+    world_heading = world.transform(heading, world.root)
+
+    world_base_pose = world.transform(
+        robot.mobile_base.pose_facing(heading), world.root
+    )
+
+    assert float(world_base_pose.z) == pytest.approx(float(robot.root.global_pose.z))
+    assert float(world_base_pose.x) == pytest.approx(float(world_heading.x))
+    assert float(world_base_pose.y) == pytest.approx(float(world_heading.y))

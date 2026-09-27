@@ -709,25 +709,16 @@ class MobileBase(AbstractRobotPart, Generic[TGenericDrive], ABC):
 
         ``heading``'s orientation says where the robot's front should point, written as
         its x-axis, so the same heading serves bases modelled with different axes. Its
-        position names where on the floor to stand: a drive moves the robot across the
-        floor only, so the base keeps the height its robot's root stands at, which lies
-        above the floor for a robot rooted above its feet.
+        position names where on the floor to stand, see
+        :meth:`AbstractRobot.standing_pose`.
         """
         base_R_forward = RotationMatrix.from_vectors(x=self.forward_axis, z=Vector3.Z())
-        heading_T_root = self._world.compute_forward_kinematics(
-            heading.reference_frame, self._robot.root
-        )
-        standing_position = Point3(
-            heading.x,
-            heading.y,
-            heading_T_root.z,
-            reference_frame=heading.reference_frame,
-        )
-        return HomogeneousTransformationMatrix.from_point_rotation_matrix(
-            standing_position,
+        facing_pose = HomogeneousTransformationMatrix.from_point_rotation_matrix(
+            heading.to_position(),
             heading.to_rotation_matrix() @ base_R_forward.inverse(),
             reference_frame=heading.reference_frame,
         ).to_pose()
+        return self._robot.standing_pose(facing_pose)
 
     @classmethod
     def get_drive_connection_type(cls) -> Type[TGenericDrive]:
@@ -1008,11 +999,47 @@ class AbstractRobot(Agent, HasRobotParts, ABC):
         Resolve a desired heading into the corresponding robot root pose.
 
         :param heading: Position and orientation of the robot's desired forward axis.
-        :return: The mobile base's pose, or the unchanged heading for a bare drive.
+        :return: The mobile base's pose, or the heading at the root's standing height for
+            a bare drive.
         """
         if isinstance(self, HasMobileBase):
             return self.mobile_base.pose_facing(heading)
-        return heading
+        return self.standing_pose(heading)
+
+    def standing_pose(self, pose: Pose) -> Pose:
+        """
+        ``pose`` with its position lifted or lowered to the height the root stands at.
+
+        A drive moves the robot across the frame it is attached to, never up or down
+        in it, so the root keeps its height in that frame: above the floor for a robot
+        rooted above its feet, such as a humanoid's pelvis. The height is taken in the
+        drive's frame rather than in ``pose``'s, so a tilted or offset reference frame
+        does not change it.
+
+        :param pose: Where on the floor to stand and which way to face.
+        :return: The same pose at the root's standing height, in ``pose``'s frame.
+        """
+        drive_frame = self.root.parent_kinematic_structure_entity
+        if drive_frame is None:
+            return pose
+        drive_frame_pose = self._world.transform(pose, drive_frame)
+        drive_frame_T_root = self._world.compute_forward_kinematics(
+            drive_frame, self.root
+        )
+        standing_position = Point3(
+            drive_frame_pose.x,
+            drive_frame_pose.y,
+            drive_frame_T_root.z,
+            reference_frame=drive_frame,
+        )
+        drive_frame_standing_pose = (
+            HomogeneousTransformationMatrix.from_point_rotation_matrix(
+                standing_position,
+                drive_frame_pose.to_rotation_matrix(),
+                reference_frame=drive_frame,
+            ).to_pose()
+        )
+        return self._world.transform(drive_frame_standing_pose, pose.reference_frame)
 
     def set_root_pose(self, pose: Pose) -> None:
         """
