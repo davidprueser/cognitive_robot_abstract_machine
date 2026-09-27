@@ -41,6 +41,13 @@
         <div class="pb-menu-sep"></div>
         <button id="pb-download" class="pb-btn sm">⭳ Download</button>
         <button id="pb-save" class="pb-btn sm">💾 Save to demos</button>
+        <div class="pb-menu-sep"></div>
+        <label title="a demo setup: the environment, where each robot stands, which robots follow a real robot and what the others do">Open setup
+          <select id="pb-setup-open" class="pb-sel"><option value="">— choose a setup —</option></select>
+        </label>
+        <button id="pb-setup-open-btn" class="pb-btn sm">📂 Open setup</button>
+        <label title="saved as a new file beside the others; a name already taken is refused">Save setup as<input id="pb-setup-name" class="pb-name" placeholder="setup name" /></label>
+        <button id="pb-setup-save" class="pb-btn sm">💾 Save setup</button>
       </div>
     </div>
     <button id="pb-generate" class="pb-btn primary">⚙ Generate demo.py</button>
@@ -61,6 +68,9 @@
         <label>Y<input id="pb-ry" class="pb-num" type="number" step="0.05" aria-label="Robot Y"></label>
         <label>Heading °<input id="pb-ryaw" class="pb-num" type="number" step="5" aria-label="Robot heading in degrees"></label>
       </div>
+      <label title="the sensor_msgs/JointState topic this robot follows, for a robot standing in for a real one; it then takes no plan">Follows joint states on<input id="pb-rtopic" class="pb-sel" placeholder="none: moved by its plan" /></label>
+      <label title="the nav_msgs/Odometry topic this robot's base follows, for a real robot that localizes itself; X, Y and heading then say where the origin of its map lies, and it takes no plan">Follows localization on<input id="pb-rlocalize" class="pb-sel" placeholder="none: the base stays where it is put" /></label>
+      <label class="pb-check" title="start the plan again each time it is done, until the scene stops"><input id="pb-rrepeat" type="checkbox"> Repeat its plan</label>
       <div id="pb-model-status" class="pb-hint2" role="status">Loading annotated robots…</div>
       <div id="pb-robot-plan-note" class="pb-hint2">Each robot keeps its own plan. Run executes the active robot; the others stay in the scene.</div>
     </div>
@@ -129,6 +139,7 @@
 <script src="core/execution_environment.js"></script>
 <script src="core/plan_steps.js"></script>
 <script src="core/builder_state.js"></script>
+<script src="core/demo_setup.js"></script>
 <script src="core/response.js"></script>
 <script src="core/plan_constraints.js"></script>
 <script src="plan_builder.js"></script>

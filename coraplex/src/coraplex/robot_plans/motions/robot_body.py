@@ -137,8 +137,11 @@ class LookingMotion(BaseMotion):
 
     @property
     def _motion_chart(self):
+        # Turning from the torso keeps the base where it is; a robot without a torso
+        # turns its camera from its own root.
+        torso = self.robot.get_torso_if_specified()
         return Pointing(
-            root_link=self.robot.get_torso().root,
+            root_link=torso.root if torso is not None else self.robot.root,
             tip_link=self.camera.root,
             goal_point=self.target.to_position(),
             pointing_axis=self.camera.forward_facing_axis,

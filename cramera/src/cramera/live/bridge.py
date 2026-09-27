@@ -50,7 +50,9 @@ from semantic_digital_twin.spatial_types import (
 )
 from giskardpy.motion_statechart.data_types import LifeCycleValues
 from cramera.logging_setup import get_logger
-from cramera.body_geometry import POSE_PRECISION, rounded_pose
+from cramera.demo_setup import DemoSetup
+from cramera.multi_robot import move_robot_to
+from cramera.body_geometry import DrawnGeometry, POSE_PRECISION, rounded_pose
 from semantic_digital_twin.spatial_types.numeric import NumericPose
 from semantic_digital_twin.world_description.connections import (
     ActiveConnection1DOF,
@@ -82,7 +84,7 @@ from cramera.live.world_query import WorldQuerySource
 from cramera.live.markers import MarkerEntry, MarkerStore
 from cramera.live.shape_catalog import ShapeEntry, served_mesh_file, shape_entry
 from cramera.live.transforms import TransformGraph, TransformSnapshot
-from cramera.live.robot_models import RobotModels, RobotSelectionBusy
+from cramera.live.robot_models import RobotModels, RobotSelectionBusy, UnknownRobot
 from cramera.robot_fields import RobotField
 from cramera.palette import ObjectPalette
 from cramera.robot_parts import RobotPartAnnotation
@@ -428,6 +430,98 @@ class JointMoveRequest:
             position=float(position),
             is_final=bool(payload.get("final")),
         )
+
+
+class MalformedRobotPlacementRequest(ValueError):
+    """
+    Raised when a posted robot placement cannot be read.
+    """
+
+
+class RobotPlacementField(StrEnum):
+    """
+    The keys of a ``POST /robot/place`` body besides the robot's identity.
+    """
+
+    X = "x"
+    Y = "y"
+    YAW = "yaw"
+
+
+@dataclass(frozen=True)
+class RobotPlacementRequest:
+    """
+    Where the viewer asks one robot to stand.
+    """
+
+    identifier: str
+    """
+    The robot's native namespace, or empty to name it by model.
+    """
+
+    model: str
+    """
+    The robot's annotation class, which names it where the scene holds only one robot
+    of that class and the identifier is not the scene's own.
+    """
+
+    x: float
+    """
+    Where it stands, along the world's x axis, in metres.
+    """
+
+    y: float
+    """
+    Where it stands, along the world's y axis, in metres.
+    """
+
+    yaw: float
+    """
+    Which way it faces, in radians.
+    """
+
+    @classmethod
+    def from_payload(cls, payload: Dict[str, Any]) -> RobotPlacementRequest:
+        """
+        Build a request from a decoded ``POST /robot/place`` body.
+
+        :param payload: The decoded JSON body.
+        :raises MalformedRobotPlacementRequest: If a coordinate is unusable or the robot
+            is not named.
+        """
+        coordinates = []
+        for key in RobotPlacementField:
+            value = payload.get(key)
+            if (
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or not math.isfinite(value)
+            ):
+                raise MalformedRobotPlacementRequest(f"{key!r} must be a finite number")
+            coordinates.append(float(value))
+        identifier = payload.get(RobotField.IDENTIFIER) or ""
+        model = payload.get(RobotField.MODEL) or ""
+        if not identifier and not model:
+            raise MalformedRobotPlacementRequest("name the robot or its model")
+        return cls(str(identifier), str(model), *coordinates)
+
+    def robot_in(self, robots: RobotModels) -> AbstractRobot:
+        """
+        :param robots: The robots of the world.
+        :return: The robot this request names.
+        :raises UnknownRobot: If no robot, or no single one, answers to it.
+        """
+        for robot in robots.robots():
+            if robots.identifier(robot) == self.identifier:
+                return robot
+        of_model = [
+            robot for robot in robots.robots() if type(robot).__name__ == self.model
+        ]
+        if len(of_model) != 1:
+            raise UnknownRobot(
+                f"no single robot is {self.identifier or self.model!r} in this world"
+            )
+        return of_model[0]
 
 
 @dataclass
@@ -813,6 +907,18 @@ class Bridge:
     query_source: Optional[LiveQuerySource] = None
     """
     What the running demo offers to be queried about, once it registers itself.
+    """
+
+    environment_geometry: DrawnGeometry = DrawnGeometry.VISUAL
+    """
+    Which geometry the environment is drawn with for a viewer that does not ask for
+    one; the robots are always drawn as they look.
+    """
+
+    demo_setup: Optional[DemoSetup] = None
+    """
+    The setup the running demo was brought up from, once it registers it, so the Plan
+    Builder can open it.
     """
 
     _query_lock: threading.Lock = field(default_factory=threading.Lock)
@@ -1555,6 +1661,43 @@ class Bridge:
         self.robot = robot
         self._bodies[ROBOT_BASE_KEY] = robot.root
         self._refresh_bundle_signature()
+        self.snapshot()
+
+    # %% the demo's setup
+    def register_setup(self, setup: DemoSetup) -> None:
+        """
+        Offer the setup the running demo was brought up from to the Plan Builder.
+
+        :param setup: The demo's setup.
+        """
+        self.demo_setup = setup
+
+    def get_setup(self) -> dict[str, Any]:
+        """
+        The running demo's setup in the Plan Builder's form, or why there is none.
+        """
+        if self.demo_setup is None:
+            return {"ok": False, "error": "the running demo registered no setup"}
+        return {"ok": True, "setup": self.demo_setup.to_payload()}
+
+    def place_robot(self, request: RobotPlacementRequest) -> None:
+        """
+        Stand one robot of an idle world somewhere else on the floor.
+
+        :param request: Which robot goes where.
+        :raises RobotSelectionBusy: If a plan is running or paused.
+        :raises UnknownRobot: If the requested robot is absent.
+        """
+        if any(
+            node.parent is None
+            and node.status in (TaskStatusName.RUNNING, TaskStatusName.PAUSE)
+            for node in self.plan_state.nodes
+        ):
+            raise RobotSelectionBusy(
+                "Wait for the current plan to finish before moving a robot"
+            )
+        robot = request.robot_in(RobotModels(self.world, self.robot))
+        move_robot_to(self.world, robot, request.x, request.y, request.yaw)
         self.snapshot()
 
     def queue_teleop(self, request: "TeleopRequest") -> None:

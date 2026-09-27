@@ -81,6 +81,7 @@ if TYPE_CHECKING:
     )
     from semantic_digital_twin.robots.robot_parts import AbstractRobot
     from semantic_digital_twin.adapters.package_resolver import PathResolver
+    from semantic_digital_twin.adapters.usd.stage_parser import RootPlacement
 
 
 # %% specification type parameters
@@ -1305,6 +1306,43 @@ class WorldSpecification:
         world_parser = GazeboParser.from_file(
             file_path, prefix=prefix, path_resolver=path_resolver
         )
+        return cls(
+            world_parser=world_parser,
+            robots=robots or [],
+            objects=objects or [],
+        )
+
+    @classmethod
+    def from_usd_scene(
+        cls,
+        file_path: str,
+        *,
+        prefix: str | None = None,
+        path_resolver: PathResolver | None = None,
+        root_placement: RootPlacement | None = None,
+        robots: list[RobotSpecification] | None = None,
+        objects: list[SpawnSpecification] | None = None,
+    ) -> Self:
+        """
+        Build a specification whose environment is parsed from a USD stage of separately
+        placed static objects, such as a scanned building.
+
+        :param file_path: Path to the stage file.
+        :param prefix: Optional name prefix for the parsed environment.
+        :param path_resolver: Resolver for the asset references of the stage.
+        :param root_placement: Where the environment's root is placed, or ``None`` for
+            the parser's own default.
+        :param robots: The robots merged into the environment.
+        :param objects: Specifications spawned once the robots are in place.
+        :return: The created specification.
+        """
+        from semantic_digital_twin.adapters.usd.scene_parser import USDSceneParser
+
+        world_parser = USDSceneParser.from_file(
+            file_path, prefix=prefix, path_resolver=path_resolver
+        )
+        if root_placement is not None:
+            world_parser.root_placement = root_placement
         return cls(
             world_parser=world_parser,
             robots=robots or [],

@@ -51,6 +51,7 @@ Panels.define('robot-scene', function mountRobotScene(root, bus) {
     '    <label class="lp-row"><input type="checkbox" id="lyr-floor" checked><span>Floor shadow</span></label>' +
     '    <label class="lp-row" title="Keep the robot in view: the camera glides after it while a recording plays or a live demo runs. Off, the camera stays where you pointed it"><input type="checkbox" id="lyr-follow" checked><span>Follow robot</span></label>' +
     '    <label class="lp-row" title="Attach to a running demo whenever one is reachable — including the next run after this one ends — instead of only once per page"><input type="checkbox" id="lyr-auto-live" checked><span>Auto-attach live</span></label>' +
+    '    <label class="lp-row" title="Draw the running demo\u2019s environment as the boxes it collides as instead of as it looks: far lighter to draw, for a computer that cannot draw a scanned building. The robots are drawn as they look either way"><input type="checkbox" id="lyr-environment-collision"><span>Environment as collision</span></label>' +
     '    <div class="lp-legend" id="lp-legend"></div>' +
     '    <div class="lp-joints" id="lp-joints"></div>' +
     '  </div>' +
@@ -542,7 +543,8 @@ Panels.define('robot-scene', function mountRobotScene(root, bus) {
         return;
       }
       sceneBase = SCENES + name + '/';
-      return fetch(sceneBase + 'scene.json').then(function (r) { return r.json(); }).then(loadScene);
+      return fetch(sceneBase + 'scene.json').then(function (r) { return r.json(); })
+        .then(function (sc) { loadScene(sc); showEnvironmentGeometry(sc); });
     })
     .catch(function (e) {
       if (statusEl) statusEl.textContent = 'Scene failed to load: ' + e;
@@ -623,6 +625,10 @@ Panels.define('robot-scene', function mountRobotScene(root, bus) {
     envSel.addEventListener('change', function () { navigateTo(envSel.value); });
   }
 
+  // tick the layers panel's switch the way the scene's environment is drawn
+  function showEnvironmentGeometry(sc) {
+    $('lyr-environment-collision').checked = sc.environmentGeometry === 'collision';
+  }
   function loadScene(sc) {
     SCENE = sc;
     playbackSpeedMultiplier = 1;
@@ -1381,6 +1387,20 @@ Panels.define('robot-scene', function mountRobotScene(root, bus) {
   function setAutoLive(on) {
     try { localStorage.setItem(AUTO_LIVE_KEY, on ? '1' : '0'); } catch (e) {}
   }
+  // which geometry the running demo's environment is drawn with ('visual' or
+  // 'collision'); unset leaves it to the demo. Persisted, because switching it rebuilds
+  // the live bundle and reloads the page.
+  const ENVIRONMENT_GEOMETRY_KEY = 'cramera-environment-geometry';
+  function environmentGeometry() {
+    try { return localStorage.getItem(ENVIRONMENT_GEOMETRY_KEY) || ''; } catch (e) { return ''; }
+  }
+  function setEnvironmentGeometry(geometry) {
+    try { localStorage.setItem(ENVIRONMENT_GEOMETRY_KEY, geometry); } catch (e) {}
+  }
+  function liveSceneUrl() {
+    const geometry = environmentGeometry();
+    return liveUrl() + '/live_scene' + (geometry ? '?geometry=' + encodeURIComponent(geometry) : '');
+  }
   let manualLiveDetach = false;  // the user clicked detach; holds off auto-live for this demo
   const liveCbs = [];                  // notified on attach/detach (graph tabs)
   let liveDraggedKey = null;           // object being dragged (poll must not fight it)
@@ -1598,7 +1618,7 @@ Panels.define('robot-scene', function mountRobotScene(root, bus) {
   // built from a different one.
   function verifyLiveBundle() {
     if (liveReloadRequested || !LiveMode.isLiveScene(SceneContext.name())) return;
-    fetch(liveUrl() + '/live_scene').then(function (r) { return r.ok ? r.json() : null; })
+    fetch(liveSceneUrl()).then(function (r) { return r.ok ? r.json() : null; })
       .then(function (d) {
         if (!d || !d.scene) return;
         return fetch(SCENES + d.scene + '/scene.json', { cache: 'no-store' })
@@ -1616,7 +1636,7 @@ Panels.define('robot-scene', function mountRobotScene(root, bus) {
     if (liveReloadRequested
         || !LiveMode.needsLiveSceneReload(SceneContext.name(), liveOn, SCENE, info)) return;
     liveReloadRequested = true;
-    fetch(liveUrl() + '/live_scene').then(function (r) {
+    fetch(liveSceneUrl()).then(function (r) {
       if (r.ok) window.location.reload();
       else liveReloadRequested = false;        // bundling failed — try again next probe
     }).catch(function () { liveReloadRequested = false; });
@@ -1882,7 +1902,7 @@ Panels.define('robot-scene', function mountRobotScene(root, bus) {
       setLive(!liveOn);
       return;
     }
-    fetch(liveUrl() + '/live_scene').then(function (r) { return r.json(); })
+    fetch(liveSceneUrl()).then(function (r) { return r.json(); })
       .then(function (d) {
         if (d && d.scene) {
           const params = new URLSearchParams(window.location.search);
@@ -2757,6 +2777,16 @@ Panels.define('robot-scene', function mountRobotScene(root, bus) {
   });
   $('scene-pop-out').addEventListener('click', function () {
     window.open(SceneContext.popOutUrl(), 'cramera-scene');
+  });
+  const environmentCollisionEl = $('lyr-environment-collision');
+  environmentCollisionEl.addEventListener('change', function () {
+    setEnvironmentGeometry(environmentCollisionEl.checked ? 'collision' : 'visual');
+    if (!LiveMode.isLiveScene(SceneContext.name())) return;
+    liveReloadRequested = true;
+    fetch(liveSceneUrl()).then(function (r) {
+      if (r.ok) window.location.reload();
+      else liveReloadRequested = false;
+    }).catch(function () { liveReloadRequested = false; });
   });
   const autoLiveEl = $('lyr-auto-live');
   autoLiveEl.checked = autoLiveOn();

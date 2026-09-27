@@ -84,6 +84,13 @@ def scenes_directory() -> Path:
     return local_scenes_directory()
 
 
+def setups_directory() -> Path:
+    """
+    Writable, local root for the demo setups the Plan Builder saves.
+    """
+    return data_directory() / "setups"
+
+
 def local_scenes_directory() -> Path:
     """
     Writable, local-only root for live recordings (temporary and saved).

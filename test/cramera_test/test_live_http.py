@@ -21,6 +21,7 @@ from semantic_digital_twin.world_description.shape_collection import ShapeCollec
 from semantic_digital_twin.world_description.world_entity import Body
 
 from cramera import paths
+from cramera.body_geometry import DrawnGeometry
 from cramera.live.bridge import Bridge, JointMoveRequest, WorldStateSnapshot
 from cramera.live.http import serve
 from cramera.live.recording import Recording
@@ -158,6 +159,95 @@ class TestReadOnlyEndpoints:
         assert error.value.code == 404
 
 
+class TestDemoSetup:
+    """
+    The Plan Builder opens the setup a running demo was brought up from, and moves its
+    robots to try out another one.
+    """
+
+    @pytest.fixture()
+    def standing_bridge(self, bridge):
+        from cramera.multi_robot import RobotInstance, RobotScene
+        from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
+
+        from .dataset.standing_robot import StandingRobot
+
+        scene = RobotScene(
+            instances=[
+                RobotInstance(
+                    identifier="standing",
+                    label="Standing robot",
+                    robot_type=StandingRobot,
+                    pose=HomogeneousTransformationMatrix.from_xyz_rpy(x=1.0),
+                )
+            ],
+            active_identifier="standing",
+        )
+        bridge.world = scene.build_world()
+        bridge.bind()
+        return bridge
+
+    def test_a_demo_that_registered_no_setup_says_so(self, server):
+        assert get_json(server + "/setup")["ok"] is False
+
+    def test_a_registered_setup_is_served_in_the_builders_form(self, bridge, server):
+        from .test_demo_setup import setup_in
+
+        setup = setup_in("/lab/world.usda")
+        bridge.register_setup(setup)
+
+        assert get_json(server + "/setup") == {
+            "ok": True,
+            "setup": json.loads(json.dumps(setup.to_payload())),
+        }
+
+    def test_a_robot_is_moved_where_it_is_asked_to_stand(self, standing_bridge, server):
+        status, answer = post(
+            server + "/robot/place",
+            {"identifier": "standing", "x": -2.0, "y": 0.5, "yaw": 0.0},
+        )
+
+        [robot] = standing_bridge.world.get_semantic_annotations_by_type(
+            type(standing_bridge.robot)
+        )
+        assert status == 200 and answer["ok"]
+        assert robot.root.global_pose.to_np()[:2, 3] == pytest.approx([-2.0, 0.5])
+
+    def test_a_robot_is_found_by_its_model_where_its_identifier_is_not_the_scenes(
+        self, standing_bridge, server
+    ):
+        status, _ = post(
+            server + "/robot/place",
+            {
+                "identifier": "robot_1",
+                "model": "StandingRobot",
+                "x": 3.0,
+                "y": 0.0,
+                "yaw": 0.0,
+            },
+        )
+
+        assert status == 200
+        assert standing_bridge.robot.root.global_pose.to_np()[0, 3] == pytest.approx(
+            3.0
+        )
+
+    def test_a_robot_the_world_does_not_have_is_refused(self, standing_bridge, server):
+        status, _ = post(
+            server + "/robot/place",
+            {"identifier": "nobody", "x": 0.0, "y": 0.0, "yaw": 0.0},
+        )
+
+        assert status == 400
+
+    def test_a_place_that_is_not_one_is_refused(self, standing_bridge, server):
+        status, _ = post(
+            server + "/robot/place", {"identifier": "standing", "x": "there"}
+        )
+
+        assert status == 400
+
+
 class TestJointMoves:
     """
     ``POST /joint`` queues a viewer's joint position for the simulation thread.
@@ -240,6 +330,30 @@ class TestLiveScene:
         scene_directory = paths.local_scenes_directory() / paths.LIVE_SCENE_NAME
         assert (scene_directory / "scene.json").is_file()
         assert (scene_directory / "environment.urdf").is_file()
+
+    def test_the_viewer_asks_for_the_environment_it_can_draw(
+        self, server, bridge, tmp_path, monkeypatch
+    ):
+        monkeypatch.setenv("CRAMERA_SCENES", str(tmp_path / "shared"))
+        monkeypatch.setenv("CRAMERA_DATA", str(tmp_path / "data"))
+        bridge.attach(world_with(shaped_body("laboratory", "bench")))
+
+        get_json(server + "/live_scene?geometry=collision")
+
+        scene = json.loads(
+            (
+                paths.local_scenes_directory() / paths.LIVE_SCENE_NAME / "scene.json"
+            ).read_text()
+        )
+        assert scene["environmentGeometry"] == DrawnGeometry.COLLISION
+
+    def test_a_geometry_that_is_none_is_refused(self, server, bridge):
+        bridge.attach(world_with(shaped_body("laboratory", "bench")))
+
+        with pytest.raises(urllib.error.HTTPError) as refused:
+            get_json(server + "/live_scene?geometry=wireframe")
+
+        assert refused.value.code == 400
 
 
 class TestRecordingEndpoints:

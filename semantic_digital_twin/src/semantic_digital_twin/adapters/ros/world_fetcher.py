@@ -38,6 +38,12 @@ class FetchWorldServer:
     The name of the service.
     """
 
+    include_visual_geometry: bool = True
+    """
+    Whether the fetched world carries the visual geometry of its bodies, or only what
+    they collide as.
+    """
+
     service: Optional[Service] = field(default=None, init=False)
     """
     The ROS service object.
@@ -103,7 +109,9 @@ class FetchWorldServer:
             states=list(self.world.state.positions),
         )
 
-        return json.dumps(snapshot.to_json())
+        return json.dumps(
+            snapshot.to_json(include_visual_geometry=self.include_visual_geometry)
+        )
 
     def close(self):
         """

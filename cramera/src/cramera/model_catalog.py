@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import StrEnum
+from importlib.metadata import entry_points
 from importlib.resources import files
 from pathlib import Path
 
@@ -24,6 +25,7 @@ from semantic_digital_twin.robots.robot_part_mixins import (
     HasMobileBase,
 )
 from semantic_digital_twin.robots.robot_parts import (
+    Camera,
     AbstractRobot,
     AbstractRobotPart,
     Arm,
@@ -33,6 +35,13 @@ from semantic_digital_twin.robots.stretch import Stretch
 from semantic_digital_twin.robots.tiago import Tiago
 from semantic_digital_twin.robots.tracy import Tracy
 from semantic_digital_twin.robots.unitree_g1 import UnitreeG1
+
+ROBOT_ENTRY_POINT_GROUP = "cramera.robots"
+"""
+The entry point group another installed distribution registers its robot annotations
+under, so the plan builder offers robots cram does not ship.
+"""
+
 
 # %% frontend vocabulary
 
@@ -46,6 +55,8 @@ class BuilderStep(StrEnum):
     """Move a torso to a named height."""
     NAVIGATE = "navigate"
     """Drive a mobile base to a pose."""
+    LOOK_AT = "look_at"
+    """Point the default camera at a point."""
     TRANSPORT = "transport"
     """Pick up and place an object."""
     PICK = "pick"
@@ -142,6 +153,8 @@ class RobotModel:
             supported.append(BuilderStep.MOVE_TORSO)
         if issubclass(self.annotation, HasMobileBase):
             supported.append(BuilderStep.NAVIGATE)
+        if any(issubclass(part, Camera) for part in parts):
+            supported.append(BuilderStep.LOOK_AT)
         return [step for step in BuilderStep if step in supported]
 
     @property
@@ -208,16 +221,32 @@ class ModelCatalog(CrameraPayload):
 
     @classmethod
     def installed(cls) -> ModelCatalog:
-        """Read the installed CRAM packages' model inventory.
+        """Read the installed CRAM packages' model inventory, including the robots other
+        installed distributions register under :data:`ROBOT_ENTRY_POINT_GROUP`.
 
         :return: The authoring catalog for this installation.
         """
+        registered = [
+            entry_point.load()
+            for entry_point in entry_points(group=ROBOT_ENTRY_POINT_GROUP)
+        ]
+        annotations = list(cls.ANNOTATIONS) + [
+            annotation for annotation in registered if annotation not in cls.ANNOTATIONS
+        ]
         return cls(
-            robots=[RobotModel(annotation) for annotation in cls.ANNOTATIONS],
+            robots=[RobotModel(annotation) for annotation in annotations],
             worlds_directory=Path(str(files("coraplex"))).parent.parent
             / "resources"
             / "worlds",
         )
+
+    @property
+    def robot_types(self) -> dict[str, type[AbstractRobot]]:
+        """
+        :return: Every offered robot annotation, by the model name the browser lists it
+            under.
+        """
+        return {model.annotation.__name__: model.annotation for model in self.robots}
 
     @property
     def environments(self) -> list[EnvironmentModel]:

@@ -43,6 +43,8 @@ snapshots are produced on the simulation thread by the world and plan callbacks 
 
 from __future__ import annotations
 
+from enum import StrEnum
+
 import functools
 import json
 import os
@@ -58,6 +60,7 @@ from typing_extensions import Any, ClassVar, Dict, Optional, Tuple, Type
 
 from cramera.knowledge.query_vocabulary import UnknownVocabularyName
 from cramera.knowledge.queryable_knowledge import QueryScope, UnknownQueryScope
+from cramera.body_geometry import DrawnGeometry
 from cramera.live.bridge import (
     AttachConstraintRequest,
     Bridge,
@@ -65,7 +68,9 @@ from cramera.live.bridge import (
     JointMoveRequest,
     MalformedJointMoveRequest,
     MalformedMoveRequest,
+    MalformedRobotPlacementRequest,
     MoveRequest,
+    RobotPlacementRequest,
 )
 from cramera.live.teleop import (
     MalformedTeleopRequest,
@@ -95,6 +100,18 @@ from cramera.onboard.scene_index import InvalidSceneName
 logger = get_logger(__name__)
 
 DEFAULT_PORT = int(os.environ.get("LIVE_VIZ_PORT", "8765"))
+
+
+class LiveSceneParameter(StrEnum):
+    """
+    The query parameters ``GET /live_scene`` reads.
+    """
+
+    GEOMETRY = "geometry"
+    """
+    Which geometry the environment is drawn with, see
+    :class:`~cramera.body_geometry.DrawnGeometry`.
+    """
 
 
 class BridgeRequestHandler(BaseHTTPRequestHandler):
@@ -145,6 +162,8 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
             return self._send_json(self.bridge.get_state())
         if self.path == "/robots":
             return self._send_json(self.bridge.get_robots())
+        if self.path == "/setup":
+            return self._send_json(self.bridge.get_setup())
         if self.path.startswith("/plan"):
             return self._send_json(self.bridge.get_plan())
         if self.path.startswith("/chart"):
@@ -160,7 +179,7 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
         if self.path.startswith("/mesh"):
             return self._send_mesh()
         if self.path.startswith("/live_scene"):
-            return self._send_json({"scene": build_live_scene(self.bridge)})
+            return self._send_live_scene()
         if self.path.startswith("/markers"):
             return self._send_json(self.bridge.get_markers())
         if self.path.startswith("/presets"):
@@ -175,6 +194,23 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
             return self._send_json(self._recording_status())
         self.send_response(404)
         self.end_headers()
+
+    def _send_live_scene(self) -> None:
+        """
+        Bundle the live world, drawing the environment with the geometry the viewer asks
+        for, or the bridge's own choice when it asks for none.
+        """
+        asked = self._query_value(LiveSceneParameter.GEOMETRY)
+        if asked and asked not in DrawnGeometry.__members__.values():
+            return self._send_json(
+                {
+                    "ok": False,
+                    "error": f"geometry is one of {[g.value for g in DrawnGeometry]}",
+                },
+                code=400,
+            )
+        geometry = DrawnGeometry(asked) if asked else None
+        return self._send_json({"scene": build_live_scene(self.bridge, geometry)})
 
     def _send_query_presets(self) -> None:
         """
@@ -302,6 +338,8 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
         """
         if self.path == "/robot":
             return self.select_requested_robot()
+        if self.path == "/robot/place":
+            return self.place_requested_robot()
         if self.path.startswith("/eql"):
             return self.answer_requested_query()
         if self.path.startswith("/question"):
@@ -339,6 +377,20 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
         except UnknownRobot as error:
             return self._send_json({"ok": False, "error": str(error)}, code=400)
         except (RobotSelectionBusy, TeleopUnavailable) as error:
+            return self._send_json({"ok": False, "error": str(error)}, code=409)
+        return self._send_json({"ok": True, **self.bridge.get_robots()})
+
+    def place_requested_robot(self) -> None:
+        """
+        Stand one robot of the live world somewhere else on the floor.
+        """
+        payload = self._posted_payload()
+        try:
+            request = RobotPlacementRequest.from_payload(payload or {})
+            self.bridge.place_robot(request)
+        except (MalformedRobotPlacementRequest, UnknownRobot) as error:
+            return self._send_json({"ok": False, "error": str(error)}, code=400)
+        except RobotSelectionBusy as error:
             return self._send_json({"ok": False, "error": str(error)}, code=409)
         return self._send_json({"ok": True, **self.bridge.get_robots()})
 

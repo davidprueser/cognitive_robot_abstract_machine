@@ -8,6 +8,8 @@ measurement, taken the same way, and both publish body poses rounded the same wa
 
 from __future__ import annotations
 
+from enum import StrEnum
+
 from semantic_digital_twin.spatial_types import Point3, Pose
 from semantic_digital_twin.spatial_types.numeric import NumericPose
 from semantic_digital_twin.world_description.geometry import Scale
@@ -30,6 +32,32 @@ if TYPE_CHECKING:
     from semantic_digital_twin.world_description.world_entity import (
         KinematicStructureEntity,
     )
+
+
+class DrawnGeometry(StrEnum):
+    """
+    Which of its two geometries a body is drawn with.
+    """
+
+    VISUAL = "visual"
+    """
+    What the body looks like.
+    """
+
+    COLLISION = "collision"
+    """
+    What the body collides as: for a scanned building a few dozen boxes in place of
+    millions of textured triangles, which a computer that cannot draw the scan can.
+    """
+
+    def shapes_of(self, body: CarriesBodyGeometry) -> ShapeCollection:
+        """
+        :param body: A body.
+        :return: The shapes it is drawn with.
+        """
+        if self is DrawnGeometry.COLLISION:
+            return body.collision
+        return body.visual
 
 
 @runtime_checkable

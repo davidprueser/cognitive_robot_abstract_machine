@@ -78,6 +78,16 @@ try:
     import krrood  # noqa: F401  (the EQL engine)
 
     from cramera.model_catalog import ModelCatalog
+    from cramera.demo_setup import (
+        DemoSetup,
+        InvalidSetupNameError,
+        MalformedSetupError,
+        SetupLibrary,
+        SetupNameTakenError,
+    )
+    from cramera.environment_file import UnsupportedEnvironmentFileError
+    from cramera.multi_robot import InvalidRobotScene
+    from cramera.plan_steps import MalformedPlanError
     from cramera.knowledge.eql_session import EqlSession
     from cramera.knowledge.knowledge_base import EpisodeKnowledgeBase
     from cramera.knowledge.presets import Preset
@@ -288,6 +298,10 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             return self._guarded(lambda: ModelCatalog.installed())
         if route == "/api/plan/scaffold/log":
             return self._scaffold_log()
+        if route == "/api/setup/list":
+            return self._send_json({"ok": True, "names": SetupLibrary().names()})
+        if route == "/api/setup/open":
+            return self._open_setup()
         return super().do_GET()
 
     @staticmethod
@@ -323,6 +337,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             return self._launch_scaffold()
         if route == "/api/plan/scaffold/stop":
             return self._stop_scaffold()
+        if route == "/api/setup/save":
+            return self._save_setup()
         return self._send_error("unknown endpoint", 404)
 
     def _generated_demos_directory(self):
@@ -452,6 +468,43 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         type(self)._scaffold_proc = None
         if reply:
             self._send_json({"ok": True})
+
+    def _open_setup(self) -> None:
+        """
+        Hand the Plan Builder a saved demo setup in its own form.
+        """
+        name = (self._query_parameters().get("name") or [""])[0]
+        try:
+            setup = SetupLibrary().open(name)
+        except InvalidSetupNameError as error:
+            return self._send_json({"ok": False, "error": str(error)}, 400)
+        except FileNotFoundError:
+            return self._send_json(
+                {"ok": False, "error": f"no setup called {name!r} is saved"}, 404
+            )
+        self._send_json({"ok": True, "setup": setup.to_payload()})
+
+    def _save_setup(self) -> None:
+        """
+        Save the Plan Builder's setup as a new file, never over one already saved.
+        """
+        body = self._request_body()
+        try:
+            setup = DemoSetup.from_payload(
+                body.get("setup") or {}, ModelCatalog.installed().robot_types
+            )
+            path = SetupLibrary().save(str(body.get("name") or ""), setup)
+        except (
+            MalformedSetupError,
+            MalformedPlanError,
+            InvalidSetupNameError,
+            InvalidRobotScene,
+            UnsupportedEnvironmentFileError,
+        ) as error:
+            return self._send_json({"ok": False, "error": str(error)}, 400)
+        except SetupNameTakenError as error:
+            return self._send_json({"ok": False, "error": str(error)}, 409)
+        self._send_json({"ok": True, "path": str(path)})
 
     def _save_generated_plan(self) -> None:
         """

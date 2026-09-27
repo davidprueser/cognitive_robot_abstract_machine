@@ -1,0 +1,13 @@
+<?xml version="1.0"?>
+<!-- A floor that stands proud of the world's origin: a slab 4 m square whose top is
+     0.1 m up, the way a scanned building's floor box sits a little above its ground. -->
+<robot name="floor_slab">
+  <link name="floor">
+    <collision>
+      <origin xyz="0 0 0.05"/>
+      <geometry>
+        <box size="4 4 0.1"/>
+      </geometry>
+    </collision>
+  </link>
+</robot>

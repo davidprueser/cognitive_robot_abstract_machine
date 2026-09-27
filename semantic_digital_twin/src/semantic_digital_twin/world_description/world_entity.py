@@ -173,14 +173,23 @@ class WorldEntityWithID(WorldEntity, SubclassJSONSerializer):
         result = super().to_json(**kwargs)
         introspector = DataclassOnlyIntrospector()
         for field_ in introspector.discover(self.__class__):
-            value = getattr(self, field_.public_name)
-
-            if isinstance(value, (list, set)):
-                current_result = [self._item_to_json(item, **kwargs) for item in value]
-            else:
-                current_result = self._item_to_json(value, **kwargs)
-            result[field_.public_name] = current_result
+            result[field_.public_name] = self._field_to_json(
+                field_.public_name, **kwargs
+            )
         return result
+
+    def _field_to_json(self, field_name: str, **kwargs) -> Any:
+        """
+        Convert one field of this entity to JSON format.
+
+        :param field_name: The name of the field.
+        :param kwargs: Keyword arguments to hand on to the ``to_json`` calls.
+        :return: The JSON of the field's value.
+        """
+        value = getattr(self, field_name)
+        if isinstance(value, (list, set)):
+            return [self._item_to_json(item, **kwargs) for item in value]
+        return self._item_to_json(value, **kwargs)
 
     @classmethod
     def _item_to_json(cls, item: Any, **kwargs):
@@ -561,6 +570,12 @@ class Body(KinematicStructureEntity):
     The poses of the shapes are relative to the link.
     """
 
+    VISUAL_FIELD_NAME: ClassVar[str] = "visual"
+    """
+    The name of the field holding the visual geometry, which a serialization asked to
+    leave out visual geometry writes empty.
+    """
+
     index: Optional[int] = field(default=None, init=False)
     """
     The index of the entity in `_world.kinematic_structure`.
@@ -654,6 +669,25 @@ class Body(KinematicStructureEntity):
         """
         return list(
             filter(lambda sem: isinstance(sem, type_), self._semantic_annotations)
+        )
+
+    def _field_to_json(
+        self, field_name: str, include_visual_geometry: bool = True, **kwargs
+    ) -> Any:
+        """
+        Convert one field of this body to JSON format.
+
+        :param field_name: The name of the field.
+        :param include_visual_geometry: Whether the visual geometry is written, or an
+            empty collection in its place - for a receiver that only collides, and would
+            otherwise be sent every triangle of a scanned building.
+        :param kwargs: Keyword arguments to hand on to the ``to_json`` calls.
+        :return: The JSON of the field's value.
+        """
+        if field_name == self.VISUAL_FIELD_NAME and not include_visual_geometry:
+            return to_json(ShapeCollection(), **kwargs)
+        return super()._field_to_json(
+            field_name, include_visual_geometry=include_visual_geometry, **kwargs
         )
 
     def copy_for_world(self, new_world: World) -> Self:

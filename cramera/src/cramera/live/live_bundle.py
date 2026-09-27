@@ -20,13 +20,14 @@ import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from typing_extensions import Any, Dict, Iterable, List, Optional
+from typing_extensions import Any, Dict, Iterable, List, Optional, Tuple
 
 from semantic_digital_twin.robots.robot_parts import AbstractRobot
 from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.world_entity import Body
 
 from cramera import paths
+from cramera.body_geometry import DrawnGeometry
 from cramera.generated_json import GeneratedJson
 from cramera.live.bridge import Bridge
 from cramera.live.robot_models import RobotModels
@@ -49,6 +50,12 @@ up, which makes that overlap routine rather than rare.
 ENVIRONMENT_MODEL_NAME = "environment"
 """
 Name of the model holding every world body outside the robot and the object overlay.
+"""
+
+ENVIRONMENT_GEOMETRY_FIELD = "environmentGeometry"
+"""
+The scene's field saying which geometry its environment is drawn with, see
+:class:`~cramera.body_geometry.DrawnGeometry`.
 """
 
 MESH_SUBDIRECTORY = "live"
@@ -91,6 +98,7 @@ def bundle_world_models(
     mesh_subdirectory: str,
     *,
     overlay_bodies: Iterable[Body] | None = None,
+    environment_geometry: DrawnGeometry = DrawnGeometry.VISUAL,
 ) -> WorldModelsBundle:
     """
     Serialize a world's robot and environment bodies into URDF models on disk.
@@ -109,6 +117,8 @@ def bundle_world_models(
         ``output_directory``.
     :param overlay_bodies: Bodies rendered independently, including previously loose
         objects now attached to the robot; inferred from the world when omitted.
+    :param environment_geometry: Which geometry the environment is drawn with; the
+        robots are always drawn as they look.
     """
     excluded_bodies = set(
         WorldObjects(world, robot).overlay_bodies()
@@ -140,6 +150,7 @@ def bundle_world_models(
             ENVIRONMENT_MODEL_NAME,
             str(output_directory),
             mesh_subdirectory,
+            drawn_geometry=environment_geometry,
         )
         models.append(_model_payload(report, is_robot=False))
     for annotation, robot_bodies in bodies_by_robot:
@@ -170,37 +181,52 @@ def bundle_world_models(
     )
 
 
-def build_live_scene(bridge: Bridge) -> Optional[str]:
+def build_live_scene(
+    bridge: Bridge, environment_geometry: Optional[DrawnGeometry] = None
+) -> Optional[str]:
     """
     Bundle the live world's current model into a throwaway scene.
 
     :param bridge: The live bridge whose current world is bundled.
+    :param environment_geometry: Which geometry the environment is drawn with, or None
+        for the bridge's own choice.
     :return: :data:`cramera.paths.LIVE_SCENE_NAME`, the scene name to navigate the
         viewer to, or None while no world is attached yet.
     """
     if bridge.world is None:
         return None
+    geometry = environment_geometry or bridge.environment_geometry
     output_directory = paths.local_scenes_directory() / paths.LIVE_SCENE_NAME
     with BUILD_LOCK:
         signature = bridge.bundle_signature()
-        if _existing_signature(output_directory) == signature:
+        if _existing_bundle(output_directory) == (signature, geometry):
             return paths.LIVE_SCENE_NAME
-        return _write_bundle(bridge, output_directory, signature)
+        return _write_bundle(bridge, output_directory, signature, geometry)
 
 
-def _existing_signature(output_directory: Path) -> Optional[str]:
+def _existing_bundle(output_directory: Path) -> Optional[Tuple[str, str]]:
     """
-    The signature the existing bundle was built from, or None without a readable one.
+    What the existing bundle was built from, or None without a readable one.
 
     :param output_directory: Directory the previous bundle was written to.
+    :return: The signature of the world model and the geometry the environment was
+        drawn with.
     """
     scene = GeneratedJson(output_directory / "scene.json").read()
     if not isinstance(scene, dict):
         return None
-    return scene.get("bundleSignature")
+    return (
+        scene.get("bundleSignature"),
+        scene.get(ENVIRONMENT_GEOMETRY_FIELD, DrawnGeometry.VISUAL),
+    )
 
 
-def _write_bundle(bridge: Bridge, output_directory: Path, signature: str) -> str:
+def _write_bundle(
+    bridge: Bridge,
+    output_directory: Path,
+    signature: str,
+    environment_geometry: DrawnGeometry,
+) -> str:
     """
     Clear the throwaway scene's directory and serialize the world into it.
 
@@ -210,6 +236,7 @@ def _write_bundle(bridge: Bridge, output_directory: Path, signature: str) -> str
     :param output_directory: Directory the bundle is written to, cleared first.
     :param signature: The digest of the world model this bundle is built from, recorded
         so the next build can tell whether anything changed.
+    :param environment_geometry: Which geometry the environment is drawn with.
     """
     if output_directory.exists():
         shutil.rmtree(output_directory)
@@ -220,6 +247,7 @@ def _write_bundle(bridge: Bridge, output_directory: Path, signature: str) -> str
         output_directory,
         MESH_SUBDIRECTORY,
         overlay_bodies=bridge.query_objects(),
+        environment_geometry=environment_geometry,
     )
     scene = {
         "name": paths.LIVE_SCENE_NAME,
@@ -238,6 +266,7 @@ def _write_bundle(bridge: Bridge, output_directory: Path, signature: str) -> str
         # what this bundle was built from; while it is unchanged, /live_scene leaves
         # the bundle untouched instead of deleting files a viewer may be downloading
         "bundleSignature": signature,
+        ENVIRONMENT_GEOMETRY_FIELD: environment_geometry.value,
     }
     (output_directory / "scene.json").write_text(json.dumps(scene, indent=1))
     return paths.LIVE_SCENE_NAME

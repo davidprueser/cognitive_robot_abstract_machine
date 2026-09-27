@@ -54,6 +54,7 @@ from giskardpy.motion_statechart.tasks.joint_tasks import (
 )
 from giskardpy.motion_statechart.tasks.pointing import Pointing
 from semantic_digital_twin.datastructures.definitions import GripperState, TorsoState
+from semantic_digital_twin.robots.tracy import Tracy
 from semantic_digital_twin.semantic_annotations.semantic_annotations import Milk
 from semantic_digital_twin.spatial_types import Point3, Quaternion
 from semantic_digital_twin.spatial_types.spatial_types import Pose
@@ -761,6 +762,20 @@ def test_looking_motion_pointing_parameters(immutable_model_world):
     assert pointing.pointing_axis.reference_frame is camera.root
     assert pointing.goal_point.reference_frame is world.root
     assert np.array_equal(pointing.goal_point.to_np(), target.to_position().to_np())
+
+
+def test_looking_motion_of_a_robot_without_a_torso_turns_from_its_root(tracy_world):
+    """
+    A robot without a torso turns its camera from its own root, since nothing else
+    carries the camera for it.
+    """
+    [robot] = tracy_world.get_semantic_annotations_by_type(Tracy)
+    camera = robot.get_default_camera()
+    target = Pose(Point3.from_iterable([1, 1, 1]), reference_frame=tracy_world.root)
+    motion = LookingMotion(target=target, camera=camera)
+    execute_single(motion, context=Context(tracy_world, robot))
+
+    assert motion.motion_chart.root_link is robot.root
 
 
 def test_look_at_action_turns_the_head_towards_a_body(immutable_model_world):

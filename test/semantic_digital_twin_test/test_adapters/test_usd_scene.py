@@ -2,6 +2,7 @@ import numpy as np
 import pytest
 from PIL import Image
 
+from semantic_digital_twin.api import BodySpecification, WorldSpecification
 from semantic_digital_twin.adapters.usd.exceptions import (
     UnsupportedUsdGeometryTypeError,
 )
@@ -23,7 +24,7 @@ from semantic_digital_twin.world_description.connections import (
     FixedConnection,
     RevoluteConnection,
 )
-from semantic_digital_twin.world_description.geometry import Box, Mesh
+from semantic_digital_twin.world_description.geometry import Box, Mesh, Scale
 from semantic_digital_twin.world_description.world_entity import Body, Connection
 
 from .usd_stages import (
@@ -518,3 +519,28 @@ def test_turning_a_leaf_leaves_its_hinge_where_it_was():
     # the corner standing there is the one that does not move.
     assert moved.min() < 1e-9
     assert moved.max() > 0.1
+
+
+# %% a scene as the environment of a world specification
+
+
+def test_a_world_specification_reads_its_environment_from_a_scene_file(tmp_path):
+    scene_file = tmp_path / "scene.usda"
+    build_scene_stage_with_grouped_instances().Export(str(scene_file))
+    expected = parse(
+        build_scene_stage_with_grouped_instances(),
+        root_placement=RootPlacement.SCENE_GROUND,
+    )
+
+    world = WorldSpecification.from_usd_scene(
+        str(scene_file),
+        prefix="scene",
+        root_placement=RootPlacement.SCENE_GROUND,
+        objects=[BodySpecification.box("parcel", Scale(0.1, 0.1, 0.1))],
+    ).to_domain_object()
+
+    np.testing.assert_allclose(
+        translation_of(connection_to(world, "wall_a")),
+        translation_of(connection_to(expected, "wall_a")),
+    )
+    assert body_named(world, "parcel") is not None

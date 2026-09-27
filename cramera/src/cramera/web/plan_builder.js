@@ -20,6 +20,7 @@
     park_arms: { name: 'Park arms', color: '#b98cff', params: { arm: 'BOTH' } },
     move_torso: { name: 'Move torso', color: '#ff9db1', params: { torso: 'HIGH' } },
     navigate: { name: 'Navigate', color: '#8fd6c8', params: { x: 2.6, y: 1.8, z: 0.0, yaw: 0.0 } },
+    look_at: { name: 'Look at', color: '#e6d36b', params: { x: 1.0, y: 0.0, z: 1.0 } },
     transport: { name: 'Transport object', color: '#5b8cff', params: { object: '', x: 5.0, y: 3.3, z: 0.8, yaw: 1.57, arm: 'LEFT', targetMode: 'semantic', surfaceType: 'CounterTop', surfaceName: '' } },
     pick: { name: 'Pick up', color: '#7ec9ff', params: { object: '', arm: 'LEFT' } },
     place: { name: 'Place', color: '#ffc46b', params: { object: '', x: 2.4, y: 1.8, z: 0.8, yaw: 0.0, arm: 'LEFT', targetMode: 'pose', surfaceType: 'CounterTop', surfaceName: '' } },
@@ -97,6 +98,9 @@
     $('pb-robot').value = instance.model;
     $('pb-rx').value = instance.x; $('pb-ry').value = instance.y;
     $('pb-ryaw').value = Math.round(instance.yaw * 180 / Math.PI * 100) / 100;
+    $('pb-rtopic').value = instance.joint_state_topic || '';
+    $('pb-rlocalize').value = instance.localization_topic || '';
+    $('pb-rrepeat').checked = !!instance.repeats_plan;
     $('pb-remove-robot').disabled = builderState.instances.length <= 1;
     $('pb-plan-robot').textContent = 'Plan for ' + instance.label;
     robotXY = instance;
@@ -164,7 +168,11 @@
       if (Object.keys(instance.joint_positions).length) lines.push('            joint_positions=' + jsonPy(instance.joint_positions) + ',');
       lines.push('        ),');
     });
-    lines.push('    ],', '    active_identifier=' + jsonStr(builderState.activeIdentifier) + ',', ')', '');
+    lines.push('    ],', '    active_identifier=' + jsonStr(builderState.activeIdentifier) + ',');
+    if (Object.keys(builderState.environmentJointPositions).length) {
+      lines.push('    environment_joint_positions=' + jsonPy(builderState.environmentJointPositions) + ',');
+    }
+    lines.push(')', '');
     return lines;
   }
   // semantic place targets: supporting surfaces ("on") and case containers ("in").
@@ -599,6 +607,7 @@
   function stepParams(s) {
     if (s.type === 'park_arms') return row(sel(s, 'arm', robotArms()));
     if (s.type === 'move_torso') return row(sel(s, 'torso', TORSO));
+    if (s.type === 'look_at') return row('<span class="pb-group-lbl">look at →</span>' + num(s, 'x') + num(s, 'y') + num(s, 'z'));
     if (s.type === 'navigate') return row('<span class="pb-group-lbl">go to →</span>' + num(s, 'x') + num(s, 'y') + num(s, 'z') + num(s, 'yaw') +
       '<button class="pb-capbtn" data-capnav="' + s.id + '" title="drive/place the robot in the 3D scene, then capture its base pose as this navigate goal">◎ capture robot pose</button>');
     if (s.type === 'transport') {
@@ -829,6 +838,7 @@
     return L;
   }
   function pose(p) { return 'Pose.from_xyz_rpy(' + py(p.x) + ', ' + py(p.y) + ', ' + py(p.z) + ', yaw=' + py(p.yaw) + ', reference_frame=world.root)'; }
+  function point(p) { return 'Pose.from_xyz_rpy(' + py(p.x) + ', ' + py(p.y) + ', ' + py(p.z) + ', reference_frame=world.root)'; }
   function body(mesh) { return 'world.get_body_by_name("' + mesh + '")'; }
   function generate(stepsOverride) {
     const useSteps = stepsOverride || steps;
@@ -845,7 +855,7 @@
     L.push('from coraplex.plans.factories import sequential');
     L.push('from coraplex.visualization import WorldVisualization');
     L.push('from coraplex.robot_plans.actions.composite.transporting import TransportAction');
-    L.push('from coraplex.robot_plans.actions.core.navigation import NavigateAction');
+    L.push('from coraplex.robot_plans.actions.core.navigation import LookAtAction, NavigateAction');
     L.push('from coraplex.robot_plans.actions.core.pick_up import PickUpAction');
     L.push('from coraplex.robot_plans.actions.core.placing import PlaceAction');
     L.push('from coraplex.robot_plans.actions.core.robot_body import ParkArmsAction, MoveTorsoAction');
@@ -956,6 +966,7 @@
     if (s.type === 'park_arms') return 'ParkArmsAction(Arms.' + p.arm + ')';
     if (s.type === 'move_torso') return 'MoveTorsoAction(TorsoState.' + p.torso + ')';
     if (s.type === 'navigate') return 'NavigateAction(' + pose(p) + ')';
+    if (s.type === 'look_at') return 'LookAtAction(' + point(p) + ')';
     if (s.type === 'transport') {
       const given = ['object_designator=HasRootBody(root=' + body(p.object || 'object') + ')',
         'target_location=' + dropOffTarget(s), 'arm=Arms.' + p.arm]
@@ -1003,7 +1014,7 @@
     L.push('from coraplex.plans.factories import sequential');
     L.push('from coraplex.plans.plan import Plan');
     L.push('from coraplex.robot_plans.actions.composite.transporting import TransportAction');
-    L.push('from coraplex.robot_plans.actions.core.navigation import NavigateAction');
+    L.push('from coraplex.robot_plans.actions.core.navigation import LookAtAction, NavigateAction');
     L.push('from coraplex.robot_plans.actions.core.pick_up import PickUpAction');
     L.push('from coraplex.robot_plans.actions.core.placing import PlaceAction');
     L.push('from coraplex.robot_plans.actions.core.robot_body import ParkArmsAction, MoveTorsoAction');
@@ -1510,6 +1521,19 @@
         reshowIfGenerated();
       });
     }
+    // a finished edit stands the robot there in a running scene straight away
+    for (const identifier of ['pb-rx', 'pb-ry', 'pb-ryaw']) {
+      $(identifier).addEventListener('change', placeActiveRobotLive);
+    }
+    $('pb-rtopic').addEventListener('change', function () {
+      builderState.updateRobot(builderState.activeIdentifier, {jointStateTopic: this.value});
+    });
+    $('pb-rlocalize').addEventListener('change', function () {
+      builderState.updateRobot(builderState.activeIdentifier, {localizationTopic: this.value});
+    });
+    $('pb-rrepeat').addEventListener('change', function () {
+      builderState.updateRobot(builderState.activeIdentifier, {repeatsPlan: this.checked});
+    });
     $('pb-robot-instance').addEventListener('change', function () { selectRobotInstance(this.value); });
     $('pb-add-robot').addEventListener('click', addRobotInstance);
     $('pb-remove-robot').addEventListener('click', removeRobotInstance);
@@ -1517,6 +1541,81 @@
       builderState.updateRobot(builderState.activeIdentifier, {label: this.value});
       renderRobotInstances(); reshowIfGenerated();
     });
+  }
+
+  // ---------- demo setups ----------
+  // a setup is the environment, where each robot stands, which robots follow a real
+  // robot and what the others do; the running demo offers its own through the bridge
+  const RUNNING_DEMO_SETUP = '__running__';
+  let attachedToRunningDemo = false;   // the 3D view shows a demo this page did not start
+  function makeStep(type, params) { return { id: 's' + (stepSeq++), type: type, params: params }; }
+  function ensureEnvironmentOption(path) {
+    const select = $('pb-env');
+    if (!Array.from(select.options).some(function (option) { return option.value === path; })) {
+      const option = document.createElement('option');
+      option.value = path; option.textContent = path.split('/').filter(Boolean).slice(-2).join('/');
+      select.appendChild(option);
+    }
+    select.value = path;
+  }
+  async function refreshSetupList() {
+    const select = $('pb-setup-open');
+    const choices = [['', '— choose a setup —']];
+    try {
+      const running = await fetch(bridgeUrl() + '/setup', {cache: 'no-store'}).then(function (r) { return r.ok ? r.json() : null; });
+      if (running && running.ok) choices.push([RUNNING_DEMO_SETUP, 'the running demo']);
+    } catch (e) { /* no demo running */ }
+    try {
+      const saved = await fetch('/api/setup/list', {cache: 'no-store'}).then(function (r) { return r.json(); });
+      (saved.names || []).forEach(function (name) { choices.push([name, name]); });
+    } catch (e) { /* the server offers none */ }
+    select.innerHTML = choices.map(function (c) { return '<option value="' + c[0] + '">' + c[1] + '</option>'; }).join('');
+  }
+  async function openSetup() {
+    const chosen = $('pb-setup-open').value;
+    if (!chosen) { status('choose a setup to open', 'err'); return; }
+    try {
+      const url = chosen === RUNNING_DEMO_SETUP ? bridgeUrl() + '/setup' : '/api/setup/open?name=' + encodeURIComponent(chosen);
+      const answer = await fetch(url, {cache: 'no-store'}).then(function (r) { return r.json(); });
+      if (!answer.ok) throw new Error(answer.error || 'the setup could not be opened');
+      const active = window.DemoSetupForm.applyTo(builderState, answer.setup, makeStep);
+      if (answer.setup.environment) ensureEnvironmentOption(answer.setup.environment.path);
+      steps = active.steps;
+      objects = [];                        // a setup carries no objects to be carried
+      renderObjects();
+      attachedToRunningDemo = chosen === RUNNING_DEMO_SETUP;
+      if (attachedToRunningDemo) { const f = $('pb-3d'); if (f) f.src = 'index.html?scene'; }
+      renderRobotInstances(); renderBlocks(); renderSteps(); showModelStatus(); reshowIfGenerated();
+      const name = attachedToRunningDemo ? 'the running demo' : chosen;
+      status('opened ' + name + (attachedToRunningDemo ? ' — moving a robot moves it in the scene' : ''), 'ok');
+      toast('Opened ' + name, 'ok');
+    } catch (error) { status('open failed: ' + error.message, 'err'); toast('Open failed: ' + error.message, 'err'); }
+  }
+  async function saveSetup() {
+    const name = ($('pb-setup-name').value || '').trim();
+    if (!name) { status('name the setup first', 'err'); return; }
+    const payload = window.DemoSetupForm.toPayload(builderState, steps, $('pb-env').value);
+    try {
+      const answer = await fetch('/api/setup/save', {method: 'POST', headers: {'content-type': 'application/json'},
+        body: JSON.stringify({name: name, setup: payload})}).then(function (r) { return r.json(); });
+      if (!answer.ok) throw new Error(answer.error || 'the setup could not be saved');
+      status('saved setup → ' + answer.path + '  (run it with: --setup ' + answer.path + ')', 'ok');
+      toast('✓ Saved setup ' + name, 'ok');
+      refreshSetupList();
+    } catch (error) { status('save failed: ' + error.message, 'err'); toast('Save failed: ' + error.message, 'err'); }
+  }
+  // stand the active robot where its fields say, in the scene the 3D view shows
+  async function placeActiveRobotLive() {
+    const instance = builderState.activeRobot();
+    if (!instance || !(liveOn || attachedToRunningDemo)) return;
+    try {
+      const answer = await fetch(bridgeUrl() + '/robot/place', {method: 'POST', headers: {'content-type': 'application/json'},
+        body: JSON.stringify({identifier: instance.id, model: instance.model, x: instance.x, y: instance.y, yaw: instance.yaw})})
+        .then(function (r) { return r.json(); });
+      if (!answer.ok) throw new Error(answer.error || 'the robot could not be moved');
+      builderState.acknowledgeRobotPoseEdits(builderState.snapshotRobotPoseEdits());
+      status('moved ' + instance.label + ' in the scene', 'ok');
+    } catch (error) { status('move failed: ' + error.message, 'err'); }
   }
 
   // ---------- boot ----------
@@ -1588,5 +1687,9 @@
   $('pb-env').addEventListener('change', reshowIfGenerated);
   $('pb-download').addEventListener('click', download);
   $('pb-save').addEventListener('click', save);
+  $('pb-setup-open-btn').addEventListener('click', openSetup);
+  $('pb-setup-save').addEventListener('click', saveSetup);
+  $('pb-setup-btn').addEventListener('click', refreshSetupList);
+  refreshSetupList();
   window.addEventListener('resize', renderScene);
 })();

@@ -40,6 +40,7 @@ from semantic_digital_twin.world_description.geometry import (
 from semantic_digital_twin.world_description.world_entity import Body
 from typing_extensions import ClassVar, Dict, Iterable, List, Optional, Type
 
+from cramera.body_geometry import DrawnGeometry
 from cramera.onboard.bundle_urdf import BundledAssets, BundleReport
 
 
@@ -147,6 +148,11 @@ class UrdfDocument:
     whose parent-to-child pose the live bridge streams.
     """
 
+    drawn_geometry: DrawnGeometry = DrawnGeometry.VISUAL
+    """
+    Which geometry of each body its link is drawn with.
+    """
+
     @classmethod
     def of_world(
         cls, world: World, name: str, output_directory: str, mesh_subdirectory: str
@@ -182,6 +188,7 @@ class UrdfDocument:
         output_directory: str,
         mesh_subdirectory: str,
         identity_root: Optional[Body] = None,
+        drawn_geometry: DrawnGeometry = DrawnGeometry.VISUAL,
     ) -> BundleReport:
         """
         Serialize part of a world -- the bodies no parsed source describes -- as a URDF.
@@ -199,6 +206,7 @@ class UrdfDocument:
         :param identity_root: Body grafted at the origin instead of at its world pose --
             a robot subtree's base, whose live pose the viewer applies on top of the
             model.
+        :param drawn_geometry: Which geometry of each body its link is drawn with.
         """
         os.makedirs(output_directory, exist_ok=True)
         document = cls(
@@ -206,6 +214,7 @@ class UrdfDocument:
             mesh_subdirectory=mesh_subdirectory,
             root_element=ElementTree.Element("robot", {"name": name}),
             assets=BundledAssets(bundle_root=output_directory),
+            drawn_geometry=drawn_geometry,
         )
         ElementTree.SubElement(
             document.root_element, "link", {"name": cls.SYNTHESIZED_ROOT_LINK}
@@ -319,14 +328,15 @@ class UrdfDocument:
     # %% links
     def add_link(self, body: Body) -> None:
         """
-        Add a ``link`` element for a body, with one ``visual`` per shape it carries.
+        Add a ``link`` element for a body, with one ``visual`` per shape it is drawn
+        with.
 
         :param body: The body the link describes.
         """
         link_element = ElementTree.SubElement(
             self.root_element, "link", {"name": str(body.name)}
         )
-        for shape in body.visual.shapes:
+        for shape in self.drawn_geometry.shapes_of(body).shapes:
             visual_element = ElementTree.SubElement(link_element, "visual")
             self._set_origin(visual_element, shape.origin)
             self._add_geometry(visual_element, shape)

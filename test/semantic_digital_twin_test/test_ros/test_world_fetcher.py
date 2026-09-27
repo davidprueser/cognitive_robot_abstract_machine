@@ -27,7 +27,8 @@ from semantic_digital_twin.semantic_annotations.semantic_annotations import (
 from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
 from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.connections import Connection6DoF
-from semantic_digital_twin.world_description.geometry import Scale
+from semantic_digital_twin.world_description.geometry import Box, Scale
+from semantic_digital_twin.world_description.shape_collection import ShapeCollection
 from semantic_digital_twin.world_description.world_entity import Body
 from semantic_digital_twin.world_description.world_modification import (
     WorldModelModificationBlock,
@@ -324,3 +325,46 @@ def test_fetched_robot_parts_keep_their_joint_states(rclpy_node, pr2_world_state
     assert [joint_state.name for joint_state in fetched_pr2.torso.joint_states] == [
         joint_state.name for joint_state in pr2.torso.joint_states
     ]
+
+
+# %% fetching without visual geometry
+
+
+def create_world_with_a_drawn_body() -> World:
+    """
+    A world of one body drawn with a mesh-sized box and collided with a smaller one.
+    """
+    world = World()
+    body = Body(name=PrefixedName("drawn"))
+    body.visual = ShapeCollection(
+        [Box(scale=Scale(2.0, 2.0, 2.0))], reference_frame=body
+    )
+    body.collision = ShapeCollection(
+        [Box(scale=Scale(1.0, 1.0, 1.0))], reference_frame=body
+    )
+    with world.modify_world():
+        world.add_kinematic_structure_entity(body)
+    return world
+
+
+def test_a_world_served_without_visual_geometry_arrives_with_its_collision_only(
+    rclpy_node,
+):
+    world = create_world_with_a_drawn_body()
+    FetchWorldServer(node=rclpy_node, world=world, include_visual_geometry=False)
+
+    fetched = fetch_world_from_service(rclpy_node).get_body_by_name("drawn")
+
+    [collision] = fetched.collision.shapes
+    assert collision.scale == world.get_body_by_name("drawn").collision.shapes[0].scale
+    assert fetched.visual.shapes == []
+
+
+def test_a_world_served_with_visual_geometry_keeps_it(rclpy_node):
+    world = create_world_with_a_drawn_body()
+    FetchWorldServer(node=rclpy_node, world=world)
+
+    fetched = fetch_world_from_service(rclpy_node).get_body_by_name("drawn")
+
+    [visual] = fetched.visual.shapes
+    assert visual.scale == world.get_body_by_name("drawn").visual.shapes[0].scale

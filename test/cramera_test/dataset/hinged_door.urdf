@@ -1,0 +1,21 @@
+<?xml version="1.0"?>
+<!-- A wall with one door leaf hanging on a hinge, the smallest environment with a joint
+     of its own. -->
+<robot name="hinged_door">
+  <link name="wall"/>
+  <link name="leaf">
+    <collision>
+      <origin xyz="0.45 0 1.0"/>
+      <geometry>
+        <box size="0.9 0.04 2.0"/>
+      </geometry>
+    </collision>
+  </link>
+  <joint name="hinge" type="revolute">
+    <parent link="wall"/>
+    <child link="leaf"/>
+    <origin xyz="5 0 0"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-1.6" upper="1.6" effort="1" velocity="1"/>
+  </joint>
+</robot>

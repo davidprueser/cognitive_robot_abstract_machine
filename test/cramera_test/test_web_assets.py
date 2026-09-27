@@ -318,6 +318,9 @@ class TestJsUnits:
     def test_plan_steps(self):
         self.run_node("test_plan_steps.js")
 
+    def test_demo_setup_form(self):
+        self.run_node("test_demo_setup_form.js")
+
     def test_base_control(self):
         self.run_node("test_base_control.js")
 

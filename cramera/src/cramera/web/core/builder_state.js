@@ -60,15 +60,20 @@
       this.activeIdentifier = null;
       this.instanceSequence = 1;
       this.authoredRobotPoses = new Map();
+      // where the environment's own joints stand, by connection name: a door's opening
+      this.environmentJointPositions = {};
     }
 
     /** @param {string} model Installed model name. @param {object} [pose] Starting world-frame pose. @returns {object} The newly selected instance. */
     addRobot(model, pose) {
       if (!this.robot(model)) throw new RangeError('Unknown robot model: ' + model);
       const position = Object.assign({yaw: 0}, PlanBuilderState.initialRobotPosition(), pose);
-      const instance = {id: 'robot_' + this.instanceSequence++, model: model,
+      let identifier;
+      do { identifier = 'robot_' + this.instanceSequence++; } while (this.instances.some((item) => item.id === identifier));
+      const instance = {id: identifier, model: model,
         label: model + ' ' + (this.instances.filter((item) => item.model === model).length + 1),
-        x: position.x, y: position.y, yaw: position.yaw, joint_positions: {}, steps: []};
+        x: position.x, y: position.y, yaw: position.yaw, joint_positions: {}, steps: [],
+        joint_state_topic: '', localization_topic: '', repeats_plan: false};
       this.instances.push(instance);
       this.activeIdentifier = instance.id;
       return instance;
@@ -89,7 +94,7 @@
       return selected;
     }
 
-    /** @param {string} identifier Stable scene instance identifier. @param {object} changes Edited name, model, or finite pose coordinates. */
+    /** @param {string} identifier Stable scene instance identifier. @param {object} changes Edited name, model, finite pose coordinates, followed joint state or localization topic, or whether the plan repeats. */
     updateRobot(identifier, changes) {
       const instance = this.instances.find((item) => item.id === identifier);
       if (!instance) throw new RangeError('Unknown robot instance: ' + identifier);
@@ -103,6 +108,10 @@
         instance.steps = this.adaptSteps(instance.steps, changes.model);
       }
       if ('label' in changes) instance.label = changes.label.trim() || instance.model;
+      // a robot following a real robot's joint states, or one repeating its plan
+      if ('jointStateTopic' in changes) instance.joint_state_topic = String(changes.jointStateTopic).trim();
+      if ('localizationTopic' in changes) instance.localization_topic = String(changes.localizationTopic).trim();
+      if ('repeatsPlan' in changes) instance.repeats_plan = !!changes.repeatsPlan;
       for (const coordinate of ['x', 'y', 'yaw']) {
         if (coordinate in changes) {
           instance[coordinate] = changes[coordinate];

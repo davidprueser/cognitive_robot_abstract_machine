@@ -3,6 +3,7 @@
     scenario.instances.forEach((instance) => builderState.addRobot(instance.model, instance));
     builderState.selectInstance(scenario.activeIdentifier, []);
   }
+  if (scenario.environmentJointPositions) builderState.environmentJointPositions = scenario.environmentJointPositions;
   objects = scenario.objects;
   steps = scenario.steps;
   if (scenario.robotXY) robotXY = scenario.robotXY;

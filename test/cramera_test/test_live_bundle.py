@@ -21,6 +21,7 @@ from semantic_digital_twin.world_description.shape_collection import ShapeCollec
 from semantic_digital_twin.world_description.world_entity import Body
 
 from cramera import paths
+from cramera.body_geometry import DrawnGeometry
 from cramera.live.bridge import Bridge
 from cramera.live.live_bundle import build_live_scene
 
@@ -317,3 +318,115 @@ class TestLiveBundleLocation:
 
         assert (local / paths.LIVE_SCENE_NAME / "scene.json").is_file()
         assert not (paths.scenes_directory() / paths.LIVE_SCENE_NAME).exists()
+
+
+# %% drawing the environment as what it collides as
+
+
+DRAWN_SIZE = 0.1
+"""
+The edge of the box a body of :func:`drawn_and_collided_world` is drawn as.
+"""
+
+COLLIDED_SIZE = 0.3
+"""
+The edge of the box a body of :func:`drawn_and_collided_world` collides as.
+"""
+
+
+def drawn_and_collided(prefix: str, name: str) -> Body:
+    """
+    A body drawn as one box and collided as a bigger one, so the two can be told apart.
+    """
+    return Body(
+        name=PrefixedName(name, prefix=prefix),
+        visual=ShapeCollection(
+            shapes=[Box(scale=Scale(DRAWN_SIZE, DRAWN_SIZE, DRAWN_SIZE))]
+        ),
+        collision=ShapeCollection(
+            shapes=[Box(scale=Scale(COLLIDED_SIZE, COLLIDED_SIZE, COLLIDED_SIZE))]
+        ),
+    )
+
+
+def drawn_and_collided_bridge() -> Bridge:
+    """
+    A bridge attached to a world of a bench and a robot, both drawn and collided as
+    boxes of different sizes.
+    """
+    world = World()
+    root = Body(name=PrefixedName("root", prefix="world"))
+    bench = drawn_and_collided("laboratory", "bench")
+    robot_base = drawn_and_collided("robot", "base_link")
+    with world.modify_world():
+        world.add_body(root)
+        world.add_connection(FixedConnection(parent=root, child=bench))
+        world.add_connection(FixedConnection(parent=root, child=robot_base))
+    bridge = Bridge()
+    bridge.attach(world)
+    bridge.robot = RobotWithSubtree(root=robot_base)
+    return bridge
+
+
+def box_sizes(urdf: Path) -> List[str]:
+    """
+    :return: The ``size`` of every box the URDF draws.
+    """
+    return [box.get("size") for box in ElementTree.parse(urdf).getroot().iter("box")]
+
+
+def edge(size: float) -> str:
+    return " ".join([str(size)] * 3)
+
+
+class TestEnvironmentGeometry:
+    def test_the_environment_is_drawn_as_it_looks_by_default(
+        self, monkeypatch, tmp_path
+    ):
+        scenes = use_scratch_scenes_directory(monkeypatch, tmp_path)
+        build_live_scene(drawn_and_collided_bridge())
+
+        urdf = scenes / paths.LIVE_SCENE_NAME / "environment.urdf"
+        assert box_sizes(urdf) == [edge(DRAWN_SIZE)]
+
+    def test_the_environment_can_be_drawn_as_it_collides(self, monkeypatch, tmp_path):
+        scenes = use_scratch_scenes_directory(monkeypatch, tmp_path)
+        build_live_scene(drawn_and_collided_bridge(), DrawnGeometry.COLLISION)
+
+        urdf = scenes / paths.LIVE_SCENE_NAME / "environment.urdf"
+        assert box_sizes(urdf) == [edge(COLLIDED_SIZE)]
+        assert scene_payload(scenes)["environmentGeometry"] == DrawnGeometry.COLLISION
+
+    def test_the_robot_keeps_its_look_whatever_the_environment_is_drawn_as(
+        self, monkeypatch, tmp_path
+    ):
+        scenes = use_scratch_scenes_directory(monkeypatch, tmp_path)
+        build_live_scene(drawn_and_collided_bridge(), DrawnGeometry.COLLISION)
+
+        urdf = scenes / paths.LIVE_SCENE_NAME / "robotwithsubtree.urdf"
+        assert box_sizes(urdf) == [edge(DRAWN_SIZE)]
+
+    def test_the_bridge_says_how_the_environment_is_drawn_unless_asked(
+        self, monkeypatch, tmp_path
+    ):
+        scenes = use_scratch_scenes_directory(monkeypatch, tmp_path)
+        bridge = drawn_and_collided_bridge()
+        bridge.environment_geometry = DrawnGeometry.COLLISION
+
+        build_live_scene(bridge)
+
+        urdf = scenes / paths.LIVE_SCENE_NAME / "environment.urdf"
+        assert box_sizes(urdf) == [edge(COLLIDED_SIZE)]
+
+    def test_asking_for_the_other_geometry_rebuilds_an_unchanged_world(
+        self, monkeypatch, tmp_path
+    ):
+        scenes = use_scratch_scenes_directory(monkeypatch, tmp_path)
+        bridge = drawn_and_collided_bridge()
+        build_live_scene(bridge)
+
+        build_live_scene(bridge, DrawnGeometry.COLLISION)
+
+        urdf = scenes / paths.LIVE_SCENE_NAME / "environment.urdf"
+        assert box_sizes(urdf) == [edge(COLLIDED_SIZE)]
+        assert scene_payload(scenes)["bundleSignature"] == bridge.bundle_signature()

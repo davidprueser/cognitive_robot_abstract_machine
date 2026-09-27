@@ -88,3 +88,40 @@ def test_catalog_payload_matches_installed_models() -> None:
     assert payload["environments"] == [
         environment.to_payload() for environment in catalog.environments
     ]
+
+
+# %% looking around
+
+
+def test_a_robot_with_a_camera_may_look_at_a_point() -> None:
+    assert BuilderStep.LOOK_AT in RobotModel(Tracy).steps
+
+
+def test_a_robot_without_a_camera_may_not() -> None:
+    assert BuilderStep.LOOK_AT not in RobotModel(MinimalRobot).steps
+
+
+# %% robots other distributions register
+
+
+def test_a_robot_another_distribution_registers_is_offered(monkeypatch) -> None:
+    from importlib.metadata import EntryPoint
+
+    from cramera import model_catalog
+
+    from .dataset.standing_robot import StandingRobot
+
+    registered = EntryPoint(
+        name="standing_robot",
+        value=f"{StandingRobot.__module__}:{StandingRobot.__name__}",
+        group=model_catalog.ROBOT_ENTRY_POINT_GROUP,
+    )
+    monkeypatch.setattr(
+        model_catalog,
+        "entry_points",
+        lambda group: [registered] if group == registered.group else [],
+    )
+
+    assert StandingRobot in {
+        model.annotation for model in ModelCatalog.installed().robots
+    }
