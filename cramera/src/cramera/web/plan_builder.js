@@ -1054,6 +1054,7 @@
     L.push('from semantic_digital_twin.spatial_types.spatial_types import Pose');
     L.push('from semantic_digital_twin.world import World');
     L.push('from semantic_digital_twin.world_description.geometry import Color');
+    if (environmentGeometryLines().length) L.push('from cramera.body_geometry import DrawnGeometry');
     const _surfImp = surfaceImportLine(useSteps);
     if (_surfImp) L.push(_surfImp);
     L.push('');
@@ -1101,6 +1102,7 @@
     code.populateLines('').forEach(function (ln) { L.push(ln); });
     L.push('visualization = WorldVisualization.from_environment(');
     L.push('    world, default_backend=VisualizationBackend.CRAMERA).start()');
+    environmentGeometryLines().forEach(function (ln) { L.push(ln); });
     L.push('');
     if (added.length) {
       L.push('# --- objects placed in the Plan Builder ---');
@@ -1121,6 +1123,12 @@
     }
     annotatedObjectSpawnLines(useSteps, '').forEach(function (ln) { L.push(ln); });
     if (annotatedObjects(useSteps).length) L.push('');
+    if (!useSteps.length) {
+      // a plan without steps only shows the world, so no motion has to be feasible in it
+      code.reasoningLines('', jsonStr(environment.path), false).forEach(function (ln) { L.push(ln); });
+      L.push('');
+      return L.join('\n');
+    }
     L.push(builderState.instances.length ? 'robot = ROBOT_SCENE.selected_robot(world)' : 'robot = world.get_semantic_annotations_by_type(' + R.cls + ')[0]');
     baseControlLines('').forEach(function (ln) { L.push(ln); });
     L.push('context = Context(world=world, robot=robot, _debug=False, ros_node=visualization.ros_node)');
@@ -1141,6 +1149,15 @@
     L.push('    plan.perform()');
     L.push('');
     return L.join('\n');
+  }
+  // the lines drawing the environment as the setup says, when not as it looks
+  function environmentGeometryLines() {
+    const geometry = window.PlanBuilderState.DRAWN_GEOMETRY;
+    if (builderState.environmentGeometry !== geometry.COLLISION) return [];
+    return [
+      'if visualization.cramera_visualization is not None:',
+      '    visualization.cramera_visualization.bridge.environment_geometry = DrawnGeometry.COLLISION',
+    ];
   }
   function stepCode(s) {
     const p = s.params;
@@ -1555,7 +1572,7 @@
     catch (error) { if (my === _runMonitor) liveStatus(error.message, 'err'); return; }
     if (my !== _runMonitor) return;
     lastSpawnRobot = robotInfo().name;
-    const code = generate(builderState.adaptSteps([{ type: 'park_arms', params: { arm: 'BOTH' } }], robotInfo().name));   // scaffold: world + objects, idle
+    const code = generate([]);   // scaffold: world + objects, idle
     beginBusy('Starting scene — parsing meshes'); hideScaffoldLog();
     return launchRun(code, false, my);
   }

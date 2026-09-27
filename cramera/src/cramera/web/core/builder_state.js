@@ -22,6 +22,8 @@
      * spawns the map into it, whereas a file is only ever read into a simulated world.
      */
     static ENVIRONMENT_KIND = Object.freeze({FILE: 'file', MAP: 'map'});
+    /** The geometries an environment is drawn with, as cramera.body_geometry.DrawnGeometry names them. */
+    static DRAWN_GEOMETRY = Object.freeze({VISUAL: 'visual', COLLISION: 'collision'});
 
     /** @param {object} environment An offered environment. @returns {string} Its value in the page's select. */
     static environmentValue(environment) {
@@ -91,6 +93,7 @@
       this.authoredRobotPoses = new Map();
       // where the environment's own joints stand, by connection name: a door's opening
       this.environmentJointPositions = {};
+      this.environmentGeometry = PlanBuilderState.DRAWN_GEOMETRY.VISUAL;
     }
 
     /** @param {string} model Installed model name. @param {object} [pose] Starting world-frame pose. @returns {object} The newly selected instance. */

@@ -51,6 +51,7 @@ test('the builder writes each robot where it stands and what moves it', function
 test('a setup read back gives the builder the robots it was written with', function () {
   const {state} = twoRobots();
   state.environmentJointPositions = {'lab/wall_T_lab/door_0': 1.2};
+  state.environmentGeometry = 'collision';
   const payload = Form.toPayload(state, [lookAt(1)], '/lab/world.usda');
   const opened = new State([humanoid, arm]);
   let made = 0;
@@ -65,6 +66,7 @@ test('a setup read back gives the builder the robots it was written with', funct
   assert.strictEqual(opened.instances[1].repeats_plan, true);
   assert.strictEqual(opened.instances[1].steps[0].id, 'n1');
   assert.strictEqual(opened.environmentJointPositions['lab/wall_T_lab/door_0'], 1.2);
+  assert.strictEqual(opened.environmentGeometry, 'collision');
   assert.deepStrictEqual(JSON.parse(JSON.stringify(Form.toPayload(opened, opened.instances[0].steps, '/lab/world.usda'))),
     JSON.parse(JSON.stringify(payload)));
   // a robot added afterwards does not take an identifier the setup already uses
@@ -95,4 +97,10 @@ test('a file environment given as the offered environment is written by its path
   const payload = Form.toPayload(state, [lookAt(1)], {kind: 'file', path: '/lab/world.usda', name: 'lab/world.usda'});
 
   assert.deepStrictEqual(JSON.parse(JSON.stringify(payload.environment)), {path: '/lab/world.usda'});
+});
+
+test('a builder that was never told how to draw the environment draws it as it looks', function () {
+  const {state} = twoRobots();
+
+  assert.strictEqual(Form.toPayload(state, [], '/lab/world.usda').environmentGeometry, 'visual');
 });

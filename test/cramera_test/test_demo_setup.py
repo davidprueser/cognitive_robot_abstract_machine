@@ -24,6 +24,7 @@ from cramera.demo_setup import (
     UnknownEnvironmentJointError,
     UnknownRobotModelError,
 )
+from cramera.body_geometry import DrawnGeometry
 from cramera.environment_file import URDFEnvironmentFile, USDSceneEnvironmentFile
 from cramera.model_catalog import EnvironmentKind
 from semantic_digital_twin.predetermined_maps.apartment_environment import (
@@ -274,6 +275,42 @@ def test_the_environments_joints_travel_in_the_builders_form() -> None:
     read = DemoSetup.from_payload(payload_of(setup), ROBOT_TYPES)
 
     assert read.environment_joint_positions == setup.environment_joint_positions
+
+
+# %% how a setup's environment is drawn
+
+
+def test_a_setup_keeps_how_its_environment_is_drawn(tmp_path: Path) -> None:
+    setup = setup_in("/somewhere/world.usda")
+    setup.environment_geometry = DrawnGeometry.COLLISION
+    setup.save(tmp_path / "demo.json")
+
+    assert DemoSetup.load(tmp_path / "demo.json").environment_geometry is (
+        DrawnGeometry.COLLISION
+    )
+
+
+def test_a_setup_saved_before_it_said_how_to_draw_its_environment_draws_it_as_it_looks(
+    tmp_path: Path,
+) -> None:
+    setup = setup_in("/somewhere/world.usda")
+    setup.save(tmp_path / "demo.json")
+    written = json.loads((tmp_path / "demo.json").read_text())
+    del written["environment_geometry"]
+    (tmp_path / "demo.json").write_text(json.dumps(written))
+
+    assert DemoSetup.load(tmp_path / "demo.json").environment_geometry is (
+        DrawnGeometry.VISUAL
+    )
+
+
+def test_how_the_environment_is_drawn_travels_in_the_builders_form() -> None:
+    setup = setup_in("/w.usda")
+    setup.environment_geometry = DrawnGeometry.COLLISION
+
+    read = DemoSetup.from_payload(payload_of(setup), ROBOT_TYPES)
+
+    assert read.environment_geometry is DrawnGeometry.COLLISION
 
 
 # %% the setups the builder saves

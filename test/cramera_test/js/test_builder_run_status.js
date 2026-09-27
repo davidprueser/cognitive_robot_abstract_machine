@@ -348,5 +348,15 @@ async function checkRunErrors() {
   assert.equal(unavailable.timers.length, 0);
 }
 
-async function main() { await checkRunStatuses(); await checkPlacementSearch(); await checkRunRaces(); await checkRunStartup(); await checkRunErrors(); }
+// %% the live scene shows the world without performing a plan
+async function checkLiveSceneShowsTheWorldOnly() {
+  const page = new RunPage();
+  page.api.offerRobot({name: 'PR2', cls: 'PR2', arms: ['BOTH'], steps: ['park_arms']});
+  await page.api.startLive();
+  await page.settle();
+  assert.equal(JSON.stringify(page.api.generatedSteps), JSON.stringify([[]]));
+  assert(page.requests.includes('/api/plan/scaffold'));
+}
+
+async function main() { await checkRunStatuses(); await checkLiveSceneShowsTheWorldOnly(); await checkPlacementSearch(); await checkRunRaces(); await checkRunStartup(); await checkRunErrors(); }
 main().catch((error) => { console.error(error); process.exitCode = 1; });

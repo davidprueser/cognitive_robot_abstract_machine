@@ -23,6 +23,7 @@ from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
 from semantic_digital_twin.world import World
 from typing_extensions import Any, ClassVar, Dict, List, Mapping, Optional, Self
 
+from cramera.body_geometry import DrawnGeometry
 from cramera.environment_file import EnvironmentFile, USDSceneEnvironmentFile
 from cramera.model_catalog import EnvironmentKind
 from cramera.multi_robot import (
@@ -59,6 +60,7 @@ class SetupField(StrEnum):
     REPEATS_PLAN = "repeatsPlan"
     STEPS = "steps"
     ENVIRONMENT_JOINT_POSITIONS = "environmentJointPositions"
+    ENVIRONMENT_GEOMETRY = "environmentGeometry"
 
 
 class MalformedSetupError(Exception):
@@ -263,6 +265,12 @@ class DemoSetup:
     it.
     """
 
+    environment_geometry: DrawnGeometry = DrawnGeometry.VISUAL
+    """
+    Which of its geometries the environment is drawn with - as the boxes it collides as,
+    say, for a scanned building too heavy to draw as it looks.
+    """
+
     def pose_environment(self, world: World) -> None:
         """
         Stand the environment's joints of a world built from this setup where the setup
@@ -358,7 +366,24 @@ class DemoSetup:
             environment_joint_positions=cls._joint_positions_from_payload(
                 payload.get(SetupField.ENVIRONMENT_JOINT_POSITIONS) or {}
             ),
+            environment_geometry=cls._drawn_geometry_from_payload(
+                payload.get(SetupField.ENVIRONMENT_GEOMETRY) or DrawnGeometry.VISUAL
+            ),
         )
+
+    @staticmethod
+    def _drawn_geometry_from_payload(payload: Any) -> DrawnGeometry:
+        """
+        :param payload: The builder's form of how the environment is drawn.
+        :return: The geometry it names.
+        :raises MalformedSetupError: If it names no geometry a body is drawn with.
+        """
+        if payload not in DrawnGeometry.__members__.values():
+            raise MalformedSetupError(
+                f"the environment is drawn as one of {[kind.value for kind in DrawnGeometry]},"
+                f" not {payload!r}"
+            )
+        return DrawnGeometry(payload)
 
     @staticmethod
     def _joint_positions_from_payload(payload: Any) -> Dict[str, float]:
@@ -414,6 +439,7 @@ class DemoSetup:
             SetupField.ENVIRONMENT_JOINT_POSITIONS: dict(
                 self.environment_joint_positions
             ),
+            SetupField.ENVIRONMENT_GEOMETRY: self.environment_geometry.value,
         }
 
 

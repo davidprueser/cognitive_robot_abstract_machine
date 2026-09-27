@@ -40,6 +40,7 @@
           };
         }),
         environmentJointPositions: Object.assign({}, state.environmentJointPositions),
+        environmentGeometry: state.environmentGeometry,
       };
     },
 
@@ -68,6 +69,7 @@
       });
       state.authoredRobotPoses = new Map();
       state.environmentJointPositions = Object.assign({}, payload.environmentJointPositions || {});
+      state.environmentGeometry = payload.environmentGeometry || window.PlanBuilderState.DRAWN_GEOMETRY.VISUAL;
       state.activeIdentifier = state.instances[0].id;
       return state.instances[0];
     },

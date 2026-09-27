@@ -16,6 +16,7 @@ import pytest
 from typing_extensions import Any, Dict, List
 
 from coraplex.datastructures.enums import ExecutionType
+from cramera.body_geometry import DrawnGeometry
 from cramera.model_catalog import (
     CatalogField,
     EnvironmentKind,
@@ -46,6 +47,7 @@ def generate_demos(
     instances: List[Dict[str, Any]] | None = None,
     robot: str = "Stretch",
     name: str = "real_lab",
+    environment_geometry: DrawnGeometry | None = None,
 ) -> Dict[str, Any]:
     """
     Run both page generators on one authored scene.
@@ -58,6 +60,8 @@ def generate_demos(
         one; ``None`` exercises the single-robot form the harness starts in.
     :param robot: The selected robot model.
     :param name: The demo's name.
+    :param environment_geometry: How the builder draws the environment, or ``None`` to
+        leave it as the builder starts.
     :return: The script and class outputs, or what a generator refused.
     """
     if shutil.which("node") is None:
@@ -77,6 +81,8 @@ def generate_demos(
             "pb-name": name,
         },
     }
+    if environment_geometry is not None:
+        scenario["environmentGeometry"] = environment_geometry.value
     if instances is not None:
         scenario["instances"] = instances
         scenario["activeIdentifier"] = "robot_1"

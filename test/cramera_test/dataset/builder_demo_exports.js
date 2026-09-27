@@ -5,6 +5,7 @@
     builderState.selectInstance(scenario.activeIdentifier, []);
   }
   if (scenario.environmentJointPositions) builderState.environmentJointPositions = scenario.environmentJointPositions;
+  if (scenario.environmentGeometry) builderState.environmentGeometry = scenario.environmentGeometry;
   objects = scenario.objects;
   steps = scenario.steps;
   if (scenario.robotXY) robotXY = scenario.robotXY;
