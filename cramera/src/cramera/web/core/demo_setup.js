@@ -7,18 +7,27 @@
   'use strict';
 
   function plainStep(step) { return {type: step.type, params: Object.assign({}, step.params)}; }
+  // the environment as the server reads it: a file by its path; a map by its kind and
+  // class, for the server to refuse by name, since a setup names a file
+  function environmentPayload(environment) {
+    if (!environment) return null;
+    if (typeof environment === 'string') return {path: environment};
+    if (environment.path) return {path: environment.path};
+    return {kind: environment.kind, cls: environment.cls};
+  }
 
   window.DemoSetupForm = {
     /**
      * @param {object} state The builder's PlanBuilderState.
      * @param {Array<object>} activeSteps The plan being edited, which belongs to the
      *   active robot and is not yet stored on it.
-     * @param {string} environmentPath The environment file.
+     * @param {string|object} environment The environment file's path, or the offered
+     *   environment (see PlanBuilderState.offerEnvironments in core/builder_state.js).
      * @returns {object} The setup in the form the server saves.
      */
-    toPayload: function (state, activeSteps, environmentPath) {
+    toPayload: function (state, activeSteps, environment) {
       return {
-        environment: environmentPath ? {path: environmentPath} : null,
+        environment: environmentPayload(environment),
         robots: state.instances.map(function (robot) {
           const steps = robot.id === state.activeIdentifier ? activeSteps : robot.steps;
           return {

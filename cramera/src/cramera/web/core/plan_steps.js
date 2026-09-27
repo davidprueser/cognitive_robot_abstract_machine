@@ -8,6 +8,8 @@
 
   const ACTS_ON_AN_OBJECT = ['transport', 'pick', 'place'];
   const PUTS_AN_OBJECT_DOWN = ['transport', 'place'];
+  // a detect looks for an object of a placed object's type without touching it
+  const LOOKS_FOR_AN_OBJECT = ['detect'];
 
   window.PlanSteps = {
     // step kinds naming one of the placed objects
@@ -23,6 +25,14 @@
     putsAnObjectDownAtASemanticTarget: function (step) {
       return window.PlanSteps.putsAnObjectDown(step)
         && !!step.params && step.params.targetMode === 'semantic';
+    },
+    // step kinds looking for one of the placed objects through perception
+    looksForAnObject: function (step) {
+      return !!step && LOOKS_FOR_AN_OBJECT.indexOf(step.type) >= 0;
+    },
+    // whether a step names one of the placed objects at all, acting on it or looking for it
+    namesAnObject: function (step) {
+      return window.PlanSteps.actsOnAnObject(step) || window.PlanSteps.looksForAnObject(step);
     },
   };
 })();

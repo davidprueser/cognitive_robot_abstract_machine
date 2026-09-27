@@ -1,10 +1,37 @@
-/* Robot capabilities and authoritative object poses used during plan authoring. */
+/* Robot capabilities, the offered environments and authoritative object poses used during
+ * plan authoring. */
 (function () {
   'use strict';
+
+  // a map's select value, so it cannot be mistaken for a path
+  const MAP_VALUE_PREFIX = 'map:';
+
+  function fileEnvironment(path, name) {
+    return {kind: PlanBuilderState.ENVIRONMENT_KIND.FILE, path: path, name: name || path.split('/').filter(Boolean).slice(-2).join('/')};
+  }
 
   class PlanBuilderState {
     /** @returns {{x: number, y: number}} Initial position rehearsed with PR2 in the apartment. */
     static initialRobotPosition() { return {x: 1.0, y: 2.5}; }
+
+    /**
+     * How an environment comes into a world: a world file coraplex ships, read by the
+     * parser its suffix names, or a map built by a class, which a generated demo imports
+     * and populates its world with. A map is the only environment a real robot can be
+     * driven in: its world server serves a world holding only the robot, and the demo
+     * spawns the map into it, whereas a file is only ever read into a simulated world.
+     */
+    static ENVIRONMENT_KIND = Object.freeze({FILE: 'file', MAP: 'map'});
+
+    /** @param {object} environment An offered environment. @returns {string} Its value in the page's select. */
+    static environmentValue(environment) {
+      return environment.kind === PlanBuilderState.ENVIRONMENT_KIND.MAP ? MAP_VALUE_PREFIX + environment.cls : environment.path;
+    }
+
+    /** @param {object|null} environment An environment. @returns {boolean} Whether a class builds it. */
+    static isMap(environment) {
+      return !!environment && environment.kind === PlanBuilderState.ENVIRONMENT_KIND.MAP;
+    }
 
     /** @param {object|null} snapshot Published plan tree. @returns {object|null} Its root node. */
     static planRoot(snapshot) {
@@ -54,6 +81,8 @@
     /** @param {Array<object>} robots Annotated robot choices from the server. */
     constructor(robots) {
       this.robots = robots;
+      // the environments the catalog offers: the world files, then the maps
+      this.offeredEnvironments = [];
       this.failures = new Map();
       this.positions = new Map();
       this.instances = [];
@@ -160,6 +189,26 @@
       this.authoredRobotPoses.delete(identifier);
       if (this.activeIdentifier === identifier) this.activeIdentifier = this.instances[0].id;
       return this.activeRobot();
+    }
+
+    /** @param {object} catalog The model catalog's payload, whose files and maps are offered. */
+    offerEnvironments(catalog) {
+      this.offeredEnvironments = (catalog.environments || []).map(function (file) { return fileEnvironment(file.path, file.name); })
+        .concat((catalog.maps || []).map(function (map) {
+          return {kind: PlanBuilderState.ENVIRONMENT_KIND.MAP, cls: map.cls, import: map.import, name: map.name};
+        }));
+    }
+
+    /**
+     * @param {string} value A select value.
+     * @returns {object|null} The environment it names. A path the catalog did not list
+     *   (one a demo setup names) is a file; a map has to be offered.
+     */
+    environment(value) {
+      const found = this.offeredEnvironments.filter(function (environment) { return PlanBuilderState.environmentValue(environment) === value; });
+      if (found.length) return found[0];
+      if (!value || value.indexOf(MAP_VALUE_PREFIX) === 0) return null;
+      return fileEnvironment(value);
     }
 
     /** @param {string} name Selected robot name. @returns {object|null} Its catalog entry. */

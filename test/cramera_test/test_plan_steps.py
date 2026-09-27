@@ -69,6 +69,10 @@ class TestReadingAPlan:
         with pytest.raises(ObjectStepInPlanError):
             read(step(BuilderStep.TRANSPORT, object="milk.stl", arm="LEFT"))
 
+    def test_a_step_looking_for_an_object_is_refused(self):
+        with pytest.raises(ObjectStepInPlanError):
+            read(step(BuilderStep.DETECT, object="cheeze_it.obj"))
+
     def test_an_arm_the_robot_does_not_have_is_refused(self):
         with pytest.raises(MalformedPlanError):
             read(step(BuilderStep.PARK_ARMS, arm="THIRD"))

@@ -24,6 +24,7 @@ from semantic_digital_twin.world import World
 from typing_extensions import Any, ClassVar, Dict, List, Mapping, Optional, Self
 
 from cramera.environment_file import EnvironmentFile, USDSceneEnvironmentFile
+from cramera.model_catalog import EnvironmentKind
 from cramera.multi_robot import (
     RobotInstance,
     RobotScene,
@@ -43,6 +44,8 @@ class SetupField(StrEnum):
 
     ENVIRONMENT = "environment"
     PATH = "path"
+    KIND = "kind"
+    CLASS = "cls"
     ROOT_PLACEMENT = "rootPlacement"
     ROBOTS = "robots"
     IDENTIFIER = "identifier"
@@ -94,6 +97,25 @@ class MirroredRobotWithPlanError(MalformedSetupError):
 
     def __str__(self) -> str:
         return f"{self.identifier} follows a real robot, so it cannot perform a plan as well"
+
+
+@dataclass
+class MapEnvironmentInSetupError(MalformedSetupError):
+    """
+    Raised for an environment a class builds rather than a file describes: a setup names
+    the environment's file, so it cannot stand its robots in a map.
+    """
+
+    map: str
+    """
+    The map class that was named.
+    """
+
+    def __str__(self) -> str:
+        return (
+            f"{self.map} is a map built by a class, not an environment file;"
+            f" a setup names a file, so it cannot stand its robots in {self.map}"
+        )
 
 
 # %% one robot of a setup
@@ -363,9 +385,12 @@ class DemoSetup:
         """
         :param payload: The builder's form of an environment, or ``None`` for none.
         :return: The environment file it names.
+        :raises MapEnvironmentInSetupError: If it names a map instead of a file.
         """
         if not payload:
             return None
+        if payload.get(SetupField.KIND) == EnvironmentKind.MAP:
+            raise MapEnvironmentInSetupError(str(payload.get(SetupField.CLASS, "")))
         environment = EnvironmentFile.from_path(str(payload[SetupField.PATH]))
         placement = payload.get(SetupField.ROOT_PLACEMENT)
         if isinstance(environment, USDSceneEnvironmentFile) and placement:

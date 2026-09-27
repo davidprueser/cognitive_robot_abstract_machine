@@ -76,3 +76,25 @@ test('a missing step or missing params is answered, not thrown at', function () 
   assert.strictEqual(steps.putsAnObjectDown(null), false);
   assert.strictEqual(steps.putsAnObjectDownAtASemanticTarget({ type: 'place' }), false);
 });
+
+// %% looking for an object
+const DETECT = { type: 'detect', params: { object: 'cheeze_it.obj' } };
+
+test('a detect looks for an object without acting on it', function () {
+  const steps = load();
+
+  assert.strictEqual(steps.looksForAnObject(DETECT), true);
+  assert.strictEqual(steps.actsOnAnObject(DETECT), false);
+  assert.strictEqual(steps.putsAnObjectDown(DETECT), false);
+  assert.strictEqual(steps.looksForAnObject(PICK), false);
+});
+
+test('a step names an object when it acts on one or looks for one', function () {
+  const steps = load();
+
+  assert.deepStrictEqual(
+    [DETECT, PICK, PLACE_AT_A_POSE, TRANSPORT, NAVIGATE].map(steps.namesAnObject),
+    [true, true, true, true, false],
+  );
+  assert.strictEqual(steps.namesAnObject(undefined), false);
+});

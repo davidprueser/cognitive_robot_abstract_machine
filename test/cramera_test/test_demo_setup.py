@@ -15,14 +15,20 @@ from cramera.demo_setup import (
     DemoSetup,
     InvalidSetupNameError,
     MalformedSetupError,
+    MapEnvironmentInSetupError,
     MirroredRobotWithPlanError,
     RobotSetup,
+    SetupField,
     SetupLibrary,
     SetupNameTakenError,
     UnknownEnvironmentJointError,
     UnknownRobotModelError,
 )
 from cramera.environment_file import URDFEnvironmentFile, USDSceneEnvironmentFile
+from cramera.model_catalog import EnvironmentKind
+from semantic_digital_twin.predetermined_maps.apartment_environment import (
+    ApartmentEnvironment,
+)
 from cramera.multi_robot import RobotInstance
 from cramera.plan_steps import BuilderPlan, LookAt, Point
 from semantic_digital_twin.adapters.usd.stage_parser import RootPlacement
@@ -293,3 +299,23 @@ def test_a_setup_is_never_saved_over_another(tmp_path: Path) -> None:
 def test_a_name_that_cannot_name_a_file_is_refused(tmp_path: Path) -> None:
     with pytest.raises(InvalidSetupNameError):
         SetupLibrary(directory=tmp_path).save("../elsewhere", setup_in("/w.usda"))
+
+
+# %% a map environment, which no setup file can name
+
+
+def test_a_setup_in_a_map_environment_is_refused() -> None:
+    """
+    A setup names the environment's file; the real lab is built by a class and has none.
+    """
+    payload = payload_of(setup_in("/w.usda"))
+    payload[SetupField.ENVIRONMENT] = {
+        SetupField.KIND: EnvironmentKind.MAP,
+        SetupField.CLASS: ApartmentEnvironment.__name__,
+    }
+
+    with pytest.raises(MapEnvironmentInSetupError) as refused:
+        DemoSetup.from_payload(payload, ROBOT_TYPES)
+
+    assert refused.value.map == ApartmentEnvironment.__name__
+    assert isinstance(refused.value, MalformedSetupError)

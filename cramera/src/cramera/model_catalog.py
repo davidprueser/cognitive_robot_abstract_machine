@@ -8,10 +8,13 @@ from importlib.metadata import entry_points
 from importlib.resources import files
 from pathlib import Path
 
-from typing_extensions import Any, ClassVar, get_args
+from typing_extensions import Any, ClassVar, Protocol, get_args
 
 from cramera.payload import CrameraPayload
 from krrood.class_diagrams.attribute_introspector import DataclassOnlyIntrospector
+from semantic_digital_twin.predetermined_maps.apartment_environment import (
+    ApartmentEnvironment,
+)
 from semantic_digital_twin.robots.armar7 import Armar7
 from semantic_digital_twin.robots.daisy import DAiSy
 from semantic_digital_twin.robots.garmi import Garmi
@@ -35,6 +38,9 @@ from semantic_digital_twin.robots.stretch import Stretch
 from semantic_digital_twin.robots.tiago import Tiago
 from semantic_digital_twin.robots.tracy import Tracy
 from semantic_digital_twin.robots.unitree_g1 import UnitreeG1
+from semantic_digital_twin.semantic_annotations.mixins import HasRootBody
+from semantic_digital_twin.semantic_annotations.semantic_annotations import CheezeIt
+from semantic_digital_twin.world import World
 
 ROBOT_ENTRY_POINT_GROUP = "cramera.robots"
 """
@@ -57,6 +63,8 @@ class BuilderStep(StrEnum):
     """Drive a mobile base to a pose."""
     LOOK_AT = "look_at"
     """Point the default camera at a point."""
+    DETECT = "detect"
+    """Look for an object of a type and take its pose from perception."""
     TRANSPORT = "transport"
     """Pick up and place an object."""
     PICK = "pick"
@@ -82,10 +90,29 @@ class CatalogField(StrEnum):
     """Supported coraplex arm selections."""
     PATH = "path"
     """Local environment description path."""
+    KIND = "kind"
+    """How an environment comes into a world, an :class:`EnvironmentKind`."""
     ROBOTS = "robots"
     """Registered robot choices."""
     ENVIRONMENTS = "environments"
     """Installed environment choices."""
+    MAPS = "maps"
+    """Environment choices built by a map class."""
+    OBJECTS = "objects"
+    """Object choices carrying an annotation class."""
+    MESH = "mesh"
+    """An object's mesh file name, which names its body."""
+    MESH_URL = "mesh_url"
+    """The package URL an object's mesh is resolved from."""
+
+
+class EnvironmentKind(StrEnum):
+    """How a builder environment comes into a world."""
+
+    FILE = "file"
+    """A world description file coraplex ships, read by the parser its suffix names."""
+    MAP = "map"
+    """A map class that spawns its furniture into a world, such as the real lab."""
 
 
 class BuilderArm(StrEnum):
@@ -154,7 +181,7 @@ class RobotModel:
         if issubclass(self.annotation, HasMobileBase):
             supported.append(BuilderStep.NAVIGATE)
         if any(issubclass(part, Camera) for part in parts):
-            supported.append(BuilderStep.LOOK_AT)
+            supported.extend([BuilderStep.LOOK_AT, BuilderStep.DETECT])
         return [step for step in BuilderStep if step in supported]
 
     @property
@@ -189,7 +216,72 @@ class EnvironmentModel:
         """Return a readable environment name and its description path."""
         return {
             CatalogField.NAME: Path(self.path).stem.replace("_", " "),
+            CatalogField.KIND: EnvironmentKind.FILE,
             CatalogField.PATH: self.path,
+        }
+
+
+class WorldMap(Protocol):
+    """A map that builds its environment into a world rather than being read from a file."""
+
+    def populate(self, world: World) -> None:
+        """Spawn the map's furniture into a world."""
+
+    @staticmethod
+    def is_populated(world: World) -> bool:
+        """Whether a world already holds the map's furniture."""
+
+
+@dataclass
+class MapEnvironmentModel:
+    """A map class selectable as a builder environment.
+
+    A generated demo imports the class and populates its world with it, so a real robot's
+    world, which its world server serves holding only the robot, gets the same furniture
+    a simulated one is built with.
+    """
+
+    map: type[WorldMap]
+    """The map class populating a world."""
+
+    name: str
+    """The name the browser lists the map under."""
+
+    def to_payload(self) -> dict[str, str]:
+        """Return the map's name, its kind and how a generated demo imports it."""
+        return {
+            CatalogField.NAME: self.name,
+            CatalogField.KIND: EnvironmentKind.MAP,
+            CatalogField.CLASS: self.map.__name__,
+            CatalogField.IMPORT: f"from {self.map.__module__} import {self.map.__name__}",
+        }
+
+
+# %% objects with an annotation class
+
+
+@dataclass
+class TypedObjectModel:
+    """An object with an annotation class, which a generated demo spawns as an
+    annotation of that class and can therefore detect by it."""
+
+    annotation: type[HasRootBody]
+    """The annotation class of the object."""
+
+    mesh: str
+    """The object's mesh file name, which also names its body."""
+
+    mesh_url: str
+    """The package URL the mesh is resolved from where the demo runs."""
+
+    def to_payload(self) -> dict[str, str]:
+        """Return the object's class, its import and where its mesh comes from."""
+        return {
+            CatalogField.NAME: self.annotation.__name__,
+            CatalogField.CLASS: self.annotation.__name__,
+            CatalogField.IMPORT: f"from {self.annotation.__module__} import {self.annotation.__name__}",
+            CatalogField.MESH: self.mesh,
+            CatalogField.MESH_URL: self.mesh_url,
         }
 
 
@@ -218,6 +310,18 @@ class ModelCatalog(CrameraPayload):
         UnitreeG1,
     )
     """Annotated robots with a concrete model-description provider."""
+
+    MAPS: ClassVar[tuple[MapEnvironmentModel, ...]] = (
+        MapEnvironmentModel(ApartmentEnvironment, "real-lab apartment"),
+    )
+    """Environments built by a map class rather than read from a shipped file."""
+
+    OBJECTS: ClassVar[tuple[TypedObjectModel, ...]] = (
+        TypedObjectModel(
+            CheezeIt, "cheeze_it.obj", ApartmentEnvironment.mesh_url("cheeze_it.obj")
+        ),
+    )
+    """Objects with an annotation class: the ones a demonstration proved on a robot."""
 
     @classmethod
     def installed(cls) -> ModelCatalog:
@@ -256,6 +360,16 @@ class ModelCatalog(CrameraPayload):
             for path in sorted(self.worlds_directory.glob("*.urdf"))
         ]
 
+    @property
+    def maps(self) -> list[MapEnvironmentModel]:
+        """Return every environment a map class builds."""
+        return list(self.MAPS)
+
+    @property
+    def objects(self) -> list[TypedObjectModel]:
+        """Return every object offered with an annotation class."""
+        return list(self.OBJECTS)
+
     def to_payload(self) -> dict[str, Any]:
         """Return robot capabilities and environment choices for the browser."""
         return {
@@ -264,4 +378,6 @@ class ModelCatalog(CrameraPayload):
             CatalogField.ENVIRONMENTS: [
                 environment.to_payload() for environment in self.environments
             ],
+            CatalogField.MAPS: [environment.to_payload() for environment in self.maps],
+            CatalogField.OBJECTS: [model.to_payload() for model in self.objects],
         }

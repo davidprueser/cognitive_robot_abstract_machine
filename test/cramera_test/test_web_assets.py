@@ -290,6 +290,53 @@ class TestPlanBuilderExecutionChoice:
         assert '<script src="core/execution_environment.js">' in page
 
 
+class TestPlanBuilderExecutionTypeChoice:
+    """
+    The Plan Builder's "robot" choice names coraplex execution types the generated
+    RobotDemonstration is handed, so a renamed member has to fail here rather than in
+    the generated file.
+    """
+
+    TYPE_PATTERN: ClassVar[re.Pattern] = re.compile(
+        r"name: '(\w+)',\s*\n\s*label: '[^']*',\s*\n\s*drivesARealRobot: (true|false)"
+    )
+    """
+    How ``core/execution_environment.js`` spells one offered type.
+    """
+
+    def offered_types(self) -> Dict[str, bool]:
+        """
+        The types the Plan Builder offers, by name and whether they drive a real robot.
+        """
+        found = self.TYPE_PATTERN.findall(read("core/execution_environment.js"))
+        assert found, "no types found in core/execution_environment.js"
+        return {name: flag == "true" for name, flag in found}
+
+    def test_every_offered_type_is_a_member_coraplex_declares(self):
+        enums = pytest.importorskip(
+            "coraplex.datastructures.enums", reason="coraplex not installed"
+        )
+
+        for name in self.offered_types():
+            assert name in enums.ExecutionType.__members__, name
+
+    def test_only_the_real_robot_is_marked_as_real(self):
+        enums = pytest.importorskip(
+            "coraplex.datastructures.enums", reason="coraplex not installed"
+        )
+
+        assert self.offered_types() == {
+            name: enums.ExecutionType[name] is enums.ExecutionType.REAL
+            for name in self.offered_types()
+        }
+
+    def test_the_page_offers_the_choice(self):
+        page = read("plan_builder.html")
+
+        assert 'id="pb-execution"' in page
+        assert '<script src="core/execution_environment.js">' in page
+
+
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
 class TestJsUnits:
     def run_node(self, name: str, test_name: str = "") -> None:
@@ -314,6 +361,12 @@ class TestJsUnits:
 
     def test_execution_environments(self):
         self.run_node("test_execution_environment.js")
+
+    def test_execution_types(self):
+        self.run_node("test_execution_type.js")
+
+    def test_builder_environments(self):
+        self.run_node("test_builder_environments.js")
 
     def test_plan_steps(self):
         self.run_node("test_plan_steps.js")

@@ -14,6 +14,9 @@
     // a labelled cardboard box, the size of milk.stl (scripts/make_transport_box_mesh.py)
     'screw_box.obj'];
   const OBJ_COLORS = ['#e6ecff', '#e6c07f', '#9aa1ad', '#8fd6c8', '#c9a0ff', '#ff9db1', '#9ecb6b'];
+  // the objects the catalog offers with an annotation class (see cramera.model_catalog):
+  // spawned as annotations of that class, which a Detect step looks for
+  let offeredObjects = [];
 
   // ---- skills ----
   const BLOCKS = {
@@ -21,13 +24,15 @@
     move_torso: { name: 'Move torso', color: '#ff9db1', params: { torso: 'HIGH' } },
     navigate: { name: 'Navigate', color: '#8fd6c8', params: { x: 2.6, y: 1.8, z: 0.0, yaw: 0.0 } },
     look_at: { name: 'Look at', color: '#e6d36b', params: { x: 1.0, y: 0.0, z: 1.0 } },
+    detect: { name: 'Detect', color: '#f0a35e', params: { object: '' } },
     transport: { name: 'Transport object', color: '#5b8cff', params: { object: '', x: 5.0, y: 3.3, z: 0.8, yaw: 1.57, arm: 'LEFT', targetMode: 'semantic', surfaceType: 'CounterTop', surfaceName: '' } },
-    pick: { name: 'Pick up', color: '#7ec9ff', params: { object: '', arm: 'LEFT' } },
+    pick: { name: 'Pick up', color: '#7ec9ff', params: { object: '', arm: 'LEFT', perceive: false } },
     place: { name: 'Place', color: '#ffc46b', params: { object: '', x: 2.4, y: 1.8, z: 0.8, yaw: 0.0, arm: 'LEFT', targetMode: 'pose', surfaceType: 'CounterTop', surfaceName: '' } },
   };
   // which step kinds act on a placed object (see core/plan_steps.js); a Pick or Place is a
   // Transport spelled out, for a world whose floor carries no costmap to search
   const actsOnAnObject = window.PlanSteps.actsOnAnObject;
+  const namesAnObject = window.PlanSteps.namesAnObject;
   const placesAnObject = window.PlanSteps.putsAnObjectDown;
   const placesAtASemanticTarget = window.PlanSteps.putsAnObjectDownAtASemanticTarget;
   const TORSO = ['HIGH', 'MID', 'LOW'];
@@ -49,8 +54,10 @@
     ['pb-generate', 'pb-run', 'pb-live-start', 'pb-download', 'pb-save'].forEach(function (id) { $(id).disabled = true; });
     fetch('/api/plan/catalog').then(function (response) { return response.json(); }).then(function (catalog) {
       if (!catalog.ok) throw new Error(catalog.error || 'Model catalog unavailable');
-      if (!catalog.robots.length || !catalog.environments.length) throw new Error('No robot or environment descriptions are installed.');
       builderState = new window.PlanBuilderState(catalog.robots);
+      builderState.offerEnvironments(catalog);
+      if (!catalog.robots.length || !builderState.offeredEnvironments.length) throw new Error('No robot or environment descriptions are installed.');
+      offeredObjects = catalog.objects || [];
       const robotSelect = $('pb-robot');
       robotSelect.replaceChildren();
       catalog.robots.forEach(function (robot) {
@@ -59,10 +66,10 @@
       });
       const environmentSelect = $('pb-env');
       environmentSelect.replaceChildren();
-      catalog.environments.forEach(function (environment) {
-        const option = document.createElement('option'); option.value = environment.path; option.textContent = environment.name;
+      builderState.offeredEnvironments.forEach(function (environment) {
+        const option = document.createElement('option'); option.value = window.PlanBuilderState.environmentValue(environment); option.textContent = environment.name;
         environmentSelect.appendChild(option);
-        if (environment.path.endsWith('/apartment.urdf')) environmentSelect.value = environment.path;
+        if (environment.path && environment.path.endsWith('/apartment.urdf')) environmentSelect.value = option.value;
       });
       builderState.addRobot(robotSelect.value, robotXY);
       renderRobotInstances(); renderBlocks(); showModelStatus();
@@ -208,6 +215,9 @@
   let objSeq = 1, stepSeq = 1;
   let robotXY = window.PlanBuilderState.initialRobotPosition();   // robot spawn (draggable in the scene)
   let liveOn = false;                 // true while the scaffold scene is up (constraints can be pushed live)
+  // a real robot's world comes from its world server holding only the robot, and only a map
+  // can be spawned into that; a world file is only ever read into a simulated world
+  const REAL_ROBOT_NEEDS_A_MAP = 'A real robot takes its world from its world server, so its demo needs a map environment (the real-lab apartment), not a world file.';
 
   // scene mapping: origin offset so the typical apartment area sits centred
   const SCALE = 40, ORIGIN_X = 2.5, ORIGIN_Y = 2.0;
@@ -229,7 +239,8 @@
       d.addEventListener('dragstart', function (e) { e.dataTransfer.setData('text/plain', 'block:' + k); });
       el.appendChild(d);
     });
-    const meshSel = $('pb-mesh'); meshSel.innerHTML = MESHES.map(function (m) { return '<option>' + m + '</option>'; }).join('');
+    const meshSel = $('pb-mesh'); meshSel.innerHTML = MESHES.map(function (m) { return '<option>' + m + '</option>'; })
+      .concat(offeredObjects.map(function (t) { return '<option value="' + t.mesh + '">' + t.mesh + ' (' + t.cls + ')</option>'; })).join('');
   }
 
   // ---------- objects ----------
@@ -256,6 +267,9 @@
       yaw: opts.yaw != null ? opts.yaw : 0.0,   // roll/pitch/yaw in radians (codegen uses radians)
       poseOpen: false,                          // XYZ/RPY controls collapsed by default
       color: OBJ_COLORS[(objSeq) % OBJ_COLORS.length] };
+    // an object the catalog offers with an annotation class carries the class along
+    const typed = offeredObjects.find(function (t) { return t.mesh === mesh; });
+    if (typed) { o.cls = typed.cls; o.import = typed.import; o.meshUrl = typed.mesh_url; }
     objects.push(o); renderObjects(); renderScene(); refreshObjectSelects();
     return o;
   }
@@ -562,7 +576,8 @@
     if (!b || !robot || robot.steps.indexOf(type) < 0) return;
     const params = Object.assign({}, b.params);
     if (params.arm && robot.arms.indexOf(params.arm) < 0) params.arm = robot.arms[0];
-    if (window.PlanSteps.actingOnAnObject().indexOf(type) >= 0 && !params.object && objects.length) params.object = objects[0].mesh;
+    const candidates = detectableObjects({ type: type });
+    if (namesAnObject({ type: type }) && !params.object && candidates.length) params.object = candidates[0].mesh;
     // a new Navigate starts as a copy of the last one (offset a bit), so its marker appears
     // next to the previous goal and can be dragged from there instead of jumping to a default
     if (type === 'navigate') {
@@ -619,11 +634,18 @@
         row(sel(s, 'arm', robotArms()))
       );
     }
+    if (s.type === 'detect') {
+      return (
+        row(objSel(s)) +
+        row('<span class="pb-hint3">looks for an object of this one\'s class through perception and takes its pose from there — only an object with a class (shown in brackets) can be detected</span>')
+      );
+    }
     if (s.type === 'pick') {
       return (
         row(objSel(s)) +
         row('<span class="pb-group-lbl start">start (from) →</span>' + startCaptureButton(s)) +
         row(sel(s, 'arm', robotArms())) +
+        row(chk(s, 'perceive', 'perceive before grasping (look at the object and detect it first)')) +
         row('<span class="pb-hint3">the robot grasps from where it stands — put a Navigate step in front of this one</span>')
       );
     }
@@ -651,6 +673,10 @@
       '" title="drag the object to its START in the 3D scene, then capture that as its start pose (shown on the object card)">◎ capture</button>';
   }
   function num(s, k) { return '<label>' + k.toUpperCase() + '<input class="pb-num xyz" data-sid="' + s.id + '" data-k="' + k + '" type="number" step="0.05" value="' + s.params[k] + '"></label>'; }
+  // a yes/no parameter of a step
+  function chk(s, k, label) {
+    return '<label class="pb-check"><input class="pb-chk" type="checkbox" data-sid="' + s.id + '" data-k="' + k + '"' + (s.params[k] ? ' checked' : '') + '> ' + label + '</label>';
+  }
   function sel(s, k, opts) { return '<label>' + k + '<select class="pb-sel" data-sid="' + s.id + '" data-k="' + k + '">' + opts.map(function (o) { return '<option' + (s.params[k] === o ? ' selected' : '') + '>' + o + '</option>'; }).join('') + '</select></label>'; }
   // a select whose option values differ from their labels: pairs = [[value, label], ...]
   function selPairs(s, k, pairs) {
@@ -676,12 +702,17 @@
     const pairs = [['', 'automatic (nearest first)']].concat(inst.map(function (x) { return [x.name, x.name]; }));
     return selPairs(s, 'surfaceName', pairs);
   }
+  // the placed objects a step may name: a detect needs one with an annotation class
+  function detectableObjects(s) {
+    return window.PlanSteps.looksForAnObject(s) ? objects.filter(function (o) { return !!o.cls; }) : objects;
+  }
   function objSel(s) {
+    const offered = detectableObjects(s);
     // keep the param in sync with the visibly-selected first option, so capture works
     // even for a Transport step whose object dropdown was never touched
-    if (!s.params.object && objects.length) s.params.object = objects[0].mesh;
-    const opts = objects.map(function (o) { return '<option value="' + o.mesh + '"' + (s.params.object === o.mesh ? ' selected' : '') + '>' + o.name + '</option>'; }).join('');
-    return '<label>object<select class="pb-sel" data-sid="' + s.id + '" data-k="object">' + (opts || '<option value="">— add an object —</option>') + '</select></label>';
+    if (!s.params.object && offered.length) s.params.object = offered[0].mesh;
+    const opts = offered.map(function (o) { return '<option value="' + o.mesh + '"' + (s.params.object === o.mesh ? ' selected' : '') + '>' + o.name + (o.cls ? ' (' + o.cls + ')' : '') + '</option>'; }).join('');
+    return '<label>object<select class="pb-sel" data-sid="' + s.id + '" data-k="object">' + (opts || '<option value="">— add an object' + (window.PlanSteps.looksForAnObject(s) ? ' with a class' : '') + ' —</option>') + '</select></label>';
   }
   function wireStepEvents() {
     const el = $('pb-steps');
@@ -695,6 +726,12 @@
         if (k === 'surfaceType') { s.params.surfaceName = ''; renderSteps(); }
         else if (k === 'targetMode') { renderSteps(); }
         else { renderScene(); if (s.type === 'navigate') sendNavigateTargets(); }
+      });
+    });
+    el.querySelectorAll('.pb-chk').forEach(function (inp) {
+      inp.addEventListener('change', function () {
+        const s = steps.find(function (x) { return x.id === inp.dataset.sid; }); if (!s) return;
+        s.params[inp.dataset.k] = inp.checked;
       });
     });
     el.querySelectorAll('[data-del]').forEach(function (b) { b.addEventListener('click', function () { steps = steps.filter(function (s) { return s.id !== b.dataset.del; }); renderSteps(); }); });
@@ -780,14 +817,99 @@
       if (s.type !== 'pick') return;
       const mesh = s.params.object || 'object';
       L.push(indent + '# pick "' + mesh + '" with the ' + s.params.arm.toLowerCase() + ' arm');
-      L.push(indent + '_pick_' + s.id + ' = ' + body(mesh));
+      // an object with a class is resolved once as its annotation; a plain one is its body
+      const picked = annotatedObject(mesh) ? objectVariable(annotatedObject(mesh)) + '.root' : '_pick_' + s.id;
+      if (!annotatedObject(mesh)) L.push(indent + '_pick_' + s.id + ' = ' + body(mesh));
       L.push(indent + '_grasp_' + s.id + ' = GraspDescription.robot_relative_default(');
       L.push(indent + '    ViewManager.get_end_effector_view(Arms.' + s.params.arm + ', context.robot),');
-      L.push(indent + '    _pick_' + s.id + '.global_pose,');
-      L.push(indent + '    _pick_' + s.id + ',');
+      L.push(indent + '    ' + picked + '.global_pose,');
+      L.push(indent + '    ' + picked + ',');
       L.push(indent + ')');
     });
     return L;
+  }
+  // --- objects with an annotation class: spawned as annotations, found by their class ---
+  // the placed object of that mesh, if it carries an annotation class
+  function annotatedObject(mesh) {
+    return objects.find(function (o) { return o.mesh === mesh && o.cls; }) || null;
+  }
+  // the python name an annotated object is resolved into, from its mesh: "_cheeze_it"
+  function objectVariable(o) {
+    return '_' + o.mesh.replace(/\.[^.]+$/, '').replace(/[^a-z0-9_]/gi, '_').toLowerCase();
+  }
+  // the annotated objects the plan names, each resolved once by its class
+  function annotatedObjectLines(useSteps, indent) {
+    const seen = {};
+    const L = [];
+    useSteps.forEach(function (s) {
+      const o = namesAnObject(s) ? annotatedObject(s.params.object) : null;
+      if (!o || seen[o.mesh]) return;
+      seen[o.mesh] = 1;
+      L.push(indent + objectVariable(o) + ' = world.get_semantic_annotations_by_type(' + o.cls + ')[0]');
+    });
+    return L;
+  }
+  // the class a Detect step looks for; a detect of an object without a class has nothing to look for
+  function detectedClass(s) {
+    const o = annotatedObject(s.params.object);
+    if (!o) throw new RangeError('A Detect step needs an object with an annotation class; "' + (s.params.object || '') + '" has none.');
+    return o.cls;
+  }
+  function detectSteps(useSteps) { return useSteps.filter(window.PlanSteps.looksForAnObject); }
+  function annotatedObjects(useSteps) { return effectiveObjects(useSteps).filter(function (o) { return !!o.cls; }); }
+  function plainObjects(useSteps) { return effectiveObjects(useSteps).filter(function (o) { return !o.cls; }); }
+  // what a demo with annotated objects or a Detect step imports on top of the rest
+  function objectImportLines(useSteps) {
+    const L = [];
+    Array.from(new Set(annotatedObjects(useSteps).map(function (o) { return o.import; }))).forEach(function (line) { L.push(line); });
+    if (annotatedObjects(useSteps).length) L.push('from semantic_digital_twin.adapters.package_resolver import CompositePathResolver');
+    if (detectSteps(useSteps).length) L.push('from coraplex.robot_plans.actions.core.misc import DetectAction');
+    return L;
+  }
+  // the enum members a demo imports: the arms always, the detection technique for a Detect step
+  function enumImportLine(useSteps, members) {
+    const names = ['Arms'].concat(detectSteps(useSteps).length ? ['DetectionTechnique'] : []).concat(members);
+    return 'from coraplex.datastructures.enums import ' + names.join(', ');
+  }
+  // the module constant listing the annotated objects: (class, mesh, mesh url, x, y, z, roll, pitch, yaw)
+  function annotatedObjectsConstant(useSteps) {
+    const annotated = annotatedObjects(useSteps);
+    if (!annotated.length) return [];
+    const L = ['# objects placed in the Plan Builder with an annotation class: (class, mesh, mesh url, x, y, z, roll, pitch, yaw)', 'ANNOTATED_OBJECTS = ['];
+    annotated.forEach(function (o) {
+      L.push('    (' + o.cls + ', ' + jsonStr(o.mesh) + ', ' + jsonStr(o.meshUrl) + ', ' + py(o.x) + ', ' + py(o.y) + ', ' + py(o.z) +
+        ', ' + py(o.roll) + ', ' + py(o.pitch) + ', ' + py(o.yaw) + '),');
+    });
+    L.push(']', '');
+    return L;
+  }
+  // spawning each annotated object as an annotation of its class, free to move
+  function annotatedObjectSpawnLines(useSteps, indent) {
+    if (!annotatedObjects(useSteps).length) return [];
+    return [
+      indent + '# each object with a class is spawned as its annotation, free to move (Connection6DoF),',
+      indent + '# so a detection can write the perceived pose to it',
+      indent + 'for annotation, mesh, mesh_url, x, y, z, roll, pitch, yaw in ANNOTATED_OBJECTS:',
+      indent + '    annotation.get_annotation_specification(',
+      indent + '        mesh,',
+      indent + '        BodySpecification.mesh(',
+      indent + '            mesh,',
+      indent + '            CompositePathResolver().resolve(mesh_url),',
+      indent + '            parent_T_self=HomogeneousTransformationMatrix.from_xyz_rpy(',
+      indent + '                x, y, z, roll=roll, pitch=pitch, yaw=yaw),',
+      indent + '        ),',
+      indent + '        parent_connection_specification=Connection6DoFSpecification(),',
+      indent + '    ).spawn(world)',
+    ];
+  }
+  // the condition under which every authored object already stands in the world
+  function objectsPopulatedTerms(useSteps, environmentTerm) {
+    const terms = [];
+    if (environmentTerm) terms.push(environmentTerm);
+    else if (!annotatedObjects(useSteps).length) terms.push('bool(OBJECTS)');
+    terms.push('all(len(world.get_bodies_by_name(spec[0])) == 1 for spec in OBJECTS)');
+    if (annotatedObjects(useSteps).length) terms.push('all(len(world.get_bodies_by_name(spec[1])) == 1 for spec in ANNOTATED_OBJECTS)');
+    return terms;
   }
   function effectiveObjects(useSteps) {
     const list = objects.slice();
@@ -837,19 +959,76 @@
     L.push('');
     return L;
   }
+  // the environment the generated demo is built in
+  function selectedEnvironment() {
+    const value = ($('pb-env') && $('pb-env').value) || 'apartment.urdf';
+    const environment = builderState.environment(value);
+    if (!environment) throw new RangeError('The environment ' + value + ' is not offered.');
+    return environment;
+  }
+  // the python both generators write for an environment: what to import, the module
+  // constant naming it, how a world is built in it, how it is spawned into a world that
+  // came without it (a real robot's world server serves only the robot) and how such a
+  // world is recognized. A world file is read by CRAM's parser and reasoned about once
+  // read; a map is a class that populates the world itself, annotated as it is spawned,
+  // so it has no file, no _WORLDS, no placement annotations and no reasoning.
+  function environmentCode(environment) {
+    const isMap = window.PlanBuilderState.isMap(environment);
+    const worldsPath = function (fileExpression) { return 'os.path.join(_WORLDS, ' + fileExpression + ')'; };
+    return {
+      isMap: isMap,
+      importLines: isMap ? [environment.import] : [
+        'from semantic_digital_twin.reasoning.world_reasoner import WorldReasoner',
+        'from cramera.live.placement_annotations import PlacementAnnotations',
+      ],
+      // the module-level paths and constants: where the world files lie, and which one is read
+      constantLines: isMap ? [] : ['_WORLDS = os.path.join(_HERE, "..", "..", "resources", "worlds")'],
+      fileConstantLines: isMap ? [] : ['ENV_FILE = ' + jsonStr(environment.path)],
+      // the world of a scene of authored robots
+      sceneWorldLine: function (indent, fileExpression) {
+        return indent + 'return ROBOT_SCENE.build_world(' + (isMap ? '' : worldsPath(fileExpression)) + ')';
+      },
+      // the world of one robot: spawned into the parsed file, or into an empty world the map fills
+      specificationLines: function (indent, fileExpression, robotLines) {
+        const opening = isMap
+          ? [indent + 'return WorldSpecification(']
+          : [indent + 'return WorldSpecification.from_urdf(', indent + '    ' + worldsPath(fileExpression) + ','];
+        return opening.concat([indent + '    robots=['], robotLines, [indent + '    ],', indent + ').to_domain_object()']);
+      },
+      // spawning the map into a world that lacks it
+      populateLines: function (indent) { return isMap ? [indent + environment.cls + '().populate(world)'] : []; },
+      // the condition under which a world already holds the environment, or null for a file, which is always read in
+      populatedExpression: isMap ? environment.cls + '.is_populated(world)' : null,
+      // reasoning about the world read from a file, and the placement annotations of the
+      // bundled apartment file; a real robot's served world is left as it is
+      reasoningLines: function (indent, fileExpression, guarded) {
+        if (isMap) return [];
+        const inner = guarded ? indent + '    ' : indent;
+        return (guarded ? [indent + 'if self.execution_type is not ExecutionType.REAL:'] : []).concat([
+          inner + 'with world.modify_world():',
+          inner + '    WorldReasoner(world).reason()',
+          inner + '    PlacementAnnotations(world, ' + worldsPath(fileExpression) + ').apply()',
+        ]);
+      },
+    };
+  }
   function pose(p) { return 'Pose.from_xyz_rpy(' + py(p.x) + ', ' + py(p.y) + ', ' + py(p.z) + ', yaw=' + py(p.yaw) + ', reference_frame=world.root)'; }
   function point(p) { return 'Pose.from_xyz_rpy(' + py(p.x) + ', ' + py(p.y) + ', ' + py(p.z) + ', reference_frame=world.root)'; }
-  function body(mesh) { return 'world.get_body_by_name("' + mesh + '")'; }
+  function body(mesh) {
+    const o = annotatedObject(mesh);
+    return o ? objectVariable(o) + '.root' : 'world.get_body_by_name("' + mesh + '")';
+  }
   function generate(stepsOverride) {
     const useSteps = stepsOverride || steps;
-    const added = effectiveObjects(useSteps);
-    const env = ($('pb-env') && $('pb-env').value) || 'apartment.urdf';
+    const added = plainObjects(useSteps);
+    const environment = selectedEnvironment();
+    const code = environmentCode(environment);
     const R = robotInfo();
     const L = [];
     L.push('"""Generated by the cramera Plan Builder."""');
     L.push('import os');
     L.push('from coraplex.datastructures.dataclasses import Context');
-    L.push('from coraplex.datastructures.enums import Arms, VisualizationBackend');
+    L.push(enumImportLine(useSteps, ['VisualizationBackend']));
     L.push('from coraplex.datastructures.grasp import GraspDescription');
     L.push('from coraplex.execution_environment import ' + executionEnvironment().name);
     L.push('from coraplex.plans.factories import sequential');
@@ -861,11 +1040,11 @@
     L.push('from coraplex.robot_plans.actions.core.robot_body import ParkArmsAction, MoveTorsoAction');
     L.push('from coraplex.view_manager import ViewManager');
     L.push('from semantic_digital_twin.adapters.mesh import DAEParser, OBJParser, STLParser');
-    L.push('from semantic_digital_twin.api import RobotSpecification, WorldSpecification');
+    L.push('from semantic_digital_twin.api import ' + (annotatedObjects(useSteps).length ? 'BodySpecification, Connection6DoFSpecification, ' : '') + 'RobotSpecification, WorldSpecification');
     L.push('from semantic_digital_twin.datastructures.definitions import TorsoState');
-    L.push('from semantic_digital_twin.reasoning.world_reasoner import WorldReasoner');
     if (!surfaceSteps(useSteps).length) L.push('from semantic_digital_twin.semantic_annotations.mixins import HasRootBody');
-    L.push('from cramera.live.placement_annotations import PlacementAnnotations');
+    code.importLines.forEach(function (line) { L.push(line); });
+    objectImportLines(useSteps).forEach(function (line) { L.push(line); });
     if (window.BaseControl.pinsTheSetting(baseControl())) {
       L.push('from semantic_digital_twin.robots.robot_part_mixins import HasMobileBase');
     }
@@ -879,10 +1058,11 @@
     if (_surfImp) L.push(_surfImp);
     L.push('');
     L.push('_HERE = os.path.dirname(__file__)');
-    L.push('_WORLDS = os.path.join(_HERE, "..", "..", "resources", "worlds")');
+    code.constantLines.forEach(function (line) { L.push(line); });
     L.push('_OBJECTS = os.path.join(_HERE, "..", "..", "resources", "objects")');
     L.push('_MESH_PARSERS = {".stl": STLParser, ".obj": OBJParser, ".dae": DAEParser}');
     L.push('');
+    annotatedObjectsConstant(useSteps).forEach(function (ln) { L.push(ln); });
     L.push('');
     L.push('def _parse_mesh(mesh: str) -> World:');
     L.push('    """Parse an object mesh into its own world.');
@@ -895,30 +1075,30 @@
     L.push('');
     L.push('');
     robotSceneLines().forEach((line) => L.push(line));
-    L.push('def build_world(env_file: str, robot_xy: tuple[float, float]) -> World:');
+    L.push('def build_world(' + (code.isMap ? '' : 'env_file: str, ') + 'robot_xy: tuple[float, float]) -> World:');
     L.push('    """Build the environment and spawn its annotated robot.');
     L.push('');
-    L.push('    :param env_file: Environment URDF filename or absolute path.');
+    if (!code.isMap) L.push('    :param env_file: Environment URDF filename or absolute path.');
     L.push('    :param robot_xy: Robot starting x and y position in metres.');
-    L.push('    :return: The assembled semantic world.');
+    L.push('    :return: The assembled semantic world' + (code.isMap ? ', still to be populated with the map' : '') + '.');
     L.push('    """');
     if (builderState.instances.length) {
-      L.push('    return ROBOT_SCENE.build_world(os.path.join(_WORLDS, env_file))');
+      L.push(code.sceneWorldLine('    ', 'env_file'));
     } else {
-      L.push('    return WorldSpecification.from_urdf(');
-      L.push('        os.path.join(_WORLDS, env_file),');
-      L.push('        robots=[RobotSpecification(');
-      L.push('            semantic_annotation_type=' + R.cls + ',');
-      L.push('            world_T_odom=HomogeneousTransformationMatrix.from_xyz_rpy(');
-      L.push('                robot_xy[0], robot_xy[1], 0.0),');
-      L.push('        )],');
-      L.push('    ).to_domain_object()');
+      code.specificationLines('    ', 'env_file', [
+        '        RobotSpecification(',
+        '            semantic_annotation_type=' + R.cls + ',',
+        '            world_T_odom=HomogeneousTransformationMatrix.from_xyz_rpy(',
+        '                robot_xy[0], robot_xy[1], 0.0),',
+        '        ),',
+      ]).forEach(function (ln) { L.push(ln); });
     }
     L.push('');
     L.push('');
     baseControlConstant().forEach(function (ln) { L.push(ln); });
     if (baseControlConstant().length) L.push('');
-    L.push('world = build_world("' + env + '", (' + py(robotXY.x) + ', ' + py(robotXY.y) + '))');
+    L.push('world = build_world(' + (code.isMap ? '' : jsonStr(environment.path) + ', ') + '(' + py(robotXY.x) + ', ' + py(robotXY.y) + '))');
+    code.populateLines('').forEach(function (ln) { L.push(ln); });
     L.push('visualization = WorldVisualization.from_environment(');
     L.push('    world, default_backend=VisualizationBackend.CRAMERA).start()');
     L.push('');
@@ -939,17 +1119,18 @@
       });
       L.push('');
     }
+    annotatedObjectSpawnLines(useSteps, '').forEach(function (ln) { L.push(ln); });
+    if (annotatedObjects(useSteps).length) L.push('');
     L.push(builderState.instances.length ? 'robot = ROBOT_SCENE.selected_robot(world)' : 'robot = world.get_semantic_annotations_by_type(' + R.cls + ')[0]');
     baseControlLines('').forEach(function (ln) { L.push(ln); });
     L.push('context = Context(world=world, robot=robot, _debug=False, ros_node=visualization.ros_node)');
-    L.push('with world.modify_world():');
-    L.push('    WorldReasoner(world).reason()');
-    L.push('    PlacementAnnotations(world, os.path.join(_WORLDS, ' + jsonStr(env) + ')).apply()');
+    code.reasoningLines('', jsonStr(environment.path), false).forEach(function (ln) { L.push(ln); });
     L.push('context.evaluate_conditions = False');
     L.push('');
+    annotatedObjectLines(useSteps, '').forEach(function (ln) { L.push(ln); });
     surfaceResolveLines(useSteps, '').forEach(function (ln) { L.push(ln); });
     pickGraspLines(useSteps, '').forEach(function (ln) { L.push(ln); });
-    if (surfaceSteps(useSteps).length || pickGraspLines(useSteps, '').length) L.push('');
+    if (annotatedObjectLines(useSteps, '').length || surfaceSteps(useSteps).length || pickGraspLines(useSteps, '').length) L.push('');
     L.push('plan = sequential([');
     useSteps.forEach(function (s) { L.push('    ' + stepCode(s) + ','); });
     L.push('], context=context).plan');
@@ -973,8 +1154,13 @@
         .concat(PlanConstraints.stepArguments(s.constraints || []));
       return 'TransportAction(' + given.join(', ') + ')';
     }
+    if (s.type === 'detect') {
+      return 'DetectAction(DetectionTechnique.TYPES, object_sem_annotation=' + detectedClass(s) + ', accept_first_if_multiple=True)';
+    }
     if (s.type === 'pick') {
-      return 'PickUpAction(HasRootBody(root=_pick_' + s.id + '), Arms.' + p.arm + ', _grasp_' + s.id + ')';
+      const o = annotatedObject(p.object);
+      const picked = o ? objectVariable(o) : 'HasRootBody(root=_pick_' + s.id + ')';
+      return 'PickUpAction(' + picked + ', Arms.' + p.arm + ', _grasp_' + s.id + (p.perceive ? ', perceive_before_grasp=True' : '') + ')';
     }
     if (s.type === 'place') {
       const action = placesAtASemanticTarget(s) ? 'a(PlaceAction)' : 'PlaceAction';
@@ -998,8 +1184,11 @@
   // ---- output style: a coraplex.demonstrations.RobotDemonstration subclass ----
   function generateClass(stepsOverride) {
     const useSteps = stepsOverride || steps;
-    const added = effectiveObjects(useSteps);
-    const env = ($('pb-env') && $('pb-env').value) || 'apartment.urdf';
+    const added = plainObjects(useSteps);
+    const environment = selectedEnvironment();
+    const code = environmentCode(environment);
+    const drives = executionType();
+    if (drives.drivesARealRobot && !code.isMap) throw new RangeError(REAL_ROBOT_NEEDS_A_MAP);
     const cls = className();
     const R = robotInfo();
     const L = [];
@@ -1008,7 +1197,7 @@
     L.push('from dataclasses import dataclass');
     L.push('');
     L.push('from coraplex.datastructures.dataclasses import Context');
-    L.push('from coraplex.datastructures.enums import Arms, VisualizationBackend');
+    L.push(enumImportLine(useSteps, ['ExecutionType', 'VisualizationBackend']));
     L.push('from coraplex.datastructures.grasp import GraspDescription');
     L.push('from coraplex.demonstrations import RobotDemonstration');
     L.push('from coraplex.plans.factories import sequential');
@@ -1026,9 +1215,9 @@
     L.push('    WorldSpecification,');
     L.push(')');
     L.push('from semantic_digital_twin.datastructures.definitions import TorsoState');
-    L.push('from semantic_digital_twin.reasoning.world_reasoner import WorldReasoner');
     if (!surfaceSteps(useSteps).length) L.push('from semantic_digital_twin.semantic_annotations.mixins import HasRootBody');
-    L.push('from cramera.live.placement_annotations import PlacementAnnotations');
+    code.importLines.forEach(function (line) { L.push(line); });
+    objectImportLines(useSteps).forEach(function (line) { L.push(line); });
     if (window.BaseControl.pinsTheSetting(baseControl())) {
       L.push('from semantic_digital_twin.robots.robot_part_mixins import HasMobileBase');
     }
@@ -1042,10 +1231,10 @@
     if (_surfImpC) L.push(_surfImpC);
     L.push('');
     L.push('_HERE = os.path.dirname(__file__)');
-    L.push('_WORLDS = os.path.join(_HERE, "..", "..", "resources", "worlds")');
+    code.constantLines.forEach(function (line) { L.push(line); });
     L.push('_OBJECTS = os.path.join(_HERE, "..", "..", "resources", "objects")');
     L.push('');
-    L.push('ENV_FILE = "' + env + '"');
+    code.fileConstantLines.forEach(function (line) { L.push(line); });
     L.push('ROBOT_XY = (' + py(robotXY.x) + ', ' + py(robotXY.y) + ')');
     robotSceneLines().forEach((line) => L.push(line));
     baseControlConstant().forEach(function (ln) { L.push(ln); });
@@ -1060,6 +1249,7 @@
     });
     L.push(']');
     L.push('');
+    annotatedObjectsConstant(useSteps).forEach(function (ln) { L.push(ln); });
     constraintBlock(useSteps).forEach(function (ln) { L.push(ln); });
     L.push('');
     L.push('@dataclass(kw_only=True)');
@@ -1069,36 +1259,34 @@
     L.push('    def build_simulated_world(self) -> World:');
     L.push('        """Build the selected environment with its annotated robot.');
     L.push('');
-    L.push('        :return: The assembled semantic world.');
+    L.push('        :return: The assembled semantic world' + (code.isMap ? ', which populate_scene fills with the map' : '') + '.');
     L.push('        """');
     if (builderState.instances.length) {
-      L.push('        return ROBOT_SCENE.build_world(os.path.join(_WORLDS, ENV_FILE))');
+      L.push(code.sceneWorldLine('        ', 'ENV_FILE'));
     } else {
-      L.push('        return WorldSpecification.from_urdf(');
-      L.push('            os.path.join(_WORLDS, ENV_FILE),');
-      L.push('            robots=[');
-      L.push('                RobotSpecification(');
-      L.push('                    semantic_annotation_type=self.used_robot,');
-      L.push('                    world_T_odom=HomogeneousTransformationMatrix.from_xyz_rpy(');
-      L.push('                        ROBOT_XY[0], ROBOT_XY[1], 0.0),');
-      L.push('                ),');
-      L.push('            ],');
-      L.push('        ).to_domain_object()');
+      code.specificationLines('        ', 'ENV_FILE', [
+        '                RobotSpecification(',
+        '                    semantic_annotation_type=self.used_robot,',
+        '                    world_T_odom=HomogeneousTransformationMatrix.from_xyz_rpy(',
+        '                        ROBOT_XY[0], ROBOT_XY[1], 0.0),',
+        '                ),',
+      ]).forEach(function (ln) { L.push(ln); });
     }
     L.push('');
     L.push('    def is_scene_populated(self, world: World) -> bool:');
-    L.push('        """Check whether every authored object exists in the world.');
+    L.push('        """Check whether ' + (code.isMap ? 'the map and ' : '') + 'every authored object exists in the world.');
     L.push('');
-    L.push('        :param world: World inspected for the authored objects.');
+    L.push('        :param world: World inspected for the authored ' + (code.isMap ? 'furniture and ' : '') + 'objects.');
     L.push('        :return: Whether the scene already contains the complete object set.');
     L.push('        """');
-    L.push('        return bool(OBJECTS) and all(len(world.get_bodies_by_name(spec[0])) == 1 for spec in OBJECTS)');
+    L.push('        return ' + objectsPopulatedTerms(useSteps, code.populatedExpression).join(' and '));
     L.push('');
     L.push('    def populate_scene(self, world: World) -> None:');
-    L.push('        """Spawn the authored objects at their saved poses.');
+    L.push('        """Spawn ' + (code.isMap ? 'the map and ' : '') + 'the authored objects at their saved poses.');
     L.push('');
-    L.push('        :param world: World receiving the movable object bodies.');
+    L.push('        :param world: World receiving the ' + (code.isMap ? 'furniture and the ' : '') + 'movable object bodies.');
     L.push('        """');
+    code.populateLines('        ').forEach(function (ln) { L.push(ln); });
     L.push('        # each object is free to move (Connection6DoF), so the robot can transport it');
     L.push('        for mesh, x, y, z, roll, pitch, yaw, rgb in OBJECTS:');
     L.push('            BodySpecification.mesh(');
@@ -1109,19 +1297,27 @@
     L.push('                    x, y, z, roll=roll, pitch=pitch, yaw=yaw),');
     L.push('                connection_specification=Connection6DoFSpecification(),');
     L.push('            ).spawn(world)');
+    annotatedObjectSpawnLines(useSteps, '        ').forEach(function (ln) { L.push(ln); });
     L.push('');
     L.push('    def build_context(self, world: World) -> Context:');
-    L.push('        """Reason about the world and configure robot execution.');
+    L.push('        """' + (code.isMap ? 'Configure robot execution in the map.' : 'Reason about a simulated world and configure robot execution.'));
     L.push('');
     L.push('        :param world: Semantic world used for planning and execution.');
     L.push('        :return: Context for the selected robot.');
     L.push('        """');
-    L.push('        with world.modify_world():');
-    L.push('            WorldReasoner(world).reason()');
-    L.push('            PlacementAnnotations(world, os.path.join(_WORLDS, ENV_FILE)).apply()');
-    L.push(builderState.instances.length ? '        robot = ROBOT_SCENE.selected_robot(world)' : '        robot = world.get_semantic_annotations_by_type(self.used_robot)[0]');
+    code.reasoningLines('        ', 'ENV_FILE', true).forEach(function (ln) { L.push(ln); });
+    // a real robot's world server names the robot as it likes, not by the scene's instance
+    // namespace, so a demo for the real robot finds it by its type
+    const byInstance = builderState.instances.length && !drives.drivesARealRobot;
+    L.push(byInstance ? '        robot = ROBOT_SCENE.selected_robot(world)' : '        robot = world.get_semantic_annotations_by_type(self.used_robot)[0]');
     baseControlLines('        ').forEach(function (ln) { L.push(ln); });
-    L.push('        context = Context(world=world, robot=robot, _debug=False, ros_node=self.ros_node)');
+    L.push('        context = Context(');
+    L.push('            world=world,');
+    L.push('            robot=robot,');
+    L.push('            _debug=False,');
+    L.push('            ros_node=self.ros_node,');
+    L.push('            alternative_motion_mappings=self.alternative_motion_mappings,');
+    L.push('        )');
     L.push('        context.evaluate_conditions = False');
     L.push('        return context');
     L.push('');
@@ -1132,6 +1328,7 @@
     L.push('        :return: Executable plan containing the authored action sequence.');
     L.push('        """');
     L.push('        world = context.world  # bodies/poses below are resolved against it');
+    annotatedObjectLines(useSteps, '        ').forEach(function (ln) { L.push(ln); });
     surfaceResolveLines(useSteps, '        ').forEach(function (ln) { L.push(ln); });
     pickGraspLines(useSteps, '        ').forEach(function (ln) { L.push(ln); });
     L.push('        return sequential([');
@@ -1139,16 +1336,19 @@
     L.push('        ], context=context).plan');
     L.push('');
     L.push('');
-    L.push('def main() -> None:');
+    L.push('def main(execution_type: ExecutionType = ExecutionType.' + drives.name + ') -> None:');
     L.push('    """Run the demonstration.');
     L.push('');
     L.push('    RobotDemonstration.run() acquires the world, starts the visualization backend,');
     L.push('    attaches the plan and performs it. The backend defaults to CRAMERA (the browser');
     L.push('    viewer); CORAPLEX_VISUALIZATION overrides it, so `cramera-live` works unchanged');
     L.push('    and you can also force RVIZ / NONE from the outside.');
+    L.push('');
+    L.push('    :param execution_type: Whether to drive the real robot or simulate it.');
     L.push('    """');
     L.push('    ' + cls + '(');
     L.push('        used_robot=' + R.cls + ',');
+    L.push('        execution_type=execution_type,');
     L.push('        collision_avoidance=' + (executionEnvironment().collisionAvoidance ? 'True' : 'False') + ',');
     L.push('        default_visualization_backend=VisualizationBackend.CRAMERA,');
     L.push('    ).run()');
@@ -1165,6 +1365,11 @@
   function executionEnvironment() {
     const s = $('pb-collisions');
     return window.ExecutionEnvironments.byName(s ? s.value : null);
+  }
+  // whether the generated RobotDemonstration drives the real robot or a simulated one
+  function executionType() {
+    const s = $('pb-execution');
+    return window.ExecutionTypes.byName(s ? s.value : null);
   }
   // whether the generated demo lets the base drive while an arm reaches
   function baseControl() {
@@ -1190,11 +1395,16 @@
     ];
   }
   function generateSelected() { return outputStyle() === 'class' ? generateClass() : generate(); }
+  // the demo in the chosen style, or null with the refusal shown, for a combination no demo can be written for
+  function generateOrExplain() {
+    try { return generateSelected(); } catch (error) { status(error.message, 'err'); toast(error.message, 'err'); return null; }
+  }
 
   async function showCode() {
     try { await synchronizeObjects(); } catch (error) { status(error.message, 'err'); return; }
+    const code = generateOrExplain(); if (code === null) return;
     const pre = $('pb-code');
-    pre.textContent = generateSelected(); pre.style.display = 'block'; status('', '');
+    pre.textContent = code; pre.style.display = 'block'; status('', '');
     // the preview is collapsed to keep the scene big, so reveal it and bring it into view
     if (pre.scrollIntoView) pre.scrollIntoView({ behavior: 'smooth', block: 'center' });
     toast('Generated ' + fileName() + ' — see preview below', 'ok');
@@ -1214,14 +1424,14 @@
 
   async function download() {
     try { await synchronizeObjects(); } catch (error) { status(error.message, 'err'); return; }
-    const code = generateSelected();
+    const code = generateOrExplain(); if (code === null) return;
     const blob = new Blob([code], { type: 'text/x-python' });
     const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = fileName(); a.click();
     URL.revokeObjectURL(a.href); status('downloaded ' + fileName(), 'ok'); toast('Downloaded ' + fileName(), 'ok');
   }
   async function save() {
     try { await synchronizeObjects(); } catch (error) { status(error.message, 'err'); return; }
-    const code = generateSelected();
+    const code = generateOrExplain(); if (code === null) return;
     toast('Saving ' + fileName() + '…', '');
     fetch('/api/plan/save', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: fileName(), code: code }) })
       .then(function (r) { return r.json(); })
@@ -1358,7 +1568,8 @@
     try { await synchronizeObjects(); }
     catch (error) { if (my === _runMonitor) liveStatus('Could not read object poses: ' + error.message, 'err'); return; }
     if (my !== _runMonitor) return;
-    const code = generateSelected();   // full demo (matches the chosen output style), ends by performing the plan
+    const code = generateOrExplain();   // full demo (matches the chosen output style), ends by performing the plan
+    if (code === null) { endBusy(); return; }
     lastSpawnRobot = robotInfo().name;
     beginBusy('Running plan — parsing meshes'); hideScaffoldLog();
     return launchRun(code, true, my);
@@ -1594,7 +1805,8 @@
   async function saveSetup() {
     const name = ($('pb-setup-name').value || '').trim();
     if (!name) { status('name the setup first', 'err'); return; }
-    const payload = window.DemoSetupForm.toPayload(builderState, steps, $('pb-env').value);
+    // the environment as offered, so a map is refused by the server by its name
+    const payload = window.DemoSetupForm.toPayload(builderState, steps, selectedEnvironment());
     try {
       const answer = await fetch('/api/setup/save', {method: 'POST', headers: {'content-type': 'application/json'},
         body: JSON.stringify({name: name, setup: payload})}).then(function (r) { return r.json(); });
@@ -1678,6 +1890,10 @@
     return '<option value="' + e.name + '">' + e.label + '</option>';
   }).join('');
   $('pb-collisions').addEventListener('change', reshowIfGenerated);
+  $('pb-execution').innerHTML = window.ExecutionTypes.all().map(function (t) {
+    return '<option value="' + t.name + '">' + t.label + '</option>';
+  }).join('');
+  $('pb-execution').addEventListener('change', reshowIfGenerated);
   $('pb-base').innerHTML = window.BaseControl.all().map(function (c) {
     return '<option value="' + c.name + '">' + c.label + '</option>';
   }).join('');

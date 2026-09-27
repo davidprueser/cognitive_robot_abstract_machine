@@ -6,7 +6,19 @@ from pathlib import Path
 
 import pytest
 
-from cramera.model_catalog import ModelCatalog, RobotModel, BuilderStep
+from cramera.model_catalog import (
+    BuilderStep,
+    CatalogField,
+    EnvironmentKind,
+    EnvironmentModel,
+    ModelCatalog,
+    RobotModel,
+)
+from semantic_digital_twin.adapters.package_resolver import CompositePathResolver
+from semantic_digital_twin.predetermined_maps.apartment_environment import (
+    ApartmentEnvironment,
+)
+from semantic_digital_twin.semantic_annotations.semantic_annotations import CheezeIt
 from semantic_digital_twin.robots.pr2 import PR2
 from semantic_digital_twin.robots.tracy import Tracy
 from semantic_digital_twin.robots.hsrb import HSRB
@@ -125,3 +137,112 @@ def test_a_robot_another_distribution_registers_is_offered(monkeypatch) -> None:
     assert StandingRobot in {
         model.annotation for model in ModelCatalog.installed().robots
     }
+
+
+# %% the real lab, built by a map class rather than read from a file
+
+
+def test_the_apartment_map_is_offered_beside_the_world_files() -> None:
+    """
+    The real lab is not a file coraplex ships but a map class that populates a world, so
+    the catalog lists it separately from the files.
+    """
+    assert [model.map for model in ModelCatalog.installed().maps] == [
+        ApartmentEnvironment
+    ]
+
+
+def test_a_map_environment_tells_the_browser_how_to_import_it() -> None:
+    [model] = ModelCatalog.installed().maps
+    payload = model.to_payload()
+
+    assert payload[CatalogField.KIND] == EnvironmentKind.MAP
+    assert payload[CatalogField.CLASS] == ApartmentEnvironment.__name__
+    assert (
+        payload[CatalogField.IMPORT]
+        == f"from {ApartmentEnvironment.__module__} import {ApartmentEnvironment.__name__}"
+    )
+    assert payload[CatalogField.NAME]
+
+
+def test_a_world_file_is_marked_as_a_file() -> None:
+    payload = EnvironmentModel("/worlds/apartment.urdf").to_payload()
+
+    assert payload[CatalogField.KIND] == EnvironmentKind.FILE
+    assert payload[CatalogField.PATH] == "/worlds/apartment.urdf"
+
+
+def test_the_catalog_payload_lists_the_maps() -> None:
+    catalog = ModelCatalog.installed()
+
+    assert catalog.to_payload()[CatalogField.MAPS] == [
+        model.to_payload() for model in catalog.maps
+    ]
+
+
+def test_no_map_is_named_like_a_world_file() -> None:
+    """
+    The browser lists files and maps in one choice, so their names must not collide.
+    """
+    catalog = ModelCatalog.installed()
+    names = [model.to_payload()[CatalogField.NAME] for model in catalog.environments]
+    names += [model.to_payload()[CatalogField.NAME] for model in catalog.maps]
+
+    assert len(set(names)) == len(names), names
+
+
+# %% looking for an object
+
+
+def test_a_robot_with_a_camera_may_detect_an_object() -> None:
+    assert BuilderStep.DETECT in RobotModel(Tracy).steps
+
+
+def test_a_robot_without_a_camera_may_not_detect() -> None:
+    assert BuilderStep.DETECT not in RobotModel(MinimalRobot).steps
+
+
+# %% objects with an annotation class
+
+
+def test_the_cheeze_it_is_offered_as_a_typed_object() -> None:
+    """
+    The only object the real-lab demonstration proves: detected by its annotation class
+    and spawned as an annotation of it.
+    """
+    assert [model.annotation for model in ModelCatalog.installed().objects] == [
+        CheezeIt
+    ]
+
+
+def test_a_typed_object_tells_the_browser_its_class_and_mesh() -> None:
+    [model] = ModelCatalog.installed().objects
+    payload = model.to_payload()
+
+    assert payload[CatalogField.NAME] == CheezeIt.__name__
+    assert payload[CatalogField.CLASS] == CheezeIt.__name__
+    assert (
+        payload[CatalogField.IMPORT]
+        == f"from {CheezeIt.__module__} import {CheezeIt.__name__}"
+    )
+    assert payload[CatalogField.MESH] == model.mesh
+    assert payload[CatalogField.MESH_URL] == model.mesh_url
+
+
+def test_a_typed_objects_mesh_is_the_apartments(apartment_meshes) -> None:
+    """
+    The cereal's mesh ships with the apartment package, where the map resolves it.
+    """
+    [model] = ModelCatalog.installed().objects
+
+    assert CompositePathResolver().resolve(
+        model.mesh_url
+    ) == ApartmentEnvironment.mesh_path(model.mesh)
+
+
+def test_the_catalog_payload_lists_the_typed_objects() -> None:
+    catalog = ModelCatalog.installed()
+
+    assert catalog.to_payload()[CatalogField.OBJECTS] == [
+        model.to_payload() for model in catalog.objects
+    ]

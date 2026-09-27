@@ -79,3 +79,20 @@ test('a setup naming a robot model that is not installed is refused', function (
   // thrown from the module's own context, whose RangeError is not this one's
   assert.throws(() => Form.applyTo(opened, payload, function () { return {}; }), (error) => error.name === 'RangeError');
 });
+
+// %% a map environment, which a setup file cannot name
+test('a map environment is written as a map, for the server to refuse by name', function () {
+  const {state} = twoRobots();
+
+  const payload = Form.toPayload(state, [lookAt(1)], {kind: 'map', cls: 'ApartmentEnvironment', name: 'real-lab apartment'});
+
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(payload.environment)), {kind: 'map', cls: 'ApartmentEnvironment'});
+});
+
+test('a file environment given as the offered environment is written by its path', function () {
+  const {state} = twoRobots();
+
+  const payload = Form.toPayload(state, [lookAt(1)], {kind: 'file', path: '/lab/world.usda', name: 'lab/world.usda'});
+
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(payload.environment)), {path: '/lab/world.usda'});
+});

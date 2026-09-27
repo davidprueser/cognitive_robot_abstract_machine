@@ -9,8 +9,8 @@ import urllib.error
 
 import pytest
 
-from cramera.demo_setup import SetupField, SetupLibrary
-from cramera.model_catalog import BuilderStep
+from cramera.demo_setup import MapEnvironmentInSetupError, SetupField, SetupLibrary
+from cramera.model_catalog import BuilderStep, EnvironmentKind
 from cramera.plan_steps import StepField
 
 from .test_server import get, get_json, post, server  # noqa: F401
@@ -100,3 +100,18 @@ def test_a_setup_that_was_never_saved_is_not_found(
         get(server + "/api/setup/open?name=never")
 
     assert refused.value.code == 404
+
+
+def test_a_setup_in_a_map_environment_is_refused_with_the_reason(
+    server, setups_directory
+):  # noqa: F811
+    setup = builder_setup()
+    setup[SetupField.ENVIRONMENT] = {
+        SetupField.KIND: EnvironmentKind.MAP,
+        SetupField.CLASS: "ApartmentEnvironment",
+    }
+
+    status, answer = post(server + "/api/setup/save", {"name": "demo", "setup": setup})
+
+    assert status == 400 and not answer["ok"]
+    assert answer["error"] == str(MapEnvironmentInSetupError("ApartmentEnvironment"))
