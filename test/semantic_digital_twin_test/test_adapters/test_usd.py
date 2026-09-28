@@ -500,7 +500,8 @@ def test_both_windings_adds_the_reverse_of_every_face():
 
 def test_create_mesh_shape_draws_a_double_sided_mesh_from_both_sides():
     # A renderer culling back faces leaves a single-sided sheet invisible from behind,
-    # so a doubleSided mesh gets each of its two triangles in both windings.
+    # and without a material there is no flag to carry, so a doubleSided mesh gets each
+    # of its two triangles in both windings.
     stage = build_stage_with_a_double_sided_mesh(double_sided=True)
     mesh_prim = stage.GetPrimAtPath("/object/mesh")
 
@@ -516,6 +517,32 @@ def test_create_mesh_shape_leaves_a_single_sided_mesh_one_sided():
     shape = UsdMeshShapeBuilder(mesh_prim, Gf.Matrix4d(1)).build()
 
     assert len(shape.unscaled_mesh.faces) == 2
+
+
+def test_create_mesh_shape_marks_a_textured_double_sided_mesh_to_draw_from_both_sides(
+    texture_file,
+):
+    # A scanned surface is a sheet with no inside, so its material says to draw it from
+    # whichever side it is seen rather than the geometry holding a second winding.
+    stage = build_stage_with_textured_mesh(texture_file)
+    mesh_prim = stage.GetPrimAtPath("/object/mesh")
+    UsdGeom.Mesh(mesh_prim).CreateDoubleSidedAttr(True)
+
+    shape = UsdMeshShapeBuilder(mesh_prim, Gf.Matrix4d(1)).build()
+
+    assert len(shape.unscaled_mesh.faces) == 2
+    assert shape.unscaled_mesh.visual.material.doubleSided is True
+
+
+def test_create_mesh_shape_leaves_a_textured_single_sided_mesh_one_sided(texture_file):
+    stage = build_stage_with_textured_mesh(texture_file)
+    mesh_prim = stage.GetPrimAtPath("/object/mesh")
+    UsdGeom.Mesh(mesh_prim).CreateDoubleSidedAttr(False)
+
+    shape = UsdMeshShapeBuilder(mesh_prim, Gf.Matrix4d(1)).build()
+
+    assert len(shape.unscaled_mesh.faces) == 2
+    assert shape.unscaled_mesh.visual.material.doubleSided is False
 
 
 def test_create_mesh_shape_exports_the_mesh_as_glb():
@@ -538,6 +565,19 @@ def test_create_mesh_shape_shades_a_textured_mesh_by_default(texture_file):
     shape = UsdMeshShapeBuilder(mesh_prim, Gf.Matrix4d(1)).build()
 
     assert not np.any(shape.unscaled_mesh.visual.material.emissiveFactor)
+
+
+def test_create_mesh_shape_gives_a_textured_mesh_a_matte_material(texture_file):
+    # A glTF material left without a metallic factor is fully metallic, which draws a
+    # photographed surface as dark reflections of the sky rather than as its texture.
+    stage = build_stage_with_textured_mesh(texture_file)
+    mesh_prim = stage.GetPrimAtPath("/object/mesh")
+
+    shape = UsdMeshShapeBuilder(mesh_prim, Gf.Matrix4d(1)).build()
+
+    material = shape.unscaled_mesh.visual.material
+    assert material.metallicFactor == 0.0
+    assert material.roughnessFactor == 1.0
 
 
 def test_create_mesh_shape_draws_an_unlit_mesh_at_full_brightness(texture_file):

@@ -475,10 +475,11 @@ class UsdMeshShapeBuilder(UsdShapeBuilder):
         )
         faces = corner_points[corner_faces]
 
+        double_sided = bool(mesh_geometry.GetDoubleSidedAttr().Get())
         texture_file_path = self._diffuse_texture_path(self.prim)
         uv = self._uv_coordinates(self.prim)
         if texture_file_path is None or uv is None:
-            return self._build(mesh_geometry, vertices, faces)
+            return self._build(vertices, faces, double_sided)
 
         uv_per_vertex = uv.values
         if uv.are_per_corner:
@@ -492,29 +493,12 @@ class UsdMeshShapeBuilder(UsdShapeBuilder):
         texture_file_path = downscaled_texture_path(
             texture_file_path, self.maximum_texture_size
         )
-        trimesh_mesh = self._trimesh(mesh_geometry, vertices, faces)
+        trimesh_mesh = trimesh.Trimesh(vertices=vertices, faces=faces, process=False)
         # Handing the uv to Mesh.from_trimesh instead would have it split every vertex
-        # per face corner again, which for a surface holding both windings duplicates
-        # the whole mesh.
+        # per face corner again.
         trimesh_mesh.visual = trimesh.visual.TextureVisuals(
-            uv=as_gltf_uv(uv_per_vertex)
-        )
-        if self.shading is Shading.LIT:
-            return Mesh.from_trimesh(
-                mesh=trimesh_mesh,
-                origin=HomogeneousTransformationMatrix(),
-                texture_file_path=texture_file_path,
-                file_type=MeshFileType.GLB,
-            )
-
-        texture = Image.open(texture_file_path)
-        trimesh_mesh.visual.material = PBRMaterial(
-            name=Path(texture_file_path).stem,
-            baseColorTexture=texture,
-            metallicFactor=0.0,
-            roughnessFactor=1.0,
-            emissiveFactor=FULLY_EMISSIVE,
-            emissiveTexture=texture,
+            uv=as_gltf_uv(uv_per_vertex),
+            material=self._material(Image.open(texture_file_path), double_sided),
         )
         return Mesh.from_trimesh(
             mesh=trimesh_mesh,
@@ -522,37 +506,43 @@ class UsdMeshShapeBuilder(UsdShapeBuilder):
             file_type=MeshFileType.GLB,
         )
 
-    def _trimesh(
-        self,
-        mesh_geometry: UsdGeom.Mesh,
-        vertices: NDArray[np.float64],
-        faces: NDArray[np.int64],
-    ) -> trimesh.Trimesh:
+    def _material(self, texture: Image.Image, double_sided: bool) -> PBRMaterial:
         """
-        :param mesh_geometry: The USD mesh being built, read for its sidedness.
-        :param vertices: The surface's vertices, in the link's frame.
-        :param faces: The surface's triangles.
-        :return: The trimesh holding that surface, shown from both sides if the USD
-            mesh is authored ``doubleSided``.
+        :param texture: The image the surface shows.
+        :param double_sided: Whether the surface is drawn from whichever side it is
+            seen, as a scanned sheet with no inside must be.
+        :return: A matte material showing the texture, lit as :attr:`shading` asks.
         """
-        if mesh_geometry.GetDoubleSidedAttr().Get():
-            faces = self._both_windings(faces)
-        return trimesh.Trimesh(vertices=vertices, faces=faces, process=False)
+        material = PBRMaterial(
+            name=Path(texture.filename).stem,
+            baseColorTexture=texture,
+            metallicFactor=0.0,
+            roughnessFactor=1.0,
+            doubleSided=double_sided,
+        )
+        if self.shading is Shading.UNLIT:
+            material.emissiveFactor = FULLY_EMISSIVE
+            material.emissiveTexture = texture
+        return material
 
     def _build(
         self,
-        mesh_geometry: UsdGeom.Mesh,
         vertices: NDArray[np.float64],
         faces: NDArray[np.int64],
+        double_sided: bool,
     ) -> Mesh:
         """
-        :param mesh_geometry: The USD mesh being built.
         :param vertices: The surface's vertices, in the link's frame.
         :param faces: The surface's triangles.
+        :param double_sided: Whether the surface is drawn from whichever side it is
+            seen; without a material to carry the flag, the geometry holds both
+            windings.
         :return: The untextured Mesh shape that surface becomes.
         """
+        if double_sided:
+            faces = self._both_windings(faces)
         return Mesh.from_trimesh(
-            mesh=self._trimesh(mesh_geometry, vertices, faces),
+            mesh=trimesh.Trimesh(vertices=vertices, faces=faces, process=False),
             origin=HomogeneousTransformationMatrix(),
             file_type=MeshFileType.GLB,
         )
@@ -565,8 +555,7 @@ class UsdMeshShapeBuilder(UsdShapeBuilder):
         A face is drawn from the side its winding faces, so a renderer that discards
         back faces leaves a surface authored ``doubleSided`` - a scanned sheet, which
         has no inside - invisible from behind. Holding both windings makes it show from
-        either side in any renderer, since it no longer depends on one honouring the
-        flag.
+        either side without a material to carry the flag.
 
         :param faces: The triangles of the surface.
         :return: Those triangles followed by their reverses.
