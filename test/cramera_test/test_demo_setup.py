@@ -25,6 +25,7 @@ from cramera.demo_setup import (
     UnknownRobotModelError,
 )
 from cramera.body_geometry import DrawnGeometry
+from cramera.live.bridge import Bridge
 from cramera.environment_file import URDFEnvironmentFile, USDSceneEnvironmentFile
 from cramera.model_catalog import EnvironmentKind
 from semantic_digital_twin.predetermined_maps.apartment_environment import (
@@ -311,6 +312,15 @@ def test_how_the_environment_is_drawn_travels_in_the_builders_form() -> None:
     read = DemoSetup.from_payload(payload_of(setup), ROBOT_TYPES)
 
     assert read.environment_geometry is DrawnGeometry.COLLISION
+
+
+def test_registering_a_setup_tells_the_bridge_how_its_environment_is_drawn() -> None:
+    setup = setup_in("/w.usda")
+    bridge = Bridge()
+
+    bridge.register_setup(setup)
+
+    assert bridge.presentation == setup.environment.presentation()
 
 
 # %% the setups the builder saves

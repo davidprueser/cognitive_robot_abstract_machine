@@ -51,6 +51,7 @@ from semantic_digital_twin.spatial_types import (
 from giskardpy.motion_statechart.data_types import LifeCycleValues
 from cramera.logging_setup import get_logger
 from cramera.demo_setup import DemoSetup
+from cramera.scene_presentation import ScenePresentation
 from cramera.multi_robot import move_robot_to
 from cramera.body_geometry import DrawnGeometry, POSE_PRECISION, rounded_pose
 from semantic_digital_twin.spatial_types.numeric import NumericPose
@@ -915,6 +916,12 @@ class Bridge:
     one; the robots are always drawn as they look.
     """
 
+    presentation: Optional[ScenePresentation] = None
+    """
+    How the viewer draws the scene: which models and objects keep the materials
+    they were authored with instead of taking the viewer's palette.
+    """
+
     demo_setup: Optional[DemoSetup] = None
     """
     The setup the running demo was brought up from, once it registers it, so the Plan
@@ -1356,7 +1363,11 @@ class Bridge:
         The geometry catalog the viewer spawns live objects from.
         """
         with self._lock:
-            return [asdict(entry) for entry in self.object_metadata]
+            catalog = [asdict(entry) for entry in self.object_metadata]
+        if self.presentation is not None:
+            for payload in catalog:
+                self.presentation.apply_to_object(payload)
+        return catalog
 
     def object_keys(self) -> List[str]:
         """
@@ -1401,13 +1412,16 @@ class Bridge:
     def bundle_signature(self) -> str:
         """
         A digest of the bundled scene's content: the identity, parentage and connection
-        type of every body the live bundle serializes, plus the robot's identity.
+        type of every body the live bundle serializes, the robot's identity and how the
+        scene is presented.
 
         Deliberately excludes the overlay's tracked objects — a demo re-parenting a
         grasped object changes the world model but not the bundled scene, and must not
         make the viewer reload it. State changes never touch it either.
         """
-        return self._bundle_signature
+        if self.presentation is None:
+            return self._bundle_signature
+        return f"{self._bundle_signature}-presentation-{self.presentation.signature()}"
 
     def _refresh_bundle_signature(self) -> None:
         """
@@ -1668,9 +1682,12 @@ class Bridge:
         """
         Offer the setup the running demo was brought up from to the Plan Builder.
 
-        :param setup: The demo's setup.
+        :param setup: The demo's setup, whose environment also says how the viewer
+            draws it.
         """
         self.demo_setup = setup
+        if setup.environment is not None:
+            self.presentation = setup.environment.presentation()
 
     def get_setup(self) -> dict[str, Any]:
         """

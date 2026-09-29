@@ -12,6 +12,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import PurePosixPath
 
+from cramera.scene_presentation import ScenePresentation
 from krrood.utils import recursive_subclasses
 from semantic_digital_twin.adapters.usd.stage_parser import RootPlacement
 from semantic_digital_twin.api import (
@@ -83,6 +84,13 @@ class EnvironmentFile(ABC):
         :return: The specification of the environment with the robots and objects in it.
         """
 
+    def presentation(self) -> ScenePresentation:
+        """
+        :return: How the viewer draws the environment: with the furniture palette it
+            gives models that ship without a look of their own.
+        """
+        return ScenePresentation()
+
 
 @dataclass
 class URDFEnvironmentFile(EnvironmentFile):
@@ -148,3 +156,10 @@ class USDSceneEnvironmentFile(EnvironmentFile):
             robots=list(robots),
             objects=list(objects),
         )
+
+    def presentation(self) -> ScenePresentation:
+        """
+        :return: How the viewer draws the scan: as the photographed surfaces its
+            materials carry, which no palette may replace.
+        """
+        return ScenePresentation(preserve_environment_materials=True)

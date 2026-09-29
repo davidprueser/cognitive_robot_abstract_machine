@@ -17,6 +17,7 @@ from cramera.environment_file import (
     URDFEnvironmentFile,
     USDSceneEnvironmentFile,
 )
+from cramera.scene_presentation import ScenePresentation
 from cramera.multi_robot import (
     RobotInstance,
     RobotPlacementNotFixedError,
@@ -80,6 +81,25 @@ def test_a_package_url_is_read_as_its_suffix_says() -> None:
 def test_a_file_no_parser_reads_is_refused() -> None:
     with pytest.raises(UnsupportedEnvironmentFileError):
         EnvironmentFile.from_path("notes.txt")
+
+
+# %% how the viewer draws it
+
+
+def test_a_scan_keeps_the_surfaces_it_was_photographed_with() -> None:
+    presentation = USDSceneEnvironmentFile(path="world.usda").presentation()
+
+    assert presentation.preserve_environment_materials is True
+
+
+@pytest.mark.parametrize(
+    "environment",
+    [URDFEnvironmentFile(path="apartment.urdf"), GazeboEnvironmentFile(path="w.world")],
+)
+def test_a_modelled_environment_takes_the_viewers_palette(
+    environment: EnvironmentFile,
+) -> None:
+    assert environment.presentation() == ScenePresentation()
 
 
 # %% standing on the floor

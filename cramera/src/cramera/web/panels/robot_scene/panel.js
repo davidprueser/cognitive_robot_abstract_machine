@@ -293,13 +293,17 @@ Panels.define('robot-scene', function mountRobotScene(root, bus) {
       color: new THREE.Color(spec.color || '#cccccc'),
       roughness: 0.5, metalness: 0.05, envMapIntensity: 0.7,
     });
-    function place(content) {                  // content: Mesh or Object3D
+    function prepareContent(content) {
       content.traverse(function (c) {
         if (c.isMesh) {
+          if (spec.preserveMaterials === true) { AuthoredMaterials.prepareMesh(c); return; }
           c.castShadow = true; c.receiveShadow = true;
           if (spec.tame && c.material && c.material.emissive) c.material.emissive.setRGB(0, 0, 0);
         }
       });
+    }
+    function place(content) {                  // content: Mesh or Object3D
+      prepareContent(content);
       const g = new THREE.Group();
       g.add(content);
       const box = new THREE.Box3().setFromObject(content);
@@ -348,10 +352,10 @@ Panels.define('robot-scene', function mountRobotScene(root, bus) {
     function loadShapeMesh(shapeSpec, holder) {
       const material = shapeMaterial(shapeSpec);
       const fail = function () {
-        holder.add(new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.05, 0.05), material));
-        needsRender = true;
+        finish(new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.05, 0.05), material));
       };
       const finish = function (content3d) {
+        prepareContent(content3d);
         content3d.scale.set(shapeSpec.scale[0], shapeSpec.scale[1], shapeSpec.scale[2]);
         holder.add(content3d);
         needsRender = true;
@@ -635,7 +639,8 @@ Panels.define('robot-scene', function mountRobotScene(root, bus) {
     if (statusEl) statusEl.textContent = 'Loading ' + sc.name + '…';
     sc.models.forEach(function (m) {
       makeUrdfLoader().load(sceneBase + m.urdf, function (obj) {
-        const entry = { name: m.name, prefix: m.prefix || '', identifier: m.identifier, robot: !!m.robot, obj: obj };
+        const entry = { name: m.name, prefix: m.prefix || '', identifier: m.identifier, robot: !!m.robot,
+          preserveMaterials: m.preserveMaterials === true, obj: obj };
         models.push(entry);
         robotModel = ModelPoses.primary(models, sc.robot);
         if (m.pose) setPose(obj, m.pose, m.pose, 0);
@@ -649,6 +654,7 @@ Panels.define('robot-scene', function mountRobotScene(root, bus) {
     (sc.objects || []).forEach(function (o) {
       addObject({
         id: o.id, key: o.key, color: o.color,
+        preserveMaterials: o.preserveMaterials === true,
         box: o.box || null,
         meshUrl: o.mesh ? sceneBase + o.mesh : null,
         mtlUrl: o.mtl ? sceneBase + o.mtl : null,
@@ -748,6 +754,11 @@ Panels.define('robot-scene', function mountRobotScene(root, bus) {
     stripImportedLights(entry.obj);
     entry.obj.traverse(function (c) {
       if (!c.isMesh || c.userData._tamed) return;
+      if (entry.preserveMaterials === true) {
+        AuthoredMaterials.prepareMesh(c);
+        c.userData._tamed = true;
+        return;
+      }
       c.castShadow = true; c.receiveShadow = true;
       const link = entry.robot ? '' : linkNameOf(c);
       const mats = Array.isArray(c.material) ? c.material : [c.material];
@@ -1318,6 +1329,7 @@ Panels.define('robot-scene', function mountRobotScene(root, bus) {
     for (const key in objectMeshes) {
       const on = !!set[key] || !!set[objectIdByKey[key]];
       objectMeshes[key].traverse(function (c) {
+        if (c.isMesh && c.userData.preserveMaterials) { AuthoredMaterials.highlightMesh(c, on, 0.55); return; }
         if (c.isMesh && c.material && c.material.emissive) {
           c.material.emissive.setHex(on ? 0x39d5c8 : 0x000000);
           c.material.emissiveIntensity = on ? 0.55 : 0;
@@ -1345,6 +1357,7 @@ Panels.define('robot-scene', function mountRobotScene(root, bus) {
         if (!c.isMesh) return;
         const link = linkNameOf(c);
         const on = ModelPoses.highlighted(SCENE, model, link, set) || !!linkSet[link];
+        if (c.userData.preserveMaterials) { AuthoredMaterials.highlightMesh(c, on, 0.45); return; }
         const mats = Array.isArray(c.material) ? c.material : [c.material];
         mats.forEach(function (m) {
           if (m && m.emissive) {
@@ -1866,7 +1879,8 @@ Panels.define('robot-scene', function mountRobotScene(root, bus) {
             objectMeshes[o.key].visible = true;
             return;
           }
-          const spec = { id: o.id, key: o.key, color: o.color };
+          const spec = { id: o.id, key: o.key, color: o.color,
+            preserveMaterials: o.preserveMaterials === true };
           if (o.kind === 'shapes' && o.shapes) { spec.shapes = o.shapes; spec.liveBase = liveUrl(); }
           else if (o.kind === 'mesh' && o.mesh) { spec.meshUrl = liveUrl() + o.mesh; spec.format = o.format; }
           else spec.box = o.size || [0.06, 0.06, 0.1];

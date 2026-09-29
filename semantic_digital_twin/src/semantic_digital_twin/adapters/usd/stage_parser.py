@@ -399,28 +399,6 @@ class UsdCylinderShapeBuilder(UsdShapeBuilder):
         )
 
 
-def as_gltf_uv(uv: NDArray[np.float64]) -> NDArray[np.float64]:
-    """
-    State texture coordinates the way glTF reads them rather than the way USD authors
-    them.
-
-    USD measures ``st`` up from the bottom of an image and glTF measures it down from
-    the top, so a surface carried from one to the other keeps its texture only if the
-    second coordinate is turned over on the way. A mesh is handed on as glTF, so the
-    turn is made here rather than left to whatever opens it.
-
-    On an ordinary texture, leaving it out shows as an image upside down. On a
-    photogrammetry scan it does not show as anything recognisable: such an atlas holds
-    a chart per triangle, a few texels each, so reading it upside down does not turn a
-    surface over - it sends every triangle to an unrelated patch, and a photographed
-    wall arrives as noise.
-
-    :param uv: Texture coordinates as USD authored them.
-    :return: The same coordinates, measured from the top of the image.
-    """
-    return np.column_stack([uv[:, 0], 1.0 - uv[:, 1]])
-
-
 @dataclass(frozen=True)
 class UvCoordinates:
     """
@@ -495,9 +473,10 @@ class UsdMeshShapeBuilder(UsdShapeBuilder):
         )
         trimesh_mesh = trimesh.Trimesh(vertices=vertices, faces=faces, process=False)
         # Handing the uv to Mesh.from_trimesh instead would have it split every vertex
-        # per face corner again.
+        # per face corner again. The coordinates go in as USD authored them, measured
+        # up from the bottom of the image: the glTF writer turns them over itself.
         trimesh_mesh.visual = trimesh.visual.TextureVisuals(
-            uv=as_gltf_uv(uv_per_vertex),
+            uv=uv_per_vertex,
             material=self._material(Image.open(texture_file_path), double_sided),
         )
         return Mesh.from_trimesh(

@@ -268,6 +268,8 @@ def _write_bundle(
         "bundleSignature": signature,
         ENVIRONMENT_GEOMETRY_FIELD: environment_geometry.value,
     }
+    if bridge.presentation is not None:
+        bridge.presentation.apply_to_scene(scene)
     (output_directory / "scene.json").write_text(json.dumps(scene, indent=1))
     return paths.LIVE_SCENE_NAME
 

@@ -116,6 +116,8 @@ def write_recording_bundle(
                 bridge.world, bridge.query_objects()
             ).scene_fields(),
         }
+        if bridge.presentation is not None:
+            bridge.presentation.apply_to_scene(scene)
         statecharts = RecordedStatecharts.of_snapshots(
             frame.statechart for frame in frames
         )

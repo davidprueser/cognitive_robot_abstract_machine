@@ -1,0 +1,13 @@
+{
+  "rendering": {"ambientOcclusion": false, "exposure": 0.65},
+  "camera": {"position": [2, -2.8, 1.85], "target": [0, 0, 0.92]},
+  "models": [
+    {"name": "laboratory", "robot": false, "preserveMaterials": true},
+    {"name": "robot", "robot": true, "preserveMaterials": true}
+  ],
+  "objects": [
+    {"key": "milk.stl", "preserveMaterials": true},
+    {"key": "themed", "preserveMaterials": false}
+  ],
+  "laboratory": {"drawerJoint": "manual_drawer"}
+}

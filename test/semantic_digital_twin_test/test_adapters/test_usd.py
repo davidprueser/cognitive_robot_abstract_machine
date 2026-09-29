@@ -1,4 +1,6 @@
+import json
 import math
+import struct
 from pathlib import Path
 
 import numpy as np
@@ -14,7 +16,6 @@ from semantic_digital_twin.adapters.usd.parser import USDParser
 from semantic_digital_twin.adapters.usd.stage_parser import (
     Shading,
     UsdMeshShapeBuilder,
-    as_gltf_uv,
 )
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.semantic_annotations.usd_semantics import UsdSemanticLabels
@@ -28,6 +29,7 @@ from semantic_digital_twin.world_description.connections import (
 from semantic_digital_twin.world_description.geometry import (
     Box,
     Cylinder,
+    Mesh,
     MeshFileType,
     Sphere,
 )
@@ -649,11 +651,29 @@ def test_a_mesh_texturing_each_corner_separately_keeps_its_texture(texture_file)
     assert shape.is_textured
 
 
+def written_texture_coordinates(shape: Mesh) -> np.ndarray:
+    """
+    The texture coordinates a shape's GLB file holds, read from its bytes rather than
+    through a loader that restates them in a convention of its own.
+    """
+    data = Path(shape.filename).read_bytes()
+    json_length = struct.unpack_from("<I", data, 12)[0]
+    gltf = json.loads(data[20 : 20 + json_length])
+    binary_start = 20 + json_length + 8
+    accessor = gltf["accessors"][
+        gltf["meshes"][0]["primitives"][0]["attributes"]["TEXCOORD_0"]
+    ]
+    view = gltf["bufferViews"][accessor["bufferView"]]
+    begin = binary_start + view.get("byteOffset", 0)
+    return np.frombuffer(
+        data[begin : begin + view["byteLength"]], dtype=np.float32
+    ).reshape(-1, 2)
+
+
 def test_a_mesh_texturing_each_corner_separately_keeps_every_coordinate(texture_file):
     # A parsed mesh is carried on as glTF, which measures the second coordinate down
-    # from the top of the image where USD measures it up from the bottom, so what is
-    # kept is every authored coordinate turned over rather than every authored
-    # coordinate as it stands.
+    # from the top of the image where USD measures it up from the bottom, so the file
+    # holds every authored coordinate turned over rather than as it stands.
     stage = build_stage_with_face_varying_texture_coordinates(texture_file)
     authored = np.array(
         UsdGeom.PrimvarsAPI(stage.GetPrimAtPath("/object/mesh")).GetPrimvar("st").Get()
@@ -662,22 +682,13 @@ def test_a_mesh_texturing_each_corner_separately_keeps_every_coordinate(texture_
     world = parse(stage)
 
     [shape] = world.root.visual.shapes
+    written = written_texture_coordinates(shape)
     np.testing.assert_allclose(
-        np.unique(np.round(shape.mesh.visual.uv, 6), axis=0),
-        np.unique(np.round(as_gltf_uv(authored), 6), axis=0),
+        np.unique(np.round(written, 6), axis=0),
+        np.unique(
+            np.round(np.column_stack([authored[:, 0], 1 - authored[:, 1]]), 6), axis=0
+        ),
     )
-
-
-def test_a_texture_coordinate_is_carried_on_the_way_gltf_reads_it(texture_file):
-    stage = build_stage_with_face_varying_texture_coordinates(texture_file)
-    authored = np.array(
-        UsdGeom.PrimvarsAPI(stage.GetPrimAtPath("/object/mesh")).GetPrimvar("st").Get()
-    )
-
-    turned = as_gltf_uv(authored)
-
-    np.testing.assert_allclose(turned[:, 0], authored[:, 0])
-    np.testing.assert_allclose(turned[:, 1], 1.0 - authored[:, 1])
 
 
 # %% inertials a file only half states
