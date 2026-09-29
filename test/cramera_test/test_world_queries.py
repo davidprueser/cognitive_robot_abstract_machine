@@ -8,7 +8,10 @@ import pytest
 
 from cramera.live.bridge import Bridge
 from cramera.knowledge.queryable_knowledge import QueryScope
-from semantic_digital_twin.semantic_annotations.semantic_annotations import Handle
+from semantic_digital_twin.semantic_annotations.semantic_annotations import (
+    Door,
+    Handle,
+)
 from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.geometry import Scale
 from semantic_digital_twin.world_description.world_entity import Body
@@ -30,6 +33,7 @@ def annotated_bridge(world_with_two_bodies: tuple[World, Body, Body]) -> Bridge:
         Handle.create_with_new_body_in_world(
             name="drawer_handle", world=world, scale=Scale(0.2, 0.04, 0.04)
         )
+        Door.create_with_new_body_in_world(name="lab_door", world=world)
     bridge = Bridge()
     bridge.attach(world)
     return bridge
@@ -58,6 +62,29 @@ class TestAttachedWorldQueries:
         result = annotated_bridge.run_query("an(entity(handle))")
         assert [row["__entity__"] for row in result.rows] == [
             str(handle.name) for handle in handles
+        ]
+
+    def test_doors_come_from_attached_annotations(
+        self, annotated_bridge: Bridge
+    ) -> None:
+        doors = annotated_bridge.world.get_semantic_annotations_by_type(Door)
+        result = annotated_bridge.run_query("an(entity(door))")
+        assert [row["__entity__"] for row in result.rows] == [
+            str(door.name) for door in doors
+        ]
+
+    def test_the_door_question_highlights_every_door_leaf(
+        self, annotated_bridge: Bridge
+    ) -> None:
+        [door] = annotated_bridge.world.get_semantic_annotations_by_type(Door)
+
+        matched = annotated_bridge.match_question("show all doors")
+        result = annotated_bridge.run_query(matched.preset.code)
+
+        assert matched.matched
+        assert result.highlight == [str(door.name)]
+        assert [marker.frame for marker in result.spatial] == [
+            str(annotated_bridge.world.root.name)
         ]
 
     def test_question_matching_uses_world_presets(

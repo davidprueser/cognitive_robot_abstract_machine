@@ -14,6 +14,7 @@ from cramera.live.query import LiveQuerySource
 from semantic_digital_twin.robots.robot_parts import AbstractRobot, Arm
 from semantic_digital_twin.semantic_annotations.mixins import HasSupportingSurface
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
+    Door,
     Handle,
     Table,
     CounterTop,
@@ -40,6 +41,8 @@ class WorldQueryName(StrEnum):
     """Every semantic annotation in the world."""
     HANDLE = "handle"
     """Annotated handles."""
+    DOOR = "door"
+    """Annotated doors."""
     SURFACE = "surface"
     """Annotated supporting surfaces."""
     ROBOT = "robot"
@@ -57,6 +60,8 @@ class WorldQuestion(StrEnum):
     """List semantic types and their bodies."""
     HANDLES = "show all handles"
     """Find annotated handles in the scene."""
+    DOORS = "show all doors"
+    """Find annotated doors in the scene."""
     SURFACES = "show all supporting surfaces"
     """Find annotated placement surfaces."""
 
@@ -94,6 +99,11 @@ class WorldQuerySource(LiveQuerySource):
                         WorldQueryName.HANDLE,
                         Handle,
                         self.world.get_semantic_annotations_by_type(Handle),
+                    ),
+                    QueryDomain(
+                        WorldQueryName.DOOR,
+                        Door,
+                        self.world.get_semantic_annotations_by_type(Door),
                     ),
                     QueryDomain(
                         WorldQueryName.SURFACE,
@@ -134,6 +144,7 @@ class WorldQuerySource(LiveQuerySource):
                 (WorldQuestion.BODIES, WorldQueryName.BODY),
                 (WorldQuestion.ANNOTATIONS, WorldQueryName.ANNOTATION),
                 (WorldQuestion.HANDLES, WorldQueryName.HANDLE),
+                (WorldQuestion.DOORS, WorldQueryName.DOOR),
                 (WorldQuestion.SURFACES, WorldQueryName.SURFACE),
             )
         ]

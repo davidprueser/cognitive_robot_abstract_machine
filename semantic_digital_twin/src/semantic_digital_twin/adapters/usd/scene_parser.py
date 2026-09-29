@@ -23,6 +23,7 @@ from semantic_digital_twin.adapters.usd.stage_parser import (
 )
 from semantic_digital_twin.adapters.package_resolver import PathResolver
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
+from semantic_digital_twin.semantic_annotations.semantic_annotations import Door
 from semantic_digital_twin.semantic_annotations.usd_semantics import UsdStageOrigin
 from semantic_digital_twin.spatial_types.spatial_types import (
     HomogeneousTransformationMatrix,
@@ -472,7 +473,8 @@ class USDSceneParser(USDStageParser):
     ) -> None:
         """
         Holds one object to another: on a hinge where the stage states a revolute joint
-        that turns it, and fixed in place otherwise.
+        that turns it, and fixed in place otherwise. What hangs on a hinge in a scanned
+        building is a door, and is annotated as one.
 
         :param world: The world to add the connection to.
         :param placed_object: The object to hold.
@@ -520,6 +522,15 @@ class USDSceneParser(USDStageParser):
                 connection_T_child_expression=child_T_joint.inverse(),
                 axis=Vector3(*hinge.axis, reference_frame=parent.body),
                 dof_limits=hinge.limits,
+            )
+        )
+        world.add_semantic_annotation(
+            Door(
+                root=placed_object.body,
+                name=PrefixedName(
+                    f"door_of_{placed_object.body.name.name}",
+                    prefix=placed_object.body.name.prefix,
+                ),
             )
         )
 

@@ -15,6 +15,7 @@ from semantic_digital_twin.pipeline.mesh_decomposition.bounding_box import (
     BoundingBoxDecomposer,
 )
 from semantic_digital_twin.pipeline.pipeline import Pipeline
+from semantic_digital_twin.semantic_annotations.semantic_annotations import Door
 from semantic_digital_twin.semantic_annotations.usd_semantics import (
     UsdSemanticLabels,
     UsdStageOrigin,
@@ -463,6 +464,14 @@ def test_a_revolute_joint_becomes_a_connection_that_turns():
 
     assert hinged.child is _leaf_of(world)
     assert "surface" in hinged.parent.name.name
+
+
+def test_a_leaf_hung_on_a_hinge_is_a_door_and_the_wall_it_hangs_in_is_not():
+    world = _parsed(build_scene_stage_with_a_door_on_a_hinge())
+
+    [door] = world.get_semantic_annotations_by_type(Door)
+
+    assert door.root is _leaf_of(world)
 
 
 def test_a_revolute_joint_keeps_the_limits_the_stage_states():
