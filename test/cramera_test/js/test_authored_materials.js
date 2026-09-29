@@ -32,6 +32,8 @@ class DeferredScene {
         object.quaternion.fromArray(start.slice(3)).slerp(new THREE.Quaternion().fromArray(end.slice(3)), fraction);
       },
       WOOD_COUNTER: {}, WOOD_TABLE: {}, SCENE: null,
+      environmentLighting: {on: true, applyTo() {}, apply() {}},
+      lightingOf: () => ({applyTo() {}}),
     });
     this.context.window.EnvironmentTheme = {lookOf: () => ({color: 0xc0c0c0, texture: null, roughness: 0.8, metalness: 0.1})};
     const materialSource = path.join(WEB, 'core/authored-materials.js');

@@ -49,6 +49,8 @@ Panels.define('robot-scene', function mountRobotScene(root, bus) {
     '    <div id="frame-settings" class="frame-settings hidden"></div>' +
     '    <label class="lp-row"><input type="checkbox" id="lyr-labels"><span>Object labels</span></label>' +
     '    <label class="lp-row"><input type="checkbox" id="lyr-floor" checked><span>Floor shadow</span></label>' +
+    '    <label class="lp-row" title="Light the environment with the viewer\u2019s lamps, shadows and reflections. Off, every surface is drawn as its colours and textures stand, which is how a photographed scan reads best"><input type="checkbox" id="lyr-lighting-environment" checked><span>Environment lighting</span></label>' +
+    '    <label class="lp-row" title="Light the robots with the viewer\u2019s lamps, shadows and reflections. Off, a robot is drawn as its colours stand, without the shading that gives its shell shape"><input type="checkbox" id="lyr-lighting-robots" checked><span>Robot lighting</span></label>' +
     '    <label class="lp-row" title="Keep the robot in view: the camera glides after it while a recording plays or a live demo runs. Off, the camera stays where you pointed it"><input type="checkbox" id="lyr-follow" checked><span>Follow robot</span></label>' +
     '    <label class="lp-row" title="Attach to a running demo whenever one is reachable — including the next run after this one ends — instead of only once per page"><input type="checkbox" id="lyr-auto-live" checked><span>Auto-attach live</span></label>' +
     '    <label class="lp-row" title="Draw the running demo\u2019s environment as the boxes it collides as instead of as it looks: far lighter to draw, for a computer that cannot draw a scanned building. The robots are drawn as they look either way"><input type="checkbox" id="lyr-environment-collision"><span>Environment as collision</span></label>' +
@@ -240,6 +242,23 @@ Panels.define('robot-scene', function mountRobotScene(root, bus) {
   ground.receiveShadow = true;
   scene3.add(ground);
 
+  // %% lighting
+  // the unlit counterpart of a material: its colour and texture, flat, as they stand
+  function unlitOf(mat) {
+    return new THREE.MeshBasicMaterial({
+      map: mat.map || null,
+      color: mat.color ? mat.color.clone() : new THREE.Color(0xffffff),
+      side: mat.side, transparent: mat.transparent, opacity: mat.opacity, toneMapped: false,
+    });
+  }
+  const environmentLighting = new Lighting.Switch(unlitOf);
+  const robotLighting = new Lighting.Switch(unlitOf);
+  function lightingOf(entry) { return entry.robot ? robotLighting : environmentLighting; }
+  function modelRoots(robot) {
+    return models.filter(function (m) { return m.robot === robot; }).map(function (m) { return m.obj; });
+  }
+  function environmentRoots() { return modelRoots(false).concat(Object.values(objectMeshes), [ground]); }
+
   const controls = new THREE.OrbitControls(camera, renderer.domElement);
   const cameraController = new CameraFollow.Controller(controls);
   controls.enableDamping = true;
@@ -304,6 +323,7 @@ Panels.define('robot-scene', function mountRobotScene(root, bus) {
     }
     function place(content) {                  // content: Mesh or Object3D
       prepareContent(content);
+      environmentLighting.apply(content);
       const g = new THREE.Group();
       g.add(content);
       const box = new THREE.Box3().setFromObject(content);
@@ -754,19 +774,20 @@ Panels.define('robot-scene', function mountRobotScene(root, bus) {
     stripImportedLights(entry.obj);
     entry.obj.traverse(function (c) {
       if (!c.isMesh || c.userData._tamed) return;
+      c.userData._tamed = true;
       if (entry.preserveMaterials === true) {
         AuthoredMaterials.prepareMesh(c);
-        c.userData._tamed = true;
-        return;
+      } else {
+        c.castShadow = true; c.receiveShadow = true;
+        const link = entry.robot ? '' : linkNameOf(c);
+        const mats = Array.isArray(c.material) ? c.material : [c.material];
+        mats.forEach(function (m) { entry.robot ? tameMat(m) : themeEnvironment(m, link); });
       }
-      c.castShadow = true; c.receiveShadow = true;
-      const link = entry.robot ? '' : linkNameOf(c);
-      const mats = Array.isArray(c.material) ? c.material : [c.material];
-      mats.forEach(function (m) { entry.robot ? tameMat(m) : themeEnvironment(m, link); });
-      c.userData._tamed = true;
+      lightingOf(entry).applyTo(c);
     });
   }
   function upgradeMaterials() { models.forEach(tameModel); }
+
 
   function dropGroundToScene() {
     const envs = models.filter(function (m) { return !m.robot; });
@@ -2004,7 +2025,9 @@ Panels.define('robot-scene', function mountRobotScene(root, bus) {
     } catch (e) { composer = null; }
   })();
   function renderFrame() {
-    if (composer) composer.render();
+    // the occlusion pass shades every crease of the scan, so it goes with the
+    // environment's lighting
+    if (composer && environmentLighting.on) composer.render();
     else renderer.render(scene3, camera);
   }
 
@@ -2080,6 +2103,8 @@ Panels.define('robot-scene', function mountRobotScene(root, bus) {
     onFrame: function (cb) { frameCb = cb; },
     setAutoRotate: function (on) { controls.autoRotate = on; controls.autoRotateSpeed = 0.5; needsRender = true; },
     setFloorVisible: function (on) { ground.visible = on; needsRender = true; },
+    setEnvironmentLighting: function (on) { environmentLighting.set(on, environmentRoots()); needsRender = true; },
+    setRobotLighting: function (on) { robotLighting.set(on, modelRoots(true)); needsRender = true; },
     setFollow: function (on) { follow = on; },
     setPropsVisible: function (on) {
       for (const n in objectMeshes) objectMeshes[n].visible = on;
@@ -2789,6 +2814,16 @@ Panels.define('robot-scene', function mountRobotScene(root, bus) {
   followLayerEl.addEventListener('change', function () {
     RobotView.setFollow(CameraFollow.set(window.localStorage, followLayerEl.checked));
   });
+  function bindLighting(id, preference, method) {
+    const el = $(id);
+    el.checked = preference.on(window.localStorage);
+    RobotView[method](el.checked);
+    el.addEventListener('change', function () {
+      RobotView[method](preference.set(window.localStorage, el.checked));
+    });
+  }
+  bindLighting('lyr-lighting-environment', Lighting.ENVIRONMENT, 'setEnvironmentLighting');
+  bindLighting('lyr-lighting-robots', Lighting.ROBOTS, 'setRobotLighting');
   $('scene-pop-out').addEventListener('click', function () {
     window.open(SceneContext.popOutUrl(), 'cramera-scene');
   });

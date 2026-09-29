@@ -458,6 +458,9 @@ class TestJsUnits:
         """
         self.run_node("test_eql_panel.js", "query geometry")
 
+    def test_lighting(self) -> None:
+        self.run_node("test_lighting.js")
+
 
 # %% replayed statecharts
 class TestPlaybackFrameEvent:
@@ -575,6 +578,7 @@ class TestEveryLoadedModuleHasAConsumer:
         "core/folding.js": "Folding",
         "core/replay.js": "Replay",
         "core/camera-follow.js": "CameraFollow",
+        "core/lighting.js": "Lighting",
         "core/plan_constraints.js": "PlanConstraints",
     }
     """
