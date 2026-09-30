@@ -223,6 +223,12 @@ USD answers that attribute with the zero quaternion rather than with identity, w
 is no rotation at all, so the fallback has to be spelled out here.
 """
 
+UNAUTHORED_SURFACE_COLOR = (0.5, 0.5, 0.5)
+"""
+The colour of a surface whose stage says nothing about its colour: a neutral grey,
+rather than the white metal a glTF renderer falls back on for a mesh with no material.
+"""
+
 FULLY_EMISSIVE = (1.0, 1.0, 1.0)
 """
 The emissive colour that has a renderer draw a surface at the brightness its texture
@@ -457,7 +463,9 @@ class UsdMeshShapeBuilder(UsdShapeBuilder):
         texture_file_path = self._diffuse_texture_path(self.prim)
         uv = self._uv_coordinates(self.prim)
         if texture_file_path is None or uv is None:
-            return self._build(vertices, faces, double_sided)
+            return self._build(
+                vertices, faces, double_sided, self._diffuse_color(self.prim)
+            )
 
         uv_per_vertex = uv.values
         if uv.are_per_corner:
@@ -509,22 +517,43 @@ class UsdMeshShapeBuilder(UsdShapeBuilder):
         vertices: NDArray[np.float64],
         faces: NDArray[np.int64],
         double_sided: bool,
+        color: Optional[Tuple[float, float, float]],
     ) -> Mesh:
         """
         :param vertices: The surface's vertices, in the link's frame.
         :param faces: The surface's triangles.
         :param double_sided: Whether the surface is drawn from whichever side it is
-            seen; without a material to carry the flag, the geometry holds both
-            windings.
+            seen; the geometry holds both windings for that.
+        :param color: The flat colour the stage gives the surface, or ``None`` for one
+            it says nothing about, which is drawn in :data:`UNAUTHORED_SURFACE_COLOR`.
         :return: The untextured Mesh shape that surface becomes.
         """
         if double_sided:
             faces = self._both_windings(faces)
+        trimesh_mesh = trimesh.Trimesh(vertices=vertices, faces=faces, process=False)
+        trimesh_mesh.visual = trimesh.visual.TextureVisuals(
+            material=self._flat_material(color or UNAUTHORED_SURFACE_COLOR)
+        )
         return Mesh.from_trimesh(
-            mesh=trimesh.Trimesh(vertices=vertices, faces=faces, process=False),
+            mesh=trimesh_mesh,
             origin=HomogeneousTransformationMatrix(),
             file_type=MeshFileType.GLB,
         )
+
+    def _flat_material(self, color: Tuple[float, float, float]) -> PBRMaterial:
+        """
+        :param color: The colour the surface is, in linear RGB.
+        :return: A matte material of that colour, lit as :attr:`shading` asks. It is
+            single sided, as the geometry already holds both windings where it must.
+        """
+        material = PBRMaterial(
+            baseColorFactor=[*color, 1.0],
+            metallicFactor=0.0,
+            roughnessFactor=1.0,
+        )
+        if self.shading is Shading.UNLIT:
+            material.emissiveFactor = color
+        return material
 
     @staticmethod
     def _both_windings(faces: NDArray[np.int64]) -> NDArray[np.int64]:
@@ -554,6 +583,26 @@ class UsdMeshShapeBuilder(UsdShapeBuilder):
         """
         points_homogeneous = np.concatenate([points, np.ones((len(points), 1))], axis=1)
         return (points_homogeneous @ np.array(matrix))[:, :3]
+
+    @staticmethod
+    def _diffuse_color(mesh_prim: Usd.Prim) -> Optional[Tuple[float, float, float]]:
+        """
+        :param mesh_prim: The mesh prim to look up.
+        :return: The flat ``diffuseColor`` its bound material's surface shader authors,
+            or ``None`` if it has no bound material, or the colour is left unauthored
+            or read from a texture.
+        """
+        material, _ = UsdShade.MaterialBindingAPI(mesh_prim).ComputeBoundMaterial()
+        if not material:
+            return None
+        surface_source = material.GetSurfaceOutput().GetConnectedSource()
+        if surface_source is None:
+            return None
+        diffuse_input = UsdShade.Shader(surface_source[0]).GetInput("diffuseColor")
+        if not diffuse_input or diffuse_input.HasConnectedSource():
+            return None
+        color = diffuse_input.Get()
+        return None if color is None else tuple(float(c) for c in color)
 
     @staticmethod
     def _diffuse_texture_path(mesh_prim: Usd.Prim) -> Optional[str]:

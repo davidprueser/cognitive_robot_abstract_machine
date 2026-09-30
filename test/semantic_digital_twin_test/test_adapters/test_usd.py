@@ -14,6 +14,7 @@ from semantic_digital_twin.adapters.usd.exceptions import (
 )
 from semantic_digital_twin.adapters.usd.parser import USDParser
 from semantic_digital_twin.adapters.usd.stage_parser import (
+    UNAUTHORED_SURFACE_COLOR,
     Shading,
     UsdMeshShapeBuilder,
 )
@@ -56,7 +57,7 @@ from .usd_stages import (
 )
 
 if PXR_AVAILABLE:
-    from pxr import Gf, Usd, UsdGeom
+    from pxr import Gf, Sdf, Usd, UsdGeom, UsdShade
 
 pytestmark = pytest.mark.skipif(
     not PXR_AVAILABLE, reason="usd-core (pxr) not installed"
@@ -462,7 +463,58 @@ def test_create_mesh_shape_has_no_texture_without_a_bound_material(texture_file)
 
     shape = UsdMeshShapeBuilder(unbound_mesh.GetPrim(), Gf.Matrix4d(1)).build()
 
-    assert shape.unscaled_mesh.visual.kind != "texture"
+    assert shape.unscaled_mesh.visual.material.baseColorTexture is None
+
+
+def bind_flat_color(stage, mesh_prim, color):
+    material = UsdShade.Material.Define(stage, "/object/flat")
+    shader = UsdShade.Shader.Define(stage, "/object/flat/surface")
+    shader.CreateIdAttr("UsdPreviewSurface")
+    shader.CreateInput("diffuseColor", Sdf.ValueTypeNames.Color3f).Set(Gf.Vec3f(*color))
+    material.CreateSurfaceOutput().ConnectToSource(shader.ConnectableAPI(), "surface")
+    UsdShade.MaterialBindingAPI.Apply(mesh_prim).Bind(material)
+
+
+def test_create_mesh_shape_draws_a_surface_of_no_colour_in_matte_grey():
+    # A glTF mesh with no material is drawn as white metal, which with the viewer's
+    # lighting off reads as a white hole in the floor rather than as a surface.
+    stage = build_stage_with_a_double_sided_mesh(double_sided=False)
+    mesh_prim = stage.GetPrimAtPath("/object/mesh")
+
+    shape = UsdMeshShapeBuilder(mesh_prim, Gf.Matrix4d(1)).build()
+
+    material = shape.unscaled_mesh.visual.material
+    np.testing.assert_allclose(
+        material.baseColorFactor[:3] / 255.0, UNAUTHORED_SURFACE_COLOR, atol=1 / 255
+    )
+    assert material.metallicFactor == 0.0
+    assert material.roughnessFactor == 1.0
+
+
+def test_create_mesh_shape_keeps_the_flat_colour_a_material_authors():
+    stage = build_stage_with_a_double_sided_mesh(double_sided=False)
+    mesh_prim = stage.GetPrimAtPath("/object/mesh")
+    bind_flat_color(stage, mesh_prim, (0.2, 0.3, 0.4))
+
+    shape = UsdMeshShapeBuilder(mesh_prim, Gf.Matrix4d(1)).build()
+
+    np.testing.assert_allclose(
+        shape.unscaled_mesh.visual.material.baseColorFactor[:3] / 255.0,
+        (0.2, 0.3, 0.4),
+        atol=1 / 255,
+    )
+
+
+def test_create_mesh_shape_draws_an_unlit_surface_of_flat_colour_as_that_colour():
+    stage = build_stage_with_a_double_sided_mesh(double_sided=False)
+    mesh_prim = stage.GetPrimAtPath("/object/mesh")
+    bind_flat_color(stage, mesh_prim, (0.2, 0.3, 0.4))
+
+    shape = UsdMeshShapeBuilder(mesh_prim, Gf.Matrix4d(1), Shading.UNLIT).build()
+
+    np.testing.assert_allclose(
+        shape.unscaled_mesh.visual.material.emissiveFactor, (0.2, 0.3, 0.4)
+    )
 
 
 # %% triangulation
