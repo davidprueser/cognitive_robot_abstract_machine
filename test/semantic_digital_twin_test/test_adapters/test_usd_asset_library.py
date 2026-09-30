@@ -23,6 +23,9 @@ from semantic_digital_twin.adapters.usd.asset_library import (
     VertexSharing,
     WrittenLibrary,
 )
+from semantic_digital_twin.adapters.usd.exceptions import (
+    UnsupportedGeometryPrimError,
+)
 from semantic_digital_twin.adapters.usd.scene_parser import USDSceneParser
 from semantic_digital_twin.adapters.usd.stage_parser import (
     Gf,
@@ -36,6 +39,7 @@ from semantic_digital_twin.adapters.usd.stage_parser import (
 
 from .usd_stages import (
     PXR_AVAILABLE,
+    build_scene_stage_with_a_cube_floor,
     build_scene_stage_with_a_triangle_soup,
     build_scene_stage_with_an_object_of_several_faces,
     build_scene_stage_with_textured_objects,
@@ -843,3 +847,64 @@ def test_a_box_is_what_the_library_is_collided_against_by_default(tmp_path):
     meshes = [prim for prim in split.library.TraverseAll() if prim.IsA(UsdGeom.Mesh)]
     assert not any(prim.HasAPI(UsdPhysics.CollisionAPI) for prim in meshes)
     assert len(cubes_in(split.library)) == len(OBJECT_NAMES)
+
+
+# %% a surface delivered as a primitive shape
+
+
+def cube_floor_library(tmp_path, **arguments) -> SplitScene:
+    source = build_scene_stage_with_a_cube_floor()
+    written = USDAssetLibrary(stage=source, **arguments).write(tmp_path / "library")
+    return SplitScene(
+        source=source,
+        written=written,
+        library=Usd.Stage.Open(str(written.world_layer)),
+    )
+
+
+def test_a_cube_is_written_as_a_mesh_of_the_box_it_spans(tmp_path):
+    split = cube_floor_library(tmp_path)
+
+    floor = UsdGeom.Mesh(mesh_under(split.library, "floor_a"))
+    assert list(floor.GetFaceVertexCountsAttr().Get()) == [4] * 6
+    corners = np.array(floor.GetPointsAttr().Get(), dtype=float) @ world_transform(
+        floor.GetPrim()
+    )[:3, :3] + world_transform(floor.GetPrim())[3, :3]
+    assert np.allclose(corners.min(axis=0), [10.0, 20.0, -0.1])
+    assert np.allclose(corners.max(axis=0), [15.0, 22.0, 0.0])
+
+
+def test_a_cube_written_as_a_mesh_faces_outwards(tmp_path):
+    split = cube_floor_library(tmp_path)
+
+    floor = UsdGeom.Mesh(mesh_under(split.library, "floor_a"))
+    points = np.array(floor.GetPointsAttr().Get(), dtype=float)
+    centre = points.mean(axis=0)
+    for face in np.array(floor.GetFaceVertexIndicesAttr().Get()).reshape(-1, 4):
+        a, b, c = points[face[:3]]
+        normal = np.cross(b - a, c - a)
+        assert np.dot(normal, points[face].mean(axis=0) - centre) > 0
+
+
+def test_a_cube_written_as_a_mesh_keeps_nothing_of_its_shape_attributes(tmp_path):
+    split = cube_floor_library(tmp_path)
+
+    floor = mesh_under(split.library, "floor_a")
+    assert not floor.GetAttribute(UsdGeom.Tokens.size).HasAuthoredValue()
+
+
+def test_an_object_that_is_a_cube_parses_into_a_body(tmp_path):
+    split = cube_floor_library(tmp_path)
+
+    world = USDSceneParser.from_file(str(split.world_layer), prefix="scene").parse()
+
+    assert f"floor_a_Geometry_{DEFAULT_PART_NAME}" in {
+        body.name.name for body in world.bodies
+    }
+
+
+def test_geometry_that_cannot_be_written_is_refused_rather_than_left_out(tmp_path):
+    source = build_scene_stage_with_a_cube_floor(shape="Sphere")
+
+    with pytest.raises(UnsupportedGeometryPrimError):
+        USDAssetLibrary(stage=source).write(tmp_path / "library")

@@ -595,6 +595,39 @@ def build_scene_stage_with_a_triangle_soup() -> Usd.Stage:
     return stage
 
 
+def build_scene_stage_with_a_cube_floor(shape: str = "Cube") -> Usd.Stage:
+    """
+    A minimal in-memory stage whose floor is a primitive shape rather than a mesh.
+
+    The floor is a unit cube stretched out to a slab and moved away from the object
+    holding it, which is how a scan cleaned up by hand arrives when its floor has been
+    replaced by a box. A wall beside it is an ordinary mesh.
+
+    :param shape: The USD type of the floor's geometry.
+    :return: The built in-memory stage.
+    """
+    stage = Usd.Stage.CreateInMemory()
+    UsdGeom.SetStageUpAxis(stage, UsdGeom.Tokens.z)
+    stage.SetDefaultPrim(UsdGeom.Xform.Define(stage, "/scene").GetPrim())
+
+    UsdGeom.Xform.Define(stage, "/scene/Floor/floor_a").AddTranslateOp().Set(
+        Gf.Vec3d(10, 20, 0)
+    )
+    floor = UsdGeom.Xformable(
+        stage.DefinePrim("/scene/Floor/floor_a/Cube", shape)
+    )
+    floor.AddTranslateOp().Set(Gf.Vec3d(2.5, 1.0, -0.05))
+    floor.AddScaleOp().Set(Gf.Vec3f(5.0, 2.0, 0.1))
+    if shape == "Cube":
+        UsdGeom.Cube(floor.GetPrim()).CreateSizeAttr(1.0)
+
+    wall = UsdGeom.Mesh.Define(stage, "/scene/Wall/wall_a/mesh")
+    wall.CreatePointsAttr([(0, 0, 0), (1, 0, 0), (1, 0, 1), (0, 0, 1)])
+    wall.CreateFaceVertexCountsAttr([4])
+    wall.CreateFaceVertexIndicesAttr([0, 1, 2, 3])
+    return stage
+
+
 def build_stage_with_face_varying_texture_coordinates(
     texture_file_path: str,
 ) -> Usd.Stage:

@@ -12,6 +12,7 @@ from typing_extensions import Dict, List, Optional, Self, Tuple
 
 from semantic_digital_twin.adapters.usd.exceptions import (
     PrimDefinedOutsideRootLayerError,
+    UnsupportedGeometryPrimError,
 )
 from semantic_digital_twin.adapters.usd.stage_parser import (
     Gf,
@@ -167,6 +168,29 @@ MESH_ARRAY_ATTRIBUTES = frozenset(
 """
 The attributes of a mesh that say which faces it is made of, and so the ones a part
 holding some of those faces writes for itself rather than copying.
+"""
+
+CUBE_SHAPE_ATTRIBUTES = frozenset({UsdGeom.Tokens.size, UsdGeom.Tokens.extent})
+"""
+The attributes of a cube that say what shape it is, which its mesh spells out as faces
+instead of carrying over.
+"""
+
+CUBE_FACE_CORNERS = np.array(
+    [
+        [0, 2, 3, 1],  # -z
+        [4, 5, 7, 6],  # +z
+        [0, 1, 5, 4],  # -y
+        [2, 6, 7, 3],  # +y
+        [0, 4, 6, 2],  # -x
+        [1, 3, 7, 5],  # +x
+    ],
+    dtype=np.int64,
+)
+"""
+The six faces of a cube as corners of the unit cube, the corner ``i`` standing at the
+positive end of x, y and z where bits 0, 1 and 2 of ``i`` are set. Each face runs
+counter-clockwise seen from outside, which is the way a right-handed mesh faces out.
 """
 
 
@@ -421,14 +445,15 @@ class PartGeometry:
     What the part is called inside the asset.
     """
 
-    mesh: UsdGeom.Mesh
+    surface: UsdGeom.Gprim
     """
-    The mesh of the stage the part's faces are taken from.
+    The geometry of the stage the part's faces are taken from: a mesh, or a cube, whose
+    faces are those of the box it spans.
     """
 
     faces: Optional[NDArray] = None
     """
-    Which faces of that mesh the part keeps, or ``None`` for all of them.
+    Which faces of that surface the part keeps, or ``None`` for all of them.
     """
 
     pivot: Gf.Vec3d = field(default_factory=lambda: Gf.Vec3d(0.0, 0.0, 0.0))
@@ -535,6 +560,30 @@ CORNER_INTERPOLATIONS = (UsdGeom.Tokens.vertex, UsdGeom.Tokens.varying)
 """
 The interpolations holding one value per point, and so the ones sharing points changes.
 """
+
+
+def _faces_of(surface: UsdGeom.Gprim) -> Tuple[NDArray, NDArray, NDArray]:
+    """
+    :param surface: A mesh or a cube of the stage.
+    :return: Its points in its own space, how many corners each of its faces has, and
+        the point each face corner uses - for a cube, those of the six faces of the box
+        it spans.
+    """
+    if surface.GetPrim().IsA(UsdGeom.Cube):
+        half = UsdGeom.Cube(surface.GetPrim()).GetSizeAttr().Get() / 2.0
+        corners = np.arange(8)
+        points = np.stack(
+            [np.where(corners >> axis & 1, half, -half) for axis in range(3)],
+            axis=1,
+        ).astype(float)
+        counts = np.full(len(CUBE_FACE_CORNERS), 4, dtype=np.int64)
+        return points, counts, CUBE_FACE_CORNERS.ravel()
+    mesh = UsdGeom.Mesh(surface.GetPrim())
+    return (
+        np.asarray(mesh.GetPointsAttr().Get(), dtype=float),
+        np.asarray(mesh.GetFaceVertexCountsAttr().Get(), dtype=np.int64),
+        np.asarray(mesh.GetFaceVertexIndicesAttr().Get(), dtype=np.int64),
+    )
 
 
 def _unique_rows(rows: NDArray) -> Tuple[NDArray, NDArray]:
@@ -792,40 +841,71 @@ class USDAssetLibrary:
         :return: Every part of it, each naming the mesh it is cut from and the faces it
             keeps.
         """
-        meshes = [
-            UsdGeom.Mesh(child)
-            for child in object_prim.GetChildren()
-            if child.IsA(UsdGeom.Mesh)
-        ]
-        if len(meshes) != 1 or self.segmentation is None:
+        surfaces = self._surfaces_of(object_prim)
+        if (
+            len(surfaces) != 1
+            or not surfaces[0].GetPrim().IsA(UsdGeom.Mesh)
+            or self.segmentation is None
+        ):
             return [
-                PartGeometry(name=self._sole_part_name(meshes, mesh), mesh=mesh)
-                for mesh in meshes
+                PartGeometry(
+                    name=self._sole_part_name(surfaces, surface), surface=surface
+                )
+                for surface in surfaces
             ]
 
-        [mesh] = meshes
+        mesh = UsdGeom.Mesh(surfaces[0].GetPrim())
         taken = np.zeros(len(mesh.GetFaceVertexCountsAttr().Get()), dtype=bool)
         parts = []
         for part in self.segmentation.parts_of(object_prim, mesh):
             faces = np.asarray(part.faces, dtype=bool) & ~taken
             taken |= faces
             parts.append(
-                PartGeometry(name=part.name, mesh=mesh, faces=faces, pivot=part.pivot)
+                PartGeometry(
+                    name=part.name, surface=mesh, faces=faces, pivot=part.pivot
+                )
             )
         if taken.all():
             return parts
-        return parts + [PartGeometry(name=DEFAULT_PART_NAME, mesh=mesh, faces=~taken)]
+        return parts + [
+            PartGeometry(name=DEFAULT_PART_NAME, surface=mesh, faces=~taken)
+        ]
+
+    def _surfaces_of(self, object_prim: Usd.Prim) -> List[UsdGeom.Gprim]:
+        """
+        :param object_prim: The prim being written as an asset.
+        :return: Every piece of geometry it holds, each one a mesh or a cube.
+        :raises UnsupportedGeometryPrimError: If it holds any other kind of geometry,
+            which would otherwise leave the asset without it.
+        """
+        surfaces = []
+        for child in object_prim.GetChildren():
+            if not child.IsA(UsdGeom.Gprim):
+                continue
+            if not (child.IsA(UsdGeom.Mesh) or child.IsA(UsdGeom.Cube)):
+                raise UnsupportedGeometryPrimError(
+                    file_path=self.stage.GetRootLayer().identifier,
+                    prim_path=child.GetPath().pathString,
+                    type_name=child.GetTypeName(),
+                    supported_types=["Cube", "Mesh"],
+                )
+            surfaces.append(UsdGeom.Gprim(child))
+        return surfaces
 
     @staticmethod
-    def _sole_part_name(meshes: List[UsdGeom.Mesh], mesh: UsdGeom.Mesh) -> str:
+    def _sole_part_name(
+        surfaces: List[UsdGeom.Gprim], surface: UsdGeom.Gprim
+    ) -> str:
         """
-        :param meshes: Every mesh the object holds.
-        :param mesh: The one being named.
-        :return: What to call the part that mesh becomes - an object made of one mesh
-            names its part the same way whatever the stage called the mesh, and one
+        :param surfaces: Every surface the object holds.
+        :param surface: The one being named.
+        :return: What to call the part that surface becomes - an object made of one
+            surface names its part the same way whatever the stage called it, and one
             made of several keeps the names telling them apart.
         """
-        return DEFAULT_PART_NAME if len(meshes) == 1 else mesh.GetPrim().GetName()
+        return (
+            DEFAULT_PART_NAME if len(surfaces) == 1 else surface.GetPrim().GetName()
+        )
 
     def _write_geometries(
         self, object_prim: Usd.Prim, files: AssetFiles, parts: List[PartGeometry]
@@ -868,11 +948,8 @@ class USDAssetLibrary:
             written in.
         :param part: The part to write.
         """
-        source = part.mesh
-        counts = np.asarray(source.GetFaceVertexCountsAttr().Get(), dtype=np.int64)
-        corner_indices = np.asarray(
-            source.GetFaceVertexIndicesAttr().Get(), dtype=np.int64
-        )
+        source = part.surface
+        source_points, counts, corner_indices = _faces_of(source)
         taken = (
             part.faces if part.faces is not None else np.ones(len(counts), dtype=bool)
         )
@@ -888,7 +965,7 @@ class USDAssetLibrary:
             .GetInverse(),
             dtype=float,
         )
-        points = np.asarray(source.GetPointsAttr().Get(), dtype=float)[selection.points]
+        points = source_points[selection.points]
         points = points @ to_object[:3, :3] + to_object[3, :3] - np.asarray(part.pivot)
         written_points = Vt.Vec3fArray.FromNumpy(
             np.ascontiguousarray(points, dtype=np.float32)
@@ -902,7 +979,9 @@ class USDAssetLibrary:
         )
         written.CreateExtentAttr(UsdGeom.PointBased.ComputeExtent(written_points))
 
-        normals = source.GetNormalsAttr().Get()
+        is_mesh = source.GetPrim().IsA(UsdGeom.Mesh)
+        source = UsdGeom.Mesh(source.GetPrim()) if is_mesh else source
+        normals = source.GetNormalsAttr().Get() if is_mesh else None
         if normals is not None:
             interpolation = source.GetNormalsInterpolation()
             turned = np.asarray(normals, dtype=float) @ to_object[:3, :3]
@@ -932,6 +1011,8 @@ class USDAssetLibrary:
             name = attribute.GetName()
             value = attribute.Get()
             if name in MESH_ARRAY_ATTRIBUTES or value is None:
+                continue
+            if not is_mesh and name in CUBE_SHAPE_ATTRIBUTES:
                 continue
             if name.startswith("primvars:") or name.startswith("xformOp"):
                 continue
@@ -1010,10 +1091,10 @@ class USDAssetLibrary:
     def _material_of(part: PartGeometry) -> Optional[Usd.Prim]:
         """
         :param part: The part to look up.
-        :return: The material the stage covered the part's mesh in, or ``None``.
+        :return: The material the stage covered the part's surface in, or ``None``.
         """
         material, _ = UsdShade.MaterialBindingAPI(
-            part.mesh.GetPrim()
+            part.surface.GetPrim()
         ).ComputeBoundMaterial()
         return material.GetPrim() if material else None
 

@@ -136,3 +136,41 @@ class PrimDefinedOutsideRootLayerError(ParsingError):
 
     def suggest_correction(self) -> str:
         return "Flatten the stage into a single layer before splitting it into assets."
+
+
+@dataclass
+class UnsupportedGeometryPrimError(ParsingError):
+    """
+    Raised when a prim to be split into an asset of its own holds a kind of geometry
+    the writer cannot turn into a mesh.
+
+    Leaving it out would write the asset with nothing in it, which draws nothing and
+    collides as nothing, and the scene would silently be missing whatever it was.
+    """
+
+    prim_path: str = field(kw_only=True)
+    """
+    The geometry prim's stage path.
+    """
+
+    type_name: str = field(kw_only=True)
+    """
+    Its USD type name.
+    """
+
+    supported_types: List[str] = field(kw_only=True, default_factory=list)
+    """
+    The kinds of geometry the writer does write.
+    """
+
+    def error_message(self) -> str:
+        return (
+            f"Stage '{self.file_path}' holds a {self.type_name} at '{self.prim_path}',"
+            f" which cannot be written into an asset."
+        )
+
+    def suggest_correction(self) -> str:
+        return (
+            f"Deliver it as one of {', '.join(sorted(self.supported_types))}, or"
+            f" convert it to a Mesh before splitting the stage."
+        )
