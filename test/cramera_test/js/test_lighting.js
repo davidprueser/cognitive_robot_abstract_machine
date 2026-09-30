@@ -112,3 +112,37 @@ test('a lit scene leaves a mesh that was never swapped alone', function () {
 
   assert.strictEqual(wall.material, lit);
 });
+
+// %% only a texture has light in it
+function textured(name) { return Object.assign(material(name), { map: { image: name } }); }
+
+test('switched to textured surfaces only, a surface of plain colour stays lit', function () {
+  const Lighting = loadLighting();
+  const scan = mesh(textured('wall'));
+  const floorLit = material('floor');
+  const floor = mesh(floorLit);
+  const lighting = new Lighting.Switch(Lighting.texturedOnly(unlitOf));
+
+  lighting.set(false, [group([scan, floor])]);
+
+  assert.strictEqual(scan.material.name, 'unlit wall');
+  assert.strictEqual(floor.material, floorLit);
+});
+
+test('turning the lighting back on disposes of no material that stayed lit', function () {
+  const Lighting = loadLighting();
+  const paint = material('paint');
+  const photo = textured('photo');
+  const cabinet = mesh([paint, photo]);
+  const lighting = new Lighting.Switch(Lighting.texturedOnly(unlitOf));
+  lighting.set(false, [cabinet]);
+  const [keptLit, unlitPhoto] = cabinet.material;
+
+  lighting.set(true, [cabinet]);
+
+  assert.strictEqual(keptLit, paint);
+  assert.deepStrictEqual(cabinet.material, [paint, photo]);
+  assert.strictEqual(paint.disposed, false);
+  assert.strictEqual(photo.disposed, false);
+  assert.strictEqual(unlitPhoto.disposed, true);
+});

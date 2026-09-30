@@ -49,7 +49,7 @@ Panels.define('robot-scene', function mountRobotScene(root, bus) {
     '    <div id="frame-settings" class="frame-settings hidden"></div>' +
     '    <label class="lp-row"><input type="checkbox" id="lyr-labels"><span>Object labels</span></label>' +
     '    <label class="lp-row"><input type="checkbox" id="lyr-floor" checked><span>Floor shadow</span></label>' +
-    '    <label class="lp-row" title="Light the environment with the viewer\u2019s lamps, shadows and reflections. Off, every surface is drawn as its colours and textures stand, which is how a photographed scan reads best"><input type="checkbox" id="lyr-lighting-environment" checked><span>Environment lighting</span></label>' +
+    '    <label class="lp-row" title="Light the environment with the viewer\u2019s lamps, shadows and reflections. Off, every textured surface is drawn as its texture stands, which is how a photographed scan reads best; a surface of plain colour stays lit"><input type="checkbox" id="lyr-lighting-environment" checked><span>Environment lighting</span></label>' +
     '    <label class="lp-row" title="Light the robots with the viewer\u2019s lamps, shadows and reflections. Off, a robot is drawn as its colours stand, without the shading that gives its shell shape"><input type="checkbox" id="lyr-lighting-robots" checked><span>Robot lighting</span></label>' +
     '    <label class="lp-row" title="Keep the robot in view: the camera glides after it while a recording plays or a live demo runs. Off, the camera stays where you pointed it"><input type="checkbox" id="lyr-follow" checked><span>Follow robot</span></label>' +
     '    <label class="lp-row" title="Attach to a running demo whenever one is reachable — including the next run after this one ends — instead of only once per page"><input type="checkbox" id="lyr-auto-live" checked><span>Auto-attach live</span></label>' +
@@ -251,7 +251,9 @@ Panels.define('robot-scene', function mountRobotScene(root, bus) {
       side: mat.side, transparent: mat.transparent, opacity: mat.opacity, toneMapped: false,
     });
   }
-  const environmentLighting = new Lighting.Switch(unlitOf);
+  // a surface of plain colour has no light in it, so it keeps the lamps when the
+  // environment's are switched off; a robot's switch turns every surface flat
+  const environmentLighting = new Lighting.Switch(Lighting.texturedOnly(unlitOf));
   const robotLighting = new Lighting.Switch(unlitOf);
   function lightingOf(entry) { return entry.robot ? robotLighting : environmentLighting; }
   function modelRoots(robot) {

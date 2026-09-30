@@ -9,6 +9,10 @@
  * needs light to have any shape at all. Each preference survives a reload; the swap
  * keeps every lit material so switching back restores it untouched.
  *
+ * Only a texture has light in it. A surface of plain colour - a floor laid in as a box
+ * where the scan was cleaned up - has none, and drawn flat it turns the colour it was
+ * authored as, which is near white; so the environment's switch leaves it lit.
+ *
  * No DOM and no three.js of its own: the panel hands in how a lit material becomes an
  * unlit one, so the switch is testable under node.
  * ==========================================================================*/
@@ -40,9 +44,22 @@
   const ROBOTS = new Preference('cramera.lighting.robots');
   /* Whether the robots are lit. */
 
+  // %% which surfaces go unlit
+  /**
+   * An unlit counterpart for textured surfaces only, whose light is in their pixels;
+   * any other surface is handed back as it is, and so stays lit.
+   * @param {function} unlitOf Turns one lit material into its unlit counterpart.
+   */
+  function texturedOnly(unlitOf) {
+    return function (mat) { return mat && mat.map ? unlitOf(mat) : mat; };
+  }
+
   // %% swapping every mesh's material
   class Switch {
-    /** @param {function} unlitOf Turns one lit material into its unlit counterpart. */
+    /**
+     * @param {function} unlitOf Turns one lit material into its unlit counterpart, or
+     *     hands it back unchanged for one that stays lit.
+     */
     constructor(unlitOf) {
       this.unlitOf = unlitOf;
       this.lit = new WeakMap();   // mesh -> the material(s) it is lit with
@@ -54,9 +71,13 @@
       if (this.on) {
         if (!this.lit.has(mesh)) return;
         const unlit = mesh.material;
-        mesh.material = this.lit.get(mesh);
+        const lit = this.lit.get(mesh);
+        const kept = new Set(Array.isArray(lit) ? lit : [lit]);
+        mesh.material = lit;
         this.lit.delete(mesh);
-        (Array.isArray(unlit) ? unlit : [unlit]).forEach(function (m) { if (m.dispose) m.dispose(); });
+        (Array.isArray(unlit) ? unlit : [unlit]).forEach(function (m) {
+          if (!kept.has(m) && m.dispose) m.dispose();
+        });
         return;
       }
       if (this.lit.has(mesh)) return;
@@ -77,5 +98,8 @@
     }
   }
 
-  global.Lighting = { Preference: Preference, ENVIRONMENT: ENVIRONMENT, ROBOTS: ROBOTS, Switch: Switch };
+  global.Lighting = {
+    Preference: Preference, ENVIRONMENT: ENVIRONMENT, ROBOTS: ROBOTS,
+    Switch: Switch, texturedOnly: texturedOnly,
+  };
 })(window);
