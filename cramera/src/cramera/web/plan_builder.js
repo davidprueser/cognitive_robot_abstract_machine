@@ -1461,6 +1461,25 @@
 
   // ---------- live 3D capture ----------
   function bridgeUrl() { return 'http://' + window.location.hostname + ':8765'; }
+  //: the viewer page, opened without a scene so that it attaches to the bridge itself
+  const VIEWER_PAGE = 'index.html?scene';
+  // Show the running demo in the scene frame. The bridge names the scene it bundles
+  // the demo into, and the frame opens that scene directly: opened without one, the
+  // viewer would first load whatever recording the index lists, a second world the
+  // graphics card has to hold, and only then find the bridge and reload. A frame
+  // already on the demo's scene is left alone, since reloading it would load the
+  // world over again.
+  function showRunningDemo(force) {
+    const frame = $('pb-3d');
+    if (!frame) return Promise.resolve();
+    return fetch(bridgeUrl() + '/live_scene').then(function (r) { return r.ok ? r.json() : null; })
+      .catch(function () { return null; })
+      .then(function (d) {
+        const page = d && d.scene ? VIEWER_PAGE + '=' + encodeURIComponent(d.scene) : VIEWER_PAGE;
+        if (!force && frame.src.indexOf(page) >= 0) return;
+        frame.src = page;
+      });
+  }
   function quatToYaw(q) { // q = [qx,qy,qz,qw] -> yaw
     return Math.atan2(2 * (q[3] * q[2] + q[0] * q[1]), 1 - 2 * (q[1] * q[1] + q[2] * q[2]));
   }
@@ -1719,7 +1738,7 @@
     fetch(bridgeUrl() + '/captured_objects').then(function (r) { return r.ok ? r.json() : null; })
       .then(function (d) {
         if (my !== _runMonitor) return;
-        if (d) { liveOn = true; builderState.clearFailure(lastSpawnRobot); showModelStatus(); liveStatus(okMsg || '● live — drag objects into place, then Run plan', 'ok'); const f=$('pb-3d'); if (f && f.src.indexOf('index.html')<0) f.src='index.html?scene'; fetchSurfaces(); return; }
+        if (d) { liveOn = true; builderState.clearFailure(lastSpawnRobot); showModelStatus(); liveStatus(okMsg || '● live — drag objects into place, then Run plan', 'ok'); showRunningDemo(false); fetchSurfaces(); return; }
         // bridge not up yet — but if the demo process already died, show why now
         fetchScaffoldLog().then(function (lg) {
           if (my !== _runMonitor) return;
@@ -1744,11 +1763,13 @@
       }).catch(function () {});
   }
   // reload ONLY the embedded 3D view (it sometimes loads partially) without touching the
-  // plan/objects/constraints on this page. Cache-busts so a stuck load is force-refreshed.
+  // plan/objects/constraints on this page. A running demo's scene is opened again
+  // directly; without one the address is varied so a stuck load is force-refreshed.
   function reloadScene() {
     const f = $('pb-3d'); if (!f) return;
-    f.src = 'index.html?scene&r=' + Date.now();
     liveStatus('reloading 3D view…', '');
+    if (liveOn || attachedToRunningDemo) { showRunningDemo(true); return; }
+    f.src = VIEWER_PAGE + '&r=' + Date.now();
   }
   // draggable dividers between the three columns (palette | plan | scene); widths persist
   function wireColumnResizers() {
@@ -1859,7 +1880,7 @@
       objects = [];                        // a setup carries no objects to be carried
       renderObjects();
       attachedToRunningDemo = chosen === RUNNING_DEMO_SETUP;
-      if (attachedToRunningDemo) { const f = $('pb-3d'); if (f) f.src = 'index.html?scene'; }
+      if (attachedToRunningDemo) showRunningDemo(true);
       renderRobotInstances(); renderBlocks(); renderSteps(); showModelStatus(); reshowIfGenerated();
       const name = attachedToRunningDemo ? 'the running demo' : chosen;
       status('opened ' + name + (attachedToRunningDemo ? ' — moving a robot moves it in the scene' : ''), 'ok');

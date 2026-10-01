@@ -51,7 +51,8 @@ class RunPage {
     this.requests.push(route);
     if (this.failures.has(route)) throw new Error('request unavailable');
     if (this.pending.has(route)) return this.pending.get(route);
-    const payload = route === '/plan' ? this.plan : route.endsWith('/log') ? this.log : {ok: true, objects: {}};
+    const payload = route === '/plan' ? this.plan : route.endsWith('/log') ? this.log
+      : route === '/live_scene' ? {scene: '__live__'} : {ok: true, objects: {}};
     return {ok: true, json: async () => payload};
   }
 
@@ -358,5 +359,37 @@ async function checkLiveSceneShowsTheWorldOnly() {
   assert(page.requests.includes('/api/plan/scaffold'));
 }
 
-async function main() { await checkRunStatuses(); await checkLiveSceneShowsTheWorldOnly(); await checkPlacementSearch(); await checkRunRaces(); await checkRunStartup(); await checkRunErrors(); }
+// %% the scene frame opens the running demo's own scene, not a recording first
+async function checkSceneFrameOpensTheLiveScene() {
+  const page = new RunPage();
+  const frame = page.element('pb-3d');
+  frame.src = '';
+  page.api.pollLive(0, 'running', page.api.begin(false));
+  await page.settle();
+  assert.equal(frame.src, 'index.html?scene=__live__');
+  assert(page.requests.includes('/live_scene'));
+
+  // a frame already showing the live scene is left alone by the next poll
+  frame.src = 'index.html?scene=__live__&layout=scene';
+  page.api.pollLive(1, 'running', page.api.begin(false));
+  await page.settle();
+  assert.equal(frame.src, 'index.html?scene=__live__&layout=scene');
+
+  // reloading the view while live opens the demo's scene again, not a recording
+  frame.src = '';
+  page.api.reloadScene();
+  await page.settle();
+  assert.equal(frame.src, 'index.html?scene=__live__');
+
+  // a bridge that cannot name its scene yet still gets the viewer, which attaches itself
+  const nameless = new RunPage();
+  nameless.pending.set('/live_scene', Promise.resolve({ok: false, json: async () => null}));
+  const bare = nameless.element('pb-3d');
+  bare.src = '';
+  nameless.api.pollLive(0, 'running', nameless.api.begin(false));
+  await nameless.settle();
+  assert.equal(bare.src, 'index.html?scene');
+}
+
+async function main() { await checkRunStatuses(); await checkLiveSceneShowsTheWorldOnly(); await checkSceneFrameOpensTheLiveScene(); await checkPlacementSearch(); await checkRunRaces(); await checkRunStartup(); await checkRunErrors(); }
 main().catch((error) => { console.error(error); process.exitCode = 1; });

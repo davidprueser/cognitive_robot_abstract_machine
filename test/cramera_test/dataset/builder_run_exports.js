@@ -1,6 +1,6 @@
   window.builderRunTest = {
     begin(live = true) { liveOn = live; return ++_runMonitor; },
-    monitorRun, pollLive, stopRunMonitor, stopLive, startLive, runPlan,
+    monitorRun, pollLive, stopRunMonitor, stopLive, startLive, runPlan, reloadScene,
     get live() { return liveOn; },
     generatedSteps: [],
     clearSteps() { steps = []; },
