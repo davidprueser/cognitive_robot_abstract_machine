@@ -36,6 +36,7 @@ from giskardpy.motion_statechart.motion_statechart import (
     StateHistoryObserver,
 )
 from giskardpy.qp.qp_controller_config import QPControllerConfig
+from giskardpy.executor import NoPacing, SimulationPacer
 from giskardpy.ros_executor import Ros2Executor
 from krrood.entity_query_language.factories import evaluate_condition
 from krrood.symbolic_math.symbolic_math import Scalar, trinary_logic_not
@@ -412,6 +413,11 @@ class GiskardExecutable(Executable):
                 ),
             ),
             ros_node=self.context.ros_node,
+            pacer=(
+                NoPacing()
+                if self.context.real_time_factor is None
+                else SimulationPacer(real_time_factor=self.context.real_time_factor)
+            ),
         )
         with ExitStack() as cleanup:
             history = MotionPlanHistory(self.motion_state_chart, self.motion_mappings)
@@ -429,6 +435,7 @@ class GiskardExecutable(Executable):
                 )
                 for _ in range(stages * self.context.ticks_per_motion):
                     executor.tick()
+                    executor.pacer.sleep()
                     for plan in {
                         id(node.plan): node.plan for node in self.motion_mappings
                     }.values():

@@ -126,6 +126,13 @@ class Context(PlanEntity):
     rejected for running out of time sooner than the run that would perform it.
     """
 
+    real_time_factor: Optional[float] = None
+    """
+    How fast a simulated motion runs relative to wall-clock time, ``1.0`` for the speed
+    its velocity limits describe; ``None`` runs it as fast as the solver can, which
+    suits a run nobody watches.
+    """
+
     def __post_init__(self):
         self.debug = self._debug
 
