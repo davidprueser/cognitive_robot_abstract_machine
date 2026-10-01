@@ -171,6 +171,9 @@ class USDSceneEnvironmentFile(EnvironmentFile):
     def presentation(self) -> ScenePresentation:
         """
         :return: How the viewer draws the scan: as the photographed surfaces its
-            materials carry, which no palette may replace.
+            materials carry, which no palette may replace, and outside the shadow map,
+            since its millions of triangles are not worth drawing a second time a frame.
         """
-        return ScenePresentation(preserve_environment_materials=True)
+        return ScenePresentation(
+            preserve_environment_materials=True, environment_casts_shadows=False
+        )

@@ -242,3 +242,20 @@ def test_a_scan_keeps_its_textures_as_authored_unless_its_file_says() -> None:
     environment = USDSceneEnvironmentFile(path=str(SCANNED_SURFACE))
 
     assert environment.specification().world_parser.maximum_texture_size is None
+
+
+# %% whether the environment is drawn into the shadow map
+
+
+def test_a_scan_casts_no_shadows() -> None:
+    presentation = USDSceneEnvironmentFile(path="world.usda").presentation()
+
+    assert presentation.environment_casts_shadows is False
+
+
+@pytest.mark.parametrize(
+    "environment",
+    [URDFEnvironmentFile(path="apartment.urdf"), GazeboEnvironmentFile(path="w.world")],
+)
+def test_a_modelled_environment_casts_shadows(environment: EnvironmentFile) -> None:
+    assert environment.presentation().environment_casts_shadows is True

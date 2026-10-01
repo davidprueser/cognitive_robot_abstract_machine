@@ -37,6 +37,9 @@ class PresentationField(StrEnum):
     PRESERVE_MATERIALS = "preserveMaterials"
     """Opt-in to retaining the model or object's authored materials."""
 
+    CASTS_SHADOWS = "castsShadows"
+    """Whether a model's meshes are drawn into the shadow map."""
+
 
 # %% authored scene presentation
 
@@ -54,6 +57,15 @@ class ScenePresentation:
     preserve_environment_materials: bool = False
     """Whether the source environment opts in to retaining authored materials."""
 
+    environment_casts_shadows: bool = True
+    """
+    Whether the environment is drawn into the shadow map.
+
+    A scanned building is millions of triangles, and drawing them into the shadow map
+    once more every frame costs more than the shadow of a wall is worth; the robots
+    still cast theirs onto it.
+    """
+
     preserved_object_keys: frozenset[str] = field(default_factory=frozenset)
     """Exact object keys whose source declarations retain authored materials."""
 
@@ -70,6 +82,11 @@ class ScenePresentation:
                 and model.get(PresentationField.PRESERVE_MATERIALS) is True
                 for model in source.get(PresentationField.MODELS, [])
             ),
+            environment_casts_shadows=not any(
+                not model.get(PresentationField.ROBOT, False)
+                and model.get(PresentationField.CASTS_SHADOWS) is False
+                for model in source.get(PresentationField.MODELS, [])
+            ),
             preserved_object_keys=frozenset(
                 entry[PresentationField.KEY]
                 for entry in source.get(PresentationField.OBJECTS, [])
@@ -84,10 +101,13 @@ class ScenePresentation:
             scene[PresentationField.RENDERING] = deepcopy(self.rendering)
         if self.camera is not None:
             scene[PresentationField.CAMERA] = deepcopy(self.camera)
-        if self.preserve_environment_materials:
-            for model in scene.get(PresentationField.MODELS, []):
-                if not model.get(PresentationField.ROBOT, False):
-                    model[PresentationField.PRESERVE_MATERIALS] = True
+        for model in scene.get(PresentationField.MODELS, []):
+            if model.get(PresentationField.ROBOT, False):
+                continue
+            if self.preserve_environment_materials:
+                model[PresentationField.PRESERVE_MATERIALS] = True
+            if not self.environment_casts_shadows:
+                model[PresentationField.CASTS_SHADOWS] = False
         for entry in scene.get(PresentationField.OBJECTS, []):
             self.apply_to_object(entry)
 

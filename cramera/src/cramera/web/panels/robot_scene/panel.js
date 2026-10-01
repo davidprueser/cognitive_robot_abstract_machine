@@ -103,8 +103,6 @@ Panels.define('robot-scene', function mountRobotScene(root, bus) {
 
   //: how often the viewer asks whether a live bridge is reachable, in ms
   const LIVE_PROBE_INTERVAL_MS = 3000;
-  //: how long after mount imported materials keep being re-tamed, in seconds
-  const MATERIAL_SETTLE_SECONDS = 25;
 
   const scene3 = new THREE.Scene();
   scene3.background = null;
@@ -662,7 +660,7 @@ Panels.define('robot-scene', function mountRobotScene(root, bus) {
     sc.models.forEach(function (m) {
       makeUrdfLoader().load(sceneBase + m.urdf, function (obj) {
         const entry = { name: m.name, prefix: m.prefix || '', identifier: m.identifier, robot: !!m.robot,
-          preserveMaterials: m.preserveMaterials === true, obj: obj };
+          preserveMaterials: m.preserveMaterials === true, castsShadows: m.castsShadows !== false, obj: obj };
         models.push(entry);
         robotModel = ModelPoses.primary(models, sc.robot);
         if (m.pose) setPose(obj, m.pose, m.pose, 0);
@@ -785,6 +783,8 @@ Panels.define('robot-scene', function mountRobotScene(root, bus) {
         const mats = Array.isArray(c.material) ? c.material : [c.material];
         mats.forEach(function (m) { entry.robot ? tameMat(m) : themeEnvironment(m, link); });
       }
+      // a scanned building is drawn once a frame, not a second time into the shadow map
+      if (entry.castsShadows === false) c.castShadow = false;
       lightingOf(entry).applyTo(c);
     });
   }
@@ -2011,11 +2011,12 @@ Panels.define('robot-scene', function mountRobotScene(root, bus) {
   // %% SSAO
   let composer = null, ssaoPass = null;
   (function setupSSAO() {
-    if (!(THREE.EffectComposer && THREE.RenderPass && window.BackgroundIgnoringSSAOPass && THREE.ShaderPass && THREE.CopyShader)) return;
+    if (!(THREE.EffectComposer && window.BackgroundIgnoringSSAOPass && THREE.ShaderPass && THREE.CopyShader)) return;
     try {
       const w = container.clientWidth || 800, h = container.clientHeight || 600;
       composer = new THREE.EffectComposer(renderer);
-      composer.addPass(new THREE.RenderPass(scene3, camera));
+      // the occlusion pass draws the scene itself, into its own beauty buffer; a
+      // render pass before it would draw everything once more and be read by nothing
       ssaoPass = new BackgroundIgnoringSSAOPass(scene3, camera, w, h);
       ssaoPass.kernelRadius = 0.12;
       ssaoPass.minDistance = 0.001;
@@ -2040,12 +2041,6 @@ Panels.define('robot-scene', function mountRobotScene(root, bus) {
     if (!running) return;
     requestAnimationFrame(tick);
     const elapsedSeconds = clock.getDelta();
-    // imported models finish loading asynchronously, so their materials are re-tamed
-    // for a while after mount; once that window closes the loop goes on-demand again
-    if (models.length && clock.getElapsedTime() < MATERIAL_SETTLE_SECONDS) {
-      upgradeMaterials();
-      needsRender = true;
-    }
     if (replayClip) stepReplay();
     const arrowKeys = Object.keys(highlightArrows);
     if (arrowKeys.length) {

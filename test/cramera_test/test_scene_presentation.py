@@ -259,3 +259,75 @@ class TestPresentationSignature:
         )
 
         assert first.signature() == following.signature()
+
+
+# %% whether the environment is drawn into the shadow map
+
+
+class TestEnvironmentShadows:
+    def test_an_environment_casts_shadows_unless_the_source_says_otherwise(
+        self, source_presentation
+    ):
+        presentation = ScenePresentation.from_json(source_presentation)
+
+        assert presentation.environment_casts_shadows is True
+
+    def test_a_source_whose_environment_casts_no_shadows_is_read_so(
+        self, source_presentation
+    ):
+        for model in source_presentation[PresentationField.MODELS]:
+            if not model[PresentationField.ROBOT]:
+                model[PresentationField.CASTS_SHADOWS] = False
+
+        presentation = ScenePresentation.from_json(source_presentation)
+
+        assert presentation.environment_casts_shadows is False
+
+    def test_a_robot_casting_no_shadows_does_not_speak_for_the_environment(
+        self, source_presentation
+    ):
+        for model in source_presentation[PresentationField.MODELS]:
+            if model[PresentationField.ROBOT]:
+                model[PresentationField.CASTS_SHADOWS] = False
+
+        presentation = ScenePresentation.from_json(source_presentation)
+
+        assert presentation.environment_casts_shadows is True
+
+    def test_the_live_bundle_keeps_the_environment_out_of_the_shadow_map(
+        self, monkeypatch, tmp_path
+    ):
+        scenes = use_scratch_scenes_directory(monkeypatch, tmp_path)
+        bridge = attached_bridge(with_robot=True)
+        bridge.presentation = ScenePresentation(environment_casts_shadows=False)
+
+        build_live_scene(bridge)
+        scene = scene_payload(scenes)
+
+        assert [
+            model.get(PresentationField.CASTS_SHADOWS)
+            for model in scene[PresentationField.MODELS]
+        ] == [False, None]
+
+    def test_the_live_bundle_says_nothing_about_shadows_an_environment_casts(
+        self, monkeypatch, tmp_path
+    ):
+        scenes = use_scratch_scenes_directory(monkeypatch, tmp_path)
+        bridge = attached_bridge(with_robot=True)
+        bridge.presentation = ScenePresentation()
+
+        build_live_scene(bridge)
+        scene = scene_payload(scenes)
+
+        assert all(
+            PresentationField.CASTS_SHADOWS not in model
+            for model in scene[PresentationField.MODELS]
+        )
+
+    def test_taking_the_environment_out_of_the_shadow_map_changes_the_signature(
+        self,
+    ):
+        assert (
+            ScenePresentation(environment_casts_shadows=False).signature()
+            != ScenePresentation().signature()
+        )
