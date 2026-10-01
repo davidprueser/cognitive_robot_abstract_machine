@@ -25,6 +25,10 @@ from semantic_digital_twin.spatial_types import (
     Pose,
 )
 from semantic_digital_twin.world import World
+from giskardpy.motion_statechart.tasks.cartesian_tasks import (
+    CartesianOrientation,
+    CartesianPosition,
+)
 from semantic_digital_twin.world_description.connections import OmniDrive
 from semantic_digital_twin.world_description.geometry import (
     VolumetricBoundingBox,
@@ -384,6 +388,28 @@ class RobotNavigationPath:
     """
     Face each travel segment when a route with room for base rotation is available.
     """
+
+    @property
+    def linear_velocity_limit(self) -> float:
+        """
+        How fast the base may travel, in metres per second: its drive's own limit on
+        the forward velocity, or the Cartesian task's reference velocity where the drive
+        states none.
+        """
+        limit = self.robot.drive.x_velocity.limits.upper.velocity
+        return CartesianPosition.default_reference_velocity if limit is None else limit
+
+    @property
+    def angular_velocity_limit(self) -> float:
+        """
+        How fast the base may turn, in radians per second: its drive's own limit on the
+        yaw velocity, or the Cartesian task's reference velocity where the drive states
+        none.
+        """
+        limit = self.robot.drive.yaw.limits.upper.velocity
+        return (
+            CartesianOrientation.default_reference_velocity if limit is None else limit
+        )
 
     @property
     def resting_contact_depth(self) -> float:

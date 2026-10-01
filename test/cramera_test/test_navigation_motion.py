@@ -89,6 +89,31 @@ def test_navigation_uses_a_continuous_controller(
         assert chart.tip_link is robot.root
 
 
+def test_navigation_drives_as_fast_as_the_drive_allows(pr2_world_copy: World) -> None:
+    """
+    A route segment asks for the drive's own velocity limits rather than the Cartesian
+    task's generic reference velocity, so a robot crosses a hall at the speed its
+    description states.
+
+    :param pr2_world_copy: Independent annotated PR2 world.
+    """
+    world = pr2_world_copy
+    robot = world.get_semantic_annotations_by_type(PR2)[0]
+    target = Pose.from_xyz_rpy(2.0, 0.0, 0.0, reference_frame=world.root)
+    motion = MoveMotion(target=target)
+    execute_single(motion, context=Context(world=world, robot=robot))
+    with simulated_robot:
+        chart = motion.motion_chart
+
+    segment = chart.create_segment(robot.root.global_pose, target, final=True)
+
+    assert (
+        segment.reference_linear_velocity
+        == robot.drive.x_velocity.limits.upper.velocity
+    )
+    assert segment.reference_angular_velocity == robot.drive.yaw.limits.upper.velocity
+
+
 # %% observed execution
 
 

@@ -150,6 +150,7 @@ class CollisionAvoidingNavigation(Sequence):
                     root_link=self.path.world.root,
                     tip_link=robot.root,
                     goal_orientation=target.to_rotation_matrix(),
+                    reference_velocity=self.path.angular_velocity_limit,
                     threshold=self.path.waypoint_tolerance,
                 )
             return DifferentialDriveBaseGoal(
@@ -166,10 +167,14 @@ class CollisionAvoidingNavigation(Sequence):
             and not complete_orientation
             else CartesianPose
         )
+        # at the drive's own limits rather than the Cartesian task's generic reference
+        # velocity, which would walk a humanoid across a hall at a third of its speed
         return controller(
             root_link=self.path.world.root,
             tip_link=robot.root,
             goal_pose=target,
+            reference_linear_velocity=self.path.linear_velocity_limit,
+            reference_angular_velocity=self.path.angular_velocity_limit,
             translation_threshold=self.path.waypoint_tolerance,
             orientation_threshold=self.path.waypoint_tolerance,
         )
