@@ -27,6 +27,7 @@ from semantic_digital_twin.spatial_types import (
     Vector3,
 )
 from semantic_digital_twin.spatial_types.derivatives import DerivativeMap
+from semantic_digital_twin.api import RobotSpecification
 from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.connections import (
     OmniDrive,
@@ -946,6 +947,42 @@ class TestBundleSignature:
         bridge.observe_model_change()
 
         assert bridge.bundle_signature() != before
+
+    @staticmethod
+    def _robot_world(odom: Body) -> World:
+        world = World()
+        root = Body(name=PrefixedName("root", prefix="world"))
+        base = Body(name=PrefixedName("base_link", prefix="walker"))
+        with world.modify_world():
+            world.add_body(root)
+            world.add_connection(FixedConnection(parent=root, child=odom))
+            world.add_connection(FixedConnection(parent=odom, child=base))
+        return world
+
+    def test_a_generated_odom_namespace_keeps_the_signature_across_runs(self):
+        """
+        A robot spawned without a namespace gets an odom named by a fresh identifier
+        each run; the same scene must not make the viewer reload a bundle it still
+        describes.
+        """
+        signatures = []
+        for _ in range(2):
+            bridge = Bridge()
+            bridge.attach(self._robot_world(RobotSpecification._create_odom_body()))
+            signatures.append(bridge.bundle_signature())
+
+        assert signatures[0] == signatures[1]
+
+    def test_a_namespace_given_by_hand_still_tells_scenes_apart(self):
+        signatures = []
+        for prefix in ("walker_a", "walker_b"):
+            bridge = Bridge()
+            bridge.attach(
+                self._robot_world(RobotSpecification._create_odom_body(prefix))
+            )
+            signatures.append(bridge.bundle_signature())
+
+        assert signatures[0] != signatures[1]
 
     def test_reparenting_an_overlay_object_keeps_the_signature(self):
         """

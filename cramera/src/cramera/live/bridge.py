@@ -838,6 +838,23 @@ class BridgeStatus:
         return payload
 
 
+def _signed_name(body: Any) -> str:
+    """
+    The name a body stands under in the bundle signature.
+
+    A robot spawned without a namespace of its own gets an ``odom`` namespaced by the
+    body's own identifier, which is new every run. That says nothing about the scene, so
+    such a body is signed by its bare name, and the same scene keeps its signature from
+    one run to the next.
+
+    :param body: The body to name.
+    :return: Its name, without a namespace generated from its own identifier.
+    """
+    name = body.name
+    if getattr(name, "prefix", None) == str(getattr(body, "id", None)):
+        return name.name
+    return str(name)
+
 @dataclass
 class Bridge:
     """
@@ -1437,15 +1454,14 @@ class Bridge:
         entries: List[str] = []
         try:
             for body in self.world.bodies:
-                name = str(body.name)
                 if body in overlay_bodies:
                     continue
                 connection = body.parent_connection
                 entries.append(
                     "%s<-%s:%s"
                     % (
-                        name,
-                        str(connection.parent.name) if connection else "",
+                        _signed_name(body),
+                        _signed_name(connection.parent) if connection else "",
                         type(connection).__name__ if connection else "root",
                     )
                 )
