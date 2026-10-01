@@ -15,7 +15,10 @@ from semantic_digital_twin.pipeline.mesh_decomposition.bounding_box import (
     BoundingBoxDecomposer,
 )
 from semantic_digital_twin.pipeline.pipeline import Pipeline
-from semantic_digital_twin.semantic_annotations.semantic_annotations import Door
+from semantic_digital_twin.semantic_annotations.semantic_annotations import (
+    Door,
+    Floor,
+)
 from semantic_digital_twin.semantic_annotations.usd_semantics import (
     UsdSemanticLabels,
     UsdStageOrigin,
@@ -39,6 +42,7 @@ from .usd_stages import (
     build_scene_stage_with_a_door_on_a_hinge,
     build_scene_stage_with_a_guide_under_a_prim_of_its_own,
     build_scene_stage_with_a_scaled_group,
+    build_scene_stage_with_a_labelled_floor,
     build_scene_stage_with_grouped_instances,
     build_scene_stage_with_nested_objects,
     build_scene_stage_with_repeated_container_names,
@@ -221,6 +225,32 @@ def test_parse_attaches_semantic_labels_to_the_object_they_are_authored_on():
     ]
     assert annotation.root is body_named(world, "wall_a")
     assert annotation.labels == ["wall"]
+
+
+@pytest.mark.skipif(
+    not USD_SEMANTICS_AVAILABLE, reason="usd-core predates UsdSemantics"
+)
+def test_an_object_in_a_prim_labelled_floor_is_a_floor():
+    world = parse(build_scene_stage_with_a_labelled_floor())
+
+    [floor] = world.get_semantic_annotations_by_type(Floor)
+
+    assert floor.root is body_named(world, "floor_a")
+
+
+@pytest.mark.skipif(
+    not USD_SEMANTICS_AVAILABLE, reason="usd-core predates UsdSemantics"
+)
+def test_an_object_labelled_otherwise_is_no_floor():
+    world = parse(build_scene_stage_with_a_labelled_floor("Wall"))
+
+    assert world.get_semantic_annotations_by_type(Floor) == []
+
+
+def test_an_unlabelled_stage_has_no_floor():
+    world = parse(build_scene_stage_with_grouped_instances())
+
+    assert world.get_semantic_annotations_by_type(Floor) == []
 
 
 # %% root placement

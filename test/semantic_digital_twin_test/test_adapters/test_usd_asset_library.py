@@ -8,6 +8,7 @@ from PIL import Image
 from semantic_digital_twin.adapters.usd.asset_library import (
     ASSETS_DIRECTORY,
     BASE_LAYER_NAME,
+    CATEGORY_TAXONOMY,
     DEFAULT_PART_NAME,
     GEOMETRIES_LAYER_NAME,
     INSTANCES_LAYER_NAME,
@@ -34,11 +35,14 @@ from semantic_digital_twin.adapters.usd.stage_parser import (
     Usd,
     UsdGeom,
     UsdPhysics,
+    UsdSemantics,
     UsdShade,
 )
+from semantic_digital_twin.semantic_annotations.semantic_annotations import Floor
 
 from .usd_stages import (
     PXR_AVAILABLE,
+    USD_SEMANTICS_AVAILABLE,
     build_scene_stage_with_a_cube_floor,
     build_scene_stage_with_a_triangle_soup,
     build_scene_stage_with_an_object_of_several_faces,
@@ -479,6 +483,35 @@ def test_the_library_parses_into_the_scene_the_stage_described(tmp_path):
     assert sorted(placed_bodies(from_library).values()) == sorted(
         placed_bodies(from_source).values()
     )
+
+
+@pytest.mark.skipif(
+    not USD_SEMANTICS_AVAILABLE, reason="usd-core predates UsdSemantics"
+)
+def test_every_category_scope_is_labelled_with_its_category(tmp_path):
+    split = written_library(tmp_path)
+
+    labels = {
+        scope.GetName(): list(
+            UsdSemantics.LabelsAPI.Get(scope, CATEGORY_TAXONOMY).GetLabelsAttr().Get()
+        )
+        for scope in split.library.GetDefaultPrim().GetChildren()
+        if scope.IsA(UsdGeom.Scope)
+    }
+
+    assert labels == {"Wall": ["Wall"], "Floor": ["Floor"]}
+
+
+@pytest.mark.skipif(
+    not USD_SEMANTICS_AVAILABLE, reason="usd-core predates UsdSemantics"
+)
+def test_what_a_library_holds_as_floor_is_read_back_as_a_floor(tmp_path):
+    split = written_library(tmp_path)
+
+    world = USDSceneParser.from_file(str(split.world_layer), prefix="scene").parse()
+
+    [floor] = world.get_semantic_annotations_by_type(Floor)
+    assert floor.root.name.name.startswith("floor_a")
 
 
 # %% cutting an object into parts

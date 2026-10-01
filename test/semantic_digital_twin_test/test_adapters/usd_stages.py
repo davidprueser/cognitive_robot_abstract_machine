@@ -468,6 +468,23 @@ def build_scene_stage_with_semantic_labels() -> Usd.Stage:
     return stage
 
 
+def build_scene_stage_with_a_labelled_floor(label: str = "Floor") -> Usd.Stage:
+    """
+    A minimal in-memory stage like :func:`build_scene_stage_with_grouped_instances`,
+    with the floor labelled as a scanned building labels its objects: on the object as a
+    whole, above the prim whose geometry it is made of.
+
+    :param label: The label the floor carries.
+    :return: The built in-memory stage.
+    """
+    stage = build_scene_stage_with_grouped_instances()
+    UsdSemantics.LabelsAPI.Apply(
+        stage.GetPrimAtPath("/scene/Floor"), "class"
+    ).CreateLabelsAttr().Set([label])
+
+    return stage
+
+
 def build_usdz_package_with_a_textured_mesh(
     directory: Path, texture_file_path: str
 ) -> str:

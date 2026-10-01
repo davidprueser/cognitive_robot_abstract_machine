@@ -5,6 +5,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
+from types import NoneType
 
 import numpy as np
 from numpy.typing import NDArray
@@ -22,6 +23,7 @@ from semantic_digital_twin.adapters.usd.stage_parser import (
     Usd,
     UsdGeom,
     UsdPhysics,
+    UsdSemantics,
     UsdShade,
     Vt,
     downscaled_texture_path,
@@ -31,6 +33,12 @@ from semantic_digital_twin.adapters.usd.stage_parser import (
 )
 
 # %% the layout a library is written in
+
+CATEGORY_TAXONOMY = "class"
+"""
+The semantic taxonomy a category scope labels what it holds under, the one USD's own
+schema names for what a thing is.
+"""
 
 WORLD_LAYER_NAME = "world.usda"
 """
@@ -893,9 +901,7 @@ class USDAssetLibrary:
         return surfaces
 
     @staticmethod
-    def _sole_part_name(
-        surfaces: List[UsdGeom.Gprim], surface: UsdGeom.Gprim
-    ) -> str:
+    def _sole_part_name(surfaces: List[UsdGeom.Gprim], surface: UsdGeom.Gprim) -> str:
         """
         :param surfaces: Every surface the object holds.
         :param surface: The one being named.
@@ -903,9 +909,7 @@ class USDAssetLibrary:
             surface names its part the same way whatever the stage called it, and one
             made of several keeps the names telling them apart.
         """
-        return (
-            DEFAULT_PART_NAME if len(surfaces) == 1 else surface.GetPrim().GetName()
-        )
+        return DEFAULT_PART_NAME if len(surfaces) == 1 else surface.GetPrim().GetName()
 
     def _write_geometries(
         self, object_prim: Usd.Prim, files: AssetFiles, parts: List[PartGeometry]
@@ -1328,7 +1332,8 @@ class USDAssetLibrary:
 
         The placement carries the prim's whole world transform, because the asset was
         written in a space of its own, so the groups it sits under are left as plain
-        scopes that only say what a thing is.
+        scopes that only say what a thing is: each is labelled with its category, so
+        that a reader of the world can tell a floor to stand on from a wall.
 
         :param world: The world stage to place the asset in.
         :param root_path: The path every placement sits beneath.
@@ -1338,7 +1343,11 @@ class USDAssetLibrary:
         category = object_prim.GetParent().GetName()
         parent_path = root_path.AppendChild(category) if category else root_path
         if category:
-            UsdGeom.Scope.Define(world, parent_path)
+            scope = UsdGeom.Scope.Define(world, parent_path).GetPrim()
+            if UsdSemantics is not NoneType:
+                UsdSemantics.LabelsAPI.Apply(
+                    scope, CATEGORY_TAXONOMY
+                ).CreateLabelsAttr().Set([category])
 
         placement = UsdGeom.Xform.Define(world, parent_path.AppendChild(files.name))
         placement.GetPrim().GetReferences().AddReference(
