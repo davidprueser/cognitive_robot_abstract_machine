@@ -1,0 +1,17 @@
+#usda 1.0
+(
+    defaultPrim = "surface"
+    metersPerUnit = 1
+    upAxis = "Z"
+)
+
+# The smallest scanned building: one surface, a quad, with nothing else in the stage.
+def Xform "surface"
+{
+    def Mesh "mesh"
+    {
+        int[] faceVertexCounts = [4]
+        int[] faceVertexIndices = [0, 1, 2, 3]
+        point3f[] points = [(0, 0, 0), (1, 0, 0), (1, 1, 0), (0, 1, 0)]
+    }
+}

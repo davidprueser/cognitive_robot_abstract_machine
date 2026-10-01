@@ -1320,6 +1320,7 @@ class WorldSpecification:
         prefix: str | None = None,
         path_resolver: PathResolver | None = None,
         root_placement: RootPlacement | None = None,
+        maximum_texture_size: int | None = None,
         robots: list[RobotSpecification] | None = None,
         objects: list[SpawnSpecification] | None = None,
     ) -> Self:
@@ -1332,6 +1333,8 @@ class WorldSpecification:
         :param path_resolver: Resolver for the asset references of the stage.
         :param root_placement: Where the environment's root is placed, or ``None`` for
             the parser's own default.
+        :param maximum_texture_size: Longest side a texture of the stage may have, in
+            pixels, or ``None`` to keep each at the size it was authored.
         :param robots: The robots merged into the environment.
         :param objects: Specifications spawned once the robots are in place.
         :return: The created specification.
@@ -1343,6 +1346,7 @@ class WorldSpecification:
         )
         if root_placement is not None:
             world_parser.root_placement = root_placement
+        world_parser.maximum_texture_size = maximum_texture_size
         return cls(
             world_parser=world_parser,
             robots=robots or [],

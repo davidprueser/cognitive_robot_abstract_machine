@@ -366,3 +366,19 @@ def test_a_setup_in_a_map_environment_is_refused() -> None:
 
     assert refused.value.map == ApartmentEnvironment.__name__
     assert isinstance(refused.value, MalformedSetupError)
+
+
+def test_a_setup_keeps_how_big_the_textures_of_its_scan_are_drawn(
+    tmp_path: Path,
+) -> None:
+    setup = DemoSetup(
+        environment=USDSceneEnvironmentFile(
+            path="/somewhere/world.usda", maximum_texture_size=2048
+        ),
+        robots=[looking_robot()],
+    )
+    setup.save(tmp_path / "demo.json")
+
+    assert DemoSetup.load(tmp_path / "demo.json").environment.maximum_texture_size == (
+        2048
+    )

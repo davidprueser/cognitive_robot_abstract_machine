@@ -223,3 +223,22 @@ def test_a_scene_stands_the_environments_joints_where_it_is_told() -> None:
 
     [opened] = [c for c in world.connections if str(c.name) == str(hinge.name)]
     assert opened.position == pytest.approx(1.2)
+
+
+# %% how big the textures of a scan are drawn
+
+SCANNED_SURFACE = DATASET / "scanned_surface.usda"
+
+
+def test_a_scan_is_read_with_its_textures_capped_as_its_file_says() -> None:
+    environment = USDSceneEnvironmentFile(
+        path=str(SCANNED_SURFACE), maximum_texture_size=2048
+    )
+
+    assert environment.specification().world_parser.maximum_texture_size == 2048
+
+
+def test_a_scan_keeps_its_textures_as_authored_unless_its_file_says() -> None:
+    environment = USDSceneEnvironmentFile(path=str(SCANNED_SURFACE))
+
+    assert environment.specification().world_parser.maximum_texture_size is None

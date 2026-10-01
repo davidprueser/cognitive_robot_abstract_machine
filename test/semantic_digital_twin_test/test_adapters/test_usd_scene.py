@@ -343,6 +343,29 @@ def test_parse_draws_the_scene_unlit_when_asked(tmp_path):
     )
 
 
+# %% texture size
+
+
+def test_a_world_specification_caps_the_textures_of_its_scene(tmp_path):
+    scene_file = tmp_path / "scene.usda"
+    build_scene_stage_with_grouped_instances().Export(str(scene_file))
+
+    specification = WorldSpecification.from_usd_scene(
+        str(scene_file), maximum_texture_size=2048
+    )
+
+    assert specification.world_parser.maximum_texture_size == 2048
+
+
+def test_a_world_specification_keeps_the_textures_of_its_scene_unless_told(tmp_path):
+    scene_file = tmp_path / "scene.usda"
+    build_scene_stage_with_grouped_instances().Export(str(scene_file))
+
+    specification = WorldSpecification.from_usd_scene(str(scene_file))
+
+    assert specification.world_parser.maximum_texture_size is None
+
+
 # %% collision geometry
 
 

@@ -20,7 +20,7 @@ from semantic_digital_twin.api import (
     SpawnSpecification,
     WorldSpecification,
 )
-from typing_extensions import ClassVar, Sequence, Tuple
+from typing_extensions import ClassVar, Optional, Sequence, Tuple
 
 
 @dataclass
@@ -145,6 +145,16 @@ class USDSceneEnvironmentFile(EnvironmentFile):
     it is stood on its own ground unless it says otherwise.
     """
 
+    maximum_texture_size: Optional[int] = None
+    """
+    Longest side a texture of the scan may have in the viewer, in pixels, or ``None`` to
+    draw each at the size it was scanned.
+
+    A scanned surface can carry a texture of a hundred megapixels, and a viewer holds
+    every one of them decoded on the graphics card at once, whatever the size of the
+    file it came from.
+    """
+
     def specification(
         self,
         robots: Sequence[RobotSpecification] = (),
@@ -153,6 +163,7 @@ class USDSceneEnvironmentFile(EnvironmentFile):
         return WorldSpecification.from_usd_scene(
             self.path,
             root_placement=self.root_placement,
+            maximum_texture_size=self.maximum_texture_size,
             robots=list(robots),
             objects=list(objects),
         )
