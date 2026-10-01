@@ -177,6 +177,32 @@ def test_material_textures_resolve_relative_to_their_library(tmp_path: Path) -> 
     assert (output / "materials" / texture.name).read_bytes() == texture.read_bytes()
 
 
+def test_a_self_contained_mesh_is_not_read_for_side_assets(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """
+    A binary glTF carries its textures inside; reading a scanned building's gigabyte of
+    them as text to look for references finds nothing and takes many seconds.
+
+    :param tmp_path: Isolated source model and bundle directories.
+    :param monkeypatch: Trips the test the moment the mesh is read.
+    """
+    mesh = tmp_path / "surface.glb"
+    mesh.write_bytes(b"glTF" + b"\x00" * 64)
+    output = tmp_path / "bundle"
+    bundled_mesh = output / "meshes" / mesh.name
+    assets = BundledAssets(bundle_root=str(output))
+    assert assets.copy(str(mesh), str(bundled_mesh))
+
+    def refuse_to_read(path: Path) -> bytes:
+        pytest.fail(f"{path} was read although a glTF names no side assets")
+
+    monkeypatch.setattr(Path, "read_bytes", refuse_to_read)
+    assets.copy_side_assets(str(mesh), str(bundled_mesh))
+
+    assert assets.missing == []
+
+
 @pytest.mark.parametrize("reference_kind", ["absolute", "file", "relative"])
 def test_valid_local_mesh_references_stay_inside_bundle(
     source_document: Path, mesh_source: Path, tmp_path: Path, reference_kind: str

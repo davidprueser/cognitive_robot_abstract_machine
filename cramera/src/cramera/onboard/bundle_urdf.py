@@ -274,20 +274,20 @@ class BundledAssets:
         :param source_mesh: Path of the resolved source mesh.
         :param bundled_mesh: Path the mesh was copied to inside the bundle.
         """
+        mesh_format = MeshFormat.of_path(source_mesh)
         if not os.path.isfile(source_mesh):
+            return
+        if mesh_format is None or not mesh_format.names_side_assets:
             return
         source_directory = os.path.dirname(source_mesh)
         bundled_directory = os.path.dirname(bundled_mesh)
         mesh_text = Path(source_mesh).read_bytes().decode("utf-8", "replace")
-        mesh_format = MeshFormat.of_path(source_mesh)
         if mesh_format is MeshFormat.DAE:
             references = set(self.TEXTURE_PATTERN.findall(mesh_text))
-        elif mesh_format is MeshFormat.OBJ:
+        else:
             references = self._object_side_references(
                 mesh_text, source_directory, bundled_directory
             )
-        else:
-            return
         for reference in references:
             relative_reference = reference.strip()
             source = os.path.normpath(

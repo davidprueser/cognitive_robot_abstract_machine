@@ -34,6 +34,14 @@ class MeshFormat(StrEnum):
     Binary glTF, which carries its geometry, materials and textures in one file.
     """
 
+    @property
+    def names_side_assets(self) -> bool:
+        """
+        Whether a file of this format names its materials or textures in files beside
+        it, which a copy of the mesh has to bring along.
+        """
+        return self in (MeshFormat.OBJ, MeshFormat.DAE)
+
     @classmethod
     def suffixes(cls) -> Tuple[str, ...]:
         """

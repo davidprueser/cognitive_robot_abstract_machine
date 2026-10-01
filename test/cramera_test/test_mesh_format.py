@@ -29,3 +29,15 @@ class TestMeshFormatOfPath:
 class TestMeshFormatSuffixes:
     def test_every_member_contributes_its_suffix(self):
         assert MeshFormat.suffixes() == (".stl", ".obj", ".dae", ".glb")
+
+
+class TestMeshFormatSideAssets:
+    @pytest.mark.parametrize("mesh_format", [MeshFormat.OBJ, MeshFormat.DAE])
+    def test_a_format_naming_its_materials_in_other_files_has_side_assets(
+        self, mesh_format
+    ):
+        assert mesh_format.names_side_assets is True
+
+    @pytest.mark.parametrize("mesh_format", [MeshFormat.STL, MeshFormat.GLB])
+    def test_a_self_contained_format_has_no_side_assets(self, mesh_format):
+        assert mesh_format.names_side_assets is False
