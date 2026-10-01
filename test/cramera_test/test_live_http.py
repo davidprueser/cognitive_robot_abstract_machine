@@ -96,6 +96,32 @@ def publish_mesh_object(
     return mesh_file
 
 
+@pytest.fixture()
+def standing_bridge(bridge):
+    """
+    The bridge bound to a world of one standing robot, as a running demo's would be.
+    """
+    from cramera.multi_robot import RobotInstance, RobotScene
+    from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
+
+    from .dataset.standing_robot import StandingRobot
+
+    scene = RobotScene(
+        instances=[
+            RobotInstance(
+                identifier="standing",
+                label="Standing robot",
+                robot_type=StandingRobot,
+                pose=HomogeneousTransformationMatrix.from_xyz_rpy(x=1.0),
+            )
+        ],
+        active_identifier="standing",
+    )
+    bridge.world = scene.build_world()
+    bridge.bind()
+    return bridge
+
+
 class TestReadOnlyEndpoints:
     def test_state_reflects_a_fresh_bridge(self, server):
         assert get_json(server + "/state") == {
@@ -165,28 +191,6 @@ class TestDemoSetup:
     robots to try out another one.
     """
 
-    @pytest.fixture()
-    def standing_bridge(self, bridge):
-        from cramera.multi_robot import RobotInstance, RobotScene
-        from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
-
-        from .dataset.standing_robot import StandingRobot
-
-        scene = RobotScene(
-            instances=[
-                RobotInstance(
-                    identifier="standing",
-                    label="Standing robot",
-                    robot_type=StandingRobot,
-                    pose=HomogeneousTransformationMatrix.from_xyz_rpy(x=1.0),
-                )
-            ],
-            active_identifier="standing",
-        )
-        bridge.world = scene.build_world()
-        bridge.bind()
-        return bridge
-
     def test_a_demo_that_registered_no_setup_says_so(self, server):
         assert get_json(server + "/setup")["ok"] is False
 
@@ -199,6 +203,7 @@ class TestDemoSetup:
         assert get_json(server + "/setup") == {
             "ok": True,
             "setup": json.loads(json.dumps(setup.to_payload())),
+            "servesPlans": False,
         }
 
     def test_a_robot_is_moved_where_it_is_asked_to_stand(self, standing_bridge, server):
@@ -246,6 +251,72 @@ class TestDemoSetup:
         )
 
         assert status == 400
+
+
+class TestPlanRuns:
+    """
+    The Plan Builder has a robot of the running demo perform its plan, where the demo
+    serves plans.
+    """
+
+    PARKING = [{"type": "park_arms", "params": {"arm": "BOTH"}}]
+    """
+    A plan of one step, in the builder's form.
+    """
+
+    @pytest.fixture()
+    def performed(self, standing_bridge):
+        """
+        The plans the demo was asked to perform, as (robot, plan) pairs.
+        """
+        performed = []
+        standing_bridge.serve_plans(lambda robot, plan: performed.append((robot, plan)))
+        return performed
+
+    def test_a_demo_serving_no_plans_refuses_one(self, standing_bridge, server):
+        status, answer = post(
+            server + "/plan/run", {"identifier": "standing", "steps": self.PARKING}
+        )
+
+        assert status == 409 and "no plans" in answer["error"]
+
+    def test_a_served_plan_is_handed_to_the_demo_for_the_named_robot(
+        self, standing_bridge, performed, server
+    ):
+        status, answer = post(
+            server + "/plan/run", {"identifier": "standing", "steps": self.PARKING}
+        )
+
+        [(robot, plan)] = performed
+        assert status == 200 and answer["ok"]
+        assert robot is standing_bridge.robot
+        assert plan.to_payload() == self.PARKING
+
+    def test_a_plan_without_steps_is_refused(self, standing_bridge, performed, server):
+        status, _ = post(server + "/plan/run", {"identifier": "standing", "steps": []})
+
+        assert status == 400 and not performed
+
+    def test_a_plan_for_a_robot_the_world_does_not_have_is_refused(
+        self, standing_bridge, performed, server
+    ):
+        status, _ = post(
+            server + "/plan/run", {"identifier": "nobody", "steps": self.PARKING}
+        )
+
+        assert status == 400 and not performed
+
+    def test_the_setup_says_whether_the_demo_serves_plans(
+        self, standing_bridge, server
+    ):
+        from .test_demo_setup import setup_in
+
+        standing_bridge.register_setup(setup_in("/lab/world.usda"))
+        before = get_json(server + "/setup")["servesPlans"]
+        standing_bridge.serve_plans(lambda robot, plan: None)
+
+        assert before is False
+        assert get_json(server + "/setup")["servesPlans"] is True
 
 
 class TestJointMoves:

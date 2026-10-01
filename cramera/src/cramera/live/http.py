@@ -24,6 +24,8 @@ HTTP endpoints of the live bridge (default port 8765).
                       :mod:`cramera.live.transforms`)
     GET /recording  {state: idle|recording|finalized, frameCount, durationSeconds,
                       sceneName}  see :mod:`cramera.live.recording`
+    POST /plan/run  {identifier, model?, steps} start one robot of the running demo
+                     performing the Plan Builder's steps, where the demo serves plans
     POST /move   queue an object move (applied on the simulation thread)
     POST /joint  {joint, position, final?} queue a joint position set by hand in the
                   viewer (applied on the simulation thread, held within the joint's limits)
@@ -68,8 +70,11 @@ from cramera.live.bridge import (
     JointMoveRequest,
     MalformedJointMoveRequest,
     MalformedMoveRequest,
+    MalformedPlanRunRequest,
     MalformedRobotPlacementRequest,
     MoveRequest,
+    PlanRunRequest,
+    PlansNotServed,
     RobotPlacementRequest,
 )
 from cramera.live.teleop import (
@@ -341,6 +346,8 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
             return self.select_requested_robot()
         if self.path == "/robot/place":
             return self.place_requested_robot()
+        if self.path == "/plan/run":
+            return self.run_requested_plan()
         if self.path.startswith("/eql"):
             return self.answer_requested_query()
         if self.path.startswith("/question"):
@@ -394,6 +401,20 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
         except (RobotSelectionBusy, RobotPlacementNotFixedError) as error:
             return self._send_json({"ok": False, "error": str(error)}, code=409)
         return self._send_json({"ok": True, **self.bridge.get_robots()})
+
+    def run_requested_plan(self) -> None:
+        """
+        Start one robot of the running demo performing the Plan Builder's plan.
+        """
+        payload = self._posted_payload()
+        try:
+            request = PlanRunRequest.from_payload(payload or {})
+            self.bridge.run_plan(request)
+        except (MalformedPlanRunRequest, UnknownRobot) as error:
+            return self._send_json({"ok": False, "error": str(error)}, code=400)
+        except (PlansNotServed, RobotSelectionBusy) as error:
+            return self._send_json({"ok": False, "error": str(error)}, code=409)
+        return self._send_json({"ok": True})
 
     def _posted_payload(self) -> Optional[Dict[str, Any]]:
         """

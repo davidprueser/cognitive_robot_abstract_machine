@@ -1581,6 +1581,12 @@
   async function runPlan() {
     if (!steps.length) { liveStatus('add plan steps first', 'err'); return; }
     const my = ++_runMonitor;
+    if (attachedToRunningDemo) return runInRunningDemo(my);
+    // a demo this page did not start holds the bridge's port, so one started here would die
+    if (!liveOn && await runningDemoSetup()) {
+      liveStatus('a demo is already running — open “the running demo” under setups to run the plan in it, or stop that demo first', 'err');
+      return;
+    }
     beginBusy('Preparing plan — capturing the live scene');
     try { await synchronizeObjects(); }
     catch (error) { if (my === _runMonitor) liveStatus('Could not read object poses: ' + error.message, 'err'); return; }
@@ -1590,6 +1596,47 @@
     lastSpawnRobot = robotInfo().name;
     beginBusy('Running plan — parsing meshes'); hideScaffoldLog();
     return launchRun(code, true, my);
+  }
+  /** @returns {Promise<object|null>} The running demo's setup answer, or null when none runs. */
+  function runningDemoSetup() {
+    return fetch(bridgeUrl() + '/setup', {cache: 'no-store'})
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (answer) { return answer && answer.ok ? answer : null; })
+      .catch(function () { return null; });
+  }
+  /**
+   * Have the active robot of the running demo perform the steps, in the demo's own
+   * process, and follow the plan until it ends.
+   * @param {number} my Generation invalidated by a stop or newer launch.
+   */
+  async function runInRunningDemo(my) {
+    const instance = builderState.activeRobot();
+    if (!instance) { liveStatus('choose the robot to run the plan on', 'err'); return; }
+    beginBusy('Starting the plan in the running demo');
+    const previous = window.PlanBuilderState.planRoot(await fetchLivePlan());
+    if (my !== _runMonitor) return;
+    let answer;
+    try {
+      answer = await fetch(bridgeUrl() + '/plan/run', {method: 'POST', headers: {'content-type': 'application/json'},
+        body: JSON.stringify({identifier: instance.id, model: instance.model,
+          steps: steps.map(function (step) { return {type: step.type, params: Object.assign({}, step.params)}; })})})
+        .then(function (r) { return r.json(); });
+    } catch (error) { if (my === _runMonitor) liveStatus('the running demo cannot be reached: ' + error.message, 'err'); return; }
+    if (my !== _runMonitor) return;
+    if (!answer.ok) { liveStatus('not run: ' + (answer.error || '?'), 'err'); return; }
+    liveStatus(window.PlanBuilderState.RUN_PROGRESS.RUNNING.message, 'ok');
+    (function tick() {
+      if (my !== _runMonitor) return;
+      fetchLivePlan().then(function (snapshot) {
+        if (my !== _runMonitor) return;
+        const result = window.PlanBuilderState.planResult(snapshot, previous && previous.id);
+        if (result) {
+          liveStatus(result.message.replace('open the run log', 'see the scene\'s terminal'), result.style);
+          return;
+        }
+        setTimeout(tick, 1000);
+      });
+    })();
   }
   /**
    * Replace the scene while retaining the previous plan's identity.

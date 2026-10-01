@@ -30,6 +30,7 @@ from pathlib import Path
 
 from typing_extensions import (
     Any,
+    Callable,
     ClassVar,
     Dict,
     FrozenSet,
@@ -51,6 +52,7 @@ from semantic_digital_twin.spatial_types import (
 from giskardpy.motion_statechart.data_types import LifeCycleValues
 from cramera.logging_setup import get_logger
 from cramera.demo_setup import DemoSetup
+from cramera.plan_steps import BuilderPlan, MalformedPlanError
 from cramera.scene_presentation import ScenePresentation
 from cramera.multi_robot import move_robot_to
 from cramera.body_geometry import DrawnGeometry, POSE_PRECISION, rounded_pose
@@ -512,17 +514,96 @@ class RobotPlacementRequest:
         :return: The robot this request names.
         :raises UnknownRobot: If no robot, or no single one, answers to it.
         """
-        for robot in robots.robots():
-            if robots.identifier(robot) == self.identifier:
-                return robot
-        of_model = [
-            robot for robot in robots.robots() if type(robot).__name__ == self.model
-        ]
-        if len(of_model) != 1:
-            raise UnknownRobot(
-                f"no single robot is {self.identifier or self.model!r} in this world"
-            )
-        return of_model[0]
+        return robot_named(robots, self.identifier, self.model)
+
+
+def robot_named(robots: RobotModels, identifier: str, model: str) -> AbstractRobot:
+    """
+    :param robots: The robots of the world.
+    :param identifier: The robot's native namespace, or empty to name it by model.
+    :param model: The robot's annotation class, which names it where the world holds
+        only one robot of that class and the identifier is not the world's own.
+    :return: The robot so named.
+    :raises UnknownRobot: If no robot, or no single one, answers to it.
+    """
+    for robot in robots.robots():
+        if robots.identifier(robot) == identifier:
+            return robot
+    of_model = [robot for robot in robots.robots() if type(robot).__name__ == model]
+    if len(of_model) != 1:
+        raise UnknownRobot(f"no single robot is {identifier or model!r} in this world")
+    return of_model[0]
+
+
+class MalformedPlanRunRequest(ValueError):
+    """
+    Raised when a posted plan to run cannot be read.
+    """
+
+
+class PlanRunField(StrEnum):
+    """
+    The keys of a ``POST /plan/run`` body besides the robot's identity.
+    """
+
+    STEPS = "steps"
+
+
+@dataclass(frozen=True)
+class PlanRunRequest:
+    """
+    A plan the viewer's Plan Builder asks one robot of the running demo to perform.
+    """
+
+    identifier: str
+    """
+    The robot's native namespace, or empty to name it by model.
+    """
+
+    model: str
+    """
+    The robot's annotation class, which names it where the scene holds only one robot
+    of that class and the identifier is not the scene's own.
+    """
+
+    plan: BuilderPlan
+    """
+    The steps the robot performs, in order.
+    """
+
+    @classmethod
+    def from_payload(cls, payload: Dict[str, Any]) -> PlanRunRequest:
+        """
+        Build a request from a decoded ``POST /plan/run`` body.
+
+        :param payload: The decoded JSON body.
+        :raises MalformedPlanRunRequest: If the robot is not named, or the steps are
+            no plan or hold none.
+        """
+        identifier = payload.get(RobotField.IDENTIFIER) or ""
+        model = payload.get(RobotField.MODEL) or ""
+        if not identifier and not model:
+            raise MalformedPlanRunRequest("name the robot or its model")
+        try:
+            plan = BuilderPlan.from_payload(payload.get(PlanRunField.STEPS))
+        except MalformedPlanError as error:
+            raise MalformedPlanRunRequest(str(error)) from error
+        if not plan.steps:
+            raise MalformedPlanRunRequest("the plan has no steps")
+        return cls(str(identifier), str(model), plan)
+
+
+class PlansNotServed(RuntimeError):
+    """
+    Raised for a plan posted to a demo that performs no plans the viewer sends.
+    """
+
+
+PlanRunner = Callable[[AbstractRobot, BuilderPlan], None]
+"""
+Starts one robot of the running demo performing a plan, and returns without waiting for
+it to finish; the plan reports its progress to the viewer as any other plan does.
+"""
 
 
 @dataclass
@@ -855,6 +936,7 @@ def _signed_name(body: Any) -> str:
         return name.name
     return str(name)
 
+
 @dataclass
 class Bridge:
     """
@@ -943,6 +1025,12 @@ class Bridge:
     """
     The setup the running demo was brought up from, once it registers it, so the Plan
     Builder can open it.
+    """
+
+    plan_runner: Optional[PlanRunner] = None
+    """
+    What performs the plans the Plan Builder posts, once the running demo offers to;
+    ``None`` while it performs none.
     """
 
     _query_lock: threading.Lock = field(default_factory=threading.Lock)
@@ -1711,7 +1799,50 @@ class Bridge:
         """
         if self.demo_setup is None:
             return {"ok": False, "error": "the running demo registered no setup"}
-        return {"ok": True, "setup": self.demo_setup.to_payload()}
+        return {
+            "ok": True,
+            "setup": self.demo_setup.to_payload(),
+            "servesPlans": self.plan_runner is not None,
+        }
+
+    def serve_plans(self, runner: PlanRunner) -> None:
+        """
+        Let the Plan Builder have the running demo's robots perform its plans.
+
+        :param runner: Starts one robot performing one plan.
+        """
+        self.plan_runner = runner
+
+    def run_plan(self, request: PlanRunRequest) -> None:
+        """
+        Start one robot of the running demo performing a plan from the Plan Builder.
+
+        :param request: Which robot performs which steps.
+        :raises PlansNotServed: If the demo performs no plans the viewer sends.
+        :raises RobotSelectionBusy: If a plan is running or paused.
+        :raises UnknownRobot: If the requested robot is absent.
+        """
+        if self.plan_runner is None:
+            raise PlansNotServed(
+                "the running demo performs no plans from the viewer; start it with"
+                " plans served"
+            )
+        if self.is_performing():
+            raise RobotSelectionBusy("Wait for the current plan to finish")
+        robot = robot_named(
+            RobotModels(self.world, self.robot), request.identifier, request.model
+        )
+        self.plan_runner(robot, request.plan)
+
+    def is_performing(self) -> bool:
+        """
+        :return: Whether a plan is running or paused.
+        """
+        return any(
+            node.parent is None
+            and node.status in (TaskStatusName.RUNNING, TaskStatusName.PAUSE)
+            for node in self.plan_state.nodes
+        )
 
     def place_robot(self, request: RobotPlacementRequest) -> None:
         """
@@ -1722,11 +1853,7 @@ class Bridge:
         :raises UnknownRobot: If the requested robot is absent.
         :raises RobotPlacementNotFixedError: If the robot follows its localization.
         """
-        if any(
-            node.parent is None
-            and node.status in (TaskStatusName.RUNNING, TaskStatusName.PAUSE)
-            for node in self.plan_state.nodes
-        ):
+        if self.is_performing():
             raise RobotSelectionBusy(
                 "Wait for the current plan to finish before moving a robot"
             )
