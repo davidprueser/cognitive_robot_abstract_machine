@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from importlib.resources import files
 from enum import StrEnum
 from pathlib import Path
-from typing import Dict, Any
+from typing import Any, ClassVar, Dict
 from typing import List, Tuple, Optional
 from uuid import UUID
 
@@ -114,6 +114,13 @@ def trimesh_quantized_hash(
     return h.hexdigest()
 
 
+COLLISION_MARGIN = 0.001
+"""
+The collision margin of every bullet shape, in metres: the one the bindings give a
+convex hull, which this module gives its boxes and spheres as well.
+"""
+
+
 def create_cube_shape(extents: Tuple[float, float, float]) -> bullet.BoxShape:
     """
     Creates a bullet box shape.
@@ -126,7 +133,7 @@ def create_cube_shape(extents: Tuple[float, float, float]) -> bullet.BoxShape:
         if type(extents) is not bullet.Vector3
         else bullet.BoxShape(extents)
     )
-    out.margin = 0.001
+    out.margin = COLLISION_MARGIN
     return out
 
 
@@ -162,7 +169,7 @@ def create_sphere_shape(diameter: float) -> bullet.SphereShape:
     :return: the bullet sphere shape.
     """
     out = bullet.SphereShape(0.5 * diameter)
-    out.margin = 0.001
+    out.margin = COLLISION_MARGIN
     return out
 
 
@@ -399,6 +406,12 @@ def create_object(
 class BulletCollisionDetector(CollisionDetector):
     """
     Collision detector based on the giskard wrapper for bullet.
+    """
+
+    contact_margin: ClassVar[float] = COLLISION_MARGIN
+    """
+    The margin bullet keeps around a convex hull, outside the mesh it was made of; a
+    box and a sphere keep theirs inside, but a mesh resting on a box reads this deep.
     """
 
     kineverse_world: bullet.KineverseWorld = field(

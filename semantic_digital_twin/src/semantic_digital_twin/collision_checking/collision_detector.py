@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from uuid import UUID
 
 import numpy as np
-from typing_extensions import TYPE_CHECKING, Self
+from typing_extensions import TYPE_CHECKING, ClassVar, Self
 
 from krrood.symbolic_math.symbolic_math import (
     Matrix,
@@ -198,6 +198,13 @@ class CollisionDetectorStateUpdater(StateChangeCallback):
 class CollisionDetector(WorldEntityWithClassBasedID, abc.ABC):
     """
     Abstract class for collision detectors.
+    """
+
+    contact_margin: ClassVar[float] = 0.0
+    """
+    How far, in metres, the detector may extend a shape beyond the geometry it was made
+    of, so that two shapes merely touching can be reported this much apart into each
+    other, per shape.
     """
 
     world_model_updater: CollisionDetectorModelUpdater = field(init=False)

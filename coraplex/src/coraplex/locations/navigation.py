@@ -385,6 +385,18 @@ class RobotNavigationPath:
     Face each travel segment when a route with room for base rotation is available.
     """
 
+    @property
+    def resting_contact_depth(self) -> float:
+        """
+        How far into the floor a body merely resting on it may be reported: the
+        detector may extend both the body's shapes and the floor's beyond their
+        geometry, so a foot standing on the floor reads as in it by up to twice that.
+
+        :return: The depth, in metres.
+        """
+        detector = self.world.collision_manager.collision_detector
+        return self.geometry_tolerance + 2 * detector.contact_margin
+
     def support_contact_rules(self) -> list[AvoidCollisionBetweenGroups]:
         """
         Keep physical floor collision checks without demanding a gap below the base.
@@ -420,7 +432,7 @@ class RobotNavigationPath:
                         body_group_a=lower_bodies,
                         body_group_b=floor.bodies_with_collision,
                         buffer_zone_distance=0.0,
-                        violated_distance=-self.geometry_tolerance,
+                        violated_distance=-self.resting_contact_depth,
                     )
                 )
         return rules

@@ -57,7 +57,25 @@ def test_support_policy_retains_collision_checks(robot_with_floor: World) -> Non
     assert set(rule.body_group_a) == set(robot.bodies_with_collision)
     assert rule.body_group_b == [world.get_body_by_name("supporting_floor")]
     assert rule.buffer_zone_distance == 0.0
-    assert rule.violated_distance == -path.geometry_tolerance
+    assert rule.violated_distance == -path.resting_contact_depth
+
+
+def test_a_body_resting_on_the_floor_may_read_as_in_it_by_the_detectors_margins(
+    robot_with_floor: World,
+) -> None:
+    """
+    Bullet keeps a margin around a convex hull, so a foot standing on the floor reads
+    as slightly in it; that alone must not stop the robot from driving.
+    """
+    world = robot_with_floor
+    robot = world.get_semantic_annotations_by_type(AbstractRobot)[0]
+    path = RobotNavigationPath(world, robot, robot.root.global_pose)
+    margin = world.collision_manager.collision_detector.contact_margin
+
+    assert margin > 0.0
+    assert path.resting_contact_depth == pytest.approx(
+        path.geometry_tolerance + 2 * margin
+    )
 
 
 def test_floor_contact_scope_is_restored_after_driving(robot_with_floor: World) -> None:
