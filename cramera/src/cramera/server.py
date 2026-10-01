@@ -37,6 +37,7 @@ import http.server
 import json
 import logging
 import mimetypes
+import shutil
 import socketserver
 import sys
 import threading
@@ -44,6 +45,8 @@ import traceback
 import webbrowser
 from argparse import ArgumentParser
 from dataclasses import dataclass
+from enum import StrEnum
+from http import HTTPStatus
 from pathlib import Path
 from typing_extensions import Any, Callable, ClassVar, Dict, List, Optional
 from urllib.parse import parse_qs, urlparse
@@ -112,6 +115,51 @@ Krrood's SymbolGraph singleton is not threadsafe; queries are serialized.
 """
 
 
+class CacheHeader(StrEnum):
+    """
+    The headers that decide whether a browser keeps a response and how it asks whether
+    its copy still holds.
+    """
+
+    CACHE_CONTROL = "Cache-Control"
+    """
+    Whether the browser may keep the response at all.
+    """
+
+    ETAG = "ETag"
+    """
+    What the browser quotes back to ask whether its copy still holds.
+    """
+
+    LAST_MODIFIED = "Last-Modified"
+    """
+    When the file was last written.
+    """
+
+    IF_NONE_MATCH = "If-None-Match"
+    """
+    The validator a browser holding a copy sends with its request.
+    """
+
+
+class CachePolicy(StrEnum):
+    """
+    What a response tells the browser about keeping it.
+    """
+
+    FORBIDDEN = "no-store"
+    """
+    The browser keeps nothing: the page and its scripts, which are edited while a
+    browser holds them open.
+    """
+
+    REVALIDATE = "no-cache"
+    """
+    The browser keeps its copy but asks before using it again: a scene's files, which
+    run to a gigabyte of meshes and are answered for by their size and write time.
+    """
+
+
 class Handler(http.server.SimpleHTTPRequestHandler):
     """
     Static files from the packaged web root, plus the JSON API routes.
@@ -129,18 +177,22 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         :param args: Positional arguments forwarded to the base handler.
         :param kwargs: Keyword arguments forwarded to the base handler.
         """
+        self.cache_policy_stated = False
         super().__init__(*args, directory=str(paths.WEB_ROOT), **kwargs)
 
     def end_headers(self) -> None:
         """
-        Forbid caching so a rebuilt scene/frontend is never served stale.
+        Forbid caching unless the response stated a policy of its own, so a rebuilt
+        frontend is never served stale.
 
-        ..note:: ``no-cache`` would not do: it lets a browser keep its copy and
-            revalidate, and the only validator this handler offers is the file's
-            modification time, which an edit does not always push past the date the
-            stored copy carries.
+        ..note:: ``no-cache`` would not do for the frontend: it lets a browser keep
+            its copy and revalidate, and the only validator the base handler offers is
+            the file's modification time, which an edit does not always push past the
+            date the stored copy carries. A scene file is answered for by
+            :meth:`_send_file` with a validator of its own.
         """
-        self.send_header("Cache-Control", "no-store")
+        if not self.cache_policy_stated:
+            self.send_header(CacheHeader.CACHE_CONTROL, CachePolicy.FORBIDDEN)
         super().end_headers()
 
     def log_message(self, format: str, *args) -> None:
@@ -237,19 +289,44 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
     def _send_file(self, target: Path) -> None:
         """
-        Stream a resolved, existing file's bytes.
+        Stream a resolved, existing file's bytes, or tell a browser whose copy still
+        holds that it does.
+
+        A scene's meshes run to a gigabyte, so a browser may keep them and ask on the
+        next page load whether its copy still holds. The file's size and write time
+        answer for it: a file written anew is sent again.
 
         :param target: The file to serve, already resolved and confirmed to exist.
         """
+        status = target.stat()
+        validator = f'"{status.st_size:x}-{status.st_mtime_ns:x}"'
+        self.cache_policy_stated = True
+        if self.headers.get(CacheHeader.IF_NONE_MATCH) == validator:
+            self.send_response(HTTPStatus.NOT_MODIFIED)
+            self._send_validators(validator, status.st_mtime)
+            self.end_headers()
+            return
         content_type = (
             mimetypes.guess_type(str(target))[0] or "application/octet-stream"
         )
-        data = target.read_bytes()
-        self.send_response(200)
+        self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", content_type)
-        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Content-Length", str(status.st_size))
+        self._send_validators(validator, status.st_mtime)
         self.end_headers()
-        self.wfile.write(data)
+        with target.open("rb") as source:
+            shutil.copyfileobj(source, self.wfile)
+
+    def _send_validators(self, validator: str, modified_at: float) -> None:
+        """
+        Let the browser keep the response and say how to ask whether it still holds.
+
+        :param validator: What the browser quotes back to ask.
+        :param modified_at: When the file was last written, in seconds since the epoch.
+        """
+        self.send_header(CacheHeader.CACHE_CONTROL, CachePolicy.REVALIDATE)
+        self.send_header(CacheHeader.ETAG, validator)
+        self.send_header(CacheHeader.LAST_MODIFIED, self.date_time_string(modified_at))
 
     # %% routes
     def do_GET(self) -> None:

@@ -7,6 +7,7 @@ import json
 import threading
 import urllib.error
 import urllib.request
+from http import HTTPStatus
 
 import pytest
 
@@ -102,6 +103,43 @@ class TestStatic:
         """
         with urllib.request.urlopen(server + "/config.js", timeout=10) as response:
             assert response.headers["Cache-Control"] == "no-store"
+
+    def test_a_scene_file_is_revalidated_instead_of_downloaded_again(
+        self, server, fixture_scene
+    ):
+        """
+        A scene's meshes run to a gigabyte, and a browser that may not keep them loads
+        them again on every reload.
+
+        One it may keep asks whether its copy still holds, and is told so without the
+        bytes.
+        """
+        with urllib.request.urlopen(server + "/scenes/fixture/milk.stl") as response:
+            assert response.headers["Cache-Control"] == "no-cache"
+            assert response.headers["Last-Modified"] is not None
+            validator = response.headers["ETag"]
+            assert validator is not None
+        request = urllib.request.Request(
+            server + "/scenes/fixture/milk.stl", headers={"If-None-Match": validator}
+        )
+        with pytest.raises(urllib.error.HTTPError) as unchanged:
+            urllib.request.urlopen(request)
+        assert unchanged.value.code == HTTPStatus.NOT_MODIFIED
+        assert unchanged.value.read() == b""
+
+    def test_a_scene_file_written_anew_is_sent_again(self, server, fixture_scene):
+        mesh = fixture_scene / "scenes" / "fixture" / "milk.stl"
+        with urllib.request.urlopen(server + "/scenes/fixture/milk.stl") as response:
+            validator = response.headers["ETag"]
+        mesh.write_bytes(b"solid milk\nfacet\nendsolid milk\n")
+
+        request = urllib.request.Request(
+            server + "/scenes/fixture/milk.stl", headers={"If-None-Match": validator}
+        )
+        with urllib.request.urlopen(request) as response:
+            assert response.status == 200
+            assert response.read() == mesh.read_bytes()
+            assert response.headers["ETag"] != validator
 
     def test_scene_path_traversal_is_blocked(self, server):
         request = urllib.request.Request(server + "/scenes/../../etc/passwd")
