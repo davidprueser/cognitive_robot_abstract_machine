@@ -3,6 +3,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from copy import deepcopy
 from dataclasses import dataclass, field
+from functools import partial
 from typing import (
     TYPE_CHECKING,
     cast,
@@ -1144,13 +1145,23 @@ class RobotSpecification:
 
             # A fixed connection has no DoFs, so its start pose must be set at creation;
             # an active drive carries it as DoF state applied after the block.
-            odom_C_robot = connection_type.create_with_dofs(
+            create_drive = partial(
+                connection_type.create_with_dofs,
                 world=world,
                 parent=odom_body,
                 child=cast(Body, robot_world.root),
                 parent_T_connection_expression=(
                     None if is_active else self.odom_T_robot_start
                 ),
+            )
+            velocity_limits = self.semantic_annotation_type.get_drive_velocity_limits()
+            odom_C_robot = (
+                create_drive()
+                if velocity_limits is None
+                else create_drive(
+                    translation_velocity_limits=velocity_limits.translation,
+                    rotation_velocity_limits=velocity_limits.rotation,
+                )
             )
             world.merge_world(robot_world, root_connection=odom_C_robot)
             if is_active:

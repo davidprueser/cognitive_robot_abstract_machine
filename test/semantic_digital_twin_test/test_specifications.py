@@ -42,7 +42,18 @@ from semantic_digital_twin.exceptions import (
 )
 from semantic_digital_twin.robots.minimal_robot import MinimalRobot
 from semantic_digital_twin.robots.pr2 import PR2
-from semantic_digital_twin.robots.robot_parts import AbstractRobotPart
+from semantic_digital_twin.robots.robot_part_mixins import HasMobileBase
+from semantic_digital_twin.robots.robot_parts import (
+    AbstractRobot,
+    AbstractRobotPart,
+    DriveVelocityLimits,
+    MobileBase,
+)
+from semantic_digital_twin.datastructures.joint_state import JointState
+from semantic_digital_twin.world_description.world_entity import (
+    KinematicStructureEntity,
+)
+from krrood.ormatic.utils import classproperty
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Cabinet,
     Milk,
@@ -344,6 +355,121 @@ def test_a_robot_without_a_description_file_spawns_from_what_it_builds():
     assert robot.root.name.name == BUILT_ROBOT_ROOT_NAME
     odom = robot.root.parent_connection.parent
     assert odom.parent_connection.parent is world.root
+
+
+# %% how fast a spawned robot's drive may move
+
+
+WALKING_PACE = DriveVelocityLimits(translation=1.2, rotation=1.0)
+"""
+The pace :class:`BaseWalkingAtItsOwnPace` states for its drive.
+"""
+
+
+@dataclass(eq=False)
+class BaseAtTheDrivesOwnPace(MobileBase[OmniDrive]):
+    """
+    A mobile base that leaves how fast it moves to its drive connection's defaults.
+    """
+
+    @classproperty
+    def forward_axis(cls) -> Vector3:
+        return Vector3.X()
+
+    @classmethod
+    def setup_default_configuration_in_world_below_robot_root(
+        cls, robot_root: KinematicStructureEntity
+    ) -> Self:
+        return cls(root=robot_root)
+
+    def setup_hardware_interfaces(self):
+        return None
+
+    def setup_joint_states(self) -> list[JointState]:
+        return []
+
+
+@dataclass(eq=False)
+class BaseWalkingAtItsOwnPace(BaseAtTheDrivesOwnPace):
+    """
+    A mobile base that states how fast it walks and turns.
+    """
+
+    @classmethod
+    def get_drive_velocity_limits(cls) -> DriveVelocityLimits:
+        return WALKING_PACE
+
+
+@dataclass(eq=False)
+class RobotAtTheDrivesOwnPace(
+    RobotBuiltWithoutDescription, HasMobileBase[BaseAtTheDrivesOwnPace]
+):
+    """
+    A robot whose base says nothing about its pace.
+    """
+
+
+@dataclass(eq=False)
+class RobotWalkingAtItsOwnPace(
+    RobotBuiltWithoutDescription, HasMobileBase[BaseWalkingAtItsOwnPace]
+):
+    """
+    A robot whose base states its pace.
+    """
+
+
+def drive_velocity_limits_of(robot: AbstractRobot) -> DriveVelocityLimits:
+    """
+    :param robot: A spawned robot on an omnidirectional drive.
+    :return: The velocity limits its drive was spawned with.
+    """
+    assert robot.drive.x_velocity.limits.upper.velocity == (
+        robot.drive.y_velocity.limits.upper.velocity
+    )
+    assert robot.drive.x_velocity.limits.lower.velocity == (
+        -robot.drive.x_velocity.limits.upper.velocity
+    )
+    assert robot.drive.yaw.limits.lower.velocity == (
+        -robot.drive.yaw.limits.upper.velocity
+    )
+    return DriveVelocityLimits(
+        translation=robot.drive.x_velocity.limits.upper.velocity,
+        rotation=robot.drive.yaw.limits.upper.velocity,
+    )
+
+
+def test_a_robot_spawns_with_the_drive_limits_its_base_states():
+    world = World.create_with_root_body("root")
+
+    robot = RobotSpecification(semantic_annotation_type=RobotWalkingAtItsOwnPace).spawn(
+        world
+    )
+
+    assert RobotWalkingAtItsOwnPace.get_drive_velocity_limits() == WALKING_PACE
+    assert drive_velocity_limits_of(robot) == WALKING_PACE
+
+
+def test_a_robot_whose_base_states_no_pace_keeps_the_drives_own():
+    world = World.create_with_root_body("root")
+    bare_world = World.create_with_root_body("root")
+    with bare_world.modify_world():
+        bare_drive = OmniDrive.create_with_dofs(
+            bare_world, bare_world.root, Body(name=PrefixedName("base"))
+        )
+
+    robot = RobotSpecification(semantic_annotation_type=RobotAtTheDrivesOwnPace).spawn(
+        world
+    )
+
+    assert RobotAtTheDrivesOwnPace.get_drive_velocity_limits() is None
+    assert drive_velocity_limits_of(robot) == DriveVelocityLimits(
+        translation=bare_drive.x_velocity.limits.upper.velocity,
+        rotation=bare_drive.yaw.limits.upper.velocity,
+    )
+
+
+def test_a_robot_without_a_mobile_base_states_no_drive_limits():
+    assert RobotBuiltWithoutDescription.get_drive_velocity_limits() is None
 
 
 # %% shape constructors

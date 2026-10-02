@@ -21,7 +21,7 @@ from typing import (
 )
 from uuid import UUID
 
-from typing_extensions import get_origin, get_args, Generic, TypeVar, Unpack
+from typing_extensions import get_origin, get_args, Generic, Optional, TypeVar, Unpack
 
 from krrood.adapters.json_serializer import list_like_classes
 from krrood.class_diagrams.attribute_introspector import (
@@ -680,6 +680,24 @@ class MountingTable(Table, AbstractRobotPart, ABC):
         return cls(root=robot_root)
 
 
+@dataclass(frozen=True)
+class DriveVelocityLimits:
+    """
+    How fast a mobile base may move, stated by the base for the drive it is spawned
+    with.
+    """
+
+    translation: float
+    """
+    Fastest translation of the base along the floor, in metres per second.
+    """
+
+    rotation: float
+    """
+    Fastest turn of the base about the vertical axis, in radians per second.
+    """
+
+
 @dataclass(eq=False)
 class MobileBase(AbstractRobotPart, Generic[TGenericDrive], ABC):
     """
@@ -728,6 +746,14 @@ class MobileBase(AbstractRobotPart, Generic[TGenericDrive], ABC):
         Resolved from the generic drive parameter bound by the concrete mobile base.
         """
         return get_generic_type_parameters(cls, MobileBase)[0]
+
+    @classmethod
+    def get_drive_velocity_limits(cls) -> Optional[DriveVelocityLimits]:
+        """
+        How fast this base may move, or ``None`` to leave that to the drive connection's
+        own defaults.
+        """
+        return None
 
     @property
     def bounding_box(self) -> VolumetricBoundingBox:
@@ -857,6 +883,21 @@ class AbstractRobot(Agent, HasRobotParts, ABC):
             MobileBase, get_generic_type_parameters(cls, HasMobileBase)[0]
         )
         return mobile_base_type.get_drive_connection_type()
+
+    @classmethod
+    def get_drive_velocity_limits(cls) -> Optional[DriveVelocityLimits]:
+        """
+        How fast this robot's drive may move.
+
+        :return: The limits its mobile base states, or ``None`` for a robot without a
+            mobile base or whose base leaves them to the drive connection's defaults.
+        """
+        if not issubclass(cls, HasMobileBase):
+            return None
+        mobile_base_type = cast(
+            MobileBase, get_generic_type_parameters(cls, HasMobileBase)[0]
+        )
+        return mobile_base_type.get_drive_velocity_limits()
 
     def setup_robot_part_semantic_annotations(self):
         """
