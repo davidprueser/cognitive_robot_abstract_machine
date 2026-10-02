@@ -88,6 +88,18 @@ test('the picked floor point becomes the active robot\'s position and stands it 
   assert.equal(page.button.attributes['aria-pressed'], 'false');
 });
 
+test('a heading dragged in the scene turns the robot that way', async () => {
+  const page = new PlacementPage();
+  page.api.live = true;
+  page.api.toggleFloorPlacement();
+  page.api.handleSceneMessage({type: 'cramera-floor-picked', x: 2, y: 3, yaw: Math.PI / 2});
+  await page.settle();
+  assert.equal(page.robot.yaw, Math.PI / 2);
+  assert.equal(page.element('pb-ryaw').value, 90);
+  const placed = page.requests.find((request) => request.route === '/robot/place');
+  assert.equal(placed.body.yaw, Math.PI / 2);
+});
+
 test('a floor point arriving while the tool is off leaves the robot where it is', () => {
   const page = new PlacementPage();
   page.api.handleSceneMessage({type: 'cramera-floor-picked', x: 2.345, y: -1.5});

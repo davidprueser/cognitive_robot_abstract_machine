@@ -403,9 +403,10 @@
     toast('Dropping objects onto the nearest surface…', 'ok');
   }
   // ---------- standing the robot where the floor is clicked ----------
-  // The tool arms the 3D view for one click. The view answers with the floor point under
-  // the cursor in the map frame, the active robot's X and Y take it, and a running scene
-  // stands the robot there as a typed position would. One click, then the tool is off.
+  // The tool arms the 3D view for one pick: press where the robot should stand, drag the
+  // way it should face, release. The view answers with the pressed floor point in the map
+  // frame and the heading dragged, if any; the active robot's fields take them, and a
+  // running scene stands the robot there as a typed position would. Then the tool is off.
   let floorPlacementArmed = false;
   function armFloorPlacement(on) {
     floorPlacementArmed = !!on;
@@ -417,11 +418,13 @@
   function toggleFloorPlacement() {
     const instance = builderState.activeRobot(); if (!instance) return;
     armFloorPlacement(!floorPlacementArmed);
-    if (floorPlacementArmed) status('click a spot on the floor of the 3D scene to stand ' + instance.label + ' there', 'ok');
+    if (floorPlacementArmed) status('press on the floor of the 3D scene where ' + instance.label + ' should stand, drag the way it should face, release', 'ok');
   }
-  function standActiveRobotAt(x, y) {
+  function standActiveRobotAt(x, y, yaw) {
     const instance = builderState.activeRobot(); if (!instance) return;
-    builderState.updateRobot(instance.id, {x: Math.round(x * 100) / 100, y: Math.round(y * 100) / 100});
+    const changes = {x: Math.round(x * 100) / 100, y: Math.round(y * 100) / 100};
+    if (Number.isFinite(yaw)) changes.yaw = yaw;          // a plain click keeps the heading
+    builderState.updateRobot(instance.id, changes);
     renderRobotInstances(); reshowIfGenerated();
     placeActiveRobotLive();
   }
@@ -446,7 +449,7 @@
       else syncStepNum(s.id);              // live: just update the number fields (don't rebuild the marker mid-drag)
     } else if (d.type === 'cramera-floor-picked' && floorPlacementArmed) {
       armFloorPlacement(false);
-      standActiveRobotAt(d.x, d.y);
+      standActiveRobotAt(d.x, d.y, d.yaw);
     }
   }
   // one pose control = a slider + a number input, kept in sync. Angles are shown in

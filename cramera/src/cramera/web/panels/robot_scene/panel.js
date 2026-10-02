@@ -1174,27 +1174,74 @@ Panels.define('robot-scene', function mountRobotScene(root, bus) {
     return worldRoot.worldToLocal(_hitPt.clone());
   }
 
-  // %% standing a robot where the floor is clicked
-  // The Plan Builder arms the view for one click; the floor point under that click goes
-  // back to it in the map frame, and the view is disarmed again.
+  // %% standing a robot where the floor is pressed, facing the way it is dragged
+  // The Plan Builder arms the view for one pick. The floor point pressed is where the
+  // robot stands; dragging from there draws an arrow and turns the robot the way it
+  // points; releasing answers the builder in the map frame and disarms the view.
   let floorPickArmed = false;
+  let floorPickAnchor = null;          // the pressed floor point, in the map frame, while held
+  let floorPickArrow = null;           // the heading being dragged, drawn on the floor
+  //: how far the pointer has to be dragged on the floor, in metres, before it means a heading
+  const HEADING_DRAG_MINIMUM = 0.02;
   function armFloorPick(on) {
     floorPickArmed = !!on;
     renderer.domElement.style.cursor = floorPickArmed ? 'crosshair' : '';
   }
-  function reportFloorPick(point) {
-    armFloorPick(false);
-    if (window.parent && window.parent !== window) {
-      window.parent.postMessage({ type: 'cramera-floor-picked', x: round3(point.x), y: round3(point.y) }, '*');
-    }
+  function floorPickArrowGroup() {
+    if (floorPickArrow) return floorPickArrow;
+    const amber = 0xffb648;
+    const mat = new THREE.MeshBasicMaterial({ color: amber, transparent: true, opacity: 0.9, depthTest: false });
+    const ring = new THREE.Mesh(new THREE.RingGeometry(0.14, 0.19, 28), mat);
+    const shaft = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.04, 0.01), mat);
+    shaft.position.set(0.4, 0, 0);
+    const head = new THREE.Mesh(new THREE.ConeGeometry(0.08, 0.24, 14), mat);
+    head.rotation.z = -Math.PI / 2;
+    head.position.set(0.72, 0, 0);
+    floorPickArrow = new THREE.Group();
+    floorPickArrow.add(ring); floorPickArrow.add(shaft); floorPickArrow.add(head);
+    floorPickArrow.renderOrder = 5;
+    floorPickArrow.visible = false;
+    worldRoot.add(floorPickArrow);
+    return floorPickArrow;
   }
-  // a click, as opposed to a drag: a floor pick while armed, otherwise a part was clicked
+  function headingOfDrag(tip) {
+    if (!floorPickAnchor || !tip) return null;
+    const dx = tip.x - floorPickAnchor.x, dy = tip.y - floorPickAnchor.y;
+    if (Math.hypot(dx, dy) < HEADING_DRAG_MINIMUM) return null;
+    return Math.atan2(dy, dx);
+  }
+  function beginFloorPick(e) {
+    if (!floorPickArmed) return;
+    floorPickAnchor = floorPointAt(e);
+    if (!floorPickAnchor) return;
+    controls.enabled = false;          // the camera stays put while the heading is dragged
+    renderer.domElement.setPointerCapture(e.pointerId);
+    const arrow = floorPickArrowGroup();
+    arrow.position.set(floorPickAnchor.x, floorPickAnchor.y, floorPickAnchor.z + 0.02);
+    arrow.visible = false;
+  }
+  function dragFloorPick(e) {
+    const heading = headingOfDrag(floorPointAt(e));
+    const arrow = floorPickArrowGroup();
+    arrow.visible = heading !== null;
+    if (heading !== null) arrow.rotation.z = heading;
+    needsRender = true;
+  }
+  function finishFloorPick(e) {
+    const anchor = floorPickAnchor;
+    const heading = headingOfDrag(floorPointAt(e));
+    floorPickAnchor = null;
+    floorPickArrowGroup().visible = false;
+    controls.enabled = true;
+    armFloorPick(false);
+    needsRender = true;
+    if (!anchor || !(window.parent && window.parent !== window)) return;
+    const answer = { type: 'cramera-floor-picked', x: round3(anchor.x), y: round3(anchor.y) };
+    if (heading !== null) answer.yaw = round3(heading);
+    window.parent.postMessage(answer, '*');
+  }
+  // a click, as opposed to a drag, on a part of the scene
   function finishClick(e) {
-    if (floorPickArmed) {
-      const point = floorPointAt(e);
-      if (point) reportFloorPick(point);
-      return;
-    }
     const id = classifyClick(e);
     if (id && partClickCb) partClickCb(id);
   }
@@ -1212,7 +1259,8 @@ Panels.define('robot-scene', function mountRobotScene(root, bus) {
   renderer.domElement.addEventListener('pointerdown', function (e) {
     if (e.button !== 0) return;
     clickX = e.clientX; clickY = e.clientY; clickArmed = true;
-    if (playing || floorPickArmed) return;
+    if (floorPickArmed) { beginFloorPick(e); e.preventDefault(); return; }
+    if (playing) return;
     const p = pickDraggable(e);
     if (!p) return;
     if (liveOn && p.marker) return;    // the place marker has no meaning live
@@ -1228,6 +1276,7 @@ Panels.define('robot-scene', function mountRobotScene(root, bus) {
     e.preventDefault();
   }, { capture: true });
   renderer.domElement.addEventListener('pointermove', function (e) {
+    if (floorPickAnchor) { dragFloorPick(e); return; }
     if (!dragging) {
       if (!playing && !floorPickArmed && e.buttons === 0)
         renderer.domElement.style.cursor = pickDraggable(e) ? 'grab' : '';
@@ -1305,13 +1354,18 @@ Panels.define('robot-scene', function mountRobotScene(root, bus) {
     needsRender = true;
   }
   renderer.domElement.addEventListener('pointerup', function (e) {
+    if (floorPickAnchor) { clickArmed = false; finishFloorPick(e); return; }
     endDrag();
     if (!clickArmed) return;
     clickArmed = false;
     if (Math.hypot(e.clientX - clickX, e.clientY - clickY) > 5) return;
     finishClick(e);
   });
-  renderer.domElement.addEventListener('pointercancel', function () { clickArmed = false; endDrag(); });
+  renderer.domElement.addEventListener('pointercancel', function (e) {
+    clickArmed = false;
+    if (floorPickAnchor) { floorPickAnchor = null; finishFloorPick(e); return; }
+    endDrag();
+  });
 
   function classifyClick(e) {
     pointerNdc(e);
