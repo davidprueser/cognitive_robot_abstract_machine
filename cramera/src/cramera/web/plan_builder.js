@@ -402,9 +402,35 @@
     f.contentWindow.postMessage({ type: 'cramera-settle-objects', keys: objects.map(function (o) { return o.mesh; }) }, '*');
     toast('Dropping objects onto the nearest surface…', 'ok');
   }
-  // the 3D view reports poses back (settle / drag-release); write them into the object cards
+  // ---------- standing the robot where the floor is clicked ----------
+  // The tool arms the 3D view for one click. The view answers with the floor point under
+  // the cursor in the map frame, the active robot's X and Y take it, and a running scene
+  // stands the robot there as a typed position would. One click, then the tool is off.
+  let floorPlacementArmed = false;
+  function armFloorPlacement(on) {
+    floorPlacementArmed = !!on;
+    const button = $('pb-place-robot');
+    if (button) button.setAttribute('aria-pressed', floorPlacementArmed ? 'true' : 'false');
+    const f = $('pb-3d');
+    if (f && f.contentWindow) f.contentWindow.postMessage({ type: 'cramera-pick-floor', on: floorPlacementArmed }, '*');
+  }
+  function toggleFloorPlacement() {
+    const instance = builderState.activeRobot(); if (!instance) return;
+    armFloorPlacement(!floorPlacementArmed);
+    if (floorPlacementArmed) status('click a spot on the floor of the 3D scene to stand ' + instance.label + ' there', 'ok');
+  }
+  function standActiveRobotAt(x, y) {
+    const instance = builderState.activeRobot(); if (!instance) return;
+    builderState.updateRobot(instance.id, {x: Math.round(x * 100) / 100, y: Math.round(y * 100) / 100});
+    renderRobotInstances(); reshowIfGenerated();
+    placeActiveRobotLive();
+  }
+  // the 3D view reports poses back (settle / drag-release / floor pick); write them into
+  // the object cards, the steps or the active robot
   window.addEventListener('message', function (ev) {
-    const d = ev && ev.data; if (!d) return;
+    if (ev && ev.data) handleSceneMessage(ev.data);
+  });
+  function handleSceneMessage(d) {
     if (d.type === 'cramera-object-settled' && d.key && Array.isArray(d.position)) {
       const o = objects.find(function (x) { return x.mesh === d.key; }); if (!o) return;
       builderState.authoredPosition(d.key, d.position);
@@ -418,8 +444,11 @@
       s.params.x = Math.round(d.x * 100) / 100; s.params.y = Math.round(d.y * 100) / 100;
       if (d.final) renderSteps();          // persist + re-sync fields + re-emit the marker
       else syncStepNum(s.id);              // live: just update the number fields (don't rebuild the marker mid-drag)
+    } else if (d.type === 'cramera-floor-picked' && floorPlacementArmed) {
+      armFloorPlacement(false);
+      standActiveRobotAt(d.x, d.y);
     }
-  });
+  }
   // one pose control = a slider + a number input, kept in sync. Angles are shown in
   // degrees (state stores radians); position in metres.
   function ctl(o, k, min, max, step) {
@@ -1505,7 +1534,7 @@
   function endBusy() { if (_busyTimer) { clearInterval(_busyTimer); _busyTimer = 0; } setRobotEditingDisabled(false); }
   /** @param {boolean} disabled Keep the authored robot stable while its scene starts. */
   function setRobotEditingDisabled(disabled) {
-    ['pb-robot-instance', 'pb-add-robot', 'pb-remove-robot', 'pb-robot', 'pb-robot-label', 'pb-rx', 'pb-ry', 'pb-ryaw'].forEach(function (identifier) { $(identifier).disabled = disabled; });
+    ['pb-robot-instance', 'pb-add-robot', 'pb-remove-robot', 'pb-robot', 'pb-robot-label', 'pb-rx', 'pb-ry', 'pb-ryaw', 'pb-place-robot'].forEach(function (identifier) { $(identifier).disabled = disabled; });
     if (!disabled) $('pb-remove-robot').disabled = builderState.instances.length <= 1;
   }
   // the last meaningful line of the demo's log, tidied, so the wait shows where it is
@@ -1952,6 +1981,7 @@
   $('pb-reset-all').addEventListener('click', resetAllObjects);
   $('pb-drop').addEventListener('click', dropObjects);
   $('pb-reload-3d').addEventListener('click', reloadScene);
+  $('pb-place-robot').addEventListener('click', toggleFloorPlacement);
   $('pb-log').addEventListener('click', function () {
     fetchScaffoldLog().then(function (d) {
       if (!d) { toast('no run log yet — start a scene or run the plan first', 'err'); return; }

@@ -1162,6 +1162,42 @@ Panels.define('robot-scene', function mountRobotScene(root, bus) {
     _ray.setFromCamera(dragNdc, camera);
     return _ray.ray.intersectPlane(_dragPlane, _hitPt) ? _hitPt.clone() : null;
   }
+  // cursor -> the point on the floor the robots stand on, in the map frame (z-up), or
+  // null where the cursor points past the floor
+  const UP = new THREE.Vector3(0, 1, 0);
+  const _floorPlane = new THREE.Plane();
+  function floorPointAt(e) {
+    pointerNdc(e);
+    _ray.setFromCamera(dragNdc, camera);
+    _floorPlane.setFromNormalAndCoplanarPoint(UP, ground.position);
+    if (!_ray.ray.intersectPlane(_floorPlane, _hitPt)) return null;
+    return worldRoot.worldToLocal(_hitPt.clone());
+  }
+
+  // %% standing a robot where the floor is clicked
+  // The Plan Builder arms the view for one click; the floor point under that click goes
+  // back to it in the map frame, and the view is disarmed again.
+  let floorPickArmed = false;
+  function armFloorPick(on) {
+    floorPickArmed = !!on;
+    renderer.domElement.style.cursor = floorPickArmed ? 'crosshair' : '';
+  }
+  function reportFloorPick(point) {
+    armFloorPick(false);
+    if (window.parent && window.parent !== window) {
+      window.parent.postMessage({ type: 'cramera-floor-picked', x: round3(point.x), y: round3(point.y) }, '*');
+    }
+  }
+  // a click, as opposed to a drag: a floor pick while armed, otherwise a part was clicked
+  function finishClick(e) {
+    if (floorPickArmed) {
+      const point = floorPointAt(e);
+      if (point) reportFloorPick(point);
+      return;
+    }
+    const id = classifyClick(e);
+    if (id && partClickCb) partClickCb(id);
+  }
   function snapToSurface(group, excludeKey) {
     const box = meshBox(group);
     if (!isFinite(box.min.y)) return;
@@ -1176,7 +1212,7 @@ Panels.define('robot-scene', function mountRobotScene(root, bus) {
   renderer.domElement.addEventListener('pointerdown', function (e) {
     if (e.button !== 0) return;
     clickX = e.clientX; clickY = e.clientY; clickArmed = true;
-    if (playing) return;
+    if (playing || floorPickArmed) return;
     const p = pickDraggable(e);
     if (!p) return;
     if (liveOn && p.marker) return;    // the place marker has no meaning live
@@ -1193,7 +1229,7 @@ Panels.define('robot-scene', function mountRobotScene(root, bus) {
   }, { capture: true });
   renderer.domElement.addEventListener('pointermove', function (e) {
     if (!dragging) {
-      if (!playing && e.buttons === 0)
+      if (!playing && !floorPickArmed && e.buttons === 0)
         renderer.domElement.style.cursor = pickDraggable(e) ? 'grab' : '';
       return;
     }
@@ -1273,8 +1309,7 @@ Panels.define('robot-scene', function mountRobotScene(root, bus) {
     if (!clickArmed) return;
     clickArmed = false;
     if (Math.hypot(e.clientX - clickX, e.clientY - clickY) > 5) return;
-    const id = classifyClick(e);
-    if (id && partClickCb) partClickCb(id);
+    finishClick(e);
   });
   renderer.domElement.addEventListener('pointercancel', function () { clickArmed = false; endDrag(); });
 
@@ -1547,7 +1582,10 @@ Panels.define('robot-scene', function mountRobotScene(root, bus) {
   // there and post it as a final move, so a bad drag/snap can be undone even while the
   // idle sim isn't ticking (the tick would otherwise never apply the queued move).
   window.addEventListener('message', function (ev) {
-    const d = ev && ev.data; if (!d) return;
+    if (ev && ev.data) handleParentMessage(ev.data);
+  });
+  // what the Plan Builder, which embeds this view, asks of it
+  function handleParentMessage(d) {
     if (d.type === 'cramera-reset-object' && d.key && Array.isArray(d.position)) {
       const g = objectMeshes[d.key]; if (!g) return;
       // instant visual feedback; the parent posts the /move (with the quaternion) itself,
@@ -1577,8 +1615,10 @@ Panels.define('robot-scene', function mountRobotScene(root, bus) {
       needsRender = true;
     } else if (d.type === 'cramera-navigate-targets' && Array.isArray(d.targets)) {
       setNavigateTargets(d.targets);
+    } else if (d.type === 'cramera-pick-floor') {
+      armFloorPick(d.on);
     }
-  });
+  }
 
   // Plan Builder Navigate goals: a flat teal disc + an arrow pointing along the goal yaw,
   // on the floor at each goal, so you can see where and how the robot will stand.

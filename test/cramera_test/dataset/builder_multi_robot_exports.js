@@ -12,5 +12,6 @@
     addRobotInstance, removeRobotInstance, selectRobotInstance, selectRobot,
     renderRobotInstances, synchronizeRobotPoses, synchronizeObjects, wireRobotControls,
     generate, generateClass, robotImportLines, robotSceneLines, startLive, runPlan,
+    toggleFloorPlacement, handleSceneMessage,
   };
 })();

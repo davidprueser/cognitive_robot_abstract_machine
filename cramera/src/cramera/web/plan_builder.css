@@ -8,6 +8,7 @@
 .pb-btn{background:var(--panel,#0b0d11);border:1px solid var(--line,#20242c);color:var(--muted,#8b93a3);font:inherit;font-size:12px;font-weight:600;border-radius:6px;padding:6px 11px;cursor:pointer}
 .pb-btn:hover{color:var(--ink);border-color:var(--pb-accent)}
 .pb-btn.sm{padding:5px 9px;font-size:11px}
+.pb-btn[aria-pressed="true"]{background:rgba(57,213,200,.25);border-color:var(--pb-accent,#39d5c8);color:#aef3ec}
 .pb-btn.primary{background:rgba(57,213,200,.16);border-color:var(--pb-accent);color:#aef3ec}
 
 .pb-main{display:grid;grid-template-columns:var(--pb-c1,230px) 6px minmax(220px,1fr) 6px var(--pb-c3,560px);gap:0;height:calc(100vh - 58px)}
