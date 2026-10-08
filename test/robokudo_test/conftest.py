@@ -1,6 +1,7 @@
 import os
 from collections.abc import Iterator
 from dataclasses import dataclass
+from threading import Thread
 
 import py_trees
 import pytest
@@ -8,6 +9,7 @@ import rclpy
 from pymongo import MongoClient
 from pymongo.errors import ServerSelectionTimeoutError
 from py_trees.blackboard import Blackboard
+from rclpy.executors import SingleThreadedExecutor
 from rclpy.node import Node
 from semantic_digital_twin.adapters.ros.node_registry import ROSNodeRegistry
 
@@ -133,6 +135,21 @@ def node(ros_default):
     yield n
     node_registry.clear(n)
     n.destroy_node()
+
+
+@pytest.fixture
+def spinning_node(node: Node) -> Iterator[Node]:
+    """
+    A node that an executor spins in the background, so that its services, actions and
+    subscriptions are served while a test blocks on them.
+    """
+    executor = SingleThreadedExecutor()
+    executor.add_node(node)
+    thread = Thread(target=executor.spin, daemon=True)
+    thread.start()
+    yield node
+    executor.shutdown()
+    thread.join()
 
 
 def clear_blackboard() -> None:

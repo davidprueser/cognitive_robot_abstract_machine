@@ -28,7 +28,7 @@ from robokudo.cas import CAS, CASViews
 from robokudo.exceptions import StoredCameraTransformFrameMetadataMissing
 from robokudo.io.camera_interface import CameraInterface
 from robokudo.io.storage import Storage
-import robokudo.world as world
+from robokudo.perception_belief_state_context import PerceptionBeliefStateContext
 from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
 
 
@@ -226,26 +226,11 @@ class StorageReaderInterface(CameraInterface):
         """
         Create a camera transform whose frames belong to the running world.
 
-        The numeric pose is copied from ``stored_transform``. The reference and child
-        frames are looked up or created in the current global RoboKudo world, and the
-        corresponding world connection origin is updated.
+        The numeric pose is copied from ``stored_transform`` and the camera is placed
+        there in the world of the running pipeline.
         """
-        world.setup_world_for_camera_frame(
+        return PerceptionBeliefStateContext.from_blackboard().place_camera(
             world_frame=world_frame,
             camera_frame=camera_frame,
+            world_T_camera=stored_transform,
         )
-        runtime_world = world.world_instance()
-        world_body = runtime_world.get_body_by_name(world_frame)
-        camera_body = runtime_world.get_body_by_name(camera_frame)
-
-        rebound_transform = HomogeneousTransformationMatrix(
-            data=stored_transform.to_np(),
-            reference_frame=world_body,
-            child_frame=camera_body,
-        )
-        world.update_connection_transform(
-            to_name=world_body.name,
-            from_name=camera_body.name,
-            transform=rebound_transform,
-        )
-        return rebound_transform

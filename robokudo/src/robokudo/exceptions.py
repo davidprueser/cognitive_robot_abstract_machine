@@ -420,6 +420,25 @@ class ImageContourMissing(AnalysisPreconditionError):
 
 
 @dataclass
+class SharedWorldReplacementError(RoboKudoError, RuntimeError):
+    """
+    Raised when perception tries to replace a world it shares with other processes.
+    """
+
+    def error_message(self) -> str:
+        return (
+            "The perception world is shared with other processes, so it cannot be "
+            "replaced by another world."
+        )
+
+    def suggest_correction(self) -> str:
+        return (
+            "merge the new content into the shared world, or run perception without "
+            "world synchronization."
+        )
+
+
+@dataclass
 class WorldDescriptorError(RoboKudoError, ABC):
     """
     Base class for world descriptor related errors.

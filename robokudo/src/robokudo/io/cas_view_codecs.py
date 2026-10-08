@@ -12,8 +12,8 @@ from dataclasses import dataclass, field
 
 import numpy as np
 from typing_extensions import Any, Dict, Iterable, List, Optional
-from robokudo import world
 from robokudo.io.cas_annotation_codecs import krrood_to_json, krrood_from_json
+from robokudo.perception_belief_state_context import PerceptionBeliefStateContext
 from robokudo.io.open3d_codec_utils import (
     o3d,
     is_open3d_point_cloud,
@@ -523,8 +523,9 @@ class HomogeneousTransformationMatrixCodec(ViewCodec):
         """
         Decode matrix payload data using the active world entity tracker.
         """
-        tracker = world.get_world_entity_tracker()
-        kwargs = tracker.create_kwargs() if tracker is not None else {}
+        kwargs = (
+            PerceptionBeliefStateContext.from_blackboard().entity_tracker.create_kwargs()
+        )
         return HomogeneousTransformationMatrix.from_json(payload.payload, **kwargs)
 
 

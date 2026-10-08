@@ -9,7 +9,6 @@ import py_trees
 from rclpy.node import Node
 
 import robokudo.defs
-from robokudo import world as rk_world
 import robokudo.descriptors.camera_configs.config_filereader_playback
 import robokudo.descriptors.camera_configs.config_mongodb_playback
 import robokudo.utils.data_downloader
@@ -22,9 +21,9 @@ from robokudo.descriptors.factories.cr_descriptor_factory import (
     CollectionReaderDescriptorFactory,
 )
 from robokudo.io.storage import Storage
+from robokudo.perception_belief_state_context import PerceptionBeliefStateContext
 from robokudo.pipeline import Pipeline
 from semantic_digital_twin.adapters.ros.messages import WorldModelSnapshot
-
 
 pytestmark = pytest.mark.skipif(
     os.getenv("CI") == "true",
@@ -102,13 +101,14 @@ class TestStorageRoundtripPipeline:
             assert "state" in world_snapshot_payload
             assert {"ids", "states"}.issubset(world_snapshot_payload["state"])
 
-            tracker = rk_world.init_world_with_entity_tracker()
+            restored_context = PerceptionBeliefStateContext()
+            restored_context.store_on_blackboard()
             WorldModelSnapshot.apply_to_json_snapshot_to_world(
-                rk_world.world_instance(),
+                restored_context.world,
                 world_snapshot_payload,
-                **tracker.create_kwargs(),
+                **restored_context.entity_tracker.create_kwargs(),
             )
-            assert len(rk_world.world_instance().state.keys()) == len(
+            assert len(restored_context.world.state.keys()) == len(
                 world_snapshot_payload["state"]["ids"]
             )
 

@@ -21,7 +21,6 @@ import os
 
 from pymongo import MongoClient
 from typing_extensions import Any, Dict, List, Optional, TYPE_CHECKING, Tuple
-from robokudo import world
 
 from robokudo.cas import CAS
 from robokudo.io.cas_annotation_codecs import (
@@ -29,6 +28,7 @@ from robokudo.io.cas_annotation_codecs import (
     deserialize_annotations,
 )
 from robokudo.io.cas_view_codecs import CASViewCodecRegistry
+from robokudo.perception_belief_state_context import PerceptionBeliefStateContext
 
 if TYPE_CHECKING:
     from pymongo.results import InsertOneResult
@@ -257,8 +257,9 @@ class Storage:
             inserted to
         """
         if cas_document["annotations"]:
-            tracker = world.get_world_entity_tracker()
-            kwargs = tracker.create_kwargs() if tracker is not None else {}
+            kwargs = (
+                PerceptionBeliefStateContext.from_blackboard().entity_tracker.create_kwargs()
+            )
             cas.annotations = deserialize_annotations(
                 cas_document["annotations"], **kwargs
             )

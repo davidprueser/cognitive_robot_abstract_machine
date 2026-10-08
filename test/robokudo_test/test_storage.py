@@ -9,7 +9,7 @@ import pymongo
 import numpy as np
 
 import robokudo.cas
-from robokudo import world as rk_world
+from robokudo.perception_belief_state_context import PerceptionBeliefStateContext
 from robokudo.cas import CAS, CASViews
 from robokudo.descriptors.camera_configs.config_mongodb_playback import (
     MongoCameraConfig,
@@ -301,11 +301,11 @@ class TestStorage:
         world_frame = f"map_{uuid.uuid4().hex[:8]}"
         camera_frame = f"camera_{uuid.uuid4().hex[:8]}"
 
-        rk_world.init_world_with_entity_tracker()
-        rk_world.setup_world_for_camera_frame(
-            world_frame=world_frame, camera_frame=camera_frame
+        context = PerceptionBeliefStateContext.from_blackboard()
+        context.place_camera(
+            world_frame, camera_frame, HomogeneousTransformationMatrix()
         )
-        sem_world = rk_world.world_instance()
+        sem_world = context.world
         camera_body = sem_world.get_body_by_name(camera_frame)
         world_body = sem_world.get_body_by_name(world_frame)
 
@@ -364,12 +364,11 @@ class TestStorage:
         stored_world_frame = f"stored_map_{uuid.uuid4().hex[:8]}"
         stored_camera_frame = f"stored_camera_{uuid.uuid4().hex[:8]}"
 
-        rk_world.init_world_with_entity_tracker()
-        rk_world.setup_world_for_camera_frame(
-            world_frame=stored_world_frame,
-            camera_frame=stored_camera_frame,
+        stored_context = PerceptionBeliefStateContext.from_blackboard()
+        stored_context.place_camera(
+            stored_world_frame, stored_camera_frame, HomogeneousTransformationMatrix()
         )
-        stored_world = rk_world.world_instance()
+        stored_world = stored_context.world
         stored_world_body = stored_world.get_body_by_name(stored_world_frame)
         stored_camera_body = stored_world.get_body_by_name(stored_camera_frame)
         transform = HomogeneousTransformationMatrix.from_xyz_quaternion(
@@ -392,8 +391,9 @@ class TestStorage:
         )
         assert retrieved_cas_record is not None
 
-        rk_world.init_world_with_entity_tracker()
-        running_world = rk_world.world_instance()
+        running_context = PerceptionBeliefStateContext()
+        running_context.store_on_blackboard()
+        running_world = running_context.world
         assert len(running_world.bodies) == 0
 
         reader = StorageReaderInterface(

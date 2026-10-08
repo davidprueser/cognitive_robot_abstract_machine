@@ -4,7 +4,7 @@ import numpy as np
 import py_trees
 import pytest
 
-from robokudo import world as rk_world
+from robokudo.perception_belief_state_context import PerceptionBeliefStateContext
 import robokudo.cas
 import robokudo.defs
 import robokudo.descriptors.camera_configs.config_filereader_playback
@@ -32,15 +32,6 @@ from robokudo.descriptors.factories.cr_descriptor_factory import (
 )
 from robokudo.world_descriptor import PredefinedObject
 from semantic_digital_twin.world_description.geometry import Mesh
-
-
-@pytest.fixture
-def clean_semantic_world():
-    rk_world.get_object_belief_states().clear()
-    rk_world.init_world_with_entity_tracker()
-    yield
-    rk_world.get_object_belief_states().clear()
-    rk_world.init_world_with_entity_tracker()
 
 
 class TestFullAEExecution(object):
@@ -89,7 +80,7 @@ class TestFullAEExecution(object):
         assert types_of_annotations.count(robokudo.types.scene.ObjectHypothesis) == 1
 
     def test_run_file_reader_ae_synchronizes_semantic_digital_twin_belief_state(
-        self, node, clean_semantic_world
+        self, node
     ):
         cr_fr_config = CollectionReaderDescriptorFactory.create_descriptor(
             "file_reader",
@@ -132,7 +123,9 @@ class TestFullAEExecution(object):
                 len(object_hypotheses) == 1
             ), "Each successful CAS should already contain the object hypothesis to be synchronized."
 
-            object_beliefs = list(rk_world.get_object_belief_states().values())
+            object_beliefs = list(
+                PerceptionBeliefStateContext.from_blackboard().object_belief_states.values()
+            )
             assert (
                 len(object_beliefs) == 1
             ), "After each successful connector run, the current object should map to exactly one belief."
@@ -221,7 +214,9 @@ class TestFullAEExecution(object):
             )
             assert stamped_pose_annotations[0].frame == "map"
 
-        object_beliefs = list(rk_world.get_object_belief_states().values())
+        object_beliefs = list(
+            PerceptionBeliefStateContext.from_blackboard().object_belief_states.values()
+        )
         assert (
             len(object_beliefs) == 1
         ), "Both observations of the static object should update one stable object belief."

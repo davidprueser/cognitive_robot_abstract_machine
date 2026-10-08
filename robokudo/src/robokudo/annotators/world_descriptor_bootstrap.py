@@ -11,9 +11,9 @@ from uuid import UUID
 
 from py_trees.common import Status
 
-import robokudo.world as rk_world
 from robokudo.annotators.core import BaseAnnotator
 from robokudo.exceptions import WorldDescriptorBootstrapError
+from robokudo.perception_belief_state_context import PerceptionBeliefStateContext
 from robokudo.utils.world_descriptor import load_world_descriptor
 from robokudo.world_descriptor import BaseWorldDescriptor
 
@@ -95,14 +95,6 @@ class WorldDescriptorBootstrapAnnotator(BaseAnnotator):
         super().__init__(name=name, descriptor=descriptor)
         self._last_augmented_world_id: int | None = None
         self._merged_descriptor_entities = _MergedDescriptorEntities()
-
-    def _update_tracker_if_active(self) -> None:
-        """
-        Keep tracker state synchronized after world augmentation.
-        """
-        if rk_world.get_world_entity_tracker() is None:
-            return
-        rk_world.init_world_entity_tracker_from_world(rk_world.world_instance())
 
     @staticmethod
     def _snapshot_world_entities(world: Any) -> _WorldEntitySnapshot:
@@ -200,7 +192,7 @@ class WorldDescriptorBootstrapAnnotator(BaseAnnotator):
         """
         Merge descriptor entities into the current shared world.
         """
-        runtime_world = rk_world.world_instance()
+        runtime_world = PerceptionBeliefStateContext.from_blackboard().world
         runtime_world_id = id(runtime_world)
         reload_on_update = self.descriptor.parameters.reload_on_update
 
@@ -223,7 +215,6 @@ class WorldDescriptorBootstrapAnnotator(BaseAnnotator):
                 operation="merge world descriptor into the current world"
             ) from error
 
-        self._update_tracker_if_active()
         self._last_augmented_world_id = runtime_world_id
 
     def update(self) -> Status:
@@ -231,7 +222,7 @@ class WorldDescriptorBootstrapAnnotator(BaseAnnotator):
         Load descriptor world and merge it into the current world.
         """
         start_timer = default_timer()
-        runtime_world_id = id(rk_world.world_instance())
+        runtime_world_id = id(PerceptionBeliefStateContext.from_blackboard().world)
         if (
             self._last_augmented_world_id == runtime_world_id
             and not self.descriptor.parameters.reload_on_update

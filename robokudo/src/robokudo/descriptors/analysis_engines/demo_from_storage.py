@@ -15,7 +15,7 @@ from robokudo.descriptors.factories.cr_descriptor_factory import (
 )
 from robokudo.idioms import pipeline_init
 from robokudo.pipeline import Pipeline
-from robokudo.world import world_instance
+from robokudo.perception_belief_state_context import PerceptionBeliefStateContext
 from semantic_digital_twin.adapters.ros.node_registry import ROSNodeRegistry
 
 
@@ -46,7 +46,8 @@ class AnalysisEngine(AnalysisEngineInterface):
         :return: The configured pipeline for tabletop segmentation
         """
         tf_publisher = TFPublisher(
-            _world=world_instance(), node=ROSNodeRegistry().get()
+            _world=PerceptionBeliefStateContext.from_blackboard().world,
+            node=ROSNodeRegistry().get(),
         )
 
         cr_storage_config = CollectionReaderDescriptorFactory.create_descriptor("mongo")

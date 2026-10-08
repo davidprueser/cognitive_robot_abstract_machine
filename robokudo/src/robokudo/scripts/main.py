@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from robokudo.world import world_instance
 from semantic_digital_twin.adapters.ros.node_registry import ROSNodeRegistry
 from semantic_digital_twin.adapters.ros.visualization.viz_marker import (
     VizMarkerPublisher,
@@ -33,6 +32,7 @@ from robokudo.annotators.query import QueryActionServer
 from robokudo.defs import LOGGING_IDENTIFIER_MAIN_EXECUTABLE, PACKAGE_NAME
 from robokudo.garden import grow_tree
 from robokudo.identifier import BBIdentifier
+from robokudo.perception_belief_state_context import PerceptionBeliefStateContext
 from robokudo.utils.logging_configuration import configure_logging
 from robokudo.utils.module_loader import ModuleLoader
 from robokudo.utils.tree import setup_with_descendants_rk
@@ -156,6 +156,16 @@ def main() -> None:
         help="Rate (Hz) to tick the Behavior Tree.",
     )
     parser.add_argument(
+        "_synchronize_world",
+        action="store_true",
+        help=(
+            "If set, perception starts from the world served by another process and "
+            "keeps it synchronized: changes of the other processes are applied to it "
+            "and the changes perception makes are published."
+        ),
+    )
+    parser.set_defaults(synchronize_world=False)
+    parser.add_argument(
         "_debugmode",
         action="store_true",
         help="If set, the rcply root logger will be set to DEBUG log level which will yield many ROS-related debug messages.",
@@ -222,12 +232,21 @@ def main() -> None:
     thread_main.start()
     thread_asrv.start()
 
-    # 7. Dynamically load the requested Analysis Engine (AE) using the **refactored** ModuleLoader
+    # 7. Create the world perception perceives into; fetching a shared one needs the
+    #    executors above to serve the node
+    belief_state_context = (
+        PerceptionBeliefStateContext.synchronized_with_shared_world(node=node1)
+        if args.synchronize_world
+        else PerceptionBeliefStateContext()
+    )
+    belief_state_context.store_on_blackboard()
+
+    # 8. Dynamically load the requested Analysis Engine (AE) using the **refactored** ModuleLoader
     loader = ModuleLoader()
     logger.info(f"Loading AE '{args.ae}' from package '{args.ros_pkg}'...")
     loaded_ae = loader.load_ae(ros_pkg_name=args.ros_pkg, module_name=args.ae)
 
-    # 8. Build your Behavior Tree from the loaded AE
+    # 9. Build your Behavior Tree from the loaded AE
     #    (Assuming loaded_ae.implementation() returns a py_trees root or something similar)
     visualizer_types = None
     if args.no3d:
@@ -246,23 +265,24 @@ def main() -> None:
     # If you have a custom version of `setup_with_descendants`, call it:
     setup_with_descendants_rk(ae_root)
 
-    viz = VizMarkerPublisher(_world=world_instance(), node=node1)
+    viz = VizMarkerPublisher(_world=belief_state_context.world, node=node1)
 
     try:
-        # 9. Start ticking the Behavior Tree
+        # 10. Start ticking the Behavior Tree
         run_ae(ae_name=args.ae, ae_root=ae_root, tickrate=args.tickrate)
     except KeyboardInterrupt:
         logger.info("Keyboard interrupt received; shutting down.")
     finally:
-        # 10. Shutdown executors cleanly
+        # 11. Stop sharing the world, then shutdown executors cleanly
+        belief_state_context.close()
         executor_main.shutdown()
         executor_asrv.shutdown()
 
-        # 11. Wait for shutdown
+        # 12. Wait for shutdown
         thread_main.join()
         thread_asrv.join()
 
-        # 12. Clean up nodes
+        # 13. Clean up nodes
         node_registry.clear(node1)
         node1.destroy_node()
         query_action_server.destroy_node()

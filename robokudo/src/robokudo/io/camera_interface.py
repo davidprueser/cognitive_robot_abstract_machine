@@ -47,11 +47,7 @@ from robokudo.exceptions import CameraDataMissing
 from robokudo.io.tf_listener_proxy import TFListenerProxy
 from robokudo.types.tf import StampedTransform
 from robokudo.utils.cv_bridge_workaround import CVBridgeWorkaround
-from robokudo.world import (
-    setup_world_for_camera_frame,
-    update_connection_transform,
-    world_instance,
-)
+from robokudo.perception_belief_state_context import PerceptionBeliefStateContext
 from semantic_digital_twin.adapters.ros.node_registry import ROSNodeRegistry
 from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
 
@@ -103,29 +99,17 @@ class CameraInterface(object):
         timestamp_ns: Optional[int] = None,
     ) -> None:
         """Write a camera-to-world transform to the CAS and runtime world."""
-        setup_world_for_camera_frame(world_frame=world_frame, camera_frame=camera_frame)
-
-        world = world_instance()
-        camera_body = world.get_body_by_name(name=camera_frame)
-        world_body = world.get_body_by_name(name=world_frame)
-
-        runtime_world_T_camera = HomogeneousTransformationMatrix(
-            data=world_T_camera,
-            reference_frame=world_body,
-            child_frame=camera_body,
-        )
-
         cas.world_frame = world_frame
         cas.camera_frame = camera_frame
-        cas.camera_to_world_transform = runtime_world_T_camera
+        cas.camera_to_world_transform = (
+            PerceptionBeliefStateContext.from_blackboard().place_camera(
+                world_frame=world_frame,
+                camera_frame=camera_frame,
+                world_T_camera=world_T_camera,
+            )
+        )
         if timestamp_ns is not None:
             cas.data_timestamp = timestamp_ns
-
-        update_connection_transform(
-            to_name=world_body.name,
-            from_name=camera_body.name,
-            transform=runtime_world_T_camera,
-        )
 
     def store_camera_to_world_transform(
         self,

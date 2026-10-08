@@ -14,13 +14,13 @@ from PIL import Image as PILImage, UnidentifiedImageError
 from pyglet.canvas.xlib import NoSuchDisplayException
 from sensor_msgs.msg import CameraInfo
 
-import robokudo.world as rk_world
 from robokudo.cas import CASViews, CAS
 from robokudo.io.camera_interface import CameraInterface, ROSCameraInterface
 from robokudo.utils.camera_model import (
     pinhole_camera_parameters_from_horizontal_field_of_view,
 )
 from robokudo.utils.module_loader import ModuleLoader
+from robokudo.perception_belief_state_context import PerceptionBeliefStateContext
 from semantic_digital_twin.datastructures.camera_resolution import CameraResolution
 from semantic_digital_twin.datastructures.field_of_view import FieldOfView
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
@@ -142,8 +142,9 @@ class SemDTRayTracerCameraInterface(CameraInterface):
             ros_pkg_name=self.camera_config.world_descriptor_ros_package,
             module_name=self.camera_config.world_descriptor_name,
         )
-        rk_world.set_world(world_descriptor.world)
-        return rk_world.world_instance()
+        context = PerceptionBeliefStateContext.from_blackboard()
+        context.replace_world(world_descriptor.world)
+        return context.world
 
     def _ensure_world_frame(self, world: World) -> Body:
         """
