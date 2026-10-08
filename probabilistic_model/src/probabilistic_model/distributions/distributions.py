@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 import os
 from abc import abstractmethod
 from dataclasses import dataclass, field
@@ -13,6 +14,10 @@ from random_events.interval import Interval, SimpleInterval, Bound, singleton, c
 from random_events.product_algebra import Event, SimpleEvent, VariableMap
 from typing_extensions import Union, Iterable, Any, Self, Dict, List, Tuple
 
+from krrood.adapters.json_serializer import (
+    DataclassJSONSerializer,
+    SubclassJSONSerializer,
+)
 from probabilistic_model.constants import SCALING_FACTOR_FOR_EXPECTATION_IN_PLOT
 from probabilistic_model.probabilistic_model import (
     ProbabilisticModel,
@@ -433,12 +438,45 @@ class DiscreteDistribution(UnivariateDistribution):
 
 
 @dataclass(eq=False)
-class SymbolicDistribution(DiscreteDistribution):
+class SymbolicDistribution(DiscreteDistribution, SubclassJSONSerializer):
     """
     Class for symbolic (categorical) distributions.
     """
 
     variable: Symbolic = field(kw_only=True)
+
+    def to_json(self, **kwargs) -> Dict[str, Any]:
+        """
+        Serialize this distribution with :attr:`probabilities` keyed by the domain
+        elements themselves rather than by their hashes.
+
+        .. note::
+            A member of a string-backed enum hashes through Python's randomized string
+            hash, so a hash-keyed export would match no element in another process.
+        """
+        domain_elements = self.variable.domain.hash_map
+        keyed_by_element = dataclasses.replace(
+            self,
+            probabilities={
+                domain_elements[element_hash]: probability
+                for element_hash, probability in self.probabilities.items()
+            },
+        )
+        return DataclassJSONSerializer.to_json(keyed_by_element, **kwargs)
+
+    @classmethod
+    def _from_json(cls, data: Dict[str, Any], **kwargs) -> Self:
+        keyed_by_element = DataclassJSONSerializer.from_json(data, cls, **kwargs)
+        return dataclasses.replace(
+            keyed_by_element,
+            probabilities=MissingDict(
+                float,
+                {
+                    hash(element): probability
+                    for element, probability in keyed_by_element.probabilities.items()
+                },
+            ),
+        )
 
     def univariate_log_mode(self) -> Tuple[Set, float]:
         max_likelihood = max(self.probabilities.values())
