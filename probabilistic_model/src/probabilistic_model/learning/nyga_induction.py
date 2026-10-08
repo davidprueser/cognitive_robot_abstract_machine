@@ -226,29 +226,16 @@ class InductionStep:
         to the right of the left connecting point and to the left of the right
         connecting point.
         """
+        begin, end = (
+            (self.begin_index, split_indices)
+            if is_left
+            else (split_indices, self.end_index)
+        )
+        number_of_samples = end - begin
+        log_density = np.log(np.abs(split_values - connecting_point))
+        log_weight_sum_of_split = np.log(self.sum_weights_from_indices(begin, end))
+        sum_of_log_weights = self.sum_log_weights_from_indices(begin, end)
         log_weight_sum = np.log(self.total_weights)
-        if is_left:
-            number_of_samples = split_indices - self.begin_index
-            log_density = np.log(split_values - connecting_point)
-            log_weight_sum_of_split = np.log(
-                self.cumulative_weights[split_indices]
-                - self.cumulative_weights[self.begin_index]
-            )
-            sum_of_log_weights = (
-                self.cumulative_log_weights[split_indices]
-                - self.cumulative_log_weights[self.begin_index]
-            )
-        else:
-            number_of_samples = self.end_index - split_indices
-            log_density = np.log(connecting_point - split_values)
-            log_weight_sum_of_split = np.log(
-                self.cumulative_weights[self.end_index]
-                - self.cumulative_weights[split_indices]
-            )
-            sum_of_log_weights = (
-                self.cumulative_log_weights[self.end_index]
-                - self.cumulative_log_weights[split_indices]
-            )
 
         return (
             number_of_samples * (log_weight_sum_of_split - log_weight_sum - log_density)

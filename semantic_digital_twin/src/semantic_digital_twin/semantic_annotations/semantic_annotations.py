@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Iterable, Optional, Self, Tuple, TYPE_CHECKING, Union
+from typing import Iterable, Iterator, Optional, Self, Tuple, TYPE_CHECKING, Union
 
 import numpy as np
 from typing_extensions import List
@@ -15,6 +15,7 @@ from semantic_digital_twin.datastructures.alignment import AlignmentPair
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.datastructures.variables import SpatialVariables
 from semantic_digital_twin.exceptions import (
+    NoGraspGeometry,
     InvalidPlaneDimensions,
     InvalidHingeActiveAxis,
     MissingSemanticAnnotationError,
@@ -40,12 +41,17 @@ from semantic_digital_twin.semantic_annotations.mixins import (
     HasSink,
     HasShelfLayers,
 )
+from semantic_digital_twin.grasping.grasp_candidates import (
+    GraspCandidate,
+    HasGraspCandidates,
+    RimWallSection,
+)
 from semantic_digital_twin.spatial_types import (
     Point3,
     HomogeneousTransformationMatrix,
     Vector3,
 )
-from semantic_digital_twin.spatial_types.spatial_types import Pose
+from semantic_digital_twin.spatial_types.spatial_types import Pose, RotationMatrix
 from semantic_digital_twin.world_description.connections import (
     FixedConnection,
 )
@@ -87,7 +93,7 @@ class Furniture(SemanticAnnotation, ABC):
 
 
 @dataclass(eq=False)
-class Handle(HasRootBody):
+class Handle(HasGraspCandidates):
     """
     A handle is a physical entity that can be grasped by a hand or a robotic gripper to
     open or close an object.
@@ -161,7 +167,7 @@ class Dishwasher(HasCaseAsRootBody, HasDoors, HasDrawers):
     """
 
     @classproperty
-    def hole_direction(self) -> Vector3:
+    def _hole_direction_axis(cls) -> Vector3:
         return Vector3.NEGATIVE_X()
 
 
@@ -587,7 +593,7 @@ class Door(HasHandle, HasMechanicalJoint):
             raise MissingSemanticAnnotationError(self.__class__, Handle)
 
         connection = self.handle.root.parent_connection
-        door_P_handle = connection.origin_expression.to_position()
+        door_P_handle = connection.origin_expression.position
         scale = self.root.collision.scale
         world_T_door = self.root.global_transform
 
@@ -659,8 +665,22 @@ class DoubleDoor(SemanticAnnotation):
 @dataclass(eq=False)
 class Drawer(Furniture, HasCaseAsRootBody, HasHandle, HasMechanicalJoint):
     @classproperty
-    def hole_direction(self) -> Vector3:
+    def _hole_direction_axis(cls) -> Vector3:
         return Vector3.Z()
+
+    @property
+    def opening_ratio(self) -> float:
+        """
+        :return: How far this drawer stands pulled out, as a fraction of its travel.
+        """
+        moving_body = (
+            self.root if self.mechanical_joint is None else self.mechanical_joint.root
+        )
+        connection = moving_body.parent_connection
+        limits = connection.dof.limits
+        return (connection.position - limits.lower.position) / (
+            limits.upper.position - limits.lower.position
+        )
 
 
 @dataclass(eq=False)
@@ -671,7 +691,7 @@ class Elevator(HasCaseAsRootBody, HasDoors, HasMechanicalJoint):
     """
 
     @classproperty
-    def hole_direction(self) -> Vector3:
+    def _hole_direction_axis(cls) -> Vector3:
         return Vector3.NEGATIVE_X()
 
     def open(self):
@@ -688,16 +708,27 @@ class Elevator(HasCaseAsRootBody, HasDoors, HasMechanicalJoint):
         Closes the elevator doors
         """
         for door in self.doors:
-            door.mechanical_joint.position = door.mechanical_joint.position = (
+            door.mechanical_joint.position = (
                 door.mechanical_joint.root.parent_connection.dof.limits.lower.position
             )
+
+    def drive_position_for_floor(self, floor: Level) -> float:
+        """
+        The drive position at which the elevator serves the given floor.
+
+        The half height accounts for the case body's origin sitting at its ground rather
+        than at its centre.
+
+        :param floor: The floor the elevator should serve.
+        :return: The position to drive the elevator's mechanical joint to.
+        """
+        return float(floor.floor_plane[0].z)
 
     def drive_to_floor(self, floor: Level):
         """
         Drives the elevator to the floor given
         """
-        drive_height = floor.floor_plane[0].z + (self.scale.z / 2)
-        self.mechanical_joint.position = drive_height
+        self.mechanical_joint.position = self.drive_position_for_floor(floor)
 
 
 ############################### subclasses to Furniture
@@ -709,6 +740,8 @@ class ShelfLayer(HasSupportingSurface):
     A horizontal surface used for storing objects, typically found inside cabinets or on
     walls.
     """
+
+    _synonyms = {"level", "board"}
 
 
 @dataclass(eq=False)
@@ -724,11 +757,13 @@ class CounterTop(Furniture, HasSupportingSurface, HasSink):
     A semantic annotation that represents a counter top.
     """
 
+    _synonyms = {"countertop"}
+
 
 @dataclass(eq=False)
 class Cabinet(Furniture, HasCaseAsRootBody, HasDoors, HasDrawers):
     @classproperty
-    def hole_direction(self) -> Vector3:
+    def _hole_direction_axis(cls) -> Vector3:
         return Vector3.NEGATIVE_X()
 
 
@@ -876,12 +911,17 @@ class Wall(HasApertures):
     Doors are a computed property.
     """
 
+    _synonyms = {"walls"}
+
     @property
     def doors(self) -> Iterable[Door]:
         return [
             door
             for door in self._world.get_semantic_annotations_by_type(Door)
-            if door.entry_way and InsideOf(door.entry_way.root, self.root)() > 0.1
+            if door.entry_way
+            and InsideOf(
+                door.entry_way.root, self.root, minimum_containment_ratio=0.1
+            )()
         ]
 
     @classmethod
@@ -937,7 +977,7 @@ class Wall(HasApertures):
         origin: HomogeneousTransformationMatrix,
         bloat_amount: float,
         obstacle_height_clearance: float = 0.01,
-    ) -> BoundingBoxCollection[VolumetricBoundingBox]:
+    ) -> BoundingBoxCollection[VolumetricBoundingBox, Point3]:
         """
         Bloat this wall's bounding boxes along their thinner dimension only -- the
         side that faces the room -- rather than symmetrically in x and y.
@@ -962,14 +1002,35 @@ class Wall(HasApertures):
 
 
 @dataclass(eq=False)
-class Bottle(HasRootBody):
+class Container(HasGraspCandidates):
+    """
+    An object that holds contents and has an opening they go in and out through.
+    """
+
+
+@dataclass(eq=False)
+class Cookware(HasGraspCandidates):
+    """
+    An object used to cook with.
+    """
+
+
+@dataclass(eq=False)
+class Tableware(HasGraspCandidates):
+    """
+    An object a table is set with for a meal.
+    """
+
+
+@dataclass(eq=False)
+class Bottle(Container):
     """
     Abstract class for bottles.
     """
 
 
 @dataclass(eq=False)
-class Statue(HasRootBody): ...
+class Statue(HasGraspCandidates): ...
 
 
 @dataclass(eq=False)
@@ -994,7 +1055,7 @@ class MustardBottle(Bottle):
 
 
 @dataclass(eq=False)
-class DrinkingContainer(HasRootBody): ...
+class DrinkingContainer(Container, Tableware): ...
 
 
 @dataclass(eq=False)
@@ -1012,11 +1073,11 @@ class Mug(DrinkingContainer):
 
 
 @dataclass(eq=False)
-class CookingContainer(HasRootBody): ...
+class CookingContainer(Container, Cookware): ...
 
 
 @dataclass(eq=False)
-class Lid(HasRootBody): ...
+class Lid(Cookware): ...
 
 
 @dataclass(eq=False)
@@ -1048,22 +1109,91 @@ class PotLid(Lid):
 
 
 @dataclass(eq=False)
-class Plate(HasSupportingSurface):
+class Plate(HasSupportingSurface, Tableware):
     """
     A plate.
     """
 
 
 @dataclass(eq=False)
-class Bowl(HasSupportingSurface, IsPerceivable):
+class Bowl(HasSupportingSurface, Container, Tableware, IsPerceivable):
     """
     A bowl.
     """
 
+    rim_grasp_depth: float = field(default=0.01, kw_only=True)
+    """
+    How far below the highest point of the bowl the fingers grip its wall.
+    """
+
+    def grasp_candidates(self) -> List[GraspCandidate]:
+        """
+        The grasps that straddle the bowl's wall, approaching it from above.
+
+        A bowl offers nothing to grip at its own origin, which is inside it, so the wall
+        of its rim is grasped instead.
+
+        :raises NoGraspGeometry: If the root body has no mesh, or no wall where the rim
+            is traced, to grasp.
+        """
+        grasps = [
+            GraspCandidate(
+                self,
+                Pose(
+                    position=section.center,
+                    orientation=RotationMatrix.from_vectors(
+                        x=Vector3.NEGATIVE_Z(), y=section.outward
+                    ).quaternion,
+                    reference_frame=self.root,
+                ),
+            )
+            for section in self._rim_wall_sections()
+        ]
+        if not grasps:
+            raise NoGraspGeometry(self)
+        return grasps
+
+    def _rim_wall_sections(self) -> Iterator[RimWallSection]:
+        """
+        Cast one ray per grasp direction outward from the bowl's axis, just below the
+        rim, and take the middle between its hits as the wall.
+
+        :return: The wall section hit in each direction; directions that miss the mesh
+            are skipped.
+        :raises NoGraspGeometry: If the root body has no mesh.
+        """
+        mesh = self.root.combined_mesh
+        if mesh is None:
+            raise NoGraspGeometry(self)
+        yaws = np.linspace(0, 2 * np.pi, self.grasp_candidate_count, endpoint=False)
+        directions = np.column_stack([np.cos(yaws), np.sin(yaws), np.zeros(len(yaws))])
+        bowl_center = mesh.bounds.mean(axis=0)
+        axis_point = np.array(
+            [
+                bowl_center[0],
+                bowl_center[1],
+                mesh.bounds[1][2] - self.rim_grasp_depth,
+            ]
+        )
+        locations, ray_indices, _ = mesh.ray.intersects_location(
+            ray_origins=np.tile(axis_point, (len(yaws), 1)), ray_directions=directions
+        )
+        for index, direction in enumerate(directions):
+            hits = locations[ray_indices == index]
+            if len(hits) == 0:
+                continue
+            distances = np.linalg.norm(hits[:, :2] - axis_point[:2], axis=1)
+            yield RimWallSection(
+                center=Point3.from_iterable(
+                    axis_point + direction * (distances.min() + distances.max()) / 2
+                ),
+                outward=Vector3.from_iterable(direction),
+            )
+
 
 # Food Items
 @dataclass(eq=False)
-class Food(HasRootBody):
+class Food(HasGraspCandidates):
     """
     A Group class for Food.
     """
@@ -1154,7 +1284,7 @@ class Milk(Food, IsPerceivable):
 
 
 @dataclass(eq=False)
-class SaltContainer(HasRootBody, IsPerceivable):
+class SaltContainer(Container, IsPerceivable):
     """
     A container of salt.
     """
@@ -1253,6 +1383,8 @@ class SideTable(Table):
     A side table.
     """
 
+    _synonyms = {"bedside"}
+
 
 @dataclass(eq=False)
 class Desk(Table, HasLegs):
@@ -1289,7 +1421,7 @@ class TrashCan(HasCaseAsRootBody, Furniture):
     """
 
     @classproperty
-    def hole_direction(self) -> Vector3:
+    def _hole_direction_axis(cls) -> Vector3:
         return Vector3.Z()
 
 
@@ -1340,7 +1472,7 @@ class WallDecor(Decor):
 
 
 @dataclass(eq=False)
-class Cloth(HasRootBody): ...
+class Cloth(HasGraspCandidates): ...
 
 
 @dataclass(eq=False)
@@ -1384,21 +1516,21 @@ class Houseplant(HasRootBody):
 
 
 @dataclass(eq=False)
-class SprayBottle(HasRootBody):
+class SprayBottle(Bottle):
     """
     A spray bottle.
     """
 
 
 @dataclass(eq=False)
-class Vase(HasRootBody):
+class Vase(Container):
     """
     A vase.
     """
 
 
 @dataclass(eq=False)
-class Book(HasRootBody):
+class Book(HasGraspCandidates):
     """
     A book.
     """
@@ -1411,50 +1543,79 @@ class BookFront(HasRootBody): ...
 
 
 @dataclass(eq=False)
-class SaltPepperShaker(HasRootBody):
+class SaltPepperShaker(SaltContainer):
     """
     A salt and pepper shaker.
     """
 
 
 @dataclass(eq=False)
-class Cuttlery(HasRootBody): ...
+class Cutlery(Tableware):
+    """
+    A piece of cutlery.
+    """
+
+    def grasp_candidates(self) -> List[GraspCandidate]:
+        """
+        :return: The grasp from above that closes across the piece, which lies flat.
+        :raises NoGraspGeometry: If the root body has no collision geometry to tell
+            which way the piece lies.
+        """
+        if not self.root.has_collision():
+            raise NoGraspGeometry(self)
+        bounding_box = self.root.collision.as_bounding_box_collection_in_frame(
+            self.root
+        ).bounding_box()
+        along_x = bounding_box.x_interval.upper - bounding_box.x_interval.lower
+        along_y = bounding_box.y_interval.upper - bounding_box.y_interval.lower
+        finger_axis = Vector3.NEGATIVE_Y() if along_x >= along_y else Vector3.X()
+        return [
+            GraspCandidate(
+                self,
+                Pose(
+                    orientation=RotationMatrix.from_vectors(
+                        x=Vector3.NEGATIVE_Z(), y=finger_axis
+                    ).quaternion,
+                    reference_frame=self.root,
+                ),
+            )
+        ]
 
 
 @dataclass(eq=False)
-class Fork(Cuttlery):
+class Fork(Cutlery):
     """
     A fork.
     """
 
 
 @dataclass(eq=False)
-class Knife(Cuttlery):
+class Knife(Cutlery):
     """
     A butter knife.
     """
 
 
 @dataclass(eq=False)
-class Spoon(Cuttlery, IsPerceivable): ...
+class Spoon(Cutlery, IsPerceivable): ...
 
 
 @dataclass(eq=False)
-class Pencil(HasRootBody):
+class Pencil(HasGraspCandidates):
     """
     A pencil.
     """
 
 
 @dataclass(eq=False)
-class Pen(HasRootBody):
+class Pen(HasGraspCandidates):
     """
     A pen.
     """
 
 
 @dataclass(eq=False)
-class Baseball(HasRootBody):
+class Baseball(HasGraspCandidates):
     """
     A baseball.
     """
@@ -1492,13 +1653,20 @@ class Human(Agent):
 
 
 @dataclass(eq=False)
+class Parcel(HasGraspCandidates):
+    """
+    A parcel, as handled in a warehouse.
+    """
+
+
+@dataclass(eq=False)
 class SemanticEnvironmentAnnotation(HasRootBody):
     """
     Represents a semantic annotation of the environment.
     """
 
     def obstacle_entities(
-        self, search_space: BoundingBoxCollection[VolumetricBoundingBox]
+        self, search_space: BoundingBoxCollection[VolumetricBoundingBox, Point3]
     ) -> List[Body]:
         """
         Collect the obstacle bodies to consider within ``search_space``.
@@ -1519,12 +1687,12 @@ class SemanticEnvironmentAnnotation(HasRootBody):
 
     def build_bloated_obstacle_collection(
         self,
-        search_space: BoundingBoxCollection[VolumetricBoundingBox],
+        search_space: BoundingBoxCollection[VolumetricBoundingBox, Point3],
         semantic_wall_annotation: Optional[Wall] = None,
         bloat_obstacles: float = 0.0,
         bloat_walls: float = 0.0,
         obstacle_height_clearance: float = 0.01,
-    ) -> BoundingBoxCollection[VolumetricBoundingBox]:
+    ) -> BoundingBoxCollection[VolumetricBoundingBox, Point3]:
         """
         Collect and bloat this annotation's obstacle bounding boxes.
 
@@ -1621,7 +1789,7 @@ class Cooktop(HasRootBody):
 
 
 @dataclass(eq=False)
-class Tool(HasRootBody, ABC):
+class Tool(HasGraspCandidates, ABC):
     """
     A tool that is held by a robot's end effector to act on other bodies.
     """
@@ -1737,7 +1905,7 @@ class CuttingKnife(ToolWithHandle):
 
 
 @dataclass(eq=False)
-class PouringCup(Tool):
+class PouringCup(Tool, Container):
     """
     A cup for pouring liquids into containers.
     """
@@ -1783,7 +1951,7 @@ class Sponge(Tool):
         reference_frame = (
             pose.reference_frame if pose.reference_frame is not None else self.root
         )
-        rotation = pose.to_rotation_matrix().to_np()[:3, :3]
+        rotation = pose.rotation_matrix.to_np()[:3, :3]
         return Vector3.from_iterable(
             rotation @ np.array([0.0, 0.0, 1.0]),
             reference_frame=reference_frame,
@@ -1817,3 +1985,5 @@ class CoffeeMachine(HasRootBody):
     """
     A countertop appliance that brews coffee.
     """
+
+    _synonyms = {"coffe"}

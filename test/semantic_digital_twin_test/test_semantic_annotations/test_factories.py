@@ -80,6 +80,7 @@ from semantic_digital_twin.world_description.degree_of_freedom import (
     DegreeOfFreedomLimits,
 )
 from semantic_digital_twin.world_description.geometry import (
+    Box,
     VolumetricBoundingBox,
     Scale,
 )
@@ -88,6 +89,7 @@ from semantic_digital_twin.world_description.graph_of_convex_sets.boxes import (
 )
 from semantic_digital_twin.world_description.shape_collection import (
     BoundingBoxCollection,
+    ShapeCollection,
 )
 from semantic_digital_twin.world_description.world_entity import Body
 from semantic_digital_twin.api import (
@@ -315,6 +317,18 @@ class TestFactories(unittest.TestCase):
         assert isinstance(drawer, HasCaseAsRootBody)
         semantic_drawer_annotations = world.get_semantic_annotations_by_type(Drawer)
         self.assertEqual(len(semantic_drawer_annotations), 1)
+
+    def test_hole_direction_carries_the_entity_own_root_as_reference_frame(self):
+        world = World.create_with_root_body("root")
+        with world.modify_world():
+            drawer = Drawer.create_with_new_body_in_world(
+                name="drawer",
+                world=world,
+                scale=Scale(0.2, 0.3, 0.2),
+            )
+
+        assert drawer.hole_direction.reference_frame is drawer.root
+        np.testing.assert_allclose(drawer.hole_direction.to_np()[:3], [0, 0, 1])
 
     def test_has_slider_factory(self):
         world = World.create_with_root_body("root")
@@ -605,6 +619,54 @@ class TestFactories(unittest.TestCase):
         self.assertEqual(surface, table.supporting_surface)
         self.assertEqual(expected_z, surface.global_transform.z)
 
+    def test_supporting_surface_on_top_of_table_with_origin_at_a_corner(self):
+        """
+        A table whose origin is a corner on the floor, as a scanned or vendor asset
+        often has it, still gets its supporting surface on its top.
+        """
+        world = World.create_with_root_body("root")
+        with world.modify_world():
+            table = Table.create_with_new_body_in_world(
+                name="table",
+                world=world,
+                world_root_T_self=HomogeneousTransformationMatrix.from_xyz_rpy(
+                    x=2.0, y=-1.0, yaw=np.pi / 2
+                ),
+            )
+        table.root.collision = ShapeCollection(
+            [
+                Box(
+                    origin=HomogeneousTransformationMatrix.from_xyz_rpy(
+                        x=0.5, y=0.3, z=0.25, reference_frame=table.root
+                    ),
+                    scale=Scale(1.0, 0.6, 0.5),
+                )
+            ],
+            reference_frame=table.root,
+        )
+        table.root.visual = table.root.collision
+
+        with world.modify_world():
+            surface = table.calculate_supporting_surface()
+
+        self.assertIsNotNone(surface)
+        table_top = Point3(0.5, 0.3, 0.5, reference_frame=table.root)
+        expected = world.transform(table_top, world.root).to_np()[:3]
+        np.testing.assert_allclose(
+            surface.global_transform.position.to_np()[:3], expected, atol=1e-9
+        )
+        surface_box = surface.area.as_bounding_box_collection_in_frame(
+            world.root
+        ).bounding_box()
+        table_box = table.root.collision.as_bounding_box_collection_in_frame(
+            world.root
+        ).bounding_box()
+        np.testing.assert_allclose(
+            [surface_box.min_x, surface_box.max_x, surface_box.min_y, surface_box.max_y],
+            [table_box.min_x, table_box.max_x, table_box.min_y, table_box.max_y],
+            atol=1e-9,
+        )
+
     def test_sample_points_from_surface(self):
         world = World.create_with_root_body("root")
         with world.modify_world():
@@ -717,10 +779,10 @@ class TestFactories(unittest.TestCase):
 
         surface_P_milk = world.transform(
             milk.root.global_transform, table.supporting_surface
-        ).to_position()
+        ).position
         surface_P_cereal = world.transform(
             cereal.root.global_transform, table.supporting_surface
-        ).to_position()
+        ).position
 
         assert not surface_event.contains(surface_P_milk[:2])
         assert not surface_event.contains(surface_P_cereal[:2])
@@ -1758,6 +1820,41 @@ def test_drawer_create_default_mechanical_joint_inserts_slider_for_bare_prismati
     assert slider_connection.raw_dof.limits.lower.position == 0.0
     assert slider_connection.raw_dof.limits.upper.position == 0.3
     assert world.validate()
+
+
+def test_a_drawer_on_a_slider_stands_as_far_open_as_its_slider_has_travelled():
+    """
+    A drawer carried by a slider is fixed to it, so how far the drawer stands open is
+    read from the slider's travel.
+    """
+    world = _world_with_root()
+    lower = DerivativeMap[float]()
+    lower.position = 0.0
+    upper = DerivativeMap[float]()
+    upper.position = 0.3
+    limits = DegreeOfFreedomLimits(lower=lower, upper=upper)
+
+    with world.modify_world():
+        fridge = Fridge.create_with_new_body_in_world(
+            name="fridge", world=world, scale=Scale(1, 1, 2.0)
+        )
+        drawer = Drawer.get_annotation_specification(
+            "drawer",
+            Drawer.get_default_root_kinematic_structure_entity_specification(
+                scale=Scale(0.2, 0.3, 0.2)
+            ),
+            parent_connection_specification=PrismaticConnectionSpecification(
+                axis=Vector3.X(), multiplier=1.0, offset=0.0, dof_limits=limits
+            ),
+        ).spawn(world, parent=fridge.root)
+    with world.modify_world():
+        drawer.create_default_mechanical_joint()
+
+    slider_connection = drawer.mechanical_joint.root.parent_connection
+    slider_connection.position = upper.position
+    world.notify_state_change()
+
+    assert drawer.opening_ratio == 1
 
 
 def test_create_default_mechanical_joint_is_a_noop_when_a_joint_already_exists():

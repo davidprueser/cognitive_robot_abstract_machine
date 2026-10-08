@@ -23,6 +23,10 @@ from krrood.entity_query_language.operators.causal import (
     CauseEffectVariables,
     ScoredIntervention,
 )
+from krrood.entity_query_language.operators.probabilistic_queries import (
+    ProbabilisticQuery,
+)
+from krrood.entity_query_language.operators.aggregators import Average
 from krrood.entity_query_language.core.variable import Variable
 from krrood.entity_query_language.evaluable import Evaluable
 from krrood.entity_query_language.exceptions import (
@@ -34,9 +38,9 @@ from krrood.entity_query_language.exceptions import (
     SelectiveBackendCannotResolveEllipsisMatch,
     UnderspecifiedStatementInfeasibleForEntityQueryLanguageGeneration,
 )
-from krrood.entity_query_language.factories import entity, set_of, variable
+from krrood.entity_query_language.factories import set_of, variable
 from krrood.entity_query_language.query.match import Match, AttributeMatch
-from krrood.entity_query_language.query.query import Query
+from krrood.entity_query_language.query.query import Entity, Query
 from krrood.ormatic.eql_interface import eql_to_sql
 from probabilistic_model.exceptions import IntractableError
 from probabilistic_model.probabilistic_circuit.rx.helper import uniform_measure_of_event
@@ -56,6 +60,7 @@ try:
     )
     from krrood.parametrization.parameterizer import (
         UnderspecifiedParameters,
+        SelectedAttributesParameters,
     )
 except ImportError as e:
     logger.debug(f"Couldn't import probabilistic model needed classes: {e}")
@@ -64,6 +69,7 @@ except ImportError as e:
     MultipleEffectVariablesNotSupported = NoneType
     ModelRegistry = NoneType
     FullyFactorizedRegistry = NoneType
+    SelectedAttributesParameters = NoneType
     UnderspecifiedParameters = NoneType
 
 T = TypeVar("T")
@@ -116,7 +122,7 @@ class QueryBackend(ABC):
 
         :param expression: The expression about to be evaluated.
         """
-        if not (isinstance(expression, Match) and expression.has_cause_attributes):
+        if not (isinstance(expression, Match) and expression._has_cause_attributes_):
             return
         if self.raise_on_unresolvable_cause:
             raise BackendCannotEvaluateCause(expression, backend_type=type(self))
@@ -137,7 +143,7 @@ class SelectiveBackend(QueryBackend, ABC):
     """
 
     def evaluate(self, expression: Evaluable) -> Iterable[T]:
-        if isinstance(expression, Match) and expression.has_ellipsis_attributes:
+        if isinstance(expression, Match) and expression._has_ellipsis_attributes_:
             raise SelectiveBackendCannotResolveEllipsisMatch(expression)
         self._warn_or_raise_on_unresolved_cause_(expression)
         yield from self._evaluate(expression)
@@ -205,28 +211,25 @@ class EntityQueryLanguageGenerativeBackend(GenerativeBackend):
     A generative backend that constructs new instances deterministically: it treats a
     match's unspecified leaves as variables, enumerates every combination over their
     (discrete) domains, constructs an instance per combination via the type's
-    constructor, and keeps those that satisfy the match's ``where`` conditions.
+    constructor, and keeps those that satisfy the match: the values its pattern states
+    and its ``where`` conditions.
     """
 
     def _evaluate(self, expression: Match[T]) -> Iterable[T]:
         self._warn_or_raise_on_unresolved_cause_(expression)
         variables: Dict[str, Variable] = {}
-        for attribute_match in expression.matches_with_variables:
+        for attribute_match in expression._matches_with_variables_:
             self._check_attribute_match_is_suitable_for_generation(attribute_match)
             variables[attribute_match.name_from_variable_access_path] = (
                 self._convert_attribute_match_to_variable(attribute_match)
             )
 
-        expression.variable._update_domain_(
+        satisfying = expression._select_satisfying_(
             self._generate_raw_results(expression, variables)
         )
-
-        filtered_results = entity(expression.variable)._quantify_(
+        yield from satisfying._quantify_(
             expression._quantifier_type_
-        )
-        if expression._where_conditions_:
-            filtered_results = filtered_results.where(*expression._where_conditions_)
-        yield from filtered_results._evaluate_natively_()
+        )._evaluate_natively_()
 
     @staticmethod
     def _check_attribute_match_is_suitable_for_generation(
@@ -297,6 +300,10 @@ class ProbabilisticBackend(GenerativeBackend):
     """
     A backend that generates elements from a tractable probabilistic model using a model
     registry.
+
+    A sampled instance contradicting the match, in a value the model does not cover such
+    as a property's, is rejected, so fewer instances than :attr:`number_of_samples` may
+    be generated.
     """
 
     model_registry: ModelRegistry = field(default_factory=FullyFactorizedRegistry)
@@ -311,6 +318,67 @@ class ProbabilisticBackend(GenerativeBackend):
 
     This is only used if the query does not specify a limit.
     """
+
+    def evaluate(self, expression: Evaluable) -> Iterable[T]:
+        if isinstance(expression, ProbabilisticQuery):
+            yield expression._resolve_(self.model_registry)
+            return
+        bare_average = self._bare_average_selection(expression)
+        if bare_average is not None:
+            yield self._resolve_average(bare_average)
+            return
+        yield from super().evaluate(expression)
+
+    @staticmethod
+    def _bare_average_selection(expression: Evaluable) -> Optional[Average]:
+        """
+        :param expression: The expression being evaluated.
+        :return: The :class:`~krrood.entity_query_language.operators.aggregators.Average`
+            ``expression`` selects, if it is an otherwise-untouched
+            :class:`~krrood.entity_query_language.query.query.Entity` selecting one
+            (i.e. what ``average(x.A).evaluate(...)`` builds -- see
+            :meth:`~krrood.entity_query_language.operators.aggregators.Aggregator.evaluate`)
+            over an attribute chain, so it can be answered in closed form. ``None``
+            otherwise, e.g. when the average is grouped, filtered, or over something
+            other than an attribute.
+        """
+        if not isinstance(expression, Entity):
+            return None
+        aggregator = expression.selected_aggregator
+        if not isinstance(aggregator, Average):
+            return None
+        if aggregator._leaf_attribute_ is None:
+            return None
+        if aggregator._distinct_:
+            # native evaluation deduplicates values before averaging; the closed-form
+            # expectation has no notion of that, so it must not silently stand in
+            return None
+        if any(
+            builder is not None
+            for builder in (
+                expression._where_builder_,
+                expression._grouped_by_builder_,
+                expression._having_builder_,
+                expression._ordered_by_builder_,
+            )
+        ):
+            return None
+        return aggregator
+
+    def _resolve_average(self, average: Average) -> float:
+        """
+        Resolve a bare ``average(...)`` selection to the exact expectation of its
+        attribute, via ``ProbabilisticModel.expectation``, instead of sampling and
+        averaging rows.
+
+        :param average: The average aggregator to resolve.
+        :return: The expectation of the averaged attribute.
+        """
+        attribute = average._leaf_attribute_
+        parameters = SelectedAttributesParameters((attribute,))
+        model = self.model_registry.get_model(parameters)
+        [random_event_variable] = parameters.variables.values()
+        return model.expectation((random_event_variable,))[random_event_variable]
 
     def _condition_and_truncate(
         self, expression: Match[T]
@@ -338,40 +406,19 @@ class ProbabilisticBackend(GenerativeBackend):
                 expression,
                 cause_effect.confounder_variables,
             )
-            truncated = primary.narrowed_circuit
-        else:
-            # apply conditions from literal assignments to underspecified variables
-            conditioned, _ = model.conditional(
-                parameters.conditioning_assignments_from_literal_values
+            truncated = parameters.apply_krrood_variable_truncation(
+                primary.narrowed_circuit
             )
-
-            if conditioned is None:
-                raise NoSolutionFound(expression.expression)
-
-            # apply conditions from the where statements
-            if parameters.truncation_assignments_from_where_conditions:
-                where_conditions_event = (
-                    parameters.truncation_assignments_from_where_conditions.fill_missing_variables_pure(
-                        parameters.variables.values()
-                    )
-                )
-                truncated, _ = conditioned.truncated(where_conditions_event)
-            else:
-                truncated = conditioned
+        else:
+            # apply literal-assignment conditions, then where-conditions, then
+            # krrood-variable-assignment truncations -- see
+            # UnderspecifiedParameters.resolve_conditioned_and_truncated_model, which
+            # Distribution._resolve_ also reuses to answer a distribution(...) query
+            # with exactly this same sequence, without the sampling step below.
+            truncated = parameters.resolve_conditioned_and_truncated_model(model)
 
         if truncated is None:
-            raise NoSolutionFound(expression.expression)
-
-        # apply conditions from variable assignments to underspecified variables
-        if parameters.truncation_assignments_from_krrood_variables:
-            complete_event = parameters.truncation_assignments_from_krrood_variables[0]
-            complete_event.fill_missing_variables(parameters.variables.values())
-            for event in parameters.truncation_assignments_from_krrood_variables[1:]:
-                complete_event = complete_event.intersection_with(event)
-            truncated, _ = truncated.truncated(complete_event, singleton_allowed=True)
-
-            if truncated is None:
-                raise NoSolutionFound(expression.expression)
+            raise NoSolutionFound(expression._get_expression_())
 
         return parameters, truncated
 
@@ -385,17 +432,22 @@ class ProbabilisticBackend(GenerativeBackend):
             if truncated is None:
                 raise NoSolutionFound(expression.expression)
 
-        number_of_samples = expression.expression._limit_ or self.number_of_samples
+        number_of_samples = (
+            expression._get_expression_()._limit_ or self.number_of_samples
+        )
+
+        # sample and sort by log likelihood
         samples = truncated.sample(number_of_samples)
         log_likelihoods = truncated.log_likelihood(samples)
         samples = samples[log_likelihoods.argsort()[::-1]]
 
-        # create new objects with the values from the samples
-        for sample in samples:
-            instance = parameters.construct_instance_from_model_sample(
-                truncated.variables, sample
-            )
-            yield instance
+        # create new objects with the values from the samples, and reject those
+        # contradicting a value the model does not cover, such as a property's
+        instances = (
+            parameters.construct_instance_from_model_sample(truncated.variables, sample)
+            for sample in samples
+        )
+        yield from expression._select_satisfying_(instances)._evaluate_natively_()
 
     def evaluate_mode(self, expression: Match[T]) -> Iterable[T]:
         """
@@ -480,7 +532,7 @@ class ProbabilisticBackend(GenerativeBackend):
         :return: The resolved cause candidates and effect variable.
         """
         if not parameters.effect_variables_from_causes_effect:
-            raise NoCausesEffectConditionForCause(expression.expression)
+            raise NoCausesEffectConditionForCause(expression._get_expression_())
         if len(parameters.effect_variables_from_causes_effect) > 1:
             raise MultipleEffectVariablesNotSupported(
                 parameters.effect_variables_from_causes_effect
@@ -534,7 +586,7 @@ class ProbabilisticBackend(GenerativeBackend):
             confounder_variables,
         )
         if not scored_interventions:
-            raise NoSolutionFound(expression.expression)
+            raise NoSolutionFound(expression._get_expression_())
         return scored_interventions[0]
 
     @classmethod
@@ -618,7 +670,7 @@ class ProbabilisticBackend(GenerativeBackend):
         """
         parameters = UnderspecifiedParameters(expression)
         if not parameters.search_cause_variables:
-            raise NoCauseVariablesForRanking(expression.expression)
+            raise NoCauseVariablesForRanking(expression._get_expression_())
         model = self.model_registry.get_model(parameters)
         if not isinstance(model, CausalCircuit):
             raise DoRequiresCausalCircuitModel(model)

@@ -14,7 +14,7 @@ from giskardpy.middleware.ros2.exceptions import (
 )
 from giskardpy.middleware.ros2.feedback_publisher import ActionFeedbackPublisher
 from giskardpy.middleware.ros2.cycle_counter import CycleCounter
-from giskardpy.middleware.ros2.input_synchronization import WorldStateInputs
+from semantic_digital_twin.input_synchronization import WorldStateInputs
 from giskardpy.middleware.ros2.world_updates import (
     ClientWorldUpdates,
     IncomingWorldUpdates,
@@ -411,9 +411,9 @@ def control_loop(init_rospy) -> ControlLoopFixture:
     controlled_world = World(name="controlled")
     remote_world = World(name="remote")
     controlled_synchronizer = WorldSynchronizer(
-        node=rospy.node, _world=controlled_world
+        node=rospy.get_node(), _world=controlled_world
     )
-    remote_synchronizer = WorldSynchronizer(node=rospy.node, _world=remote_world)
+    remote_synchronizer = WorldSynchronizer(node=rospy.get_node(), _world=remote_world)
     time.sleep(0.3)
 
     # Build the structure on one side and let it propagate, so both worlds refer to the

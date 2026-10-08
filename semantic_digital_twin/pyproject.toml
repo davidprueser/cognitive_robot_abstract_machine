@@ -55,7 +55,6 @@ dependencies = [
     "psycopg",
     "plyfile",
     "huggingface-hub",
-    "usd-core>=24.11",
     "vhacdx",
     "rerun-sdk[datafusion]",
     "imageio",
@@ -78,9 +77,25 @@ include = ["semantic_digital_twin*"]
 [tool.setuptools.dynamic]
 version = {attr = "semantic_digital_twin._version.__version__"}
 
+[dependency-groups]
+workspace = [
+    "giskardpy",
+    "krrood",
+    "physics_simulators",
+    "probabilistic_model",
+    "random_events",
+]
+
 [project.optional-dependencies]
 gui = [
     "ripple_down_rules[gui]",
+]
+iris = [
+    "drake",
+]
+datasets = [
+    "py7zr",
+    "usd-core>=24.11",
 ]
 dev = [
     "pytest>=7.0.0,<8.0.0",

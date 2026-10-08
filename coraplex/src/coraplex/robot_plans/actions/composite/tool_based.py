@@ -11,6 +11,7 @@ from typing_extensions import Any, List, Optional, Tuple, Union
 
 from semantic_digital_twin.datastructures.alignment import AlignmentPair
 from semantic_digital_twin.robots.robot_part_mixins import HasMobileBase
+from semantic_digital_twin.robots.robot_parts import Arm
 from semantic_digital_twin.semantic_annotations.semantic_annotations import Tool
 from semantic_digital_twin.spatial_types import (
     HomogeneousTransformationMatrix,
@@ -20,23 +21,23 @@ from semantic_digital_twin.spatial_types.spatial_types import Pose
 from semantic_digital_twin.world_description.world_entity import Body
 
 from coraplex.datastructures.enums import (
-    Arms,
     CuttingTechnique,
     MixingPattern,
     MovementType,
+    PouringSide,
     SlicingPriority,
     ToolPathSegmentKind,
     WipingTechnique,
 )
 from coraplex.exceptions import (
     MissingWaypoints,
-    MotionDidNotFinish,
     WipingTargetMissing,
 )
+from coraplex.plans.failures import MotionMadeNoProgress
 from coraplex.plans.factories import sequential
 from coraplex.plans.plan_node import PlanNode
 from coraplex.robot_plans.actions.base import ActionDescription
-from coraplex.view_manager import ViewManager
+from coraplex.robot_plans.mixins import HasTcpGoalThresholds
 from coraplex.robot_plans.actions.composite.tool_paths import (
     ToolPath,
     ToolPathSegment,
@@ -98,13 +99,13 @@ class FullBodyControlledAction(ActionDescription, ABC):
 
 
 @dataclass(kw_only=True)
-class ToolMotionAction(FullBodyControlledAction, ABC):
+class ToolMotionAction(FullBodyControlledAction, ABC, HasTcpGoalThresholds):
     """
     An action that moves a tool along a sampled tool path while keeping the tool aligned
     with its target.
     """
 
-    arm: Arms
+    arm: Arm
     """
     The arm holding the tool.
     """
@@ -178,6 +179,8 @@ class ToolMotionAction(FullBodyControlledAction, ABC):
                     allow_gripper_collision=True,
                     alignment_pairs=self._alignment_pairs,
                     tip=self.tool.get_tool_frame(),
+                    position_threshold=self.position_threshold,
+                    orientation_threshold=self.orientation_threshold,
                 )
             ]
         )
@@ -211,7 +214,7 @@ class MixingAction(ToolMotionAction):
         return build_container_path(self.container, pattern=MixingPattern.SPIRAL)
 
     def _path_frame(self) -> HomogeneousTransformationMatrix:
-        return self.container.global_pose.to_homogeneous_matrix()
+        return self.container.global_pose.homogeneous_matrix
 
     @property
     def _alignment_target(self) -> Optional[Union[Body, Pose]]:
@@ -264,7 +267,7 @@ class CuttingAction(ToolMotionAction):
         )
 
     def _path_frame(self) -> HomogeneousTransformationMatrix:
-        return self.object_to_cut.global_pose.to_homogeneous_matrix()
+        return self.object_to_cut.global_pose.homogeneous_matrix
 
     @property
     def _alignment_target(self) -> Optional[Union[Body, Pose]]:
@@ -350,10 +353,10 @@ class WipingAction(ToolMotionAction):
 
     def _path_frame(self) -> HomogeneousTransformationMatrix:
         if self.surface is not None:
-            return self.surface.global_pose.to_homogeneous_matrix()
+            return self.surface.global_pose.homogeneous_matrix
         if self.target_pose.reference_frame is None:
             self.target_pose.reference_frame = self.world.root
-        return self.target_pose.to_homogeneous_matrix()
+        return self.target_pose.homogeneous_matrix
 
     @property
     def _alignment_target(self) -> Optional[Union[Body, Pose]]:
@@ -363,13 +366,13 @@ class WipingAction(ToolMotionAction):
 
     def _perform_plan(self) -> None:
         """
-        Perform the wiping plan, accepting an unfinished motion if the tool still
+        Perform the wiping plan, accepting a motion that gave up if the tool still
         reached the final waypoint.
         """
         subplan = self.add_subplan(self.action_plan)
         try:
             subplan.perform()
-        except MotionDidNotFinish:
+        except MotionMadeNoProgress:
             if not self._tool_reached_final_waypoint():
                 raise
 
@@ -379,7 +382,7 @@ class WipingAction(ToolMotionAction):
             final waypoint.
         """
         tool_point = self.world.transform(
-            self.tool.root.global_pose.to_position(), self.world.root
+            self.tool.root.global_pose.position, self.world.root
         )
         tool_xyz = np.asarray(tool_point.to_np(), dtype=float).reshape(-1)[:3]
         goal_point = self.world.transform(self._waypoints[-1], self.world.root)
@@ -389,7 +392,7 @@ class WipingAction(ToolMotionAction):
 
 
 @dataclass(kw_only=True)
-class PouringAction(FullBodyControlledAction):
+class PouringAction(FullBodyControlledAction, HasTcpGoalThresholds):
     """
     Pour from a held source container into a target container by tilting the source next
     to the target's rim.
@@ -405,7 +408,7 @@ class PouringAction(FullBodyControlledAction):
     The held container that is poured from.
     """
 
-    arm: Arms
+    arm: Arm
     """
     The arm holding the source container.
     """
@@ -415,11 +418,12 @@ class PouringAction(FullBodyControlledAction):
     Tilt angle in radians applied to the source container while pouring.
     """
 
-    pour_side: Optional[Arms] = None
+    pour_side: Optional[PouringSide] = None
     """
     Robot-relative side of the target container to pour from.
 
-    Defaults to the arm, so one-arm robots can still use either side's pouring geometry.
+    Defaults to the side of the pouring arm, so one-arm robots can still use either
+    side's pouring geometry.
     """
 
     pour_side_offset: float = 0.0
@@ -437,20 +441,23 @@ class PouringAction(FullBodyControlledAction):
     TCP height in meters above the target container for the pre-pour pose.
     """
 
-    def _effective_pour_side(self) -> Arms:
+    def _effective_pour_side(self) -> PouringSide:
         """
-        :return: The requested pour side, or the pouring arm if none was requested.
+        :return: The requested pour side, or the side of the pouring arm if none was
+            requested.
         """
-        if self.pour_side is None:
-            return self.arm
-        return self.pour_side
+        if self.pour_side is not None:
+            return self.pour_side
+        if self.arm is self.robot.get_right_arm_if_specified():
+            return PouringSide.RIGHT
+        return PouringSide.LEFT
 
     def _mouth_height_above_tool_frame(self) -> float:
         """
         :return: Height in meters of the source container's opening above the arm's
             tool frame, measured along the tool frame's z axis.
         """
-        tool_frame = ViewManager.get_end_effector_view(self.arm, self.robot).tool_frame
+        tool_frame = self.arm.end_effector.tool_frame
         tool_frame_T_source = self.world.compute_forward_kinematics_np(
             tool_frame, self.source_container.root
         )
@@ -486,9 +493,7 @@ class PouringAction(FullBodyControlledAction):
             approach_x /= approach_norm
             approach_y /= approach_norm
 
-        target_quaternion = [
-            float(value) for value in target_pose.to_quaternion().to_np()
-        ]
+        target_quaternion = [float(value) for value in target_pose.quaternion.to_np()]
         target_rotation = Rotation.from_quat(target_quaternion)
         target_x_axis = target_rotation.apply([1, 0, 0])
         target_y_axis = target_rotation.apply([0, 1, 0])
@@ -514,7 +519,7 @@ class PouringAction(FullBodyControlledAction):
         approach_x, approach_y = self._approach_direction(target_pose, robot_pose)
         robot_right_x = approach_y
         robot_right_y = -approach_x
-        side_sign = 1.0 if pour_side == Arms.RIGHT else -1.0
+        side_sign = 1.0 if pour_side == PouringSide.RIGHT else -1.0
 
         side_offset = float(self.pour_side_offset) + math.sin(self.tilt_angle) * max(
             self._mouth_height_above_tool_frame(), 0.0
@@ -537,11 +542,11 @@ class PouringAction(FullBodyControlledAction):
             float(target_pose.y) - pour_y, float(target_pose.x) - pour_x
         )
         base_rotation = Rotation.from_euler("z", yaw_to_target)
-        if pour_side == Arms.LEFT:
+        if pour_side == PouringSide.LEFT:
             base_rotation = Rotation.from_euler("z", math.pi) * base_rotation
 
         signed_tilt_angle = (
-            self.tilt_angle if pour_side == Arms.RIGHT else -self.tilt_angle
+            self.tilt_angle if pour_side == PouringSide.RIGHT else -self.tilt_angle
         )
         tilted_rotation = base_rotation * Rotation.from_euler("y", signed_tilt_angle)
 
@@ -585,12 +590,16 @@ class PouringAction(FullBodyControlledAction):
                     self.arm,
                     allow_gripper_collision=True,
                     movement_type=MovementType.CARTESIAN,
+                    position_threshold=self.position_threshold,
+                    orientation_threshold=self.orientation_threshold,
                 ),
                 MoveToolCenterPointMotion(
                     pour_pose,
                     self.arm,
                     allow_gripper_collision=True,
                     movement_type=MovementType.CARTESIAN,
+                    position_threshold=self.position_threshold,
+                    orientation_threshold=self.orientation_threshold,
                 ),
             ]
         )

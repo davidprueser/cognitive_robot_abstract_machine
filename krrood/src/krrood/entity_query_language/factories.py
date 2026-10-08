@@ -4,7 +4,6 @@ User interface (grammar & vocabulary) for entity query language.
 
 from __future__ import annotations
 
-import inspect
 import operator
 from dataclasses import dataclass
 from inspect import isclass
@@ -17,6 +16,7 @@ from typing_extensions import (
     Optional,
     Tuple,
     Type,
+    TYPE_CHECKING,
     TypeVar,
     overload,
 )
@@ -25,7 +25,6 @@ from krrood.entity_query_language.core.base_expressions import (
     Selectable,
     SymbolicExpression,
     TruthValueOperator,
-    OperationResult,
 )
 from krrood.entity_query_language.operators.causal import (
     cause,
@@ -35,8 +34,10 @@ from krrood.entity_query_language.core.helpers import _resolve_domain
 from krrood.entity_query_language.core.mapped_variable import (
     FlatVariable,
     CanBehaveLikeAVariable,
+    HasSymbolicOperations,
     Attribute,
 )
+from krrood.entity_query_language.evaluation import evaluate_statements_of
 from krrood.entity_query_language.core.variable import (
     DomainType,
     Literal,
@@ -91,6 +92,12 @@ from krrood.entity_query_language.rules.conclusion_selector import (
 from krrood.entity_query_language.utils import is_iterable
 from krrood.symbol_graph.symbol_graph import Symbol, SymbolGraph
 
+if TYPE_CHECKING:
+    from krrood.entity_query_language.operators.probabilistic_queries import (
+        Distribution,
+        Probability,
+    )
+
 ConditionType = Union[SymbolicExpression, bool, Predicate, TruthValueOperator]
 """
 The possible types for conditions.
@@ -117,6 +124,62 @@ def set_of(*selected_variables: Union[Selectable[T], Any]) -> SetOf:
     :return: Set descriptor.
     """
     return SetOf(_selected_variables_=selected_variables)
+
+
+def distribution_of(
+    match: Match, *, marginalize_for: Tuple[Attribute, ...] = ()
+) -> Distribution:
+    """
+    Request the distribution a match's conditions describe -- the probabilistic
+    interpretation of :py:func:`a`/:py:func:`an`/:py:func:`the`. Literal-valued kwargs
+    condition the circuit (``arm=0.3``), ``.where(...)`` conditions truncate it, and
+    underspecified (``...``) fields are the joint's free variables, e.g.
+    ``distribution_of(a(Pick)(arm=0.3, outcome=...))``.
+
+    Unlike :py:func:`set_of`/:py:func:`entity`, this never resolves to rows: it must be
+    evaluated with a
+    :class:`~krrood.entity_query_language.backends.ProbabilisticBackend`, which returns
+    the resolved
+    :class:`~probabilistic_model.probabilistic_model.ProbabilisticModel` instead of
+    sampling instances from it.
+
+    :param match: The match whose conditions describe the distribution.
+    :param marginalize_for: Optionally, a subset of the match's free variables to
+        narrow the result to (further marginalization), e.g. ``distribution_of(match,
+        marginalize_for=(match.outcome,))``. Without it, every one of the
+        match's free variables is kept.
+    :return: Distribution descriptor.
+    """
+    # Local import: avoids a circular import through operators/probabilistic_queries.py.
+    from krrood.entity_query_language.operators.probabilistic_queries import (
+        Distribution,
+    )
+
+    return Distribution(match=match, marginalize_for=marginalize_for)
+
+
+def probability_of(condition: ConditionType) -> Probability:
+    """
+    Request the probability of a condition, e.g. ``probability_of(x.A > 5)`` for
+    ``x = variable(MyClass)``. The condition may be any expression a ``.where(...)``
+    condition already accepts.
+
+    Like :py:func:`distribution_of`, this never resolves to rows: it must be evaluated
+    with a
+    :class:`~krrood.entity_query_language.backends.ProbabilisticBackend`, which returns
+    the resolved probability as a plain ``float``.
+
+    For the expectation of an attribute, use the existing :py:func:`average` aggregator
+    instead -- {py:class}`~krrood.entity_query_language.backends.ProbabilisticBackend`
+    already recognizes a bare ``average(...)`` selection and answers it in closed form.
+
+    :param condition: The condition to compute the probability of.
+    :return: Probability descriptor.
+    """
+    # Local import: avoids a circular import through operators/probabilistic_queries.py.
+    from krrood.entity_query_language.operators.probabilistic_queries import Probability
+
+    return Probability(condition=condition)
 
 
 # %% Variable Declaration
@@ -322,9 +385,12 @@ def _quantify_or_build_match(
 
     The behaviour is selected by the runtime type of ``arg``:
 
-    * If ``arg`` is a :class:`~krrood.entity_query_language.core.base_expressions.SymbolicExpression`
-      (an entity, a set expression, a variable or an attribute), it is quantified with
-      ``quantifier_type``. Raw selectables that are not already a
+    * If ``arg`` stands for an expression - a
+      :class:`~krrood.entity_query_language.core.base_expressions.SymbolicExpression` (an
+      entity, a set expression, a variable or an attribute), or a
+      :class:`~krrood.entity_query_language.query.match.Match`, which contributes the
+      query carrying its pattern - it is quantified with ``quantifier_type``. Raw
+      selectables that are not already a
       :class:`~krrood.entity_query_language.query.query.Query` are first wrapped with
       :py:func:`entity`.
     * Otherwise ``arg`` is treated as a type (or a callable factory) and a structural
@@ -332,6 +398,10 @@ def _quantify_or_build_match(
       and generative-ready through a
       :class:`~krrood.entity_query_language.backends.GenerativeBackend`. Restrict the search to
       specific instances with :meth:`~krrood.entity_query_language.query.match.Match.from_`.
+      The match reads like an instance of the matched class, both statically (the
+      overloads return ``Union[T, Match[T]]``, so IDEs offer the class's own attributes)
+      and at runtime (attribute access is delegated symbolically, see
+      :meth:`~krrood.entity_query_language.query.match.Match.__getattr__`).
 
     :param arg: An entity/set/variable/attribute to quantify, or a type/callable to match.
     :param quantifier_type: The result quantifier to apply (``An`` or ``The``).
@@ -339,12 +409,13 @@ def _quantify_or_build_match(
     :param target_type: Optional explicit type for callable factories (match path only).
     :return: A quantified query, or a ``Match`` builder.
     """
-    if isinstance(arg, SymbolicExpression):
+    if isinstance(arg, (SymbolicExpression, HasSymbolicOperations)):
+        arg = SymbolicExpression._as_operand_(arg)
         if not isinstance(arg, Query):
             arg = entity(arg)
         return arg._quantify_(quantifier_type, quantification_constraint=quantification)
 
-    match_ = Match(factory=arg, type_=target_type)
+    match_ = Match(_factory_=arg, _declared_type_=target_type)
     match_._quantifier_type_ = quantifier_type
     return match_
 
@@ -371,7 +442,7 @@ def an(
     quantification: None = ...,
     *,
     target_type: None = ...,
-) -> Match[T]: ...
+) -> Union[T, Match[T]]: ...
 
 
 @overload
@@ -389,7 +460,7 @@ def an(
     quantification: None = ...,
     *,
     target_type: Type[T] = ...,
-) -> Match[T]: ...
+) -> Union[T, Match[T]]: ...
 
 
 @overload
@@ -432,7 +503,7 @@ def a(
     quantification: None = ...,
     *,
     target_type: None = ...,
-) -> Match[T]: ...
+) -> Union[T, Match[T]]: ...
 
 
 @overload
@@ -450,7 +521,7 @@ def a(
     quantification: None = ...,
     *,
     target_type: Type[T] = ...,
-) -> Match[T]: ...
+) -> Union[T, Match[T]]: ...
 
 
 @overload
@@ -488,7 +559,7 @@ def the(
     entity_: Type[T],
     *,
     target_type: None = ...,
-) -> Match[T]: ...
+) -> Union[T, Match[T]]: ...
 
 
 @overload
@@ -504,7 +575,7 @@ def the(
     entity_: Callable[..., T],
     *,
     target_type: Type[T] = ...,
-) -> Match[T]: ...
+) -> Union[T, Match[T]]: ...
 
 
 @overload
@@ -736,13 +807,19 @@ def average(
     distinct: bool = False,
 ) -> Union[T, Average]:
     """
-    Computes the sum of values produced by the given variable.
+    Computes the average of values produced by the given variable.
 
-    :param variable: The variable for which the sum is calculated.
+    Evaluated bare (``average(x.A).first(backend=...)``, with no enclosing
+    ``set_of``/``grouped_by``) against a
+    :class:`~krrood.entity_query_language.backends.ProbabilisticBackend`, this resolves
+    in closed form via ``ProbabilisticModel.moment`` instead of sampling and averaging
+    rows -- the same declarative call reads correctly under either backend.
+
+    :param variable: The variable for which the average is calculated.
     :param key: A function that extracts a comparison key from each variable value.
     :param default: The value returned when the iterable is empty.
     :param distinct: Whether to only consider distinct values.
-    :return: A Sum object that can be evaluated to find the sum of values.
+    :return: An Average object that can be evaluated to find the average of values.
     """
     return Average(
         variable, _key_function_=key, _default_value_=default, _distinct_=distinct
@@ -804,48 +881,35 @@ def distinct(
             raise UnsupportedExpressionTypeForDistinct(type(expression))
 
 
-def get_conditioned_statements(
-    statement, condition: Callable[OperationResult, bool]
-) -> List[SymbolicExpression]:
-    """
-    Iterates over all sub-statements of the statement and returns all statements that
-    satisfy the condition.
-
-    :param statement: The statement to iterate over.
-    :param condition: The condition to evaluate each sub-statement against.
-    :return: A list of sub-statements that satisfy the condition.
-    """
-    condition_results = []
-    for node in [
-        s
-        for s in statement._children_
-        if not isinstance(s, (Variable, inspect.Attribute))
-    ]:
-        node_result = node.evaluate()
-        if condition(node_result):
-            condition_results.append(node)
-    if statement in condition_results:
-        condition_results.remove(statement)
-
-    return condition_results
-
-
 def get_false_statements(statement: SymbolicExpression) -> List[SymbolicExpression]:
     """
-    The false statements of all statements of this condition.
-
-    :return: The false statements of all statements of this condition.
+    :param statement: The condition whose statements are checked.
+    :return: The statements of the condition that held for none of the values they were
+        evaluated on, see :func:`evaluate_statements_of`. In a conjunction that is the
+        first conjunct that could not hold together with the conjuncts before it.
     """
-    return get_conditioned_statements(statement, lambda x: not x == [])
+    statement_results = evaluate_statements_of(statement)
+    held_ids = {result.operand._id_ for result in statement_results if result.is_true}
+    never_held = {
+        result.operand._id_: result.operand
+        for result in statement_results
+        if result.operand._id_ not in held_ids
+    }
+    return list(never_held.values())
 
 
 def get_true_statements(statement: SymbolicExpression) -> List[SymbolicExpression]:
     """
-    The true statements of all statements of this condition.
-
-    :return: The true statements of this condition.
+    :param statement: The condition whose statements are checked.
+    :return: The statements of the condition that held for at least one of the values
+        they were evaluated on, see :func:`evaluate_statements_of`.
     """
-    return get_conditioned_statements(statement, lambda x: x == [])
+    held = {
+        result.operand._id_: result.operand
+        for result in evaluate_statements_of(statement)
+        if result.is_true
+    }
+    return list(held.values())
 
 
 def evaluate_condition(condition: ConditionType) -> bool:

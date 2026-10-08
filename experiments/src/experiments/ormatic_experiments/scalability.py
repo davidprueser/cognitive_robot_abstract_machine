@@ -18,6 +18,7 @@ from typing import Type, List, Set, Tuple
 import plotly.graph_objects as go
 import tqdm
 
+import coraplex.plans.underspecified
 import experiments.orm.ormatic_interface  # type: ignore
 import coraplex.plans.plan_node
 import semantic_digital_twin  # type: ignore
@@ -29,7 +30,10 @@ from experiments.experiment_definitions import (
 )
 from krrood.class_diagrams.class_diagram import ClassDiagram
 from krrood.ormatic.data_access_objects.alternative_mappings import AlternativeMapping
-from krrood.ormatic.helper import get_classes_of_ormatic_interface
+from krrood.ormatic.helper import (
+    get_classes_of_ormatic_interface,
+    OrmaticInterfaceInformation,
+)
 from krrood.ormatic.ormatic import ORMatic
 from krrood.ormatic.type_dict import TypeDict
 from krrood.utils import recursive_subclasses
@@ -48,10 +52,10 @@ def build_cram_class_sets() -> Tuple[Set[Type], List[Type], dict]:
     :return: Tuple of (classes, alternative_mappings, type_mappings) ready to pass to
         :func:`run_scalability_experiment`.
     """
-    classes, alternative_mappings, type_mappings = get_classes_of_ormatic_interface(
-        experiments.orm.ormatic_interface
-    )
-    classes = set(classes)
+    interface_info = get_classes_of_ormatic_interface(experiments.orm.ormatic_interface)
+    classes = set(interface_info.classes)
+    alternative_mappings = interface_info.alternative_mappings
+    type_mappings = interface_info.type_mappings
 
     alternative_mappings += [
         alternative_mapping
@@ -228,8 +232,10 @@ def _ormatic_scalability_experiment(
 
     ormatic = ORMatic(
         class_diagram,
-        type_mappings=TypeDict(type_mappings),
-        alternative_mappings=alternative_mappings,
+        interface_information=OrmaticInterfaceInformation(
+            type_mappings=TypeDict(type_mappings),
+            alternative_mappings=alternative_mappings,
+        ),
     )
     ormatic.make_all_tables()
 
@@ -378,7 +384,10 @@ def plot_scalability(table: ExperimentsTable) -> go.Figure:
 
 def main():
     classes, alternative_mappings, type_mappings = build_cram_class_sets()
-    required_classes = [coraplex.plans.plan_node.UnderspecifiedNode, ActionDescription]
+    required_classes = [
+        coraplex.plans.underspecified.UnderspecifiedNode,
+        ActionDescription,
+    ]
     results = []
     for class_drop_probability in tqdm.tqdm(
         [

@@ -221,6 +221,7 @@ def main():
         "ros-jazzy-py-trees-ros",
         "python3-vcstool",
         "git",
+        "nodejs",
         "ros-dev-tools",
         "default-jre",
         "graphviz",
@@ -237,6 +238,7 @@ def main():
         "ros-jazzy-ament-cmake-ros",
         "ros-jazzy-launch-testing-ament-cmake",
         "ros-jazzy-rviz2",
+        "ros-jazzy-control-msgs",
         "ros-jazzy-ur-robot-driver",
         "ros-jazzy-ur-client-library",
     ]
@@ -339,7 +341,7 @@ def main():
             "https://github.com/code-iai/iai_weiss_wpg_300-120-gripper.git",
             "main",
             "iai_weiss_wpg_300-120-gripper",
-            ["griplink"],
+            ["griplink/griplink"],
         ),
         Repository(
             "https://github.com/aws-robotics/aws-robomaker-small-warehouse-world.git",

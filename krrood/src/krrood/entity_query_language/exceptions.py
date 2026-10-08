@@ -35,6 +35,9 @@ if TYPE_CHECKING:
         AbstractMatchExpression,
         AttributeMatch,
     )
+    from krrood.entity_query_language.operators.probabilistic_queries import (
+        ProbabilisticQuery,
+    )
 
 
 @dataclass
@@ -338,6 +341,42 @@ class MultipleValuesAlongAccessPath(UsageError):
         return (
             "Follow a chain whose every step maps one value to one value, or aggregate "
             "the collection instead of flattening it."
+        )
+
+
+@dataclass
+class NoValueAlongAccessPath(UsageError):
+    """
+    Raised when a chain is followed from a value outside query evaluation and a step maps
+    that value to none, leaving the rest of the chain with nothing to follow.
+    """
+
+    chain: MappedVariable
+    """
+    The chain that was being followed.
+    """
+
+    step: MappedVariable
+    """
+    The step along it that reaches no value.
+    """
+
+    instance: Any
+    """
+    The value the chain was being followed from.
+    """
+
+    def error_message(self) -> str:
+        return (
+            f"{self.chain._name_} passes through {self.step._name_}, which reaches no "
+            f"value on the given {type(self.instance).__name__}, so the rest of the "
+            f"access path has nothing to follow."
+        )
+
+    def suggest_correction(self) -> str:
+        return (
+            "Follow the chain from a value that has something at every step of it, or "
+            "check for the missing one before following it."
         )
 
 
@@ -965,6 +1004,38 @@ class BackendCannotEvaluateCause(DataclassException):
 
 
 @dataclass
+class BackendCannotEvaluateProbabilisticQuery(DataclassException):
+    """
+    Raised when a
+    :class:`~krrood.entity_query_language.operators.probabilistic_queries.ProbabilisticQuery`
+    is evaluated with any backend other than
+    :class:`~krrood.entity_query_language.backends.ProbabilisticBackend`.
+
+    Querying a probabilistic model directly is a probabilistic operation, not a data
+    selection, so most of these have no native/SQL evaluation strategy at all --
+    unlike every other query construct in this package. The one exception is
+    :class:`~krrood.entity_query_language.operators.probabilistic_queries.Probability`
+    (``probability_of(...)``), which *does* evaluate natively (counting matching rows
+    over an enumerable domain) and never raises this; ``distribution_of(...)`` still
+    does, unconditionally.
+    """
+
+    expression: ProbabilisticQuery
+    """
+    The probabilistic query that was evaluated.
+    """
+
+    def error_message(self) -> str:
+        return (
+            f"{self.expression} cannot be evaluated natively: querying a probabilistic "
+            f"model directly is a probabilistic operation, not a data selection."
+        )
+
+    def suggest_correction(self) -> str:
+        return "Evaluate with a ProbabilisticBackend backed by a model registry, e.g. .evaluate(backend=ProbabilisticBackend(...))."
+
+
+@dataclass
 class CalledMatchMultipleTimes(DataclassException):
     """
     Exception raised when a match expression is called multiple times.
@@ -981,6 +1052,89 @@ class CalledMatchMultipleTimes(DataclassException):
 
     def suggest_correction(self) -> str:
         return ""
+
+
+@dataclass
+class AmbiguousQuerySubject(UsageError):
+    """
+    Raised when a condition uses a query that selects several variables as a value,
+    leaving it without a single subject to stand for.
+    """
+
+    query: Query
+    """
+    The query that was used as a value in its own condition.
+    """
+
+    def error_message(self) -> str:
+        return (
+            f"The query {self.query} selects {len(self.query._selected_variables_)} "
+            f"variables, so using it as a value in its own condition has no single "
+            f"subject to stand for."
+        )
+
+    def suggest_correction(self) -> str:
+        return (
+            "Use the variable the value belongs to, e.g. `body == other`, or index the "
+            "query by that variable, e.g. `query[body] == other`."
+        )
+
+
+@dataclass
+class PositionalArgumentsInMatchPattern(DataclassException, TypeError):
+    """
+    Raised when the parentheses that state a match's pattern are given positional
+    arguments, which a pattern of named fields has no place for.
+    """
+
+    match: AbstractMatchExpression
+    """
+    The match whose pattern was given positional arguments.
+    """
+
+    arguments: Tuple[Any, ...]
+    """
+    The positional arguments that were given.
+    """
+
+    def error_message(self) -> str:
+        return (
+            f"Match expression '{self.match}' was given the positional arguments "
+            f"{self.arguments} where its pattern is stated, and a pattern names fields."
+        )
+
+    def suggest_correction(self) -> str:
+        return (
+            "Name the fields to match, as in `a(Drawer)(handle=...)`. To call a matched "
+            "instance that is itself callable, state the pattern first and call the "
+            "result: `an(Adder)(offset=1)(2)`, or `an(Adder)()(2)` for an empty pattern."
+        )
+
+
+@dataclass
+class CalledMatchAfterResolution(DataclassException):
+    """
+    Raised when a match expression is called with keyword arguments after it was already
+    resolved into its query expression, so the keyword arguments could no longer
+    constrain the query.
+    """
+
+    match: AbstractMatchExpression
+    """
+    The match that was called after its resolution.
+    """
+
+    def error_message(self) -> str:
+        return (
+            f"Match expression '{self.match}' was called after it was already resolved "
+            f"into its query expression (symbolic attribute access and `where` both "
+            f"resolve a match). The keyword arguments can no longer constrain the query."
+        )
+
+    def suggest_correction(self) -> str:
+        return (
+            "Pass the keyword arguments before accessing attributes or calling `where`."
+        )
 
 
 @dataclass
@@ -1031,7 +1185,7 @@ class CausesEffectRequiresEqualityComparator(UsageError):
     def suggest_correction(self) -> str:
         return (
             "Compare an attribute against a literal value with `==`, e.g. "
-            "`match.causes_effect(match.variable.status == SUCCESS)`, combining "
+            "`match.causes_effect(match.status == SUCCESS)`, combining "
             "several such comparisons with `and_` if needed."
         )
 
@@ -1060,7 +1214,7 @@ class NoCausesEffectConditionForCause(DataclassException):
     def suggest_correction(self) -> str:
         return (
             "Add a causes_effect(...) condition declaring the effect, e.g. "
-            "`match.causes_effect(match.variable.status == SUCCESS)`."
+            "`match.causes_effect(match.status == SUCCESS)`."
         )
 
 
@@ -1099,7 +1253,7 @@ class MatchTypeCannotBeDetermined(DataclassException):
     def error_message(self) -> str:
         return (
             f"Match type cannot be determined for {self.match}. "
-            f"Tried to infer the type from {self.match.factory}."
+            f"Tried to infer the type from {self.match._factory_}."
             f"The factory given to the match must ether be a classmethod the returns its class or a "
             f"method where the return type is a class which has been concretely imported (not via "
             f"TYPE_CHECKING). If that is not an option for you, set the `target_type` keyword "

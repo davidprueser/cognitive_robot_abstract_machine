@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
+from abc import abstractmethod
 from dataclasses import dataclass, field
 from typing import Tuple
 
 import numpy as np
 import trimesh
+from trimesh.util import concatenate
 from krrood.class_diagrams.class_diagram import WrappedClass
 from krrood.entity_query_language.factories import variable_from, entity, variable, an
 from krrood.ormatic.utils import classproperty
@@ -50,9 +51,10 @@ from semantic_digital_twin.datastructures.variables import SpatialVariables
 from semantic_digital_twin.exceptions import (
     AmbiguousPart,
     CannotBeAPartOf,
+    NoSupportingSurfaceError,
     UnknownPartWholeRelationshipField,
 )
-from semantic_digital_twin.reasoning.predicates import is_supported_by
+from semantic_digital_twin.reasoning.predicates import SupportedBy
 from semantic_digital_twin.semantic_annotations.part_whole import (
     IsPartWholeRelationship,
 )
@@ -149,6 +151,23 @@ class HasRootKinematicStructureEntity(
     """
     The root kinematic structure entity of the semantic annotation.
     """
+
+    @property
+    def combined_mesh(self) -> trimesh.Trimesh:
+        """
+        :return: The collision geometry of every body of this annotation, merged into a single
+        mesh expressed in the frame of :attr:`root`.
+
+        ..note:: Rebuilt on every access, since the bodies move relative to each other
+            with the world state.
+        """
+        return concatenate(
+            [
+                shape.mesh_in_frame(self.root)
+                for body in self.bodies_with_collision
+                for shape in body.collision
+            ]
+        )
 
     @property
     def scale(self) -> Scale:
@@ -895,6 +914,10 @@ class HasSupportingSurface(IsStorageSpace):
         candidates_filtered = candidates.submesh([clear_mask], append=True)
 
         # --- Build the region ---
+        # The region is placed where the surface was found, relative to the root's
+        # origin, so that it lies on top of the root wherever that origin is
+        vertices = candidates_filtered.vertices
+        self_P_supporting_surface = vertices.mean(axis=0)
         points_3d = [
             Point3(
                 x,
@@ -902,7 +925,7 @@ class HasSupportingSurface(IsStorageSpace):
                 z,
                 reference_frame=self.root,
             )
-            for x, y, z in candidates_filtered.vertices
+            for x, y, z in vertices - self_P_supporting_surface
         ]
         supporting_surface = Region.from_3d_points(
             name=PrefixedName(
@@ -912,12 +935,12 @@ class HasSupportingSurface(IsStorageSpace):
             points_3d=points_3d,
         )
 
-        supporting_surface_z_position = self.root.collision.scale.z / 2
+        x, y, z = self_P_supporting_surface
         self_C_supporting_surface = FixedConnection(
             parent=self.root,
             child=supporting_surface,
             parent_T_connection_expression=HomogeneousTransformationMatrix.from_xyz_rpy(
-                z=supporting_surface_z_position, reference_frame=self.root
+                x=x, y=y, z=z, reference_frame=self.root
             ),
         )
         self._world.add_region(supporting_surface)
@@ -942,9 +965,9 @@ class HasSupportingSurface(IsStorageSpace):
 
         bodies = variable_from(self._world.bodies_with_collision)
         body = entity(bodies).where(
-            is_supported_by(
-                supported_body=bodies,
-                supporting_body=self.root,
+            SupportedBy(
+                supported=bodies,
+                supporting=self.root,
             )
         )
         objects = an(
@@ -1247,7 +1270,7 @@ class HasSupportingSurface(IsStorageSpace):
 
     def spawn_bounding_boxes_as_region(
         self,
-        boxes: BoundingBoxCollection[VolumetricBoundingBox],
+        boxes: BoundingBoxCollection[VolumetricBoundingBox, Point3],
         name: Optional[PrefixedName] = None,
         color: Optional[Color] = None,
     ) -> Region:
@@ -1292,6 +1315,10 @@ class HasSupportingSurface(IsStorageSpace):
         x,y extent bounds the navigable region, and the height range determines which
         obstacles in the world count as blocking.
 
+        ..warning:: Calling this method when :attr:`supporting_surface` is None will
+            cause the method to calculate the surface and add it to the world, resulting
+            in model updates being published if the synchronizer is running.
+
         :param max_height: The height of the free space above the surface.
         :param tolerance: The tolerance for the intersection when calculating the
             connectivity.
@@ -1304,6 +1331,8 @@ class HasSupportingSurface(IsStorageSpace):
             search space starts comfortably above that many times over above the
             surface's own top, so the surface's own body never registers as an
             obstacle to the free space built over it.
+        :raises NoSupportingSurfaceError: If no surface is attached and none can be
+            derived from this annotation's geometry.
         :return: The graph of the free space above this surface.
         """
         from semantic_digital_twin.semantic_annotations.semantic_annotations import (
@@ -1314,6 +1343,11 @@ class HasSupportingSurface(IsStorageSpace):
         )
 
         world = self._world
+        if self.supporting_surface is None:
+            with world.modify_world():
+                if self.calculate_supporting_surface() is None:
+                    raise NoSupportingSurfaceError(self)
+
         origin = HomogeneousTransformationMatrix(reference_frame=self.root)
         surface_box = self.supporting_surface.area.as_bounding_box_collection_at_origin(
             origin
@@ -1358,6 +1392,17 @@ class HasCaseAsRootBody(HasSupportingSurface):
 
     @classproperty
     @abstractmethod
+    def _hole_direction_axis(cls) -> Vector3:
+        """
+        The unit vector along the direction of the physical hole of the geometry, without
+        a reference frame.
+
+        Used to build this type's default geometry before any instance/root body exists to
+        serve as a reference frame. Use :attr:`hole_direction` instead once an instance
+        exists.
+        """
+
+    @property
     def hole_direction(self) -> Vector3:
         """
         The direction of the physical hole of the geometry.
@@ -1366,6 +1411,9 @@ class HasCaseAsRootBody(HasSupportingSurface):
                 ..warning:: This does not describe the axis along, for example, a drawer opens. Its the physical opening where
                 you can put something into the drawer.
         """
+        return Vector3.from_iterable(
+            self._hole_direction_axis.to_np(), reference_frame=self.root
+        )
 
     @classmethod
     def _create_container_event(cls, scale: Scale, wall_thickness: float) -> Event:
@@ -1381,7 +1429,7 @@ class HasCaseAsRootBody(HasSupportingSurface):
             scale.x - wall_thickness,
             scale.y - wall_thickness,
             scale.z - wall_thickness,
-        ).to_simple_event(cls.hole_direction, wall_thickness)
+        ).to_simple_event(cls._hole_direction_axis, wall_thickness)
 
         container_event = outer_box.as_composite_set() - inner_box.as_composite_set()
 
