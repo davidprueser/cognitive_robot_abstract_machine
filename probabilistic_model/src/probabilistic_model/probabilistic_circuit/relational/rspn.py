@@ -670,10 +670,19 @@ class RelationalProbabilisticCircuit:
     part_learning_methods: dict[str, LearningMethod] = field(default_factory=dict)
     """
     Per exchangeable-part field name, what that part's template distribution is fitted
-    with.
+    with, at any depth of nesting.
 
     A part absent from the mapping is fitted with a plain
     :class:`~probabilistic_model.learning.jpt.jpt.JointProbabilityTree`.
+    """
+
+    min_samples_per_quantile: int = 10
+    """
+    Fewest training rows a histogram piece of a continuous variable describes, for the
+    class circuit and the template of every exchangeable part at any depth.
+
+    Grounding copies a part's template once per part, so fewer, wider pieces keep a
+    grounded circuit small.
     """
 
     schema_information: Optional[DataAccessObjectSchema] = field(
@@ -729,9 +738,12 @@ class RelationalProbabilisticCircuit:
 
         Each row corresponds to one child object and contains the parent instance's
         aggregation values followed by all child features (including nested unique-part
-        attributes). Column names are the access-path names produced by
+        attributes). Attribute columns are named by the access-path names produced by
         :meth:`~krrood.entity_query_language.core.mapped_variable.MappedVariable.get_clean_name_from_mapped_variable`
         so that, after part-prefix renaming, they align with the krrood access-path convention.
+        The child's own aggregation statistics are named by their ``_name_`` instead, the
+        name the template of the part nested below the child uses for them as latent
+        variables.
 
         :param exchangeable_part: Field name of the one-to-many relation on each instance.
         :param instances: Training instances from which rows are generated.
@@ -747,9 +759,18 @@ class RelationalProbabilisticCircuit:
             for child in getattr(instance, exchangeable_part):
                 child_features = child_feature_extractor.apply_mapping(child)
                 rows.append(aggregation_row + child_features)
+        child_aggregation_features = {
+            aggregation
+            for aggregations in child_feature_extractor.exchangeable_features.values()
+            for aggregation in aggregations
+        }
         child_column_names = [
-            f.get_clean_name_from_mapped_variable()
-            for f in child_feature_extractor.features
+            (
+                feature._name_
+                if feature in child_aggregation_features
+                else feature.get_clean_name_from_mapped_variable()
+            )
+            for feature in child_feature_extractor.features
         ]
         return pd.DataFrame(columns=aggregation_names + child_column_names, data=rows)
 
@@ -801,7 +822,9 @@ class RelationalProbabilisticCircuit:
         )
         latent_variables = [
             inferred.variable
-            for inferred in infer_variables_from_dataframe(child_dataframe)
+            for inferred in infer_variables_from_dataframe(
+                child_dataframe, min_samples_per_quantile=self.min_samples_per_quantile
+            )
             if inferred.variable.name in aggregation_names
         ]
         template = ExchangeableDistributionTemplate(
@@ -810,6 +833,8 @@ class RelationalProbabilisticCircuit:
                 learning_method=self.part_learning_methods.get(
                     exchangeable_part, JointProbabilityTree()
                 ),
+                part_learning_methods=self.part_learning_methods,
+                min_samples_per_quantile=self.min_samples_per_quantile,
             ),
             latent_variables,
         )
@@ -841,7 +866,9 @@ class RelationalProbabilisticCircuit:
         class_dataframe = self._build_class_dataframe(
             self.feature_extractor, instances, dataframe_from_parent
         )
-        variables = infer_variables_from_dataframe(class_dataframe)
+        variables = infer_variables_from_dataframe(
+            class_dataframe, min_samples_per_quantile=self.min_samples_per_quantile
+        )
         self.class_probabilistic_circuit = self.learning_method.fit(
             class_dataframe, variables
         )
