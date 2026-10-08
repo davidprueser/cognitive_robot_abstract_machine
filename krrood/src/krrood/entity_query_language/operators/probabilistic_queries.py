@@ -179,7 +179,7 @@ class Distribution(ProbabilisticQuery):
     def _resolve_(self, model_registry: ModelRegistry) -> Any:
         parameters = UnderspecifiedParameters(self.match)
         model = model_registry.get_model(parameters)
-        result = parameters.resolve_conditioned_and_truncated_model(model)
+        result = parameters.resolve_conditioned_and_truncated_model(model).model
         if result is None:
             raise NoSolutionFound(self)
 
