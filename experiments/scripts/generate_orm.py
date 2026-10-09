@@ -7,11 +7,12 @@ import experiments.control_loop_experiments.scenarios
 import coraplex.orm.ormatic_interface
 
 from krrood.ormatic.ormatic import ORMatic
-from krrood.ormatic.utils import classes_of_module
+from krrood.ormatic.utils import classes_of_module, classes_of_package
 import experiments.control_loop_experiments.control_loop_profiler
-import experiments.scene_generation_experiments.demo
-import experiments.scene_generation_experiments.shelf_generation
-import experiments.scene_generation_experiments.processed_database
+import experiments.shelf_generation_experiments.generation
+import experiments.shelf_generation_experiments.placement
+import experiments.shelf_generation_experiments.tidying_demo
+import experiments.shelf_generation_experiments.training
 
 # benchmarking measures a running system instead of describing it
 ignored_classes = set(classes_of_module(experiments.control_loop_experiments.scenarios))
@@ -22,13 +23,14 @@ ignored_classes |= set(
     classes_of_module(experiments.control_loop_experiments.control_loop_profiler)
 )
 
-ignored_classes |= set(classes_of_module(experiments.scene_generation_experiments.demo))
-ignored_classes |= set(
-    classes_of_module(experiments.scene_generation_experiments.processed_database)
-)
-ignored_classes |= set(
-    classes_of_module(experiments.scene_generation_experiments.shelf_generation)
-)
+# fitting, generating and placing shelves operates on live worlds and circuits
+for shelf_experiment_package in (
+    experiments.shelf_generation_experiments.generation,
+    experiments.shelf_generation_experiments.placement,
+    experiments.shelf_generation_experiments.tidying_demo,
+    experiments.shelf_generation_experiments.training,
+):
+    ignored_classes |= set(classes_of_package(shelf_experiment_package))
 
 # Create an ORMatic object with the classes to be mapped
 ormatic = ORMatic.from_package(
