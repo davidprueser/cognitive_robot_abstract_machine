@@ -3,8 +3,10 @@ from __future__ import annotations
 import dataclasses
 import math
 from dataclasses import dataclass, field
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Optional, assert_never, Union
+from types import EllipsisType
+from typing import Optional
 
 from experiments.shelf_generation_experiments.exceptions import PathError
 from experiments.shelf_generation_experiments.utils import (
@@ -12,6 +14,8 @@ from experiments.shelf_generation_experiments.utils import (
     ObjectType,
     MeshTypeMatcher,
 )
+from krrood.entity_query_language.factories import a
+from krrood.entity_query_language.query.match import Match
 from semantic_digital_twin.api import SpawnSpecification
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.semantic_annotations.natural_language import (
@@ -27,6 +31,9 @@ from semantic_digital_twin.spatial_types import (
 )
 from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.connections import Connection6DoF
+from semantic_digital_twin.world_description.graph_of_convex_sets.boxes import (
+    GraphOfBoundingBoxes,
+)
 from semantic_digital_twin.world_description.geometry import (
     Mesh,
     Scale,
@@ -81,6 +88,49 @@ class RelationalCircuitExperimentObject2D(SpawnSpecification[Body]):
     ``None`` until the object is spawned by :meth:`spawn`, which sets it to the body it
     creates.
     """
+
+    @classmethod
+    def underspecified_query(cls) -> Match[RelationalCircuitExperimentObject2D]:
+        """
+        :return: A query for an object whose type, scale and pose are all left for a
+            model to answer.
+        """
+        return a(cls)(
+            object_type=...,
+            scale=a(Scale)(x=..., y=..., z=...),
+            pose=a(Pose2D)(x=..., y=..., yaw=...),
+            source_id=None,
+        )
+
+    def evidence_query(self) -> Match[RelationalCircuitExperimentObject2D]:
+        """
+        :return: A query holding this object's scale and pose as evidence, with its type
+            left free.
+        """
+        return a(type(self))(
+            object_type=...,
+            scale=self.scale,
+            pose=a(Pose2D)(
+                x=float(self.pose.x), y=float(self.pose.y), yaw=float(self.pose.yaw)
+            ),
+            source_id=None,
+        )
+
+    def placement_query(
+        self, yaw: float | EllipsisType = ...
+    ) -> Match[RelationalCircuitExperimentObject2D]:
+        """
+        :param yaw: The yaw to place this object at, or ``...`` to leave it for a model
+            to answer.
+        :return: A query holding this object's type and scale as evidence, with its
+            position left for a model to answer.
+        """
+        return a(type(self))(
+            object_type=self.object_type,
+            scale=self.scale,
+            pose=a(Pose2D)(x=..., y=..., yaw=yaw),
+            source_id=None,
+        )
 
     @staticmethod
     def _mesh_centered_on_footprint(
@@ -335,6 +385,40 @@ class RelationalCircuitExperimentShelfLayer(SpawnSpecification[ShelfLayer]):
     Optional explicit name for the spawned layer annotation and its body.
     """
 
+    def placement_query(
+        self,
+        evidence_objects: Sequence[RelationalCircuitExperimentObject2D],
+        placed_object_query: Match[RelationalCircuitExperimentObject2D],
+        free_space: GraphOfBoundingBoxes,
+    ) -> Match[RelationalCircuitExperimentShelfLayer]:
+        """
+        A query for this layer holding its own attributes and *evidence_objects* as
+        evidence, whose last object is *placed_object_query* constrained to
+        *free_space*.
+
+        :param evidence_objects: The objects standing on this layer.
+        :param placed_object_query: The object to place, from
+            :meth:`RelationalCircuitExperimentObject2D.placement_query`.
+        :param free_space: Where on this layer, in the frame object poses are expressed
+            in, the placed object fits.
+        :return: The query.
+        """
+        query = a(type(self))(
+            objects=[object_.evidence_query() for object_ in evidence_objects]
+            + [placed_object_query],
+            theme_dominant_type=self.theme_dominant_type,
+            height_above_shelf_base=self.height_above_shelf_base,
+            relative_height=self.relative_height,
+            vertical_clearance=self.vertical_clearance,
+        )
+        query.resolve()
+        # The condition is attached to the placed object's own match; the layer query
+        # is what gets parametrized, so it has to know about the condition as well.
+        query._where_conditions_.append(
+            free_space.constrain_to_free_space(placed_object_query.pose)
+        )
+        return query
+
     def spawn(
         self,
         world: World,
@@ -442,6 +526,37 @@ class RelationalCircuitExperimentShelf(SpawnSpecification[Cabinet]):
     """
     Optional explicit name for the spawned corpus annotation and its body.
     """
+
+    @classmethod
+    def underspecified_query(
+        cls,
+        theme_dominant_type: ObjectType | EllipsisType,
+        objects_per_layer: Sequence[int],
+    ) -> Match[RelationalCircuitExperimentShelf]:
+        """
+        :param theme_dominant_type: The theme to hold as evidence, or ``...`` to leave
+            it for a model to answer.
+        :param objects_per_layer: How many objects each layer holds.
+        :return: A query for a shelf with one layer per entry of *objects_per_layer*,
+            whose dimensions and contents are left for a model to answer.
+        """
+        return a(cls)(
+            scale=a(Scale)(x=..., y=..., z=...),
+            layers=[
+                a(RelationalCircuitExperimentShelfLayer)(
+                    objects=[
+                        RelationalCircuitExperimentObject2D.underspecified_query()
+                        for _ in range(object_count)
+                    ],
+                    theme_dominant_type=theme_dominant_type,
+                    height_above_shelf_base=...,
+                    relative_height=...,
+                    vertical_clearance=...,
+                )
+                for object_count in objects_per_layer
+            ],
+            theme_dominant_type=theme_dominant_type,
+        )
 
     @staticmethod
     def content_frame_yaw(
