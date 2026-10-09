@@ -113,6 +113,26 @@ class ModelQueryParameters(ABC):
 
 
 @dataclass
+class RestrictedModel:
+    """
+    A model restricted to the evidence of a match, together with how likely that
+    evidence is under the unrestricted model.
+    """
+
+    model: Optional[ProbabilisticModel]
+    """
+    The restricted model, or ``None`` if the evidence has no support.
+    """
+
+    log_probability: float
+    """
+    Logarithm of the probability of the evidence under the unrestricted model, summed
+    over every restriction step; a density where the evidence pins a continuous
+    variable to a point.
+    """
+
+
+@dataclass
 class UnderspecifiedParameters(ModelQueryParameters):
     """
     A class that extracts all necessary information from a
@@ -256,7 +276,7 @@ class UnderspecifiedParameters(ModelQueryParameters):
 
     def resolve_conditioned_and_truncated_model(
         self, model: ProbabilisticModel
-    ) -> Optional[ProbabilisticModel]:
+    ) -> RestrictedModel:
         """
         Apply this match's literal-value conditions, then its where-conditions, then
         its krrood-variable-assignment truncations, to ``model``, in that order -- the
@@ -265,44 +285,50 @@ class UnderspecifiedParameters(ModelQueryParameters):
         applies to a non-causal match before sampling from it.
 
         :param model: The model to condition and truncate.
-        :return: The resulting model, or ``None`` if any step leaves no solution.
+        :return: The resulting model, without one if any step leaves no solution.
         """
-        conditioned, _ = model.conditional(
+        conditioned, conditioning_log_probability = model.log_conditional(
             self.conditioning_assignments_from_literal_values
         )
         if conditioned is None:
-            return None
+            return RestrictedModel(model=None, log_probability=-np.inf)
 
+        truncation_probability = 1.0
+        truncated = conditioned
         if self.truncation_assignments_from_where_conditions:
-            truncated, _ = conditioned.truncated(
+            truncated, truncation_probability = conditioned.truncated(
                 self.truncation_assignments_from_where_conditions
             )
-        else:
-            truncated = conditioned
         if truncated is None:
-            return None
+            return RestrictedModel(model=None, log_probability=-np.inf)
 
-        return self.apply_krrood_variable_truncation(truncated)
+        restricted = self.apply_krrood_variable_truncation(truncated)
+        return RestrictedModel(
+            model=restricted.model,
+            log_probability=conditioning_log_probability
+            + np.log(truncation_probability)
+            + restricted.log_probability,
+        )
 
     def apply_krrood_variable_truncation(
         self, model: ProbabilisticModel
-    ) -> Optional[ProbabilisticModel]:
+    ) -> RestrictedModel:
         """
         Truncate ``model`` on this match's symbolic-variable-assignment constraints
         (e.g. ``z=variable(int, domain=[1, 2, 3])``), if any.
 
         :param model: The model to truncate.
         :return: ``model`` unchanged if there are no such constraints, the truncated
-            model otherwise, or ``None`` if truncating leaves no solution.
+            model otherwise, or no model if truncating leaves no solution.
         """
         if not self.truncation_assignments_from_krrood_variables:
-            return model
+            return RestrictedModel(model=model, log_probability=0.0)
         complete_event = self.truncation_assignments_from_krrood_variables[0]
         complete_event.fill_missing_variables(self.variables.values())
         for event in self.truncation_assignments_from_krrood_variables[1:]:
             complete_event = complete_event.intersection_with(event)
-        truncated, _ = model.truncated(complete_event, singleton_allowed=True)
-        return truncated
+        truncated, probability = model.truncated(complete_event, singleton_allowed=True)
+        return RestrictedModel(model=truncated, log_probability=np.log(probability))
 
     def _extract_variables_from_attribute_match(
         self, attribute_match: AttributeMatch
