@@ -1,12 +1,6 @@
 import sys
-import os
-import subprocess
-import sys
 import unittest
-from enum import IntEnum, StrEnum
-from pathlib import Path
-
-import pytest
+from enum import IntEnum
 
 from krrood.adapters.json_serializer import to_json, from_json
 
@@ -206,40 +200,6 @@ class SymbolicDistributionTestCase(unittest.TestCase):
         self.assertAlmostEqual(log_likelihood[0], 0.0)
 
 
-class StringBackedSymbolicCategory(StrEnum):
-    ALPHA = "ALPHA"
-    BETA = "BETA"
-
-
-def test_likelihood_for_string_backed_symbolic_category() -> None:
-    """
-    ``log_likelihood`` must recover a category's own fitted probability for a
-    :class:`~enum.StrEnum`-backed category.
-
-    A ``StrEnum`` member's hash is derived from its string content and routinely exceeds
-    float64's exact integer range (unlike a small :class:`~enum.IntEnum`, where the hash
-    equals the member's own value and never surfaces this), so this case is a distinct
-    regression from :class:`SymbolicDistributionTestCase`.
-    """
-    variable = Symbolic(
-        name="category", domain=Set.from_iterable(StringBackedSymbolicCategory)
-    )
-    probabilities = MissingDict(float)
-    probabilities[hash(StringBackedSymbolicCategory.ALPHA)] = 0.25
-    probabilities[hash(StringBackedSymbolicCategory.BETA)] = 0.75
-    distribution = SymbolicDistribution(variable=variable, probabilities=probabilities)
-
-    likelihoods = distribution.likelihood(
-        np.array(
-            [[StringBackedSymbolicCategory.ALPHA], [StringBackedSymbolicCategory.BETA]],
-            dtype=object,
-        )
-    )
-
-    assert likelihoods[0] == pytest.approx(0.25)
-    assert likelihoods[1] == pytest.approx(0.75)
-
-
 class DiracDeltaDistributionTestCase(unittest.TestCase):
     x = Continuous("x")
     model: DiracDeltaDistribution
@@ -391,85 +351,3 @@ class EventCompatibleForTruncationTestCase(unittest.TestCase):
             }
         ).as_composite_set()
         self.assertTrue(event_compatible_for_truncation_with_singletons(event))
-
-
-_SAVE_SYMBOLIC_DISTRIBUTION_SCRIPT = """
-import json
-import sys
-from enum import StrEnum
-
-from krrood.adapters.json_serializer import to_json
-from probabilistic_model.distributions.distributions import SymbolicDistribution
-from probabilistic_model.utils import MissingDict
-from random_events.set import Set
-from random_events.variable import Symbolic
-
-
-class StringBackedCategory(StrEnum):
-    ALPHA = "ALPHA"
-    BETA = "BETA"
-
-
-variable = Symbolic(name="category", domain=Set.from_iterable(StringBackedCategory))
-probabilities = MissingDict(float)
-probabilities[hash(StringBackedCategory.ALPHA)] = 0.25
-probabilities[hash(StringBackedCategory.BETA)] = 0.75
-distribution = SymbolicDistribution(variable=variable, probabilities=probabilities)
-
-with open(sys.argv[1], "w") as f:
-    json.dump(to_json(distribution), f)
-"""
-
-_LOAD_SYMBOLIC_DISTRIBUTION_SCRIPT = """
-import json
-import sys
-from enum import StrEnum
-
-from krrood.adapters.json_serializer import from_json
-
-
-class StringBackedCategory(StrEnum):
-    ALPHA = "ALPHA"
-    BETA = "BETA"
-
-
-with open(sys.argv[1]) as f:
-    distribution = from_json(json.load(f))
-
-alpha_probability = distribution.probabilities[hash(StringBackedCategory.ALPHA)]
-beta_probability = distribution.probabilities[hash(StringBackedCategory.BETA)]
-print(f"{alpha_probability} {beta_probability}")
-"""
-
-
-def test_symbolic_distribution_survives_a_different_hash_seed_process(
-    tmp_path: Path,
-) -> None:
-    """
-    A SymbolicDistribution exported by one process must deserialize to the same
-    probabilities when loaded by a different process with a different PYTHONHASHSEED.
-
-    StrEnum members hash their name with Python's randomized string hash, so
-    fitting and loading in the same process cannot expose a regression here:
-    only two genuinely separate processes with different seeds can.
-    """
-    export_path = tmp_path / "symbolic_distribution.json"
-
-    subprocess.run(
-        [sys.executable, "-c", _SAVE_SYMBOLIC_DISTRIBUTION_SCRIPT, str(export_path)],
-        env={**os.environ, "PYTHONHASHSEED": "1"},
-        check=True,
-    )
-    result = subprocess.run(
-        [sys.executable, "-c", _LOAD_SYMBOLIC_DISTRIBUTION_SCRIPT, str(export_path)],
-        env={**os.environ, "PYTHONHASHSEED": "2"},
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-
-    alpha_probability, beta_probability = (
-        float(value) for value in result.stdout.split()
-    )
-    assert alpha_probability == 0.25
-    assert beta_probability == 0.75

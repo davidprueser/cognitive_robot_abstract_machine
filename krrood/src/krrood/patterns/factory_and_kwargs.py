@@ -1,6 +1,6 @@
 import inspect
 from copy import deepcopy
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, is_dataclass
 from functools import lru_cache
 
 from typing_extensions import Callable, Dict, Any, Generic, Iterator, TypeVar
@@ -118,32 +118,29 @@ class HasFactoryAndKwargs(Generic[T]):
         """
         Recursively construct an instance and return it.
 
-        Most factories merely store whatever they are given, so a keyword argument
-        still holding ``...`` -- something the caller has not determined yet --
-        passes through unnoticed and construction succeeds, exactly as it always
-        has. A factory that instead computes something from its arguments in its
-        own constructor (for example a symbolic spatial type) cannot accept ``...``
-        there and raises. Only then, and only when this value's own keyword
-        arguments are the ones directly holding ``...`` (rather than some
-        unrelated failure), is it left as ``None`` instead; any *other* value
-        nested deeper in the same tree is unaffected and still constructed
-        normally.
-
         :param value: The value to construct.
-        :return: The constructed instance; ``None`` if constructing *value* failed
-            because one of its own keyword arguments is still unresolved; or
-            *value* unchanged if it is not itself constructible.
-        :raises TypeError: If constructing *value* fails for a reason other than
-            one of its own keyword arguments still being unresolved.
+        :return: The constructed instance; ``None`` if *value* cannot be constructed yet
+            (see :meth:`_awaits_unresolved_arguments_`); or *value* unchanged if it is
+            not itself constructible.
         """
-        if isinstance(value, HasFactoryAndKwargs):
-            try:
-                return value.construct_instance()
-            except TypeError:
-                if any(kwarg_value is ... for kwarg_value in value.kwargs.values()):
-                    return None
-                raise
-        return value
+        if not isinstance(value, HasFactoryAndKwargs):
+            return value
+        if value._awaits_unresolved_arguments_():
+            return None
+        return value.construct_instance()
+
+    def _awaits_unresolved_arguments_(self) -> bool:
+        """
+        :return: Whether one of the keyword arguments is still ``...`` while
+            :attr:`_factory_` is a dataclass computing from its arguments in
+            ``__post_init__``, so no instance can be constructed before that argument
+            is resolved.
+        """
+        return (
+            is_dataclass(self._factory_)
+            and hasattr(self._factory_, "__post_init__")
+            and any(value is ... for value in self._kwargs_.values())
+        )
 
     def __deepcopy__(self, memo):
         return self.__class__(

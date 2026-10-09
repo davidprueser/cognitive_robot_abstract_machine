@@ -215,14 +215,12 @@ class CollisionDetector(WorldEntityWithClassBasedID, abc.ABC):
 
     def stop(self) -> None:
         """
-        Unregister this detector's world callbacks, releasing it and everything
-        it holds.
+        Stop the world from notifying this detector of changes, so it and everything it
+        holds can be released.
 
-        A detector registers a model- and a state-change callback that the world
-        keeps alive, so one built per collision check is never released: the
-        callbacks accumulate, each holding a compiled forward-kinematics
-        function and one collision model per body, and every later state change
-        pays for all of them.
+        .. note::
+            A detector built for a single check is otherwise kept alive by its world,
+            and every later change pays for keeping it up to date.
         """
         self.world_model_updater.stop()
         self.world_state_updater.stop()

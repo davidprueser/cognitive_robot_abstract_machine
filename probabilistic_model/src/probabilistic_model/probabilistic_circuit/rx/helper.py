@@ -21,10 +21,53 @@ def uniform_measure_of_event(event: Event) -> ProbabilisticCircuit:
 
     # create a uniform measure for the bounding box
     uniform_model = uniform_measure_of_simple_event(bounding_box)
-    # condition the uniform measure on the event
-    uniform_model, _ = uniform_model.truncated(event)
+    # condition the uniform measure on the event, which may pin variables to points
+    uniform_model, _ = uniform_model.truncated(event, singleton_allowed=True)
 
     return uniform_model
+
+
+def _uniform_measure_of_intervals(
+    variable: Continuous,
+    intervals: Interval,
+    probabilistic_circuit: ProbabilisticCircuit,
+) -> SumUnit:
+    """
+    The uniform measure of a union of intervals, each weighted by its width.
+
+    Points have no width, so they take part only when the union holds nothing else, in
+    which case each point is equally likely and certain once the measure is restricted
+    to it.
+
+    :param variable: The variable the intervals are over.
+    :param intervals: The union of intervals.
+    :param probabilistic_circuit: The circuit to build the measure in.
+    :return: A sum over one leaf per interval.
+    """
+    distribution = SumUnit(probabilistic_circuit=probabilistic_circuit)
+    widths = [interval.upper - interval.lower for interval in intervals.simple_sets]
+    has_width = any(width > 0 for width in widths)
+    for interval, width in zip(intervals.simple_sets, widths):
+        if width > 0:
+            leaf_distribution = UniformDistribution(
+                variable=variable, interval=interval
+            )
+            log_weight = np.log(width)
+        elif has_width:
+            continue
+        else:
+            leaf_distribution = DiracDeltaDistribution(
+                variable=variable, location=interval.lower, density_cap=1.0
+            )
+            log_weight = 0.0
+        distribution.add_subcircuit(
+            UnivariateContinuousLeaf(
+                leaf_distribution, probabilistic_circuit=probabilistic_circuit
+            ),
+            log_weight,
+        )
+    distribution.normalize()
+    return distribution
 
 
 def uniform_measure_of_simple_event(simple_event: SimpleEvent) -> ProbabilisticCircuit:
@@ -42,28 +85,7 @@ def uniform_measure_of_simple_event(simple_event: SimpleEvent) -> ProbabilisticC
         # handle different variables
         if isinstance(variable, Continuous):
 
-            # create a uniform distribution for every interval in a continuous variables description
-            distribution = SumUnit(probabilistic_circuit=result)
-            for assignment_ in assignment:
-                assignment_: SimpleInterval
-                if assignment_.upper - assignment_.lower < 1e-6:
-                    leaf_distribution = DiracDeltaDistribution(
-                        variable=variable, location=assignment_.center(), tolerance=1e-6
-                    )
-                    log_weight = 0.0
-
-                else:
-                    leaf_distribution = UniformDistribution(
-                        variable=variable, interval=assignment_
-                    )
-                    log_weight = -leaf_distribution.probability_density_function_value()
-                distribution.add_subcircuit(
-                    UnivariateContinuousLeaf(
-                        leaf_distribution, probabilistic_circuit=result
-                    ),
-                    log_weight=log_weight,
-                )
-            distribution.normalize()
+            distribution = _uniform_measure_of_intervals(variable, assignment, result)
 
         # create uniform distribution for symbolic variables
         elif isinstance(variable, Symbolic):

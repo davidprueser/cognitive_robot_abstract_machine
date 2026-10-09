@@ -14,7 +14,6 @@ from __future__ import annotations
 import enum
 import itertools
 import logging
-from collections.abc import Callable
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -671,63 +670,19 @@ class RelationalProbabilisticCircuit:
     part_learning_methods: dict[str, LearningMethod] = field(default_factory=dict)
     """
     Per exchangeable-part field name, what that part's template distribution is fitted
-    with.
+    with, at any depth of nesting.
 
     A part absent from the mapping is fitted with a plain
     :class:`~probabilistic_model.learning.jpt.jpt.JointProbabilityTree`.
     """
 
-    min_samples_per_leaf: int | float | Callable[[int], int | float] = 1
-    """
-    Minimum number of samples required to create another sum node in the class-level
-    :class:`~probabilistic_model.learning.jpt.jpt.JointProbabilityTree`, forwarded
-    unchanged to every recursively fitted exchangeable part's
-    ``RelationalProbabilisticCircuit``.
-
-    A value below one is interpreted as a fraction of the training set size.
-    With the default of one, near-unique training columns (e.g. an ``id`` or
-    other identifier-like field) can grow one leaf per sample, so a class
-    fitted on many thousands of instances produces a circuit with as many
-    nodes; grounding then deep-copies that circuit once per exchangeable
-    part instance, which can exhaust memory. Callers fitting on large,
-    high-cardinality datasets should pass a fractional value to bound the
-    circuit's size.
-
-    A class-level and its exchangeable parts' circuits are fitted on very
-    different row counts (e.g. a shelf's own rows vs. its layers' vs. its
-    objects'), so a single precomputed fraction calibrated for one of them
-    miscalibrates the others. Passing a callable instead of a plain number
-    defers that calculation: it is invoked with each level's own row count
-    right before that level's ``JointProbabilityTree`` is fitted, and the
-    *callable itself* -- not a resolved value -- is what gets forwarded to
-    every recursively fitted exchangeable part, so each level resolves its
-    own floor independently.
-    """
-
     min_samples_per_quantile: int = 10
     """
-    Minimum number of samples per histogram piece when a continuous variable's
-    Nyga distribution is induced, forwarded unchanged to every recursively
-    fitted exchangeable part's ``RelationalProbabilisticCircuit``. Passed
-    through to
-    :func:`~probabilistic_model.learning.jpt.variables.infer_variables_from_dataframe`,
-    whose own default of 10 this mirrors.
+    Fewest training rows a histogram piece of a continuous variable describes, for the
+    class circuit and the template of every exchangeable part at any depth.
 
-    Unlike :attr:`min_samples_per_leaf`, this bounds a *fixed* per-piece
-    sample count rather than a fraction of the training set, so it does not
-    need to scale with dataset size: a training set below the bound simply
-    fits an unsplit, single-piece distribution for that variable, which is
-    the same graceful degradation :attr:`min_samples_per_leaf`'s sparse
-    fallback gives the class-level tree.
-
-    Left at the library default, a continuous variable can fragment into one
-    histogram piece per handful of samples. On a class fitted over many
-    thousands of instances this produced a circuit two to three orders of
-    magnitude larger than :attr:`min_samples_per_leaf` alone would suggest --
-    68,893 nodes measured on 124,800 training rows -- and grounding deep-
-    copies that circuit once per exchangeable part instance, the same cost
-    :attr:`min_samples_per_leaf` exists to bound. Callers fitting on large
-    datasets should raise this well above the library default.
+    Grounding copies a part's template once per part, so fewer, wider pieces keep a
+    grounded circuit small.
     """
 
     schema_information: Optional[DataAccessObjectSchema] = field(
@@ -741,6 +696,10 @@ class RelationalProbabilisticCircuit:
     feature_extractor: Optional[FeatureExtractor] = field(init=False, default=None)
     """
     Feature extractor built from the training instances.
+
+    ..note::
+        Only needed while fitting; grounding derives its aggregation statistics from the
+        queried domain object instead, so this stays ``None`` on a deserialized circuit.
     """
 
     @staticmethod
@@ -774,30 +733,17 @@ class RelationalProbabilisticCircuit:
         child_feature_extractor: FeatureExtractor,
     ) -> pd.DataFrame:
         """
-        Build a dataframe combining aggregation statistics with per-child- object
+        Build a dataframe combining aggregation statistics with per-child-object
         attributes.
 
         Each row corresponds to one child object and contains the parent instance's
         aggregation values followed by all child features (including nested unique-part
-        attributes). Regular attribute columns are named via the access-path names
-        produced by :meth:`~krrood.entity_query_language.core.mapped_variable.MappedVariable.get_clean_name_from_mapped_variable`,
-        so that, after part-prefix renaming, they align with the krrood access-path
-        convention used to reconstruct instances downstream. The child's own
-        aggregation-statistic features (if it has an exchangeable relation of its
-        own) are named via :attr:`~krrood.entity_query_language.core.mapped_variable.MappedVariable._name_`
-        instead: an aggregation feature's access path is rooted at its aggregation
-        class rather than the owning instance, so its clean name would just be the
-        bare statistic name (e.g. ``"total_count"``) with no owning-relation
-        qualifier. That bare name collides with whatever
-        :meth:`_fit_exchangeable_part` later names the *same* feature when it
-        becomes a latent variable one level down (it always uses ``_name_``,
-        e.g. ``"EGShelfLayerAggregations.total_count()"``), since ``_name_`` for an
-        aggregation feature is stable regardless of nesting depth. Without this,
-        grounding a nested (depth >= 2) exchangeable relation silently fails to
-        find the mounting product node for the inner relation (the two names
-        never match), leaving its grounded instance mounted but never attached to
-        the rest of the circuit -- surfacing later as a "more than one root"
-        error when the disconnected circuit's root is accessed.
+        attributes). Attribute columns are named by the access-path names produced by
+        :meth:`~krrood.entity_query_language.core.mapped_variable.MappedVariable.get_clean_name_from_mapped_variable`
+        so that, after part-prefix renaming, they align with the krrood access-path convention.
+        The child's own aggregation statistics are named by their ``_name_`` instead, the
+        name the template of the part nested below the child uses for them as latent
+        variables.
 
         :param exchangeable_part: Field name of the one-to-many relation on each instance.
         :param instances: Training instances from which rows are generated.
@@ -820,11 +766,11 @@ class RelationalProbabilisticCircuit:
         }
         child_column_names = [
             (
-                f._name_
-                if f in child_aggregation_features
-                else f.get_clean_name_from_mapped_variable()
+                feature._name_
+                if feature in child_aggregation_features
+                else feature.get_clean_name_from_mapped_variable()
             )
-            for f in child_feature_extractor.features
+            for feature in child_feature_extractor.features
         ]
         return pd.DataFrame(columns=aggregation_names + child_column_names, data=rows)
 
@@ -876,7 +822,9 @@ class RelationalProbabilisticCircuit:
         )
         latent_variables = [
             inferred.variable
-            for inferred in infer_variables_from_dataframe(child_dataframe)
+            for inferred in infer_variables_from_dataframe(
+                child_dataframe, min_samples_per_quantile=self.min_samples_per_quantile
+            )
             if inferred.variable.name in aggregation_names
         ]
         template = ExchangeableDistributionTemplate(
@@ -885,7 +833,7 @@ class RelationalProbabilisticCircuit:
                 learning_method=self.part_learning_methods.get(
                     exchangeable_part, JointProbabilityTree()
                 ),
-                min_samples_per_leaf=self.min_samples_per_leaf,
+                part_learning_methods=self.part_learning_methods,
                 min_samples_per_quantile=self.min_samples_per_quantile,
             ),
             latent_variables,
@@ -918,14 +866,11 @@ class RelationalProbabilisticCircuit:
         class_dataframe = self._build_class_dataframe(
             self.feature_extractor, instances, dataframe_from_parent
         )
-        variables = infer_variables_from_dataframe(class_dataframe)
-        min_samples_per_leaf = (
-            self.min_samples_per_leaf(len(instances))
-            if callable(self.min_samples_per_leaf)
-            else self.min_samples_per_leaf
+        variables = infer_variables_from_dataframe(
+            class_dataframe, min_samples_per_quantile=self.min_samples_per_quantile
         )
         self.class_probabilistic_circuit = self.learning_method.fit(
-            class_dataframe, variables, min_samples_per_leaf=min_samples_per_leaf
+            class_dataframe, variables
         )
         self.schema_information = get_dao_schema(
             get_data_access_object_class(type(instances[0]))
@@ -937,13 +882,6 @@ class RelationalProbabilisticCircuit:
             self.exchangeable_distribution_templates[exchangeable_part] = (
                 self._fit_exchangeable_part(exchangeable_part, instances)
             )
-        # Recorded only now, after every exchangeable part has been fitted with the
-        # still-callable strategy: overwriting it earlier would hand children this
-        # circuit's own resolved bound instead of letting them resolve their own.
-        # A resolved number (unlike the callable) is also what a serializer can
-        # round-trip, and for a caller that already passed a plain number this is a
-        # no-op, since resolving one just returns it unchanged.
-        self.min_samples_per_leaf = min_samples_per_leaf
         return self
 
     def _condition_class_circuit(
@@ -1000,11 +938,7 @@ class RelationalProbabilisticCircuit:
         if self.class_probabilistic_circuit is None:
             raise CircuitNotFittedError(self.class_)
         circuit = self.class_probabilistic_circuit.__deepcopy__()
-        instance = (
-            query.construct_instance()
-            if self.exchangeable_distribution_templates
-            else None
-        )
+        instance = query.construct_instance()
         for (
             exchangeable_part_name,
             template,
@@ -1039,8 +973,7 @@ class RelationalProbabilisticCircuit:
         disjoint).
 
         :param circuit: The current working copy of the class circuit.
-        :param exchangeable_part_name: Field name of the exchangeable
-            relation.
+        :param exchangeable_part_name: Field name of the exchangeable relation.
         :param template: The fitted template for this relation.
         :param query: The grounding query.
         :param instance: The concrete instance constructed from the query.
@@ -1049,9 +982,7 @@ class RelationalProbabilisticCircuit:
         :return: The class circuit extended with the grounded exchangeable part.
         """
         aggregation_statistics = compute_aggregation_statistics(
-            instance,
-            exchangeable_part_name,
-            template.latent_variables,
+            instance, exchangeable_part_name, template.latent_variables
         )
         determined_statistics = {
             variable: value

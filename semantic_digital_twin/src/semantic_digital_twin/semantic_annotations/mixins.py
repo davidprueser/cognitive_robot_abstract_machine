@@ -100,7 +100,6 @@ if TYPE_CHECKING:
     )
     from semantic_digital_twin.world import World
     from semantic_digital_twin.world_description.graph_of_convex_sets.boxes import (
-        GraphOfBoundingBoxes,
         PlanarGraphOfBoundingBoxes,
     )
 
@@ -805,20 +804,6 @@ class IsStorageSpace(HasRootBody, Generic[THasRootBody], SubClassSafeGeneric):
         )
         self.objects.append(object)
 
-    @synchronized_attribute_modification
-    def remove_object(self, object: HasRootBody):
-        """
-        Drop *object* from :attr:`objects` without touching the world.
-
-        Unlike :meth:`add_object`, this never moves a branch: it is meant for an
-        occupant whose body has already left the world by some other route (for
-        example a layout-repair pass dropping a piece that could not be packed), where
-        there is no branch left to move.
-
-        :param object: The occupant to drop.
-        """
-        self.objects.remove(object)
-
     def get_objects_of_type(
         self, object_type: Type[SemanticAnnotation]
     ) -> List[HasRootBody]:
@@ -954,15 +939,8 @@ class HasSupportingSurface(IsStorageSpace):
 
         This method queries the world for bodies that are supported by this annotation's
         root body, finds their corresponding semantic annotations, and adds them to the
-        objects list if they are not already present. Occupants whose body has since
-        left the world entirely -- for example a shelf-layout repair pass dropping a
-        piece it could not pack -- are removed from the list first, so a departed
-        occupant does not linger and get treated as still standing on the surface.
+        objects list if they are not already present.
         """
-        departed_objects = [
-            obj for obj in self.objects if obj.root._world is not self._world
-        ]
-
         bodies = variable_from(self._world.bodies_with_collision)
         body = entity(bodies).where(
             SupportedBy(
@@ -977,14 +955,10 @@ class HasSupportingSurface(IsStorageSpace):
                 )
             ).where(semantic_annotation.root == body)
         ).evaluate()
-        new_objects = [obj for obj in objects if obj not in self.objects]
-        if not new_objects and not departed_objects:
-            return
-        with self._world.modify_world():
-            for obj in departed_objects:
-                self.remove_object(obj)
-            for obj in new_objects:
-                self.add_object(obj)
+        for obj in objects:
+            if obj in self.objects:
+                continue
+            self.add_object(obj)
 
     @synchronized_attribute_modification
     def add_supporting_surface(self, region: Region):
@@ -1083,93 +1057,6 @@ class HasSupportingSurface(IsStorageSpace):
             )
         else:
             return uniform_measure_of_event(truncated_event_2d)
-
-    def calculate_free_space(
-        self, object_bloat: float = 0.0
-    ) -> VolumetricGraphOfBoundingBoxes:
-        """
-        Compute the free space on the supporting surface as a graph of bounding boxes,
-        excluding the footprint of every object currently on the surface.
-
-        :param object_bloat: The amount to enlarge every object's footprint by before
-            subtracting it from the surface. The free space graph only ever hands back
-            a point, not a footprint of its own, so a caller placing an object of
-            radius *r* at that point should pass ``object_bloat=r`` to keep the new
-            object's own footprint clear of the objects already on the surface.
-        :return: A graph of bounding boxes decomposing the surface's free space.
-        """
-        # Imported here rather than at module level to avoid a circular import:
-        # GraphOfBoundingBoxes indirectly imports semantic_annotations, which imports
-        # this module.
-        #
-        # VolumetricGraphOfBoundingBoxes, not the abstract GraphOfBoundingBoxes: the
-        # footprints built below are extended to an infinite z-column
-        # (_object_footprint_as_infinite_column), which is what
-        # VolumetricGraphOfBoundingBoxes.free_space_from_bounding_boxes expects --
-        # GraphOfBoundingBoxes itself declares no free_space_from_bounding_boxes at
-        # all, only its Volumetric/Planar subclasses do.
-        from semantic_digital_twin.world_description.graph_of_convex_sets.boxes import (
-            VolumetricGraphOfBoundingBoxes,
-        )
-
-        self.infer_objects_on_surface()
-
-        search_space = BoundingBoxCollection.from_shapes(self.supporting_surface.area)
-        search_space.transform_all_shapes_to_own_frame()
-
-        object_footprints = BoundingBoxCollection(
-            [
-                self._object_footprint_as_infinite_column(obj, object_bloat)
-                for obj in self.objects
-            ],
-            self.supporting_surface,
-        )
-
-        free_space_event = (
-            VolumetricGraphOfBoundingBoxes.free_space_from_bounding_boxes(
-                object_footprints, search_space.event
-            )
-        )
-
-        free_space_graph = VolumetricGraphOfBoundingBoxes(
-            world=self._world, search_space=search_space
-        )
-        for box in BoundingBoxCollection.from_event(
-            box_type=VolumetricBoundingBox,
-            reference_frame=self.supporting_surface,
-            event=free_space_event,
-        ):
-            free_space_graph.add_node(box)
-        free_space_graph.calculate_connectivity()
-        return free_space_graph
-
-    def _object_footprint_as_infinite_column(
-        self, object: HasRootBody, object_bloat: float = 0.0
-    ) -> VolumetricBoundingBox:
-        """
-        The xy footprint of ``object`` on the supporting surface, enlarged by
-        *object_bloat* and extended to span all z, so that it fully covers whatever
-        vertical band the surface's own search space occupies regardless of how high
-        above the surface the object stands.
-
-        :param object: The object standing on the surface.
-        :param object_bloat: The amount to enlarge the footprint by in every xy
-            direction before it is extended to an infinite column.
-        :return: The object's bounding box footprint, in the surface's frame.
-        """
-        footprint = object.root.collision.as_bounding_box_collection_in_frame(
-            self.supporting_surface
-        ).bounding_box()
-        footprint.enlarge_all(object_bloat)
-        return VolumetricBoundingBox(
-            footprint.min_x,
-            footprint.min_y,
-            -np.inf,
-            footprint.max_x,
-            footprint.max_y,
-            np.inf,
-            footprint.origin,
-        )
 
     def _2d_surface_sample_space_excluding_objects(self, object_bloat: float) -> Event:
         """

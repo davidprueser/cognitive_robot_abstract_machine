@@ -224,8 +224,7 @@ class AggregationStatistic(Generic[T], SubClassSafeGeneric):
         """
         Evaluates every statistic for :attr:`field_name` against this instance.
 
-        :return: A mapping from each statistic method name to its
-            computed value.
+        :return: A mapping from each statistic method name to its computed value.
         """
         return {
             func.__name__: feature.apply_mapping_on_external_root(self)

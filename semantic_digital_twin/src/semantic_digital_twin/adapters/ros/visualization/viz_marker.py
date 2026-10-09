@@ -41,8 +41,7 @@ class ShapeSource(Enum):
 
     VISUAL_WITH_COLLISION_BACKUP = "visual_with_collision_backup"
     """
-    The shapes to use for visualization are visual shapes, but if there are no
-    visual shapes, use collision shapes as a backup.
+    The shapes to use for visualization are visual shapes, but if there are no visual shapes, use collision shapes as a backup.
     """
 
 
@@ -63,22 +62,19 @@ class VizMarkerPublisher(ModelChangeCallback, HasROS2Node):
 
     topic_name: str = "/semworld/viz_marker"
     """
-    The name of the topic to which the Visualization Marker should be
-    published.
+    The name of the topic to which the Visualization Marker should be published.
     """
 
     shape_source: ShapeSource = field(
         kw_only=True, default=ShapeSource.VISUAL_WITH_COLLISION_BACKUP
     )
     """
-    Which shapes to use for each body.
+    Which shapes to use for each body
     """
 
     alpha: float = field(kw_only=True, default=1.0)
     """
-    Marker transparency in [0.0, 1.0].
-
-    0.0 is fully transparent.
+    Marker transparency in [0.0, 1.0]. 0.0 is fully transparent.
     """
 
     region_alpha: float = field(kw_only=True, default=0.2)
@@ -88,18 +84,13 @@ class VizMarkerPublisher(ModelChangeCallback, HasROS2Node):
     """
 
     markers: MarkerArray = field(init=False, default_factory=MarkerArray)
-    """
-    Maker message to be published.
-    """
-
+    """Maker message to be published."""
     qos_profile: QoSProfile = field(
         default_factory=lambda: QoSProfile(
             depth=10, durability=DurabilityPolicy.TRANSIENT_LOCAL
         )
     )
-    """
-    QoS profile for the publisher.
-    """
+    """QoS profile for the publisher."""
 
     tf_publisher: Optional[TFPublisher] = field(default=None, kw_only=True)
     """
@@ -134,7 +125,7 @@ class VizMarkerPublisher(ModelChangeCallback, HasROS2Node):
 
         if self.tf_publisher is None:
             self.tf_publisher = self._tf_publisher_of_world()
-        self.publisher = self.node.create_publisher(
+        self._publisher = self.node.create_publisher(
             MarkerArray, self.topic_name, self.qos_profile
         )
         time.sleep(0.2)
@@ -212,14 +203,13 @@ class VizMarkerPublisher(ModelChangeCallback, HasROS2Node):
 
     def publish_markers(self) -> None:
         """
-        Send the current markers out on the topic.
+        Publish :attr:`markers` on :attr:`topic_name`.
 
-        Every rebuild ends here, so a subclass that has to reshape what a particular
-        viewer receives overrides this rather than reaching into :attr:`markers` once:
-        the markers are rebuilt from the world on every model change, and anything done
-        to them by hand is gone at the next one.
+        Every rebuild of the markers ends here, so a subclass that has to adapt the
+        markers for a particular viewer overrides this method; markers changed
+        anywhere else are rebuilt from the world on the next model change.
         """
-        self.publisher.publish(self.markers)
+        self._publisher.publish(self.markers)
 
     def _add_markers_for_shapes(
         self,

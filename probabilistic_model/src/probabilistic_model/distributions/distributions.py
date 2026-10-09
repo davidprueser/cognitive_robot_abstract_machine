@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 import os
 from abc import abstractmethod
 from dataclasses import dataclass, field
@@ -13,7 +14,10 @@ from random_events.interval import Interval, SimpleInterval, Bound, singleton, c
 from random_events.product_algebra import Event, SimpleEvent, VariableMap
 from typing_extensions import Union, Iterable, Any, Self, Dict, List, Tuple
 
-from krrood.adapters.json_serializer import SubclassJSONSerializer, to_json, from_json
+from krrood.adapters.json_serializer import (
+    DataclassJSONSerializer,
+    SubclassJSONSerializer,
+)
 from probabilistic_model.constants import SCALING_FACTOR_FOR_EXPECTATION_IN_PLOT
 from probabilistic_model.probabilistic_model import (
     ProbabilisticModel,
@@ -441,35 +445,38 @@ class SymbolicDistribution(DiscreteDistribution, SubclassJSONSerializer):
 
     variable: Symbolic = field(kw_only=True)
 
-    def to_json(self) -> Dict[str, Any]:
+    def to_json(self, **kwargs) -> Dict[str, Any]:
         """
-        Serialize this distribution with ``probabilities`` keyed by the domain elements
-        themselves (via their enum name) instead of ``hash()``.
+        Serialize this distribution with :attr:`probabilities` keyed by the domain
+        elements themselves rather than by their hashes.
 
-        :func:`enum.Enum.__hash__` hashes the member name using Python's randomized
-        string hash for ``StrEnum``-backed domains, so a hash-keyed export would
-        silently mismatch every domain element when reloaded by a different process. See
-        :func:`SymbolicDistribution._from_json`.
+        .. note::
+            A member of a string-backed enum hashes through Python's randomized string
+            hash, so a hash-keyed export would match no element in another process.
         """
-        hash_map = self.variable.domain.hash_map
-        return {
-            **super().to_json(),
-            "variable": to_json(self.variable),
-            "probabilities": {
-                "keys": [to_json(hash_map[key]) for key in self.probabilities],
-                "values": list(self.probabilities.values()),
+        domain_elements = self.variable.domain.hash_map
+        keyed_by_element = dataclasses.replace(
+            self,
+            probabilities={
+                domain_elements[element_hash]: probability
+                for element_hash, probability in self.probabilities.items()
             },
-        }
+        )
+        return DataclassJSONSerializer.to_json(keyed_by_element, **kwargs)
 
     @classmethod
     def _from_json(cls, data: Dict[str, Any], **kwargs) -> Self:
-        variable = from_json(data["variable"])
-        elements = [from_json(key) for key in data["probabilities"]["keys"]]
-        values = data["probabilities"]["values"]
-        probabilities = MissingDict(
-            float, {hash(element): value for element, value in zip(elements, values)}
+        keyed_by_element = DataclassJSONSerializer.from_json(data, cls, **kwargs)
+        return dataclasses.replace(
+            keyed_by_element,
+            probabilities=MissingDict(
+                float,
+                {
+                    hash(element): probability
+                    for element, probability in keyed_by_element.probabilities.items()
+                },
+            ),
         )
-        return cls(variable=variable, probabilities=probabilities)
 
     def univariate_log_mode(self) -> Tuple[Set, float]:
         max_likelihood = max(self.probabilities.values())
