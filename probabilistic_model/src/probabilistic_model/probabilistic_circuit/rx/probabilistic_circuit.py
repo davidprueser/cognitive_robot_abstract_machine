@@ -79,7 +79,7 @@ class PlotAlignment(IntEnum):
     VERTICAL = 1
 
 
-@dataclass
+@dataclass(eq=False)
 class Unit(SubclassJSONSerializer, ABC):
     """
     Class for all units of a probabilistic circuit.
