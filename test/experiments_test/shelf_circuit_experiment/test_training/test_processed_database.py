@@ -4,8 +4,14 @@ from pathlib import Path
 
 import pytest
 
+from experiments.shelf_generation_experiments.dataset_environment import (
+    DatasetEnvironmentVariable,
+)
 from experiments.shelf_generation_experiments.preprocessing.preprocess_sage10k import (
     PreprocessedObject,
+)
+from experiments.shelf_generation_experiments.training.processed_database import (
+    ProcessedShelfDatabase,
 )
 from experiments.shelf_generation_experiments.utils import ObjectType
 from krrood.ormatic.data_access_objects.helper import to_dao
@@ -77,3 +83,19 @@ def test_mesh_candidates_are_the_stored_objects_of_the_types_with_a_mesh(
     assert candidate.object_type is ObjectType.BOOK
     assert candidate.scene_directory == scene_directory
     assert candidate.scale == book_scale
+
+
+# %% opening the database
+def test_the_database_the_environment_names_is_opened_with_its_schema(
+    tmp_path: Path, monkeypatch
+) -> None:
+    database_path = tmp_path / "from_environment.db"
+    monkeypatch.setenv(
+        DatasetEnvironmentVariable.PROCESSED_DATABASE_URI.value,
+        f"sqlite:///{database_path}",
+    )
+
+    database = ProcessedShelfDatabase.from_environment()
+
+    assert database.shelves() == []
+    assert database_path.exists()
