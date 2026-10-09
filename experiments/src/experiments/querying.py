@@ -27,12 +27,12 @@ from pathlib import Path
 from typing import Any, List
 
 import coraplex as _coraplex_pkg
-import experiments.orm.ormatic_interface  # type: ignore  # noqa: F401
+import coraplex.orm.ormatic_interface  # type: ignore  # noqa: F401
 import krrood.entity_query_language.factories as eql
 from giskardpy.motion_statechart.data_types import LifeCycleValues
 from coraplex.datastructures.dataclasses import Context
 from coraplex.execution_environment import simulated_robot
-from experiments.orm.ormatic_interface import Base, PlanMappingDAO  # type: ignore
+from coraplex.orm.ormatic_interface import Base, PlanMappingDAO  # type: ignore
 from coraplex.plans.factories import sequential, try_in_order, code
 from coraplex.plans.failures import PlanFailure
 from coraplex.plans.plan import Plan
