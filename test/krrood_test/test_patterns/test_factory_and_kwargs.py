@@ -1,4 +1,5 @@
 import inspect
+from dataclasses import dataclass
 
 import pytest
 
@@ -95,3 +96,62 @@ def test_repeated_construction_reads_the_factory_signature_once(monkeypatch):
     rectangle.construct_instance()
     rectangle.construct_instance()
     assert signature_reads == [make_rectangle]
+
+
+# %% arguments not resolved yet
+
+
+@dataclass
+class CoercedCoordinate:
+    """
+    A value computed from its argument after construction.
+    """
+
+    value: float
+
+    def __post_init__(self):
+        self.value = float(self.value)
+
+
+@dataclass
+class StoredCoordinate:
+    """
+    A value stored exactly as given.
+    """
+
+    value: float
+
+
+@dataclass
+class CoordinatePair:
+    """
+    Holds one coordinate of each kind.
+    """
+
+    coerced: CoercedCoordinate
+    stored: StoredCoordinate
+
+
+def test_a_value_computing_from_an_unresolved_argument_is_left_unconstructed():
+    query = a(CoordinatePair)(
+        coerced=a(CoercedCoordinate)(value=...),
+        stored=a(StoredCoordinate)(value=...),
+    )
+
+    instance = query.construct_instance()
+
+    assert instance.coerced is None
+    assert instance.stored == StoredCoordinate(value=...)
+
+
+def test_a_value_computing_from_resolved_arguments_is_constructed():
+    query = a(CoordinatePair)(
+        coerced=a(CoercedCoordinate)(value=1),
+        stored=a(StoredCoordinate)(value=2.0),
+    )
+
+    instance = query.construct_instance()
+
+    assert instance == CoordinatePair(
+        coerced=CoercedCoordinate(value=1.0), stored=StoredCoordinate(value=2.0)
+    )
