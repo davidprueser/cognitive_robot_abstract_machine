@@ -1,0 +1,8 @@
+{
+  "id": "empty_studio",
+  "building_style": "studio",
+  "description": "An empty studio.",
+  "created_from_text": "An empty studio.",
+  "total_area": 20.0,
+  "rooms": []
+}

@@ -16,6 +16,9 @@ from sklearn.cluster import DBSCAN
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 
+from experiments.shelf_generation_experiments.dataset_environment import (
+    DatasetEnvironmentVariable,
+)
 from experiments.shelf_generation_experiments.preprocessing.classification import (
     ObjectTypeClassifier,
     ShelfMembershipClassifier,
@@ -1140,23 +1143,10 @@ def main() -> None:
     See :meth:`Sage10kPreprocessingRun.run` for why this is safe to run as this module's
     own entry point (``python -m ...preprocess_sage10k``).
     """
-    sage10k_database_uri = os.environ.get("SAGE10k_DATABASE_URI")
-    processed_database_uri = os.environ.get("SAGE10K_PROCESSED_DATABASE_URI")
-    scenes_root = os.environ.get("SAGE10K_SCENES_ROOT")
-    assert (
-        sage10k_database_uri is not None
-    ), "Please set the SAGE10k_DATABASE_URI environment variable."
-    assert (
-        processed_database_uri is not None
-    ), "Please set the SAGE10K_PROCESSED_DATABASE_URI environment variable."
-    assert (
-        scenes_root is not None
-    ), "Please set the SAGE10K_SCENES_ROOT environment variable."
-
     Sage10kPreprocessingRun(
-        sage10k_database_uri=sage10k_database_uri,
-        processed_database_uri=processed_database_uri,
-        scenes_root=Path(scenes_root),
+        sage10k_database_uri=DatasetEnvironmentVariable.RAW_DATABASE_URI.read(),
+        processed_database_uri=DatasetEnvironmentVariable.PROCESSED_DATABASE_URI.read(),
+        scenes_root=Path(DatasetEnvironmentVariable.SCENES_ROOT.read()),
     ).run()
 
 

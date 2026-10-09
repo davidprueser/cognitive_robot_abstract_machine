@@ -1,0 +1,8 @@
+{
+  "id": "empty_loft",
+  "building_style": "loft",
+  "description": "An empty loft.",
+  "created_from_text": "An empty loft.",
+  "total_area": 45.0,
+  "rooms": []
+}
