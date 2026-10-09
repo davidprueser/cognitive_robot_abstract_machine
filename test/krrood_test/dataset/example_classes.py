@@ -893,6 +893,57 @@ class ApproachSceneObject:
     """
 
 
+# %% a pose whose mapping nests its position (fitted and queried under different names)
+
+
+@dataclass
+class PlanarPosition:
+    """
+    A position on a plane.
+    """
+
+    x: float
+    y: float
+
+
+@dataclass
+class FlatPose:
+    """
+    A planar pose constructed from flat coordinates, but mapped through a nested
+    :class:`PlanarPosition`, so its fitted variables are named after the mapping.
+    """
+
+    x: float
+    y: float
+    heading: float
+
+    @property
+    def position(self) -> PlanarPosition:
+        return PlanarPosition(self.x, self.y)
+
+
+@dataclass(eq=False)
+class FlatPoseMapping(AlternativeMapping[FlatPose]):
+    position: PlanarPosition
+    heading: float
+
+    @classmethod
+    def from_domain_object(cls, obj: FlatPose) -> FlatPoseMapping:
+        return cls(position=obj.position, heading=obj.heading)
+
+    def to_domain_object(self) -> FlatPose:
+        return FlatPose(x=self.position.x, y=self.position.y, heading=self.heading)
+
+
+@dataclass
+class FlatPoseHolder:
+    """
+    Something placed at a :class:`FlatPose`.
+    """
+
+    pose: FlatPose
+
+
 @dataclass
 class SceneRoom:
     position: KRROODPosition

@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing_extensions import Type, Dict
 
 from krrood.parametrization.exceptions import RelationalCircuitRegistryRequiresMatch
@@ -96,6 +96,16 @@ class RelationalCircuitRegistry(ModelRegistry):
     The trained relational probabilistic circuit to ground.
     """
 
+    variable_name_aliases: dict[str, str] = field(default_factory=dict)
+    """
+    Per suffix of a grounded variable's name, the suffix a query names the same variable
+    with.
+
+    A field fitted through an alternative mapping is named after the mapping's
+    structure, which can differ from the access path a query writes against the domain
+    class; such a variable reaches the query only through an alias.
+    """
+
     grounding_mode: GroundingMode = GroundingMode.SAMPLED
     """
     How undetermined aggregation latents are represented during grounding.
@@ -128,13 +138,27 @@ class RelationalCircuitRegistry(ModelRegistry):
         class_prefix = self.relational_probabilistic_circuit.class_.__name__
         rename_map = {}
         for circuit_var in grounded.variables:
-            qualified_name = get_class_and_attribute_name(
-                class_prefix, circuit_var.name
+            qualified_name = (
+                circuit_var.name
+                if circuit_var.name.startswith(f"{class_prefix}.")
+                else get_class_and_attribute_name(class_prefix, circuit_var.name)
             )
+            qualified_name = self._query_name_of(qualified_name)
             if qualified_name in parameters.variables:
                 rename_map[circuit_var] = parameters.variables[qualified_name]
         grounded.update_variables(rename_map)
         return grounded
+
+    def _query_name_of(self, qualified_name: str) -> str:
+        """
+        :param qualified_name: The class-qualified name of a grounded variable.
+        :return: *qualified_name* with its suffix replaced by its alias from
+            :attr:`variable_name_aliases`, or unchanged if it has none.
+        """
+        for circuit_suffix, query_suffix in self.variable_name_aliases.items():
+            if qualified_name.endswith(circuit_suffix):
+                return qualified_name.removesuffix(circuit_suffix) + query_suffix
+        return qualified_name
 
     @staticmethod
     def _as_causal_circuit(
