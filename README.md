@@ -196,6 +196,32 @@ sudo apt install pre-commit
 pre-commit install
 ```
 
+### Docstring Formatting
+
+Format the docstrings of every file you change with `scripts/format_docstrings.py`, which
+runs black and docformatter:
+
+```bash
+python scripts/format_docstrings.py path/to/changed_file.py
+```
+
+**PyCharm File Watcher Setup:**
+
+Configure a file watcher in PyCharm (**Settings → Tools → File Watchers**) to format on save:
+
+| Setting | Value |
+|---|---|
+| File type | Python |
+| Scope | Project Files |
+| Program | `$PyInterpreterDirectory$/python` |
+| Arguments | `scripts/format_docstrings.py $FilePath$` |
+| Output paths to refresh | `$FilePath$` |
+| Working directory | `$ProjectFileDir$` |
+
+Under **Advanced Options**:
+- Disable *Auto-save edited files to trigger the watcher*
+- Set *Show console* to **Never**
+
 ### Code of Conduct
 
 > Any code added to the repository must have at least an 85% test coverage.
