@@ -1,6 +1,6 @@
 import inspect
 from copy import deepcopy
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, is_dataclass
 from functools import lru_cache
 
 from typing_extensions import Callable, Dict, Any, Generic, Iterator, TypeVar
@@ -119,11 +119,28 @@ class HasFactoryAndKwargs(Generic[T]):
         Recursively construct an instance and return it.
 
         :param value: The value to construct.
-        :return: The constructed instance.
+        :return: The constructed instance; ``None`` if *value* cannot be constructed yet
+            (see :meth:`_awaits_unresolved_arguments_`); or *value* unchanged if it is
+            not itself constructible.
         """
-        if isinstance(value, HasFactoryAndKwargs):
-            return value.construct_instance()
-        return value
+        if not isinstance(value, HasFactoryAndKwargs):
+            return value
+        if value._awaits_unresolved_arguments_():
+            return None
+        return value.construct_instance()
+
+    def _awaits_unresolved_arguments_(self) -> bool:
+        """
+        :return: Whether one of the keyword arguments is still ``...`` while
+            :attr:`_factory_` is a dataclass computing from its arguments in
+            ``__post_init__``, so no instance can be constructed before that argument
+            is resolved.
+        """
+        return (
+            is_dataclass(self._factory_)
+            and hasattr(self._factory_, "__post_init__")
+            and any(value is ... for value in self._kwargs_.values())
+        )
 
     def __deepcopy__(self, memo):
         return self.__class__(
