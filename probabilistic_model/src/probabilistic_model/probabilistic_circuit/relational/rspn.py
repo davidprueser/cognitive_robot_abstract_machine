@@ -670,10 +670,19 @@ class RelationalProbabilisticCircuit:
     part_learning_methods: dict[str, LearningMethod] = field(default_factory=dict)
     """
     Per exchangeable-part field name, what that part's template distribution is fitted
-    with.
+    with, at any depth of nesting.
 
     A part absent from the mapping is fitted with a plain
     :class:`~probabilistic_model.learning.jpt.jpt.JointProbabilityTree`.
+    """
+
+    min_samples_per_quantile: int = 10
+    """
+    Fewest training rows a histogram piece of a continuous variable describes, for the
+    class circuit and the template of every exchangeable part at any depth.
+
+    Grounding copies a part's template once per part, so fewer, wider pieces keep a
+    grounded circuit small.
     """
 
     schema_information: Optional[DataAccessObjectSchema] = field(
@@ -813,7 +822,9 @@ class RelationalProbabilisticCircuit:
         )
         latent_variables = [
             inferred.variable
-            for inferred in infer_variables_from_dataframe(child_dataframe)
+            for inferred in infer_variables_from_dataframe(
+                child_dataframe, min_samples_per_quantile=self.min_samples_per_quantile
+            )
             if inferred.variable.name in aggregation_names
         ]
         template = ExchangeableDistributionTemplate(
@@ -822,6 +833,8 @@ class RelationalProbabilisticCircuit:
                 learning_method=self.part_learning_methods.get(
                     exchangeable_part, JointProbabilityTree()
                 ),
+                part_learning_methods=self.part_learning_methods,
+                min_samples_per_quantile=self.min_samples_per_quantile,
             ),
             latent_variables,
         )
@@ -853,7 +866,9 @@ class RelationalProbabilisticCircuit:
         class_dataframe = self._build_class_dataframe(
             self.feature_extractor, instances, dataframe_from_parent
         )
-        variables = infer_variables_from_dataframe(class_dataframe)
+        variables = infer_variables_from_dataframe(
+            class_dataframe, min_samples_per_quantile=self.min_samples_per_quantile
+        )
         self.class_probabilistic_circuit = self.learning_method.fit(
             class_dataframe, variables
         )
