@@ -97,6 +97,10 @@ datasets = [
     "py7zr",
     "usd-core>=24.11",
 ]
+description-matching = [
+    "torch",
+    "transformers",
+]
 dev = [
     "pytest>=7.0.0,<8.0.0",
 ]
