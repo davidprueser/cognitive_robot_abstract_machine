@@ -4,7 +4,7 @@ import numpy as np
 import py_trees
 import pytest
 
-from robokudo import world as rk_world
+from robokudo.belief_state import BeliefState
 import robokudo.cas
 import robokudo.defs
 import robokudo.descriptors.camera_configs.config_filereader_playback
@@ -35,12 +35,8 @@ from semantic_digital_twin.world_description.geometry import Mesh
 
 
 @pytest.fixture
-def clean_semantic_world():
-    rk_world.get_object_belief_states().clear()
-    rk_world.init_world_with_entity_tracker()
-    yield
-    rk_world.get_object_belief_states().clear()
-    rk_world.init_world_with_entity_tracker()
+def clean_semantic_world() -> None:
+    BeliefState().make_current()
 
 
 class TestFullAEExecution(object):
@@ -132,7 +128,7 @@ class TestFullAEExecution(object):
                 len(object_hypotheses) == 1
             ), "Each successful CAS should already contain the object hypothesis to be synchronized."
 
-            object_beliefs = list(rk_world.get_object_belief_states().values())
+            object_beliefs = list(BeliefState.current().tracked_objects.values())
             assert (
                 len(object_beliefs) == 1
             ), "After each successful connector run, the current object should map to exactly one belief."
@@ -221,7 +217,7 @@ class TestFullAEExecution(object):
             )
             assert stamped_pose_annotations[0].frame == "map"
 
-        object_beliefs = list(rk_world.get_object_belief_states().values())
+        object_beliefs = list(BeliefState.current().tracked_objects.values())
         assert (
             len(object_beliefs) == 1
         ), "Both observations of the static object should update one stable object belief."

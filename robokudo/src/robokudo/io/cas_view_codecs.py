@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 from typing_extensions import Any, Dict, Iterable, List, Optional
-from robokudo import world
+from robokudo.belief_state import BeliefState
 from robokudo.io.cas_annotation_codecs import krrood_to_json, krrood_from_json
 from robokudo.io.open3d_codec_utils import (
     o3d,
@@ -21,6 +21,9 @@ from robokudo.io.open3d_codec_utils import (
     decode_open3d_point_cloud_from_base64_pcd,
 )
 from robokudo.types.tf import StampedTransform
+from semantic_digital_twin.adapters.world_entity_kwargs_tracker import (
+    WorldEntityWithIDKwargsTracker,
+)
 from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
 
 
@@ -521,11 +524,12 @@ class HomogeneousTransformationMatrixCodec(ViewCodec):
 
     def decode(self, payload: ViewPayload) -> HomogeneousTransformationMatrix:
         """
-        Decode matrix payload data using the active world entity tracker.
+        Decode matrix payload data, resolving its frames in the belief state.
         """
-        tracker = world.get_world_entity_tracker()
-        kwargs = tracker.create_kwargs() if tracker is not None else {}
-        return HomogeneousTransformationMatrix.from_json(payload.payload, **kwargs)
+        tracker = WorldEntityWithIDKwargsTracker.from_world(BeliefState.current().world)
+        return HomogeneousTransformationMatrix.from_json(
+            payload.payload, **tracker.create_kwargs()
+        )
 
 
 class KrroodCodec(ViewCodec):

@@ -14,7 +14,7 @@ from PIL import Image as PILImage, UnidentifiedImageError
 from pyglet.canvas.xlib import NoSuchDisplayException
 from sensor_msgs.msg import CameraInfo
 
-import robokudo.world as rk_world
+from robokudo.belief_state import BeliefState
 from robokudo.cas import CASViews, CAS
 from robokudo.io.camera_interface import CameraInterface, ROSCameraInterface
 from robokudo.utils.camera_model import (
@@ -134,7 +134,7 @@ class SemDTRayTracerCameraInterface(CameraInterface):
 
     def _load_runtime_world(self) -> World:
         """
-        Load the configured SemDT world and install it as runtime world.
+        Load the configured SemDT world and make it the world of a new belief state.
 
         :return: Runtime world instance used for rendering.
         """
@@ -142,8 +142,8 @@ class SemDTRayTracerCameraInterface(CameraInterface):
             ros_pkg_name=self.camera_config.world_descriptor_ros_package,
             module_name=self.camera_config.world_descriptor_name,
         )
-        rk_world.set_world(world_descriptor.world)
-        return rk_world.world_instance()
+        BeliefState(world=world_descriptor.world).make_current()
+        return world_descriptor.world
 
     def _ensure_world_frame(self, world: World) -> Body:
         """

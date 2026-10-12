@@ -11,13 +11,14 @@ from robokudo.annotators.semantic_world_connector import (
 from robokudo.cas import CAS, CASViews
 from robokudo.pipeline import Pipeline
 from robokudo.annotators.outputs import AnnotatorOutputPerPipelineMap
+from robokudo.belief_state import BeliefState
 from robokudo.types.annotation import (
     BoundingBox3DAnnotation,
     PoseAnnotation,
     StampedPoseAnnotation,
 )
 from robokudo.types.scene import ObjectHypothesis
-from robokudo import world as rk_world
+from robokudo.utils.transform import get_transform_matrix_from_q
 from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
 
 
@@ -70,7 +71,7 @@ def _set_camera_to_world_transform(
     pos_y: float = 0.0,
     pos_z: float = 0.0,
 ) -> None:
-    sem_world = rk_world.world_instance()
+    sem_world = BeliefState.current().world
     world_body = sem_world.get_body_by_name(cas.world_frame)
     camera_body = sem_world.get_body_by_name(cas.camera_frame)
     cas.camera_to_world_transform = HomogeneousTransformationMatrix.from_xyz_quaternion(
@@ -104,19 +105,14 @@ def connector() -> SemanticDigitalTwinConnector:
 
 @pytest.fixture
 def semdt_cas() -> CAS:
-    rk_world.get_object_belief_states().clear()
-    rk_world.init_world_with_entity_tracker()
-    rk_world.setup_world_for_camera_frame(world_frame="map", camera_frame="camera")
+    BeliefState.current().add_camera_frame(world_frame="map", camera_frame="camera")
 
     cas = CAS()
     cas.world_frame = "map"
     cas.camera_frame = "camera"
     _set_camera_to_world_transform(cas)
 
-    yield cas
-
-    rk_world.get_object_belief_states().clear()
-    rk_world.init_world_with_entity_tracker()
+    return cas
 
 
 class TestSemanticDigitalTwinConnector:
@@ -134,8 +130,12 @@ class TestSemanticDigitalTwinConnector:
             hypotheses, [], semdt_cas
         )
 
+        connector.place_in_world(
+            [belief for _, belief in associated_hypotheses], semdt_cas
+        )
+
         assert [hypothesis for hypothesis, _ in associated_hypotheses] == hypotheses
-        assert len(rk_world.get_object_belief_states()) == 2
+        assert len(BeliefState.current().tracked_objects) == 2
         for hypothesis, belief in associated_hypotheses:
             assert belief.latest_hypothesis is hypothesis
             assert belief.body.parent_connection is not None
@@ -171,7 +171,7 @@ class TestSemanticDigitalTwinConnector:
             semdt_cas,
         )
 
-        assert len(rk_world.get_object_belief_states()) == 2
+        assert len(BeliefState.current().tracked_objects) == 2
         assert existing_belief.latest_hypothesis is matched_hypothesis
         assert associated_hypotheses[0] == (matched_hypothesis, existing_belief)
         assert associated_hypotheses[1][0] is unmatched_hypothesis
@@ -194,7 +194,7 @@ class TestSemanticDigitalTwinConnector:
             [hypothesis], [existing_belief], semdt_cas
         )
 
-        assert len(rk_world.get_object_belief_states()) == 2
+        assert len(BeliefState.current().tracked_objects) == 2
         assert existing_belief.latest_hypothesis is previous_hypothesis
         assert associated_hypotheses[0][0] is hypothesis
         assert associated_hypotheses[0][1] is not existing_belief
@@ -235,7 +235,95 @@ class TestSemanticDigitalTwinConnector:
 
         output_image = connector.get_annotator_output_struct().image
         assert status is py_trees.common.Status.SUCCESS
-        assert len(rk_world.get_object_belief_states()) == 1
+        assert len(BeliefState.current().tracked_objects) == 1
         assert len(_stamped_world_poses(hypothesis)) == 1
         assert not np.array_equal(output_image, color_image)
         assert np.array_equal(pipeline.cas.get(CASViews.COLOR_IMAGE), color_image)
+
+
+# %% placing perceived objects in the belief state
+
+
+def _seen_pose_in_world(hypothesis: ObjectHypothesis, cas: CAS) -> np.ndarray:
+    bounding_box = next(
+        annotation
+        for annotation in hypothesis.annotations
+        if isinstance(annotation, BoundingBox3DAnnotation)
+    )
+    return cas.camera_to_world_transform.to_np() @ get_transform_matrix_from_q(
+        bounding_box.pose.rotation, bounding_box.pose.translation
+    )
+
+
+class TestPlacingPerceivedObjectsInTheWorld:
+    def test_objects_seen_for_the_first_time_are_added_in_one_modification(
+        self,
+        connector: SemanticDigitalTwinConnector,
+        semdt_cas: CAS,
+    ) -> None:
+        world = BeliefState.current().world
+        modification_block_count = len(world.modification_history)
+        body_ids_before = {body.id for body in world.bodies}
+        hypotheses = [
+            _make_hypothesis(roi=(5, 5, 10, 10)),
+            _make_hypothesis(roi=(25, 25, 10, 10), translation=(0.5, 0.0, 1.0)),
+        ]
+
+        associated_hypotheses = connector.associate_hypotheses_with_beliefs(
+            hypotheses, [], semdt_cas
+        )
+        connector.place_in_world(
+            [belief for _, belief in associated_hypotheses], semdt_cas
+        )
+
+        assert len(world.modification_history) == modification_block_count + 1
+        assert {body.id for body in world.bodies} - body_ids_before == {
+            belief.uuid for _, belief in associated_hypotheses
+        }
+
+    def test_object_is_placed_where_its_bounding_box_was_seen(
+        self,
+        connector: SemanticDigitalTwinConnector,
+        semdt_cas: CAS,
+    ) -> None:
+        _set_camera_to_world_transform(semdt_cas, pos_x=1.0)
+        hypothesis = _make_hypothesis(translation=(0.2, 0.0, 1.0))
+
+        ((_, belief),) = connector.associate_hypotheses_with_beliefs(
+            [hypothesis], [], semdt_cas
+        )
+        connector.place_in_world([belief], semdt_cas)
+
+        world = BeliefState.current().world
+        np.testing.assert_allclose(
+            world.compute_forward_kinematics_np(
+                world.get_body_by_name(semdt_cas.world_frame), belief.body
+            ),
+            _seen_pose_in_world(hypothesis, semdt_cas),
+            atol=1e-9,
+        )
+
+    def test_object_seen_again_is_moved_without_changing_the_world_model(
+        self,
+        connector: SemanticDigitalTwinConnector,
+        semdt_cas: CAS,
+    ) -> None:
+        ((_, belief),) = connector.associate_hypotheses_with_beliefs(
+            [_make_hypothesis(translation=(0.0, 0.0, 1.0))], [], semdt_cas
+        )
+        connector.place_in_world([belief], semdt_cas)
+        world = BeliefState.current().world
+        modification_block_count = len(world.modification_history)
+        moved_hypothesis = _make_hypothesis(translation=(0.0, 0.05, 1.0))
+        belief.add_hypothesis(moved_hypothesis)
+
+        connector.place_in_world([belief], semdt_cas)
+
+        assert len(world.modification_history) == modification_block_count
+        np.testing.assert_allclose(
+            world.compute_forward_kinematics_np(
+                world.get_body_by_name(semdt_cas.world_frame), belief.body
+            ),
+            _seen_pose_in_world(moved_hypothesis, semdt_cas),
+            atol=1e-9,
+        )

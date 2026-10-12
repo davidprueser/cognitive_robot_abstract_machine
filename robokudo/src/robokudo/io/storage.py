@@ -21,14 +21,17 @@ import os
 
 from pymongo import MongoClient
 from typing_extensions import Any, Dict, List, Optional, TYPE_CHECKING, Tuple
-from robokudo import world
 
+from robokudo.belief_state import BeliefState
 from robokudo.cas import CAS
 from robokudo.io.cas_annotation_codecs import (
     serialize_annotations,
     deserialize_annotations,
 )
 from robokudo.io.cas_view_codecs import CASViewCodecRegistry
+from semantic_digital_twin.adapters.world_entity_kwargs_tracker import (
+    WorldEntityWithIDKwargsTracker,
+)
 
 if TYPE_CHECKING:
     from pymongo.results import InsertOneResult
@@ -257,10 +260,11 @@ class Storage:
             inserted to
         """
         if cas_document["annotations"]:
-            tracker = world.get_world_entity_tracker()
-            kwargs = tracker.create_kwargs() if tracker is not None else {}
+            tracker = WorldEntityWithIDKwargsTracker.from_world(
+                BeliefState.current().world
+            )
             cas.annotations = deserialize_annotations(
-                cas_document["annotations"], **kwargs
+                cas_document["annotations"], **tracker.create_kwargs()
             )
 
     @staticmethod

@@ -2,11 +2,17 @@
 
 from __future__ import annotations
 
-from robokudo.world import world_instance
+from robokudo.belief_state import BeliefState
 from semantic_digital_twin.adapters.ros.node_registry import ROSNodeRegistry
 from semantic_digital_twin.adapters.ros.visualization.viz_marker import (
     VizMarkerPublisher,
 )
+from semantic_digital_twin.adapters.ros.world_fetcher import (
+    FetchWorldServer,
+    fetch_world_from_service,
+)
+from semantic_digital_twin.adapters.ros.world_synchronizer import WorldSynchronizer
+from semantic_digital_twin.world import World
 
 import argparse
 import logging
@@ -161,6 +167,15 @@ def main() -> None:
         help="If set, the rcply root logger will be set to DEBUG log level which will yield many ROS-related debug messages.",
     )
     parser.set_defaults(debugmode=False)
+    parser.add_argument(
+        "_fetch_world",
+        action="store_true",
+        help=(
+            "If set, the belief state starts from the world of a running semantic "
+            "digital twin process (for example giskard) instead of an empty world."
+        ),
+    )
+    parser.set_defaults(fetch_world=False)
     args = parser.parse_args()
 
     # 2. Initialize RCL
@@ -222,12 +237,16 @@ def main() -> None:
     thread_main.start()
     thread_asrv.start()
 
-    # 7. Dynamically load the requested Analysis Engine (AE) using the **refactored** ModuleLoader
+    # 7. Set up the belief state before the AE builds its pipelines on it
+    belief_world = fetch_world_from_service(node1) if args.fetch_world else World()
+    BeliefState(world=belief_world).make_current()
+
+    # 8. Dynamically load the requested Analysis Engine (AE) using the **refactored** ModuleLoader
     loader = ModuleLoader()
     logger.info(f"Loading AE '{args.ae}' from package '{args.ros_pkg}'...")
     loaded_ae = loader.load_ae(ros_pkg_name=args.ros_pkg, module_name=args.ae)
 
-    # 8. Build your Behavior Tree from the loaded AE
+    # 9. Build your Behavior Tree from the loaded AE
     #    (Assuming loaded_ae.implementation() returns a py_trees root or something similar)
     visualizer_types = None
     if args.no3d:
@@ -246,23 +265,35 @@ def main() -> None:
     # If you have a custom version of `setup_with_descendants`, call it:
     setup_with_descendants_rk(ae_root)
 
-    viz = VizMarkerPublisher(_world=world_instance(), node=node1)
+    # 10. Share the belief state with other semantic digital twin processes. Their
+    # updates are deferred until the next perception run starts.
+    belief_state = BeliefState.current()
+    belief_state.synchronizer = WorldSynchronizer(
+        _world=belief_state.world, node=node1, defer_incoming_updates=True
+    )
+    world_fetcher = FetchWorldServer(node=node1, world=belief_state.world)
+    viz = VizMarkerPublisher(_world=belief_state.world, node=node1)
 
     try:
-        # 9. Start ticking the Behavior Tree
+        # 11. Start ticking the Behavior Tree
         run_ae(ae_name=args.ae, ae_root=ae_root, tickrate=args.tickrate)
     except KeyboardInterrupt:
         logger.info("Keyboard interrupt received; shutting down.")
     finally:
-        # 10. Shutdown executors cleanly
+        # 12. Detach the belief state from ROS before the node goes away
+        belief_state.synchronizer.close()
+        world_fetcher.close()
+        viz.stop()
+
+        # 13. Shutdown executors cleanly
         executor_main.shutdown()
         executor_asrv.shutdown()
 
-        # 11. Wait for shutdown
+        # 14. Wait for shutdown
         thread_main.join()
         thread_asrv.join()
 
-        # 12. Clean up nodes
+        # 15. Clean up nodes
         node_registry.clear(node1)
         node1.destroy_node()
         query_action_server.destroy_node()

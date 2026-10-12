@@ -18,8 +18,8 @@ import open3d as o3d
 from py_trees.common import Status
 from semantic_digital_twin.world_description.world_entity import Region
 
-import robokudo.world as rk_world
 from robokudo.annotators.core import BaseAnnotator, ThreadedAnnotator
+from robokudo.belief_state import BeliefState
 from robokudo.cas import CASViews
 from robokudo.types.scene import RegionHypothesis
 from robokudo.utils.annotator_helper import get_world_to_camera_transform_matrix
@@ -96,7 +96,7 @@ class RegionFilter(ThreadedAnnotator):
         if self.get_cas().contains(CASViews.QUERY):
             query = self.get_cas().get(CASViews.QUERY)
 
-        runtime_world = rk_world.world_instance()
+        runtime_world = BeliefState.current().world
 
         regions = runtime_world.get_kinematic_structure_entity_by_type(Region)
         all_regions = {str(region.name): region for region in regions}

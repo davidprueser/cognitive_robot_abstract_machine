@@ -45,6 +45,7 @@ if TYPE_CHECKING:
     )
     from semantic_digital_twin.world import World
 
+    from robokudo.belief_state import BeliefStateSnapshot
     from robokudo.types.core import Annotation
 
 
@@ -154,6 +155,12 @@ class CAS:
     """
     List of annotations, each annotation describes a certain part of the acquired sensor data. In contrast to views
     there can be multiple annotations for the same 'thing' in the data.
+    """
+
+    belief_state_snapshot: BeliefStateSnapshot | None = None
+    """
+    What the belief state held when the perception run of this CAS started, so the run's
+    changes to it can be told apart.
     """
 
     def __post_init__(self) -> None:

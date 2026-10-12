@@ -18,6 +18,7 @@ The module is used for:
 * Asynchronous data exchange
 """
 
+import json
 import logging
 import queue
 import time
@@ -34,7 +35,9 @@ from robokudo_msgs.action import Query
 from robokudo_msgs.msg import ObjectDesignator
 from typing_extensions import Any, Optional, Type
 
+from krrood.adapters.json_serializer import to_json
 from robokudo.annotators.core import BaseAnnotator
+from robokudo.belief_state import BeliefState
 from robokudo.cas import CASViews
 from robokudo.defs import LOGGING_IDENTIFIER_QUERY, PACKAGE_NAME
 from robokudo.identifier import BBIdentifier
@@ -283,7 +286,9 @@ class QueryReply(BaseAnnotator):
 class GenerateQueryResult(BaseAnnotator):
     """
     This class reads in the annotations done by the previous Annotators and generates
-    Object Designators from them.
+    Object Designators from them. The changes the perception run made to the belief state
+    are added as the JSON of a
+    :class:`~semantic_digital_twin.adapters.ros.messages.WorldUpdate` in the text result.
 
     These will be placed into the Blackboard so that a running Query Action Server can
     pick the information up and send it as a query reply.
@@ -348,7 +353,8 @@ class GenerateQueryResult(BaseAnnotator):
         * Adds color information if available
         * Adds classification if available
         * Adds pose information if available
-        * Packages into query result
+        * Packages into query result, together with the changes the perception run
+          made to the belief state
 
         :return: SUCCESS after generating result
         """
@@ -402,6 +408,10 @@ class GenerateQueryResult(BaseAnnotator):
             object_hypotheses_count += 1
 
         result.res = query_result
+        if cas.belief_state_snapshot is not None:
+            result.text_result = json.dumps(
+                to_json(BeliefState.current().changes_since(cas.belief_state_snapshot))
+            )
         QueryHandler.send_answer(result)
 
         self.feedback_message = (

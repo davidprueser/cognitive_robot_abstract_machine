@@ -41,17 +41,13 @@ from sensor_msgs.msg import CompressedImage, CameraInfo, Image
 from tf2_ros import Buffer
 from typing_extensions import Optional, List, Any, TYPE_CHECKING, Union, Tuple
 
+from robokudo.belief_state import BeliefState
 from robokudo.cas import CASViews, CAS
 from robokudo.defs import PACKAGE_NAME
 from robokudo.exceptions import CameraDataMissing
 from robokudo.io.tf_listener_proxy import TFListenerProxy
 from robokudo.types.tf import StampedTransform
 from robokudo.utils.cv_bridge_workaround import CVBridgeWorkaround
-from robokudo.world import (
-    setup_world_for_camera_frame,
-    update_connection_transform,
-    world_instance,
-)
 from semantic_digital_twin.adapters.ros.node_registry import ROSNodeRegistry
 from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
 
@@ -102,30 +98,16 @@ class CameraInterface(object):
         world_T_camera: HomogeneousTransformationMatrix,
         timestamp_ns: Optional[int] = None,
     ) -> None:
-        """Write a camera-to-world transform to the CAS and runtime world."""
-        setup_world_for_camera_frame(world_frame=world_frame, camera_frame=camera_frame)
-
-        world = world_instance()
-        camera_body = world.get_body_by_name(name=camera_frame)
-        world_body = world.get_body_by_name(name=world_frame)
-
-        runtime_world_T_camera = HomogeneousTransformationMatrix(
-            data=world_T_camera,
-            reference_frame=world_body,
-            child_frame=camera_body,
-        )
-
+        """Write a camera-to-world transform to the CAS and the belief state."""
         cas.world_frame = world_frame
         cas.camera_frame = camera_frame
-        cas.camera_to_world_transform = runtime_world_T_camera
+        cas.camera_to_world_transform = BeliefState.current().set_camera_pose(
+            world_frame=world_frame,
+            camera_frame=camera_frame,
+            world_T_camera=world_T_camera,
+        )
         if timestamp_ns is not None:
             cas.data_timestamp = timestamp_ns
-
-        update_connection_transform(
-            to_name=world_body.name,
-            from_name=camera_body.name,
-            transform=runtime_world_T_camera,
-        )
 
     def store_camera_to_world_transform(
         self,
@@ -135,7 +117,7 @@ class CameraInterface(object):
         world_T_camera: HomogeneousTransformationMatrix,
         timestamp_ns: Optional[int] = None,
     ) -> None:
-        """Write a camera-to-world transform to the CAS and runtime world."""
+        """Write a camera-to-world transform to the CAS and the belief state."""
         self.store_camera_to_world_transform_in_cas(
             cas=cas,
             world_frame=world_frame,

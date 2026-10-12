@@ -28,6 +28,7 @@ import robokudo.annotators.outputs
 import robokudo.cas as cas
 import robokudo.defs as defs
 import robokudo.utils.tree
+from robokudo.belief_state import BeliefState
 
 if TYPE_CHECKING:
     from py_trees.behaviour import Behaviour
@@ -80,10 +81,10 @@ class Pipeline(Sequence):
         """
         Create a new Common Analysis Structure (CAS) for this pipeline.
 
-        Also resets the execution timer.
+        Starts a perception run on the belief state and resets the execution timer.
         """
         self._cas_counter += 1
-        self.cas = cas.CAS()
+        self.cas = cas.CAS(belief_state_snapshot=BeliefState.current().start_run())
         self.cas.cas_id = self._cas_counter
         self.cas_start_timer = timeit.default_timer()
 

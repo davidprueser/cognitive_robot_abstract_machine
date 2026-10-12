@@ -1,6 +1,7 @@
 from robokudo.descriptors.factories.cr_descriptor_factory import (
     CollectionReaderDescriptorFactory,
 )
+import json
 import multiprocessing
 import threading
 from pathlib import Path
@@ -9,6 +10,9 @@ import py_trees
 import pytest
 
 from action_msgs.msg import GoalStatus
+from py_trees.blackboard import Blackboard
+
+from krrood.adapters.json_serializer import from_json
 
 import robokudo.cas
 import robokudo.defs
@@ -28,7 +32,17 @@ from robokudo.annotators.plane import PlaneAnnotator
 from robokudo.annotators.pointcloud_cluster_extractor import PointCloudClusterExtractor
 from robokudo.annotators.pointcloud_crop import PointcloudCropAnnotator
 from robokudo.annotators.query import QueryAnnotator, GenerateQueryResult
+from robokudo.belief_state import BeliefState
+from robokudo.identifier import BBIdentifier
 from robokudo.pipeline import Pipeline
+from semantic_digital_twin.adapters.world_entity_kwargs_tracker import (
+    WorldEntityWithIDKwargsTracker,
+)
+from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
+from semantic_digital_twin.world_description.world_entity import Body
+from semantic_digital_twin.world_description.world_modification import (
+    AddKinematicStructureEntityModification,
+)
 
 import robokudo.scripts.query_test_client
 
@@ -128,3 +142,30 @@ class TestQueryInterface:
         assert client_result["timed_out"] is False
         assert client_result["goal_status"] is GoalStatus.STATUS_SUCCEEDED
         assert len(client_result["goal_result"].res) == 1
+
+
+# %% the belief state changes in the query result
+
+
+class TestQueryResultCarriesBeliefStateChanges:
+    def test_text_result_holds_the_objects_the_run_added(self):
+        generate_query_result = GenerateQueryResult()
+        pipeline = Pipeline("QueryResultTestPipeline")
+        pipeline.add_child(generate_query_result)
+        world = BeliefState.current().world
+        perceived_body = Body(name=PrefixedName("perceived_object"))
+        with world.modify_world():
+            world.add_body(perceived_body)
+
+        generate_query_result.update()
+
+        answer = Blackboard().get(BBIdentifier.QUERY_ANSWER)
+        update = from_json(
+            json.loads(answer.text_result),
+            **WorldEntityWithIDKwargsTracker.from_world(world).create_kwargs(),
+        )
+        assert [
+            modification.kinematic_structure_entity.id
+            for modification in update.modification_block.modifications
+            if isinstance(modification, AddKinematicStructureEntityModification)
+        ] == [perceived_body.id]
