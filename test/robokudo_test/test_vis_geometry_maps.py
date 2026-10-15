@@ -1,19 +1,18 @@
+from __future__ import annotations
 import numpy as np
 import open3d as o3d
 import pytest
-from typing_extensions import Type, List, Dict, Union
 from robokudo.vis.multiprocessed_o3d_visualizer import (
     Geometry3DMemoryMapFactory,
     SharedMemoryManager,
 )
 
-
 RANDOM_SEED = 42
 
 
 def get_random_mesh(
-    mesh_type: Type, rng: np.random.Generator
-) -> Union[o3d.geometry.TriangleMesh, o3d.geometry.TetraMesh]:
+    mesh_type: type, rng: np.random.Generator
+) -> o3d.geometry.TriangleMesh | o3d.geometry.TetraMesh:
     """
     Get a random open3d mesh of the given type.
 
@@ -57,7 +56,9 @@ def get_random_mesh(
         raise ValueError(f"Unknown mesh type: {type}")
 
 
-def assert_mesh_equal(mesh1, mesh2) -> None:
+def assert_mesh_equal(
+    mesh1: o3d.geometry.TriangleMesh, mesh2: o3d.geometry.TriangleMesh
+) -> None:
     """
     Assert that the two meshes contain the same mesh data.
 
@@ -454,7 +455,7 @@ class TestVisGeometryMaps(object):
         ) * 1000 + ((np.dtype(np.uint8).itemsize * (512 * 512)) * 2)
         write_manager = SharedMemoryManager.with_shm(mesh_size * iterations)
 
-        input_dicts: List[Dict] = []
+        input_dicts: list[dict] = []
         for _ in range(iterations):
             input_mesh = get_random_mesh(o3d.geometry.TriangleMesh, rng)
 

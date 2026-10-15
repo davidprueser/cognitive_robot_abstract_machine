@@ -1,3 +1,4 @@
+from __future__ import annotations
 import copy
 
 import numpy as np
@@ -67,7 +68,7 @@ class TestUtilsCVHelper(object):
         crop_xy: tuple[int, int],
         crop_wh: tuple[int, int],
         expected_yx_shape: tuple[int, int],
-    ):
+    ) -> None:
         image = np.zeros((image_dim_xy[0], image_dim_xy[1], 3), np.uint8)
         cropped_image = crop_image(image.copy(), crop_xy, crop_wh)
         assert cropped_image.shape[:2] == expected_yx_shape
@@ -97,7 +98,7 @@ class TestUtilsCVHelper(object):
         crop_xy: tuple[int, int],
         crop_wh: tuple[int, int],
         expected_yx_shape: tuple[int, int],
-    ):
+    ) -> None:
         image = np.zeros((image_dim_xy[0], image_dim_xy[1], 3), np.uint8)
         roi = robokudo.types.cv.ImageROI()
         roi.roi.pos.x = crop_xy[0]
@@ -122,7 +123,7 @@ class TestUtilsCVHelper(object):
         scale_factor: tuple[float, float],
         annotator_in_pipeline: BaseAnnotator,
         kinect_intrinsics: o3d.camera.PinholeCameraIntrinsic,
-    ):
+    ) -> None:
         annotator_in_pipeline.descriptor.parameters.global_with_depth = True
         cas = annotator_in_pipeline.get_cas()
         width, height = kinect_intrinsics.width, kinect_intrinsics.height
@@ -145,7 +146,7 @@ class TestUtilsCVHelper(object):
 
     def test_get_scaled_color_image_for_depth_image_no_depth_ratio(
         self, annotator_in_pipeline: BaseAnnotator
-    ):
+    ) -> None:
         cas = annotator_in_pipeline.get_cas()
         cas.set(robokudo.cas.CASViews.COLOR_TO_DEPTH_RATIO, None)
         image = np.zeros((640, 480, 3), dtype=np.uint8)
@@ -170,7 +171,7 @@ class TestUtilsCVHelper(object):
     )
     def test_get_hsv_for_rgb_color(
         self, rgb: tuple[int, int, int], hsv: tuple[int, int, int]
-    ):
+    ) -> None:
         hsv_from_rgb = get_hsv_for_rgb_color(rgb)
         assert np.all(hsv == hsv_from_rgb)
 
@@ -191,7 +192,7 @@ class TestUtilsCVHelper(object):
     )
     def test_get_hsv_for_bgr_color(
         self, bgr: tuple[int, int, int], hsv: tuple[int, int, int]
-    ):
+    ) -> None:
         hsv_from_bgr = get_hsv_for_bgr_color(bgr)
         assert np.all(hsv == hsv_from_bgr)
 
@@ -242,7 +243,7 @@ class TestUtilsCVHelper(object):
     )
     def test_draw_rectangle_around_center(
         self, center: tuple[int, int], size: tuple[int, int], expected_points: int
-    ):
+    ) -> None:
         x, y = center
         w, h = size
 
@@ -277,7 +278,7 @@ class TestUtilsCVHelper(object):
     )
     def test_clamp_bounding_rect(
         self, points: tuple[int, int, int, int], adjusted: tuple[int, int, int, int]
-    ):
+    ) -> None:
         image_width = 512
         image_height = 512
 
@@ -312,7 +313,9 @@ class TestUtilsCVHelper(object):
             (np.array([(4096, 4096), (4096, 4096)]), False),
         ],
     )
-    def test_sanity_checks_bounding_rects(self, points: np.ndarray, valid: bool):
+    def test_sanity_checks_bounding_rects(
+        self, points: np.ndarray, valid: bool
+    ) -> None:
         image_width = 512
         image_height = 512
 
@@ -333,7 +336,7 @@ class TestUtilsCVHelper(object):
     )
     def test_adjust_roi_within_boundaries(
         self, image_dim: tuple[int, int], roi: tuple[int, int, int, int], offset: int
-    ):
+    ) -> None:
         w, h = image_dim
         image = np.zeros((h, w, 3), dtype=np.uint8)
 
@@ -369,7 +372,7 @@ class TestUtilsCVHelper(object):
     )
     def test_adjust_roi_boundary_conditions(
         self, image_dim: tuple[int, int], roi: tuple[int, int, int, int], offset: int
-    ):
+    ) -> None:
         w, h = image_dim
         image = np.zeros((h, w, 3), dtype=np.uint8)
 
@@ -407,7 +410,7 @@ class TestUtilsCVHelper(object):
     )
     def test_adjust_image_roi_within_boundaries(
         self, image_dim: tuple[int, int], roi: tuple[int, int, int, int], offset: int
-    ):
+    ) -> None:
         w, h = image_dim
 
         image_roi = ImageROI()
@@ -448,7 +451,7 @@ class TestUtilsCVHelper(object):
     )
     def test_adjust_image_roi_boundary_conditions(
         self, image_dim: tuple[int, int], roi: tuple[int, int, int, int], offset: int
-    ):
+    ) -> None:
         w, h = image_dim
         offset = offset
 
@@ -496,24 +499,24 @@ class TestUtilsCVHelper(object):
             (np.zeros((512, 512), dtype=np.uint8), -10, 0),
         ],
     )
-    def test_adjust_mask(self, mask: np.ndarray, offset: int, fill_value: int):
+    def test_adjust_mask(self, mask: np.ndarray, offset: int, fill_value: int) -> None:
         new_mask = adjust_mask(mask, offset, fill_value=fill_value)
         assert np.all(new_mask == fill_value)
         assert np.all(new_mask.shape[:2] == np.array(mask.shape[:2]) + (offset * 2))
 
-    def test_adjust_mask_shrink_empty_mask(self):
+    def test_adjust_mask_shrink_empty_mask(self) -> None:
         mask = np.empty((0, 0), dtype=np.uint8)
         new_mask = adjust_mask(mask, -1, fill_value=0)
         assert np.all(new_mask == 0)
         assert np.all(new_mask.shape[:2] == np.array(mask.shape[:2]))
 
-    def test_adjust_mask_unchanged_random_mask(self):
+    def test_adjust_mask_unchanged_random_mask(self) -> None:
         mask = np.random.randint(0, 2, size=(512, 512), dtype=np.uint8)
         new_mask = adjust_mask(mask, 0, fill_value=0)
         assert np.array_equal(mask, new_mask)
         assert np.all(new_mask.shape[:2] == mask.shape[:2])
 
-    def test_adjust_mask_expand_random_mask(self):
+    def test_adjust_mask_expand_random_mask(self) -> None:
         offset = 10
         fill = 0
         mask = np.random.randint(0, 2, size=(512, 512), dtype=np.uint8)
@@ -529,7 +532,7 @@ class TestUtilsCVHelper(object):
         assert np.all(new_mask[-offset:, :] == fill)  # Bottom
         assert np.all(new_mask[:, -offset:] == fill)  # Right
 
-    def test_adjust_mask_shrink_random_mask(self):
+    def test_adjust_mask_shrink_random_mask(self) -> None:
         offset = -10
         mask = np.random.randint(0, 2, size=(512, 512), dtype=np.uint8)
         new_mask = adjust_mask(mask, offset, fill_value=0)

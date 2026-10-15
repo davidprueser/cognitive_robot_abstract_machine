@@ -1,3 +1,4 @@
+from __future__ import annotations
 import os
 from pathlib import Path
 import json
@@ -25,6 +26,10 @@ from robokudo.io.storage import Storage
 from robokudo.behaviours.clear_annotator_outputs import ClearAnnotatorOutputs
 from robokudo.pipeline import Pipeline
 from semantic_digital_twin.adapters.ros.messages import WorldModelSnapshot
+from typing_extensions import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from sensor_msgs.msg import CameraInfo
 
 pytestmark = pytest.mark.skipif(
     os.getenv("CI") == "true",
@@ -32,7 +37,7 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-def _camera_info_k_values(camera_info):
+def _camera_info_k_values(camera_info: CameraInfo) -> list[float]:
     if hasattr(camera_info, "k"):
         return list(camera_info.k)
     return list(camera_info.K)
@@ -77,7 +82,7 @@ def _build_reader_pipeline(db_name: str) -> Pipeline:
 
 
 class TestStorageRoundtripPipeline:
-    def test_store_and_replay_sensor_data_roundtrip(self):
+    def test_store_and_replay_sensor_data_roundtrip(self) -> None:
         db_name = f"ONLY_UNITTESTS_roundtrip_{uuid.uuid4().hex}"
         storage = Storage(db_name)
         writer_node = Node(

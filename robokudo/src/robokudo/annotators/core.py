@@ -21,23 +21,14 @@ from __future__ import annotations
 import logging
 import threading
 import time
-from collections import defaultdict  # noqa: B027ons import defaultdict
+from collections import defaultdict
 from concurrent.futures import Future
 
 from py_trees.behaviour import Behaviour
 from py_trees.blackboard import Blackboard
 from py_trees.common import Status
 from sensor_msgs.msg import JointState
-from typing_extensions import (
-    Any,
-    Callable,
-    Dict,
-    List,
-    Optional,
-    Tuple,
-    Type,
-    Union,
-)
+from typing_extensions import Any, Callable
 
 import robokudo.pipeline  # Work around circular import
 from robokudo.annotator_parameters import AnnotatorPredefinedParameters
@@ -117,7 +108,7 @@ class BaseAnnotator(Behaviour):
             param_class = self.Parameters
 
             # overwrite __getattr__ in current 'Parameters' class
-            def get_attr_with_predefined_parameters(self, name: str) -> Any:
+            def get_attr_with_predefined_parameters(self: Any, name: str) -> Any:
                 """
                 Custom attribute getter for accessing global parameters.
 
@@ -141,7 +132,7 @@ class BaseAnnotator(Behaviour):
     def __init__(
         self,
         name: str = "Annotator",
-        descriptor: Optional[BaseAnnotator.Descriptor] = None,
+        descriptor: BaseAnnotator.Descriptor | None = None,
         ros_pkg_name: str = PACKAGE_NAME,
     ) -> None:
         """
@@ -242,7 +233,7 @@ class BaseAnnotator(Behaviour):
         """
         return self.get_parent_pipeline().cas
 
-    def get_parent_pipeline(self) -> Optional[robokudo.pipeline.Pipeline]:
+    def get_parent_pipeline(self) -> robokudo.pipeline.Pipeline | None:
         """
         Get the pipeline containing this annotator.
 
@@ -317,8 +308,8 @@ class BaseAnnotator(Behaviour):
         return type(self).__name__
 
     def get_data_from_analysis_scope(
-        self, analysis_scope: List[Union[str, Type]]
-    ) -> Dict[Union[str, Type], Any]:
+        self, analysis_scope: list[str | type]
+    ) -> dict[str | type, Any]:
         """
         Look up data to analyze based on a list of Types or String constants.
 
@@ -344,7 +335,7 @@ class BaseAnnotator(Behaviour):
         :return: Dict mapping requested types to corresponding data
         :raises ValueError: If result would be empty
         """
-        result: Dict[Union[str, Type], Any] = {}
+        result: dict[str | type, Any] = {}
 
         for content in analysis_scope:
             # CASViews are string values
@@ -387,13 +378,8 @@ class BaseAnnotator(Behaviour):
         timing_dict = getattr(self, "_times")
         timing_dict[func] = value
 
-    #########################################################
-    # Data publishing handling                               #
-    #                                                        #
-    # Collect float variables in your Annotators             #
-    # that you want to analyze with external tools.          #
-    # The following methods handle to publish these via ROS. #
-    ##########################################################
+    # Data publishing: collect float variables in an annotator to analyze them with
+    # external tools; the following methods publish them via ROS.
 
     def shall_publish_variables(self) -> bool:
         """
@@ -419,7 +405,7 @@ class BaseAnnotator(Behaviour):
                 JointState,
                 queue_size=10,
             )
-            self.published_variables: Dict[str, float] = dict()
+            self.published_variables: dict[str, float] = dict()
 
     def update_published_variable(self, name: str, value: float) -> None:
         """
@@ -482,7 +468,7 @@ class Worker(object):
     execute a callback when the function completes.
     """
 
-    def __init__(self, fn: Callable, args: Tuple = ()) -> None:
+    def __init__(self, fn: Callable, args: tuple = ()) -> None:
         """
         Initialize the worker.
 
@@ -491,9 +477,9 @@ class Worker(object):
         """
         self.future: Future = Future()
         self._fn: Callable = fn
-        self._args: Tuple = args
+        self._args: tuple = args
 
-    def start(self, callback: Optional[Callable] = None) -> threading.Thread:
+    def start(self, callback: Callable | None = None) -> threading.Thread:
         """
         Start executing the function in a separate thread.
 
@@ -530,7 +516,7 @@ class ThreadedAnnotator(BaseAnnotator):
     def __init__(
         self,
         name: str = "ThreadedAnnotator",
-        descriptor: Optional[BaseAnnotator.Descriptor] = None,
+        descriptor: BaseAnnotator.Descriptor | None = None,
     ) -> None:
         """
         Initialize the ThreadedAnnotator.
@@ -540,9 +526,9 @@ class ThreadedAnnotator(BaseAnnotator):
         """
         super().__init__(name, descriptor)
         self.rk_logger.debug("%s.__init__()" % self.__class__.__name__)
-        self.compute_worker: Optional[Worker] = None
+        self.compute_worker: Worker | None = None
         self.compute_worker_started: bool = False
-        self.compute_worker_thread: Optional[threading.Thread] = None
+        self.compute_worker_thread: threading.Thread | None = None
 
     def initialise(self) -> None:
         """

@@ -1,3 +1,4 @@
+from __future__ import annotations
 import copy
 import os
 import uuid
@@ -20,6 +21,11 @@ from robokudo.io.storage_reader_interface import StorageReaderInterface
 from robokudo.types.cv import ImageROI
 from robokudo.types.scene import ObjectHypothesis
 from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
+from typing_extensions import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from pymongo.results import InsertOneResult
+    from typing_extensions import Iterator
 
 
 @dataclass
@@ -35,7 +41,7 @@ pytestmark = pytest.mark.skipif(
 
 
 @pytest.fixture(scope="module")
-def storage_instance():
+def storage_instance() -> Iterator[Storage]:
     db_name = "ONLY_UNITTESTS_test_db"
     storage = Storage(db_name)
     yield storage
@@ -44,7 +50,7 @@ def storage_instance():
 
 
 @pytest.fixture()
-def cas_data():
+def cas_data() -> CAS:
     cas = CAS()
     """
     Mock CAS data for testing.
@@ -55,7 +61,7 @@ def cas_data():
     return cas
 
 
-def store_cas_in_storage(storage_instance, cas_data):
+def store_cas_in_storage(storage_instance: Storage, cas_data: CAS) -> InsertOneResult:
     flat_cas = storage_instance.generate_dict_from_real_cas(cas_data)
     flat_cas["view_ids"] = {}
 
@@ -67,7 +73,7 @@ def store_cas_in_storage(storage_instance, cas_data):
     return storage_instance.store_cas_dict(flat_cas)
 
 
-def create_point_cloud():
+def create_point_cloud() -> o3d.geometry.PointCloud:
     """
     Create an Open3D point cloud with some sample data.
     """
@@ -84,7 +90,7 @@ def create_point_cloud():
     return point_cloud
 
 
-def create_camera_intrinsic():
+def create_camera_intrinsic() -> o3d.camera.PinholeCameraIntrinsic:
     """
     Create an Open3D pinhole camera intrinsic for testing.
     """
@@ -92,7 +98,7 @@ def create_camera_intrinsic():
 
 
 class TestStorage:
-    def test_drop_database(self, storage_instance):
+    def test_drop_database(self, storage_instance: Storage) -> None:
         db_name = storage_instance.db_name
         storage_instance.drop_database()
 
@@ -106,7 +112,9 @@ class TestStorage:
         client = pymongo.MongoClient(host=mongo_host, port=mongo_port)
         assert db_name not in client.list_database_names()
 
-    def test_store_and_retrieve_cas(self, storage_instance, cas_data):
+    def test_store_and_retrieve_cas(
+        self, storage_instance: Storage, cas_data: CAS
+    ) -> None:
         result = store_cas_in_storage(storage_instance, cas_data)
         # Generate a dict from the CAS and store it
         flat_cas = storage_instance.generate_dict_from_real_cas(cas_data)
@@ -127,7 +135,9 @@ class TestStorage:
         assert retrieved_cas["timestamp"] == cas_data.timestamp
         assert retrieved_cas["timestamp_readable"] == cas_data.timestamp_readable
 
-    def test_store_and_retrieve_cas_with_single_oh(self, storage_instance, cas_data):
+    def test_store_and_retrieve_cas_with_single_oh(
+        self, storage_instance: Storage, cas_data: CAS
+    ) -> None:
         # Generate a dict from the CAS and store it
         oh = ObjectHypothesis()
         oh.source = "test_storage"
@@ -200,7 +210,9 @@ class TestStorage:
             np.asarray(test_pcd.points), np.asarray(retrieved_oh.points.points)
         )
 
-    def test_annotations_are_serialized_with_krrood(self, storage_instance, cas_data):
+    def test_annotations_are_serialized_with_krrood(
+        self, storage_instance: Storage, cas_data: CAS
+    ) -> None:
         oh = ObjectHypothesis()
         oh.source = "test_storage"
         oh.id = 1
@@ -217,7 +229,9 @@ class TestStorage:
         assert isinstance(retrieved_cas_record["annotations"], list)
         assert "__json_type__" in retrieved_cas_record["annotations"][0]
 
-    def test_store_and_retrieve_dynamic_extra_views(self, storage_instance, cas_data):
+    def test_store_and_retrieve_dynamic_extra_views(
+        self, storage_instance: Storage, cas_data: CAS
+    ) -> None:
         cas_data.set("custom_json", {"labels": ["cup", "plate"], "valid": True})
         cas_data.set("custom_tuple", (1.2, 3.4))
         cas_data.set("custom_numpy", np.array([[1, 2], [3, 4]], dtype=np.int16))
@@ -261,8 +275,8 @@ class TestStorage:
         )
 
     def test_extra_views_krrood_fallback_for_dataclass(
-        self, storage_instance, cas_data
-    ):
+        self, storage_instance: Storage, cas_data: CAS
+    ) -> None:
         cas_data.set(
             "custom_dataclass", CustomDataclassView(label="cup", confidence=0.9)
         )
@@ -283,7 +297,7 @@ class TestStorage:
         assert restored.label == "cup"
         assert restored.confidence == 0.9
 
-    def test_unknown_dynamic_view_type_raises(self):
+    def test_unknown_dynamic_view_type_raises(self) -> None:
         class UnsupportedView:
             pass
 
@@ -296,8 +310,8 @@ class TestStorage:
             Storage.generate_dict_from_real_cas(cas)
 
     def test_camera_to_world_transform_roundtrip_preserves_world_references(
-        self, storage_instance, cas_data
-    ):
+        self, storage_instance: Storage, cas_data: CAS
+    ) -> None:
         world_frame = f"map_{uuid.uuid4().hex[:8]}"
         camera_frame = f"camera_{uuid.uuid4().hex[:8]}"
 
@@ -359,8 +373,8 @@ class TestStorage:
         assert str(restored_transform.reference_frame.name) == str(world_body.name)
 
     def test_storage_reader_rebinds_camera_to_world_transform_to_running_world(
-        self, storage_instance, cas_data
-    ):
+        self, storage_instance: Storage, cas_data: CAS
+    ) -> None:
         stored_world_frame = f"stored_map_{uuid.uuid4().hex[:8]}"
         stored_camera_frame = f"stored_camera_{uuid.uuid4().hex[:8]}"
 
@@ -422,7 +436,7 @@ class TestStorage:
 
     def test_storage_reader_raises_custom_error_when_camera_transform_frame_metadata_is_missing(
         self,
-    ):
+    ) -> None:
         reader = StorageReaderInterface.__new__(StorageReaderInterface)
         view_document = {
             "payload": {},

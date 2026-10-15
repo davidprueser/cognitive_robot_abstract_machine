@@ -1,3 +1,4 @@
+from __future__ import annotations
 import pytest
 
 from robokudo.utils.camera_model import (

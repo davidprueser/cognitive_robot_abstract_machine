@@ -1,3 +1,4 @@
+from __future__ import annotations
 import numpy as np
 
 from robokudo.io import cas_annotation_codecs
@@ -13,16 +14,23 @@ from semantic_digital_twin.world_description.geometry import (
     Cylinder as SemDTCylinder,
     Sphere as SemDTSphere,
 )
+from typing_extensions import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from typing_extensions import Any
+    import pytest
 
 
-def test_deserialize_annotations_none_returns_empty_list():
+def test_deserialize_annotations_none_returns_empty_list() -> None:
     assert cas_annotation_codecs.deserialize_annotations(None) == []
 
 
-def test_deserialize_annotations_forwards_kwargs_for_lists(monkeypatch):
+def test_deserialize_annotations_forwards_kwargs_for_lists(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     calls: list[tuple[dict, dict]] = []
 
-    def fake_from_json(item, **kwargs):
+    def fake_from_json(item: Any, **kwargs: Any) -> dict[str, Any]:
         calls.append((item, kwargs))
         return {"item": item, "kwargs": kwargs}
 
@@ -36,10 +44,12 @@ def test_deserialize_annotations_forwards_kwargs_for_lists(monkeypatch):
     assert all(call[1] == {"tracker": "active"} for call in calls)
 
 
-def test_deserialize_annotations_forwards_kwargs_for_single_item(monkeypatch):
+def test_deserialize_annotations_forwards_kwargs_for_single_item(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     calls: list[tuple[dict, dict]] = []
 
-    def fake_from_json(item, **kwargs):
+    def fake_from_json(item: Any, **kwargs: Any) -> dict[str, Any]:
         calls.append((item, kwargs))
         return {"item": item, "kwargs": kwargs}
 
@@ -53,7 +63,7 @@ def test_deserialize_annotations_forwards_kwargs_for_single_item(monkeypatch):
     assert result[0]["item"] == payload
 
 
-def test_numpy_scalar_json_serializer_roundtrip():
+def test_numpy_scalar_json_serializer_roundtrip() -> None:
     scalar = np.int16(42)
     encoded = cas_annotation_codecs.NumpyScalarJSONSerializer.to_json(scalar)
     restored = cas_annotation_codecs.NumpyScalarJSONSerializer.from_json(
@@ -64,7 +74,7 @@ def test_numpy_scalar_json_serializer_roundtrip():
     assert restored == scalar.item()
 
 
-def test_cloud_annotation_serialization_roundtrip_preserves_point_cloud():
+def test_cloud_annotation_serialization_roundtrip_preserves_point_cloud() -> None:
     points = np.array(
         [
             [0.0, 0.0, 0.0],
@@ -87,7 +97,7 @@ def test_cloud_annotation_serialization_roundtrip_preserves_point_cloud():
     np.testing.assert_allclose(np.asarray(restored_cloud.points.points), points)
 
 
-def test_shape_annotation_serialization_roundtrip_preserves_metadata():
+def test_shape_annotation_serialization_roundtrip_preserves_metadata() -> None:
     shape = Shape(source="shape_annotator", inliers=[1, 2, 3], geometry=SemDTBox())
     shape.geometry.scale.x = 0.31
 
@@ -103,7 +113,7 @@ def test_shape_annotation_serialization_roundtrip_preserves_metadata():
     assert restored_shape.geometry.scale.x == 0.31
 
 
-def test_sphere_annotation_serialization_roundtrip_preserves_radius():
+def test_sphere_annotation_serialization_roundtrip_preserves_radius() -> None:
     sphere = Sphere(
         source="sphere_annotator",
         inliers=[9, 8],
@@ -122,7 +132,7 @@ def test_sphere_annotation_serialization_roundtrip_preserves_radius():
     assert restored_sphere.geometry.radius == 0.27
 
 
-def test_cylinder_annotation_serialization_roundtrip_preserves_dimensions():
+def test_cylinder_annotation_serialization_roundtrip_preserves_dimensions() -> None:
     cylinder = Cylinder(
         source="cylinder_annotator",
         inliers=[3, 4],
@@ -142,7 +152,9 @@ def test_cylinder_annotation_serialization_roundtrip_preserves_dimensions():
     assert restored_cylinder.geometry.height == 0.6
 
 
-def test_body_keypoint_annotation_serialization_roundtrip_preserves_keypoints_and_kind():
+def test_body_keypoint_annotation_serialization_roundtrip_preserves_keypoints_and_kind() -> (
+    None
+):
     keypoint_annotation = KeypointAnnotation(
         source="pose_annotator",
         keypoints=[BodyKeypoint(x=12.5, y=30.0, confidence=0.9)],
@@ -155,7 +167,9 @@ def test_body_keypoint_annotation_serialization_roundtrip_preserves_keypoints_an
     assert restored == keypoint_annotation
 
 
-def test_body_keypoint_cloud_serialization_roundtrip_preserves_keypoint_and_points():
+def test_body_keypoint_cloud_serialization_roundtrip_preserves_keypoint_and_points() -> (
+    None
+):
     points = np.array([[0.0, 0.0, 1.0], [0.1, 0.0, 1.0]], dtype=np.float64)
     point_cloud = cas_annotation_codecs.o3d.geometry.PointCloud()
     point_cloud.points = cas_annotation_codecs.o3d.utility.Vector3dVector(points)

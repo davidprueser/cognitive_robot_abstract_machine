@@ -27,9 +27,9 @@ import numpy as np
 import open3d as o3d
 from message_filters import Subscriber
 from sensor_msgs.msg import CameraInfo, Image
-from typing_extensions import Any, Tuple, TYPE_CHECKING, Optional, List
+from typing_extensions import Any, TYPE_CHECKING
 
-from robokudo.cas import CASViews
+from robokudo.cas import CAS, CASViews
 from robokudo.io.camera_interface import ROSCameraInterface
 from robokudo.types.cv import ColorToDepthRatio
 from robokudo.utils.cv_bridge_workaround import CVBridgeWorkaround
@@ -82,13 +82,13 @@ class ROSCameraWithoutDepthInterface(ROSCameraInterface):
         self.rk_logger.info(f"  {camera_config.topic_color}")
         self.rk_logger.info(f"  {camera_config.topic_camera_info}")
 
-        self.color: Optional[Tuple[npt.NDArray]] = None
+        self.color: tuple[npt.NDArray] | None = None
         """Latest RGB image data"""
 
-        self.camera_info: Optional[CameraInfo] = None
+        self.camera_info: CameraInfo | None = None
         """Latest camera calibration info"""
 
-        self.camera_intrinsic: Optional[o3d.camera.PinholeCameraIntrinsic] = None
+        self.camera_intrinsic: o3d.camera.PinholeCameraIntrinsic | None = None
         """Camera intrinsic parameters in Open3D format"""
 
         self.color_to_depth_ratio: ColorToDepthRatio = ColorToDepthRatio()
@@ -96,13 +96,13 @@ class ROSCameraWithoutDepthInterface(ROSCameraInterface):
         The identity, since there is no depth image.
         """
 
-        self.camera_translation: Optional[List[float]] = None
+        self.camera_translation: list[float] | None = None
         """Camera translation from TF"""
 
-        self.camera_quaternion: Optional[List[float]] = None
+        self.camera_quaternion: list[float] | None = None
         """Camera rotation as quaternion from TF"""
 
-        self.timestamp: Optional[builtin_interfaces.msg.Time] = None
+        self.timestamp: builtin_interfaces.msg.Time | None = None
         """Timestamp of latest data"""
 
         self.lock: Lock = Lock()
@@ -114,8 +114,8 @@ class ROSCameraWithoutDepthInterface(ROSCameraInterface):
         print("ROSCameraWithoutDepthInterface initialized")
 
     def rotate_camera_intrinsics(
-        self, K: npt.NDArray, image_size: Tuple[int, int], rotation: str = "90_ccw"
-    ) -> Tuple[npt.NDArray, Tuple[int, int]]:
+        self, K: npt.NDArray, image_size: tuple[int, int], rotation: str = "90_ccw"
+    ) -> tuple[npt.NDArray, tuple[int, int]]:
         """
         Adjust camera intrinsics matrix for image rotation.
 
@@ -156,7 +156,7 @@ class ROSCameraWithoutDepthInterface(ROSCameraInterface):
 
     def rotate_image_and_intrinsics(
         self, img: npt.NDArray, K: npt.NDArray, rotation: str = "90_ccw"
-    ) -> Tuple[npt.NDArray, npt.NDArray, Tuple[int, int]]:
+    ) -> tuple[npt.NDArray, npt.NDArray, tuple[int, int]]:
         """
         Rotate an image and adjust its camera intrinsics accordingly.
 
@@ -182,7 +182,7 @@ class ROSCameraWithoutDepthInterface(ROSCameraInterface):
     def callback(
         self,
         color_data: Image,
-        camera_info: Optional[CameraInfo] = None,
+        camera_info: CameraInfo | None = None,
     ) -> None:
         """
         Process synchronized RGB image and camera info messages.

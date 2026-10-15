@@ -8,9 +8,11 @@ of perception pipelines based on the current query state.
 Original implementation by Malte Huerkamp.
 """
 
+from __future__ import annotations
+
 from py_trees.composites import Composite, Sequence
 from robokudo_msgs.action import Query
-from typing_extensions import Any, Callable, Dict, Optional
+from typing_extensions import Any, Callable
 
 from robokudo.annotators.core import BaseAnnotator
 from robokudo.cas import CASViews
@@ -38,8 +40,8 @@ class QueryBasedScheduler(
     def __init__(
         self,
         name: str = "QueryBasedScheduler",
-        tasks: Optional[Dict[str, Composite]] = None,
-        filter_fn: Optional[Callable[[Query.Goal], str]] = None,
+        tasks: dict[str, Composite] | None = None,
+        filter_fn: Callable[[Query.Goal], str] | None = None,
     ) -> None:
         """
         Initialize the query-based scheduler.
@@ -56,8 +58,8 @@ class QueryBasedScheduler(
         super().__init__(name)
         if tasks is None:
             tasks = dict()
-        self.tasks: Dict[str, Composite] = tasks
-        self.filter_fn: Optional[Callable[[Query.Goal], str]] = filter_fn
+        self.tasks: dict[str, Composite] = tasks
+        self.filter_fn: Callable[[Query.Goal], str] | None = filter_fn
 
     def setup(self, **kwargs: Any) -> bool:
         """
@@ -67,7 +69,7 @@ class QueryBasedScheduler(
             setup_with_descendants_on_behavior(self.tasks[task])
         return True
 
-    def plan_new_job(self) -> Optional[Sequence]:
+    def plan_new_job(self) -> Sequence | None:
         """
         Plan the next job based on the current query.
 

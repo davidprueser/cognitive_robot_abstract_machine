@@ -233,7 +233,7 @@ def _area(box: Rect) -> int:
 # %% model loading
 
 
-def test_models_directory_defaults_to_models_folder_of_robokudo_package():
+def test_models_directory_defaults_to_models_folder_of_robokudo_package() -> None:
     parameters = HumanAndPoseAnnotator.Descriptor.Parameters()
 
     assert parameters.models_directory == Path(robokudo.__file__).parent / "models"
@@ -241,7 +241,7 @@ def test_models_directory_defaults_to_models_folder_of_robokudo_package():
 
 def test_pretrained_model_is_loaded_from_models_directory(
     model_loader: MockModelLoader, scene: PersonScene
-):
+) -> None:
     descriptor = scene.descriptor()
 
     HumanAndPoseAnnotator(descriptor=descriptor).setup()
@@ -253,7 +253,7 @@ def test_pretrained_model_is_loaded_from_models_directory(
 
 def test_setup_creates_models_directory(
     model_loader: MockModelLoader, scene: PersonScene
-):
+) -> None:
     HumanAndPoseAnnotator(descriptor=scene.descriptor()).setup()
 
     assert scene.models_directory.is_dir()
@@ -261,7 +261,7 @@ def test_setup_creates_models_directory(
 
 def test_setup_warms_model_up_on_blank_image(
     model_loader: MockModelLoader, scene: PersonScene
-):
+) -> None:
     descriptor = scene.descriptor()
     descriptor.parameters.warmup_annotator = True
 
@@ -273,7 +273,9 @@ def test_setup_warms_model_up_on_blank_image(
     )
 
 
-def test_construction_loads_no_model(model_loader: MockModelLoader, scene: PersonScene):
+def test_construction_loads_no_model(
+    model_loader: MockModelLoader, scene: PersonScene
+) -> None:
     HumanAndPoseAnnotator(descriptor=scene.descriptor())
 
     assert model_loader.loaded_model_locations == []
@@ -284,7 +286,7 @@ def test_construction_loads_no_model(model_loader: MockModelLoader, scene: Perso
 
 def test_person_becomes_human_hypothesis_classified_as_person(
     model_loader: MockModelLoader, scene: PersonScene
-):
+) -> None:
     annotator = scene.annotator_in_pipeline(scene.descriptor())
 
     status = annotator.compute()
@@ -299,7 +301,7 @@ def test_person_becomes_human_hypothesis_classified_as_person(
 
 def test_hypothesis_region_is_person_bounding_box(
     model_loader: MockModelLoader, scene: PersonScene
-):
+) -> None:
     annotator = scene.annotator_in_pipeline(scene.descriptor())
 
     annotator.compute()
@@ -311,7 +313,7 @@ def test_hypothesis_region_is_person_bounding_box(
 
 def test_each_person_is_identified_by_its_detection_index(
     model_loader: MockModelLoader, scene: PersonScene
-):
+) -> None:
     second_person_box = NormalizedBox(left=0.0, top=0.0, right=0.2, bottom=0.5)
     model_loader.model.detections.append(scene.person_detection(second_person_box))
     annotator = scene.annotator_in_pipeline(scene.descriptor())
@@ -324,7 +326,7 @@ def test_each_person_is_identified_by_its_detection_index(
 
 def test_hypothesis_carries_two_dimensional_keypoints_in_pixels(
     model_loader: MockModelLoader, scene: PersonScene
-):
+) -> None:
     annotator = scene.annotator_in_pipeline(scene.descriptor())
 
     annotator.compute()
@@ -344,7 +346,7 @@ def test_hypothesis_carries_two_dimensional_keypoints_in_pixels(
 
 def test_model_predicts_with_configured_threshold(
     model_loader: MockModelLoader, scene: PersonScene
-):
+) -> None:
     descriptor = scene.descriptor()
     descriptor.parameters.confidence_threshold = 0.42
     annotator = scene.annotator_in_pipeline(descriptor)
@@ -359,7 +361,7 @@ def test_model_predicts_with_configured_threshold(
 
 def test_model_merges_detections_overlapping_more_than_configured(
     model_loader: MockModelLoader, scene: PersonScene
-):
+) -> None:
     descriptor = scene.descriptor()
     descriptor.parameters.non_maximum_suppression_overlap = 0.3
     annotator = scene.annotator_in_pipeline(descriptor)
@@ -374,7 +376,7 @@ def test_model_merges_detections_overlapping_more_than_configured(
 
 def test_model_without_keypoints_raises(
     model_loader: MockModelLoader, scene: PersonScene
-):
+) -> None:
     model_loader.model.detections = [
         MockDetection(
             class_id=scene.person_class_id,
@@ -390,7 +392,7 @@ def test_model_without_keypoints_raises(
 
 def test_shrinking_narrows_hypothesis_region_around_its_center(
     model_loader: MockModelLoader, scene: PersonScene
-):
+) -> None:
     descriptor = scene.descriptor()
     descriptor.parameters.shrink_bounding_box = 0.5
     annotator = scene.annotator_in_pipeline(descriptor)
@@ -404,7 +406,7 @@ def test_shrinking_narrows_hypothesis_region_around_its_center(
 
 def test_shrink_as_annotation_without_depth_shrinks_region(
     model_loader: MockModelLoader, scene: PersonScene
-):
+) -> None:
     descriptor = scene.descriptor()
     descriptor.parameters.shrink_bounding_box = 0.5
     descriptor.parameters.shrink_as_annotation = True
@@ -422,7 +424,7 @@ def test_shrink_as_annotation_without_depth_shrinks_region(
 
 def test_point_cloud_holds_depth_measured_inside_bounding_box(
     model_loader: MockModelLoader, scene: PersonScene
-):
+) -> None:
     annotator = scene.annotator_in_pipeline(scene.depth_descriptor())
 
     annotator.compute()
@@ -434,7 +436,7 @@ def test_point_cloud_holds_depth_measured_inside_bounding_box(
 
 def test_point_cloud_is_built_on_smaller_depth_resolution(
     model_loader: MockModelLoader, scene: PersonScene
-):
+) -> None:
     annotator = scene.annotator_in_pipeline(
         scene.depth_descriptor(), color_to_depth_ratio=0.5
     )
@@ -448,7 +450,7 @@ def test_point_cloud_is_built_on_smaller_depth_resolution(
 
 def test_shrunk_cloud_is_added_as_annotation_when_requested(
     model_loader: MockModelLoader, scene: PersonScene
-):
+) -> None:
     descriptor = scene.depth_descriptor()
     descriptor.parameters.shrink_bounding_box = 0.5
     descriptor.parameters.shrink_as_annotation = True
@@ -466,7 +468,7 @@ def test_shrunk_cloud_is_added_as_annotation_when_requested(
 
 def test_shrink_as_annotation_without_shrinking_keeps_box_and_adds_no_cloud(
     model_loader: MockModelLoader, scene: PersonScene
-):
+) -> None:
     descriptor = scene.depth_descriptor()
     descriptor.parameters.shrink_as_annotation = True
     annotator = scene.annotator_in_pipeline(descriptor)
@@ -480,7 +482,7 @@ def test_shrink_as_annotation_without_shrinking_keeps_box_and_adds_no_cloud(
 
 def test_keypoint_clouds_cover_disc_around_confident_keypoints_only(
     model_loader: MockModelLoader, scene: PersonScene
-):
+) -> None:
     descriptor = scene.depth_descriptor()
     descriptor.parameters.generate_clouds_for_keypoints = True
     annotator = scene.annotator_in_pipeline(descriptor)
@@ -510,7 +512,7 @@ def test_keypoint_clouds_cover_disc_around_confident_keypoints_only(
 
 def test_keypoint_clouds_are_built_around_the_two_dimensional_keypoints(
     model_loader: MockModelLoader, scene: PersonScene
-):
+) -> None:
     descriptor = scene.depth_descriptor()
     descriptor.parameters.generate_clouds_for_keypoints = True
     annotator = scene.annotator_in_pipeline(descriptor)
@@ -530,7 +532,7 @@ def test_keypoint_clouds_are_built_around_the_two_dimensional_keypoints(
 
 def test_visualization_shows_detections_drawn_by_model(
     model_loader: MockModelLoader, scene: PersonScene
-):
+) -> None:
     descriptor = scene.descriptor()
     annotator = scene.annotator_in_pipeline(descriptor)
 
@@ -546,7 +548,7 @@ def test_visualization_shows_detections_drawn_by_model(
 
 def test_visualization_shows_point_clouds_of_hypotheses(
     model_loader: MockModelLoader, scene: PersonScene
-):
+) -> None:
     annotator = scene.annotator_in_pipeline(scene.depth_descriptor())
 
     annotator.compute()
@@ -558,7 +560,7 @@ def test_visualization_shows_point_clouds_of_hypotheses(
 
 def test_visualization_without_depth_shows_no_point_clouds(
     model_loader: MockModelLoader, scene: PersonScene
-):
+) -> None:
     annotator = scene.annotator_in_pipeline(scene.descriptor())
 
     annotator.compute()

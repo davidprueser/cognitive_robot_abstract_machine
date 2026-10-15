@@ -1,3 +1,4 @@
+from __future__ import annotations
 import robokudo.cas
 import robokudo.types.annotation
 import robokudo.types.scene
@@ -6,7 +7,7 @@ import robokudo.types.scene
 class TestCASObject(object):
     cls = robokudo.cas.CAS
 
-    def test_annotations(self):
+    def test_annotations(self) -> None:
         cas = self.cls()
 
         classification = robokudo.types.annotation.Classification()
@@ -33,7 +34,7 @@ class TestCASObject(object):
         assert color_list[0] == color1
         assert color_list[1] == color2
 
-    def test_ohs_with_criteria(self):
+    def test_ohs_with_criteria(self) -> None:
         cas = self.cls()
 
         classification = robokudo.types.annotation.Classification()

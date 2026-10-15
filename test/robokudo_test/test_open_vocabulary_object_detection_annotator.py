@@ -2,6 +2,8 @@
 Verify NumPy image inputs for open-vocabulary detection and mask prediction.
 """
 
+from __future__ import annotations
+
 from dataclasses import fields, is_dataclass
 from unittest.mock import MagicMock
 

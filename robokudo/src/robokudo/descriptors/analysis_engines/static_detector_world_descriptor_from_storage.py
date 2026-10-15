@@ -1,3 +1,6 @@
+from __future__ import annotations
+from py_trees.behaviour import Behaviour
+
 import robokudo.analysis_engine
 import robokudo.behaviours.clear_errors
 import robokudo.descriptors.camera_configs.config_mongodb_playback
@@ -20,10 +23,10 @@ from robokudo.descriptors.factories.cr_descriptor_factory import (
 
 
 class AnalysisEngine(robokudo.analysis_engine.AnalysisEngineInterface):
-    def name(self):
+    def name(self) -> str:
         return "static_detector_world_descriptor_from_storage"
 
-    def implementation(self):
+    def implementation(self) -> Behaviour:
         cr_storage_config = CollectionReaderDescriptorFactory.create_descriptor("mongo")
 
         bootstrap = WorldDescriptorBootstrapAnnotator.Descriptor()

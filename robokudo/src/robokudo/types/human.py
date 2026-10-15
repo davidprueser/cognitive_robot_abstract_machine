@@ -12,6 +12,8 @@ and analysis in computer vision applications. It includes:
 The types support both 2D and 3D representations where applicable.
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass, field
 from enum import StrEnum, auto
 

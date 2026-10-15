@@ -1,3 +1,4 @@
+from __future__ import annotations
 from robokudo.annotators.cluster_pose_bb import ClusterPoseBBAnnotator
 from robokudo.world import world_instance
 from semantic_digital_twin.adapters.ros.node_registry import ROSNodeRegistry

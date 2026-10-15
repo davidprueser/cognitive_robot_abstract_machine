@@ -8,19 +8,20 @@ This module provides error handling utilities for behavior trees.
 """
 
 # import logging
+from __future__ import annotations
 import traceback
 from functools import wraps
 
 from py_trees.blackboard import Blackboard
 from py_trees.common import Status
-from typing_extensions import Any, Callable, Optional
+from typing_extensions import Any, Callable
 
 from robokudo.identifier import BBIdentifier
 
 # rk_logger = logging.getLogger(robokudo.defs.PACKAGE_NAME)
 
 
-def raise_to_blackboard(exception: Optional[Exception]) -> None:
+def raise_to_blackboard(exception: Exception | None) -> None:
     """
     Store exception in blackboard.
 
@@ -59,7 +60,7 @@ def has_blackboard_exception() -> bool:
     )
 
 
-def get_blackboard_exception() -> Optional[Exception]:
+def get_blackboard_exception() -> Exception | None:
     """Retrieve exception from blackboard.
 
     :return: Stored exception or None if not found
@@ -118,7 +119,7 @@ def catch_and_raise_to_blackboard(
     """
 
     @wraps(function)
-    def wrapper(*args, **kwargs):
+    def wrapper(*args: Any, **kwargs: Any) -> Any:
         # This wrapper should NOT be used on ThreadedAnnotators!  See docstring.
         # assert (not (isinstance(args[0], ThreadedAnnotator)))
         if has_blackboard_exception():

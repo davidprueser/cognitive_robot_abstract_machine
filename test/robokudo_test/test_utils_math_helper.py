@@ -1,5 +1,5 @@
+from __future__ import annotations
 import math
-from typing import Optional
 
 import numpy as np
 import pytest
@@ -37,7 +37,7 @@ class TestUtilsMathHelper(object):
         point2: tuple[float, float, float],
         t: float,
         expected_result: tuple[float, float, float],
-    ):
+    ) -> None:
         assert intersection_point(point1, point2, t) == expected_result
 
     @pytest.mark.parametrize(
@@ -55,7 +55,7 @@ class TestUtilsMathHelper(object):
         point2: tuple[float, float, float],
         t: float,
         expected_result: tuple[float, float, float],
-    ):
+    ) -> None:
         assert pytest.raises(ValueError, intersection_point, point1, point2, t)
 
     @pytest.mark.parametrize(
@@ -76,16 +76,16 @@ class TestUtilsMathHelper(object):
         point1: tuple[float, float, float],
         point2: tuple[float, float, float],
         expected_distance: float,
-    ):
+    ) -> None:
         assert distance(point1, point2) == expected_distance
 
-    def test_intersecting_spheres_empty_list(self):
+    def test_intersecting_spheres_empty_list(self) -> None:
         # Empty spheres list
         point1, point2 = (0.0, 0.0, 0.0), (0.0, 0.0, 0.0)
         intersections = intersecting_spheres(point1, point2, [])
         assert len(intersections) == 0
 
-    def test_intersecting_spheres_input_order_kept(self):
+    def test_intersecting_spheres_input_order_kept(self) -> None:
         # Line intersects both spheres, sphere2 closer than sphere 1
         point1, point2 = (0.0, 1.0, 1.0), (1.5, 1.0, 1.0)
         spheres = [("sphere1", (1.0, 1.0, 1.0), 1.0), ("sphere2", (1.5, 1.0, 1.0), 1.0)]
@@ -98,7 +98,7 @@ class TestUtilsMathHelper(object):
         assert intersections[0][0] == 0.0
         assert intersections[1][0] == 0.5
 
-    def test_intersecting_spheres_input_order_reversed(self):
+    def test_intersecting_spheres_input_order_reversed(self) -> None:
         # Line intersects both spheres, sphere2 closer than sphere 1
         point1, point2 = (0.0, 1.0, 1.0), (1.5, 1.0, 1.0)
         spheres = [("sphere1", (1.5, 1.0, 1.0), 1.0), ("sphere2", (1.0, 1.0, 1.0), 1.0)]
@@ -111,7 +111,7 @@ class TestUtilsMathHelper(object):
         assert intersections[0][0] == 0.0
         assert intersections[1][0] == 0.5
 
-    def test_intersecting_spheres_one_intersection(self):
+    def test_intersecting_spheres_one_intersection(self) -> None:
         # Line one sphere only
         point1, point2 = (0.0, 1.0, 1.0), (1.5, 1.0, 1.0)
         spheres = [("sphere1", (1.5, 1.0, 1.0), 1.0), ("sphere2", (5.0, 5.0, 5.0), 1.0)]
@@ -121,7 +121,7 @@ class TestUtilsMathHelper(object):
         assert intersections[0][1] == spheres[0][0]
         assert intersections[0][0] == 0.5
 
-    def test_intersecting_spheres_invalid_sphere_radius(self):
+    def test_intersecting_spheres_invalid_sphere_radius(self) -> None:
         point1, point2 = (0.0, 0.0, 0.0), (0.0, 0.0, 0.0)
         spheres = [
             ("sphere1", (1.0, 1.0, 1.0), -1.0),
@@ -158,13 +158,13 @@ class TestUtilsMathHelper(object):
         sphere_center: tuple[float, float, float],
         sphere_radius: float,
         intersects: bool,
-    ):
+    ) -> None:
         assert (
             does_line_intersect_sphere(point1, point2, sphere_center, sphere_radius)
             == intersects
         )
 
-    def test_does_line_intersect_sphere_invalid_radius(self):
+    def test_does_line_intersect_sphere_invalid_radius(self) -> None:
         assert pytest.raises(
             ValueError,
             does_line_intersect_sphere,
@@ -207,8 +207,8 @@ class TestUtilsMathHelper(object):
         point2: tuple[float, float, float],
         sphere_center: tuple[float, float, float],
         sphere_radius: float,
-        intersects_at: Optional[list[float]],
-    ):
+        intersects_at: list[float] | None,
+    ) -> None:
         assert (
             compute_line_intersection_point(
                 point1, point2, sphere_center, sphere_radius
@@ -221,52 +221,52 @@ class TestUtilsMathHelper(object):
     )
     def test_compute_direction_vector_angle_small_vector(
         self, direction_vector: np.ndarray
-    ):
+    ) -> None:
         assert pytest.raises(
             ValueError, compute_direction_vector_angle, direction_vector
         )
 
-    def test_zero_floor_vector(self):
+    def test_zero_floor_vector(self) -> None:
         angle = compute_direction_vector_angle(np.array([1, 0, 0]), np.array([0, 0, 0]))
         assert np.isnan(angle)
 
-    def test_vertical_direction_vector(self):
+    def test_vertical_direction_vector(self) -> None:
         angle = compute_direction_vector_angle(np.array([0, 1, 0]))
         assert angle == 90.0
 
-    def test_negative_vertical_direction_vector(self):
+    def test_negative_vertical_direction_vector(self) -> None:
         angle = compute_direction_vector_angle(np.array([0, -1, 0]))
         assert angle == -90.0
 
-    def test_horizontal_direction_vector_x(self):
+    def test_horizontal_direction_vector_x(self) -> None:
         angle = compute_direction_vector_angle(np.array([1, 0, 0]))
         assert angle == 0.0
 
-    def test_horizontal_direction_vector_z(self):
+    def test_horizontal_direction_vector_z(self) -> None:
         angle = compute_direction_vector_angle(np.array([0, 0, 1]))
         assert angle == 0.0
 
-    def test_angle_45_degrees(self):
+    def test_angle_45_degrees(self) -> None:
         angle = compute_direction_vector_angle(np.array([1, 1, 0]))
         assert angle == 45.0
 
-    def test_non_unity_floor_vector(self):
+    def test_non_unity_floor_vector(self) -> None:
         angle = compute_direction_vector_angle(np.array([1, 1, 0]), np.array([0, 2, 0]))
         assert angle == 45.0
 
-    def test_non_standard_floor_vector(self):
+    def test_non_standard_floor_vector(self) -> None:
         angle = compute_direction_vector_angle(np.array([1, 0, 0]), np.array([1, 0, 0]))
         assert angle == 90.0
 
-    def test_direction_perpendicular_to_floor(self):
+    def test_direction_perpendicular_to_floor(self) -> None:
         angle = compute_direction_vector_angle(np.array([0, 1, 0]), np.array([1, 0, 0]))
         assert angle == 0.0
 
-    def test_negative_components(self):
+    def test_negative_components(self) -> None:
         angle = compute_direction_vector_angle(np.array([-1, 0, 0]))
         assert angle == 0.0
 
-    def test_3d_direction_vector(self):
+    def test_3d_direction_vector(self) -> None:
         angle = compute_direction_vector_angle(np.array([1, 1, 1]))
         expected_angle = np.degrees(np.arctan2(1, np.sqrt(2)))
         assert angle == expected_angle
@@ -282,7 +282,7 @@ class TestUtilsMathHelper(object):
     )
     def test_intersecting_cuboids_invalid_cuboid_dimensions(
         self, dimensions: tuple[float, float, float]
-    ):
+    ) -> None:
         assert pytest.raises(
             ValueError,
             intersecting_cuboids,
@@ -293,12 +293,12 @@ class TestUtilsMathHelper(object):
             ],
         )
 
-    def test_intersecting_cuboids_invalid_rotation(self):
+    def test_intersecting_cuboids_invalid_rotation(self) -> None:
         point1, point2 = (0.0, 0.0, 0.0), (1.0, 0.0, 0.0)
         cuboids = [("cuboid1", (1.0, 1.0, 1.0), (0.0, 0.0, 0.0, 0.0), (1.0, 1.0, 1.0))]
         assert pytest.raises(ValueError, intersecting_cuboids, point1, point2, cuboids)
 
-    def test_intersecting_cuboids_all_zero(self):
+    def test_intersecting_cuboids_all_zero(self) -> None:
         point1, point2 = (0.0, 0.0, 0.0), (0.0, 0.0, 0.0)
         cuboids = [("cuboid1", (0.0, 0.0, 0.0), (0.0, 0.0, 0.0, 1.0), (0.0, 0.0, 0.0))]
         intersections = intersecting_cuboids(point1, point2, cuboids)
@@ -307,21 +307,21 @@ class TestUtilsMathHelper(object):
 
     def test_intersecting_cuboids_zero_length_line_segment_contained_inside_cuboid(
         self,
-    ):
+    ) -> None:
         point1, point2 = (0.5, 0.5, 0.5), (0.5, 0.5, 0.5)
         cuboids = [("cuboid1", (1.0, 1.0, 1.0), (0.0, 0.0, 0.0, 1.0), (1.0, 1.0, 1.0))]
         intersections = intersecting_cuboids(point1, point2, cuboids)
         assert len(intersections) == 1
         assert intersections[0][0] == 0.0
 
-    def test_intersecting_cuboids_line_segment_contained_inside_cuboid(self):
+    def test_intersecting_cuboids_line_segment_contained_inside_cuboid(self) -> None:
         point1, point2 = (-0.5, -0.5, -0.5), (0.5, 0.5, 0.5)
         cuboids = [("cuboid1", (0, 0, 0), (0.0, 0.0, 0.0, 1.0), (2, 2, 2))]
         intersections = intersecting_cuboids(point1, point2, cuboids)
         assert len(intersections) == 1
         assert intersections[0][0] == 0.0
 
-    def test_intersecting_cuboids_line_outside_cuboids(self):
+    def test_intersecting_cuboids_line_outside_cuboids(self) -> None:
         point1, point2 = (2.0, 2.0, 2.0), (-2.0, -2.0, 2.0)
         cuboids = [
             ("cuboid1", (0, 0, 0), (0.0, 0.0, 0.0, 1.0), (2, 2, 2)),
@@ -330,21 +330,23 @@ class TestUtilsMathHelper(object):
         intersections = intersecting_cuboids(point1, point2, cuboids)
         assert len(intersections) == 0
 
-    def test_intersecting_cuboids_line_intersects_with_end_inside_cuboid(self):
+    def test_intersecting_cuboids_line_intersects_with_end_inside_cuboid(self) -> None:
         point1, point2 = (2.0, 0.0, 0.0), (0.0, 0.0, 0.0)
         cuboids = [("cuboid1", (0, 0, 0), (0.0, 0.0, 0.0, 1.0), (1, 1, 1))]
         intersections = intersecting_cuboids(point1, point2, cuboids)
         assert len(intersections) == 1
         assert intersections[0][0] == 1.5
 
-    def test_intersecting_cuboids_line_intersects_with_start_inside_cuboid(self):
+    def test_intersecting_cuboids_line_intersects_with_start_inside_cuboid(
+        self,
+    ) -> None:
         point1, point2 = (0.0, 0.0, 0.0), (2.0, 0.0, 0.0)
         cuboids = [("cuboid1", (0, 0, 0), (0.0, 0.0, 0.0, 1.0), (1, 1, 1))]
         intersections = intersecting_cuboids(point1, point2, cuboids)
         assert len(intersections) == 1
         assert intersections[0][0] == 0.5
 
-    def test_intersecting_cuboids_no_intersection_beyond_point2(self):
+    def test_intersecting_cuboids_no_intersection_beyond_point2(self) -> None:
         point1, point2 = (0.0, 0.0, 0.0), (2.0, 0.0, 0.0)
         cuboids = [("cuboid1", (3.0, 0.0, 0.0), (0.0, 0.0, 0.0, 1.0), (1.0, 1.0, 1.0))]
         intersections = intersecting_cuboids(point1, point2, cuboids)
@@ -352,7 +354,7 @@ class TestUtilsMathHelper(object):
 
     def test_intersecting_cuboids_line_intersects_multiple_cuboids_incorrect_input_order(
         self,
-    ):
+    ) -> None:
         point1, point2 = (2.0, 0.0, 0.0), (-2.0, 0.0, 0.0)
         cuboids = [
             ("cuboid1", (0.0, 0.0, 0.0), (0.0, 0.0, 0.0, 1.0), (1, 1, 1)),
@@ -370,7 +372,7 @@ class TestUtilsMathHelper(object):
 
     def test_intersecting_cuboids_line_intersects_multiple_cuboids_correct_input_order(
         self,
-    ):
+    ) -> None:
         point1, point2 = (2.0, 0.0, 0.0), (-2.0, 0.0, 0.0)
         cuboids = [
             ("cuboid1", (1.0, 0, 0), (0.0, 0.0, 0.0, 1.0), (1, 1, 1)),
@@ -417,7 +419,7 @@ class TestUtilsMathHelper(object):
     )
     def test_intersecting_cuboids_segment_on_edge(
         self, point1: tuple[float, float, float], point2: tuple[float, float, float]
-    ):
+    ) -> None:
         cuboids = [("cuboid1", (0, 0, 0), (0.0, 0.0, 0.0, 1.0), (2, 2, 2))]
         intersections = intersecting_cuboids(point1, point2, cuboids)
         assert len(intersections) == 1

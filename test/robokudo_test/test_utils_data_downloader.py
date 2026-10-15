@@ -1,3 +1,4 @@
+from __future__ import annotations
 import shutil
 import threading
 import time
@@ -76,7 +77,9 @@ class UnpackingRecorder:
 
 
 @pytest.fixture
-def unpacking_recorder(tmp_path, monkeypatch) -> UnpackingRecorder:
+def unpacking_recorder(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> UnpackingRecorder:
     """
     Make :func:`robokudo.utils.data_downloader.test_data_path` fetch a local archive into a fresh
     cache, as a CI run starting without the test data does, and record its unpacking.
@@ -103,8 +106,8 @@ def unpacking_recorder(tmp_path, monkeypatch) -> UnpackingRecorder:
 
 
 def test_a_caller_arriving_during_unpacking_does_not_unpack_again(
-    unpacking_recorder,
-):
+    unpacking_recorder: UnpackingRecorder,
+) -> None:
     with ThreadPoolExecutor(max_workers=2) as executor:
         first_caller = executor.submit(robokudo.utils.data_downloader.test_data_path)
         assert unpacking_recorder.first_unpacking_started.wait(timeout=60)

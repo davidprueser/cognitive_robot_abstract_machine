@@ -12,6 +12,8 @@ The behavior integrates with RoboKudo's error handling system to manage
 error states across the behavior tree.
 """
 
+from __future__ import annotations
+
 from py_trees.behaviour import Behaviour
 from py_trees.common import Status
 

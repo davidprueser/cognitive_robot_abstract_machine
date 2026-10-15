@@ -1,7 +1,12 @@
+from __future__ import annotations
 from dataclasses import dataclass
 
 import robokudo.annotators.storage as storage_module
 from robokudo.annotators.storage import StorageWriter
+from typing_extensions import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import pytest
 
 # %% storage preparation
 
@@ -27,7 +32,9 @@ class StorageResetRecorder:
         self.reset_count += 1
 
 
-def test_storage_writer_defers_database_reset_until_setup(monkeypatch) -> None:
+def test_storage_writer_defers_database_reset_until_setup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """
     A storage writer resets its database exactly once during setup.
     """

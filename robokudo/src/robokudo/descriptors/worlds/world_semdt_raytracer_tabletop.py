@@ -1,3 +1,4 @@
+from __future__ import annotations
 from importlib.util import find_spec
 from pathlib import Path
 
@@ -16,7 +17,9 @@ from semantic_digital_twin.world_description.world_entity import Body
 
 
 class WorldDescriptor(BaseWorldDescriptor):
-    """A compact tabletop world for SemDT RayTracer-based camera simulation."""
+    """
+    A compact tabletop world for SemDT RayTracer-based camera simulation.
+    """
 
     def __init__(self) -> None:
         super().__init__()

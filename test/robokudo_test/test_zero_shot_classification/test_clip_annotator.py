@@ -192,7 +192,7 @@ class ColorEmbeddingClip:
 
 
 @pytest.fixture
-def color_embedding_clip(monkeypatch) -> ColorEmbeddingClip:
+def color_embedding_clip(monkeypatch: pytest.MonkeyPatch) -> ColorEmbeddingClip:
     """
     Make the annotator load the color embedding stand-in instead of pretrained CLIP.
     """
@@ -237,8 +237,8 @@ def _classify_solid_image(
 
 
 def test_annotator_without_descriptor_indexes_default_vocabulary(
-    color_embedding_clip,
-):
+    color_embedding_clip: ColorEmbeddingClip,
+) -> None:
     """
     An annotator built without a descriptor falls back to the default parameters.
     """
@@ -249,7 +249,9 @@ def test_annotator_without_descriptor_indexes_default_vocabulary(
     assert annotator.vocabulary_index.ntotal == len(default_vocabulary)
 
 
-def test_vocabulary_is_encoded_through_the_template(color_embedding_clip):
+def test_vocabulary_is_encoded_through_the_template(
+    color_embedding_clip: ColorEmbeddingClip,
+) -> None:
     descriptor = _color_descriptor()
     descriptor.parameters.vocabulary_template = "A photo of something {}"
 
@@ -261,7 +263,9 @@ def test_vocabulary_is_encoded_through_the_template(color_embedding_clip):
     ]
 
 
-def test_model_runs_on_the_configured_device(color_embedding_clip):
+def test_model_runs_on_the_configured_device(
+    color_embedding_clip: ColorEmbeddingClip,
+) -> None:
     descriptor = _color_descriptor()
     descriptor.parameters.device = torch.device("cuda", 0)
 
@@ -274,7 +278,9 @@ def test_model_runs_on_the_configured_device(color_embedding_clip):
 # %% classification
 
 
-def test_word_naming_image_color_ranks_first(color_embedding_clip):
+def test_word_naming_image_color_ranks_first(
+    color_embedding_clip: ColorEmbeddingClip,
+) -> None:
     annotator = CLIPAnnotator(descriptor=_color_descriptor())
 
     classifications = _classify_solid_image(annotator, COLOR_BY_WORD["green"])
@@ -282,7 +288,9 @@ def test_word_naming_image_color_ranks_first(color_embedding_clip):
     assert classifications[0].classname == "green"
 
 
-def test_each_image_of_a_batch_is_classified_by_its_own_color(color_embedding_clip):
+def test_each_image_of_a_batch_is_classified_by_its_own_color(
+    color_embedding_clip: ColorEmbeddingClip,
+) -> None:
     annotator = CLIPAnnotator(descriptor=_color_descriptor())
     images = [
         Image.fromarray(solid_image(rgb(COLOR_BY_WORD["red"]))),
@@ -296,7 +304,9 @@ def test_each_image_of_a_batch_is_classified_by_its_own_color(color_embedding_cl
     ] == ["red", "blue"]
 
 
-def test_classification_keeps_save_top_k_classifications(color_embedding_clip):
+def test_classification_keeps_save_top_k_classifications(
+    color_embedding_clip: ColorEmbeddingClip,
+) -> None:
     descriptor = _color_descriptor()
     descriptor.parameters.save_top_k = 2
     annotator = CLIPAnnotator(descriptor=descriptor)
@@ -306,7 +316,9 @@ def test_classification_keeps_save_top_k_classifications(color_embedding_clip):
     assert len(classifications) == descriptor.parameters.save_top_k
 
 
-def test_classifications_name_the_annotator_as_source(color_embedding_clip):
+def test_classifications_name_the_annotator_as_source(
+    color_embedding_clip: ColorEmbeddingClip,
+) -> None:
     annotator = CLIPAnnotator(descriptor=_color_descriptor())
 
     classifications = _classify_solid_image(annotator, COLOR_BY_WORD["red"])
@@ -316,7 +328,9 @@ def test_classifications_name_the_annotator_as_source(color_embedding_clip):
     }
 
 
-def test_softmax_confidences_over_whole_vocabulary_sum_to_one(color_embedding_clip):
+def test_softmax_confidences_over_whole_vocabulary_sum_to_one(
+    color_embedding_clip: ColorEmbeddingClip,
+) -> None:
     annotator = CLIPAnnotator(descriptor=_color_descriptor())
 
     classifications = _classify_solid_image(annotator, COLOR_BY_WORD["blue"])
@@ -326,8 +340,8 @@ def test_softmax_confidences_over_whole_vocabulary_sum_to_one(color_embedding_cl
 
 
 def test_confidence_without_softmax_is_rescaled_cosine_similarity(
-    color_embedding_clip,
-):
+    color_embedding_clip: ColorEmbeddingClip,
+) -> None:
     """
     Without softmax, a cosine similarity in [-1, 1] is reported as a confidence in
     [0, 1]: the matching color has similarity 1, every other color similarity 0.
@@ -355,8 +369,8 @@ def test_confidence_without_softmax_is_rescaled_cosine_similarity(
 
 
 def test_save_top_k_beyond_vocabulary_without_softmax_reports_each_word_once(
-    color_embedding_clip,
-):
+    color_embedding_clip: ColorEmbeddingClip,
+) -> None:
     descriptor = _color_descriptor()
     descriptor.parameters.use_softmax = False
     descriptor.parameters.save_top_k = len(COLOR_VOCABULARY) + 2

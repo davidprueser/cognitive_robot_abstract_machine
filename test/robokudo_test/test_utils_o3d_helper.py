@@ -1,3 +1,4 @@
+from __future__ import annotations
 import numpy as np
 import open3d as o3d
 import pytest
@@ -83,7 +84,7 @@ class TestUtilsO3DHelper(object):
         obb1: o3d.geometry.OrientedBoundingBox,
         obb2: o3d.geometry.OrientedBoundingBox,
         expected_z: float,
-    ):
+    ) -> None:
         adjusted_obb = put_obb_on_target_obb(obb2, obb1)
 
         assert np.all(
@@ -91,7 +92,7 @@ class TestUtilsO3DHelper(object):
         ), "x and y were not adjusted correctly"
         assert adjusted_obb.center[2] == expected_z, "z was not adjusted correctly"
 
-    def test_transform_obb_relative_to_obb_center_rotation(self):
+    def test_transform_obb_relative_to_obb_center_rotation(self) -> None:
         input_obb = o3d.geometry.OrientedBoundingBox(
             center=[0, 0, 0], R=np.eye(3), extent=[1, 1, 1]
         )
@@ -117,7 +118,7 @@ class TestUtilsO3DHelper(object):
         assert np.allclose(transformed_obb.R, expected_R)
         assert np.allclose(transformed_obb.extent, [1, 1, 1])
 
-    def test_transform_obb_relative_to_obb_identity_transform(self):
+    def test_transform_obb_relative_to_obb_identity_transform(self) -> None:
         input_obb = o3d.geometry.OrientedBoundingBox(
             center=[1, 2, 3], R=np.eye(3), extent=[1, 1, 1]
         )
@@ -135,7 +136,7 @@ class TestUtilsO3DHelper(object):
         assert np.allclose(transformed_obb.R, target_obb.R)
         assert np.allclose(transformed_obb.extent, target_obb.extent)
 
-    def test_transform_obb_relative_to_obb_non_identity_target_rotation(self):
+    def test_transform_obb_relative_to_obb_non_identity_target_rotation(self) -> None:
         input_obb = o3d.geometry.OrientedBoundingBox(
             center=[0, 0, 0], R=np.eye(3), extent=[1, 1, 1]
         )
@@ -155,7 +156,7 @@ class TestUtilsO3DHelper(object):
         assert np.allclose(transformed_obb.R, expected_R)
         assert np.allclose(transformed_obb.extent, [1, 1, 1])
 
-    def test_transform_obb_relative_to_obb_invalid_transform_matrix(self):
+    def test_transform_obb_relative_to_obb_invalid_transform_matrix(self) -> None:
         input_obb = o3d.geometry.OrientedBoundingBox(
             center=[0, 0, 0], R=np.eye(3), extent=[1, 1, 1]
         )
@@ -168,7 +169,7 @@ class TestUtilsO3DHelper(object):
         with pytest.raises(ValueError):
             transform_obb_relative_to_obb_center(input_obb, target_obb, transform)
 
-    def test_get_obb_from_size_and_transform_basic(self):
+    def test_get_obb_from_size_and_transform_basic(self) -> None:
         bb_size = np.array([1.0, 1.0, 1.0])
         transform = np.eye(4)
         obb = get_obb_from_size_and_transform(bb_size, transform)
@@ -178,7 +179,7 @@ class TestUtilsO3DHelper(object):
         assert np.allclose(obb.R, np.eye(3))
         assert np.allclose(obb.extent, bb_size)
 
-    def test_get_obb_from_size_and_transform_translated(self):
+    def test_get_obb_from_size_and_transform_translated(self) -> None:
         bb_size = np.array([2.0, 3.0, 4.0])
         transform = np.eye(4)
         transform[:3, 3] = [1.0, 2.0, 3.0]
@@ -189,7 +190,7 @@ class TestUtilsO3DHelper(object):
         assert np.allclose(obb.R, np.eye(3))
         assert np.allclose(obb.extent, bb_size)
 
-    def test_get_obb_from_size_and_transform_rotated(self):
+    def test_get_obb_from_size_and_transform_rotated(self) -> None:
         bb_size = np.array([1.0, 1.0, 1.0])
         # Rotated 90 degrees around Z-axis
         rotation = np.array(
@@ -207,19 +208,19 @@ class TestUtilsO3DHelper(object):
         assert np.allclose(obb.R, rotation[:3, :3])
         assert np.allclose(obb.extent, bb_size)
 
-    def test_get_obb_from_size_and_transform_invalid_size(self):
+    def test_get_obb_from_size_and_transform_invalid_size(self) -> None:
         bb_size = np.array([1.0, 1.0])
         transform = np.eye(4)
         with pytest.raises(TypeError):
             get_obb_from_size_and_transform(bb_size, transform)
 
-    def test_get_obb_from_size_and_transform_invalid_transform(self):
+    def test_get_obb_from_size_and_transform_invalid_transform(self) -> None:
         bb_size = np.array([1.0, 1.0, 1.0])
         transform = np.eye(3)
         with pytest.raises(IndexError):
             get_obb_from_size_and_transform(bb_size, transform)
 
-    def test_get_2d_corner_points_from_3d_bb_basic_case(self, cas: CAS):
+    def test_get_2d_corner_points_from_3d_bb_basic_case(self, cas: CAS) -> None:
         obb = o3d.geometry.OrientedBoundingBox(
             center=[0, 0, 1], R=np.eye(3), extent=[1, 1, 1]
         )
@@ -242,7 +243,7 @@ class TestUtilsO3DHelper(object):
             ]
         ), f"unexpected corner points, did the camera intrinsics change? {result}"
 
-    def test_get_2d_corner_points_from_3d_bb_with_scaling(self, cas: CAS):
+    def test_get_2d_corner_points_from_3d_bb_with_scaling(self, cas: CAS) -> None:
         cas.set(
             robokudo.cas.CASViews.COLOR_TO_DEPTH_RATIO,
             ColorToDepthRatio(horizontal=2.0, vertical=2.0),
@@ -270,7 +271,7 @@ class TestUtilsO3DHelper(object):
             ]
         ), f"unexpected corner points, did the camera intrinsics change? {result}"
 
-    def test_get_2d_corner_points_from_3d_bb_far_from_camera(self, cas: CAS):
+    def test_get_2d_corner_points_from_3d_bb_far_from_camera(self, cas: CAS) -> None:
         obb = o3d.geometry.OrientedBoundingBox(
             center=[0, 0, 10], R=np.eye(3), extent=[1, 1, 1]
         )
@@ -293,7 +294,7 @@ class TestUtilsO3DHelper(object):
             ]
         ), f"unexpected corner points, did the camera intrinsics change? {result}"
 
-    def test_get_2d_corner_points_from_3d_bb_invalid_intrinsics(self, cas: CAS):
+    def test_get_2d_corner_points_from_3d_bb_invalid_intrinsics(self, cas: CAS) -> None:
         cas.set(
             robokudo.cas.CASViews.POINTCLOUD_CAMERA_INTRINSIC,
             "anything but CameraIntrinsics",
@@ -305,14 +306,14 @@ class TestUtilsO3DHelper(object):
 
         assert pytest.raises(AssertionError, get_2d_corner_points_from_3d_bb, cas, obb)
 
-    def test_get_2d_corner_points_from_3d_bb_zero_depth(self, cas: CAS):
+    def test_get_2d_corner_points_from_3d_bb_zero_depth(self, cas: CAS) -> None:
         obb = o3d.geometry.OrientedBoundingBox(
             center=[0, 0, 0], R=np.eye(3), extent=[0, 0, 0]
         )
 
         assert pytest.raises(ValueError, get_2d_corner_points_from_3d_bb, cas, obb)
 
-    def test_get_2d_bounding_rect_from_3d_bb(self, cas: CAS):
+    def test_get_2d_bounding_rect_from_3d_bb(self, cas: CAS) -> None:
         obb = o3d.geometry.OrientedBoundingBox(
             center=[0, 0, 1], R=np.eye(3), extent=[1, 1, 1]
         )
@@ -324,7 +325,7 @@ class TestUtilsO3DHelper(object):
         assert np.all(rect == (-410, -570, 2100, 2100))
         assert all(isinstance(val, int) for val in rect)
 
-    def test_draw_wireframe_of_obb_into_image(self, cas: CAS):
+    def test_draw_wireframe_of_obb_into_image(self, cas: CAS) -> None:
         image = np.ones((300, 300, 3), dtype=np.uint8) * 255
         obb = o3d.geometry.OrientedBoundingBox(
             center=[0, 0, 1], R=np.eye(3), extent=[1, 1, 1]
@@ -340,7 +341,7 @@ class TestUtilsO3DHelper(object):
         self,
         kinect_intrinsics: o3d.camera.PinholeCameraIntrinsic,
         pointcloud: o3d.geometry.PointCloud,
-    ):
+    ) -> None:
         ref_image = np.zeros(
             (kinect_intrinsics.height, kinect_intrinsics.width, 3), dtype=np.uint8
         )  # Kinect color image example
@@ -356,7 +357,7 @@ class TestUtilsO3DHelper(object):
         self,
         kinect_intrinsics: o3d.camera.PinholeCameraIntrinsic,
         pointcloud: o3d.geometry.PointCloud,
-    ):
+    ) -> None:
         ref_image = np.zeros(
             (640, 480, 3), dtype=np.uint8
         )  # Kinect depth image example
@@ -371,7 +372,7 @@ class TestUtilsO3DHelper(object):
         self,
         kinect_intrinsics: o3d.camera.PinholeCameraIntrinsic,
         pointcloud: o3d.geometry.PointCloud,
-    ):
+    ) -> None:
         ref_image = np.zeros(
             (640, 480, 3), dtype=np.uint8
         )  # Kinect depth image example
@@ -388,7 +389,7 @@ class TestUtilsO3DHelper(object):
 
     def test_get_mask_from_pointcloud_empty_cloud(
         self, kinect_intrinsics: o3d.camera.PinholeCameraIntrinsic
-    ):
+    ) -> None:
         ref_image = np.zeros(
             (640, 480, 3), dtype=np.uint8
         )  # Kinect depth image example
@@ -401,7 +402,7 @@ class TestUtilsO3DHelper(object):
 
     def test_scale_o3d_camera_intrinsics(
         self, kinect_intrinsics: o3d.camera.PinholeCameraIntrinsic
-    ):
+    ) -> None:
         new_intrinsics = scale_o3d_camera_intrinsics(kinect_intrinsics, 1.0, 1.0)
 
         assert np.all(
@@ -416,7 +417,7 @@ class TestUtilsO3DHelper(object):
 
     def test_scale_o3d_camera_intrinsics_scale_x(
         self, kinect_intrinsics: o3d.camera.PinholeCameraIntrinsic
-    ):
+    ) -> None:
         new_intrinsics = scale_o3d_camera_intrinsics(kinect_intrinsics, 2.0, 1.0)
 
         assert np.all(
@@ -437,7 +438,7 @@ class TestUtilsO3DHelper(object):
 
     def test_scale_o3d_camera_intrinsics_scale_y(
         self, kinect_intrinsics: o3d.camera.PinholeCameraIntrinsic
-    ):
+    ) -> None:
         new_intrinsics = scale_o3d_camera_intrinsics(kinect_intrinsics, 1.0, 2.0)
 
         assert np.all(
@@ -458,7 +459,7 @@ class TestUtilsO3DHelper(object):
 
     def test_scale_o3d_camera_intrinsics_scale_xy(
         self, kinect_intrinsics: o3d.camera.PinholeCameraIntrinsic
-    ):
+    ) -> None:
         new_intrinsics = scale_o3d_camera_intrinsics(kinect_intrinsics, 2.0, 2.0)
 
         assert np.allclose(
@@ -476,7 +477,9 @@ class TestUtilsO3DHelper(object):
             kinect_intrinsics.height * 2.0 == new_intrinsics.height
         ), "Image height was not scaled correctly."
 
-    def test_concatenate_clouds_single_cloud(self, pointcloud: o3d.geometry.PointCloud):
+    def test_concatenate_clouds_single_cloud(
+        self, pointcloud: o3d.geometry.PointCloud
+    ) -> None:
         output_cloud = concatenate_clouds([pointcloud])
 
         assert len(output_cloud.points) == 3
@@ -484,7 +487,7 @@ class TestUtilsO3DHelper(object):
 
     def test_concatenate_clouds_multiple_clouds(
         self, pointcloud: o3d.geometry.PointCloud
-    ):
+    ) -> None:
         points1 = np.array(
             [[0.5, 0.5, 1.5], [1.5, 1.5, 1.5], [2.5, 2.5, 1.5]], dtype=np.float64
         )
@@ -512,7 +515,7 @@ class TestUtilsO3DHelper(object):
 
     def test_get_cloud_from_rgb_depth_and_mask(
         self, kinect_intrinsics: o3d.camera.PinholeCameraIntrinsic
-    ):
+    ) -> None:
         rgb_image = (
             np.ones(
                 (kinect_intrinsics.height, kinect_intrinsics.width, 3), dtype=np.uint8
@@ -540,7 +543,7 @@ class TestUtilsO3DHelper(object):
 
     def test_get_cloud_from_rgb_depth_and_mask_depth_truncate(
         self, kinect_intrinsics: o3d.camera.PinholeCameraIntrinsic
-    ):
+    ) -> None:
         rgb_image = (
             np.ones(
                 (kinect_intrinsics.height, kinect_intrinsics.width, 3), dtype=np.uint8
@@ -568,7 +571,7 @@ class TestUtilsO3DHelper(object):
 
     def test_get_cloud_from_rgb_depth_and_mask_keeps_pixels_of_mask_true_value(
         self, kinect_intrinsics: o3d.camera.PinholeCameraIntrinsic
-    ):
+    ) -> None:
         shape = (kinect_intrinsics.height, kinect_intrinsics.width)
         rgb_image = np.zeros((*shape, 3), dtype=np.uint8)
         depth_image = np.full(shape, 1000, dtype=np.uint16)
@@ -584,7 +587,7 @@ class TestUtilsO3DHelper(object):
 
     def test_get_cloud_from_rgb_depth_and_mask_leaves_depth_image_unchanged(
         self, kinect_intrinsics: o3d.camera.PinholeCameraIntrinsic
-    ):
+    ) -> None:
         shape = (kinect_intrinsics.height, kinect_intrinsics.width)
         depth_image = np.full(shape, 1000, dtype=np.uint16)
         mask = np.zeros(shape, dtype=np.uint8)
@@ -611,7 +614,7 @@ class TestUtilsO3DHelper(object):
         kinect_intrinsics: o3d.camera.PinholeCameraIntrinsic,
         channel: int,
         expected_color: tuple[float, float, float],
-    ):
+    ) -> None:
         rgb_image = np.zeros(
             (kinect_intrinsics.height, kinect_intrinsics.width, 3), dtype=np.uint8
         )
@@ -638,7 +641,7 @@ class TestUtilsO3DHelper(object):
 
     def test_get_cloud_from_rgb_depth_and_mask_empty_depth(
         self, kinect_intrinsics: o3d.camera.PinholeCameraIntrinsic
-    ):
+    ) -> None:
         rgb_image = (
             np.ones(
                 (kinect_intrinsics.height, kinect_intrinsics.width, 3), dtype=np.uint8
@@ -661,7 +664,7 @@ class TestUtilsO3DHelper(object):
 
     def test_get_cloud_from_rgb_depth_and_mask_empty_mask(
         self, kinect_intrinsics: o3d.camera.PinholeCameraIntrinsic
-    ):
+    ) -> None:
         rgb_image = (
             np.ones(
                 (kinect_intrinsics.height, kinect_intrinsics.width, 3), dtype=np.uint8
@@ -688,7 +691,7 @@ class TestUtilsO3DHelper(object):
 
     def test_get_cloud_from_rgb_depth_and_mask_invalid_mask(
         self, kinect_intrinsics: o3d.camera.PinholeCameraIntrinsic
-    ):
+    ) -> None:
         rgb_image = (
             np.ones(
                 (kinect_intrinsics.height, kinect_intrinsics.width, 3), dtype=np.uint8
@@ -715,7 +718,7 @@ class TestUtilsO3DHelper(object):
 
     def test_get_cloud_from_rgb_depth_and_mask_empty_mask_and_depth(
         self, kinect_intrinsics: o3d.camera.PinholeCameraIntrinsic
-    ):
+    ) -> None:
         rgb_image = (
             np.ones(
                 (kinect_intrinsics.height, kinect_intrinsics.width, 3), dtype=np.uint8
@@ -746,7 +749,7 @@ class TestUtilsO3DHelper(object):
     )
     def test_create_line_for_visualization(
         self, origin: list[int], target: list[int], color: tuple[float, float, float]
-    ):
+    ) -> None:
         line_set = create_line_for_visualization(origin, target, color)
 
         assert np.array_equal(line_set.points, np.array([origin, target]))
@@ -763,12 +766,12 @@ class TestUtilsO3DHelper(object):
     )
     def test_create_line_for_visualization_invalid_inputs(
         self, origin: list[int], target: list[int], color: tuple[float, float, float]
-    ):
+    ) -> None:
         assert pytest.raises(
             Exception, create_line_for_visualization, origin, target, color
         )
 
-    def test_create_sphere_from_translation(self):
+    def test_create_sphere_from_translation(self) -> None:
         origin = np.array([1.0, 2.0, 3.0])
         color = [0.5, 0.5, 0.5]
         radius = 1.0
@@ -819,7 +822,7 @@ class TestUtilsO3DHelper(object):
         color: tuple[float, float, float],
         radius: float,
         error: type[Exception],
-    ):
+    ) -> None:
         assert pytest.raises(
             error, create_sphere_from_translation, origin, color, radius
         )

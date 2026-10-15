@@ -1,3 +1,4 @@
+from __future__ import annotations
 import numpy as np
 
 from robokudo.utils.shape_estimator_adapters import (

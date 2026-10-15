@@ -1,10 +1,11 @@
+from __future__ import annotations
 import pytest
 
 from robokudo.utils.non_maxima_suppression import non_max_suppression_, class_based_nms
 
 
 class TestUtilsNonMaximaSuppression(object):
-    def test_non_max_suppression(self):
+    def test_non_max_suppression(self) -> None:
         predictions = [
             ((10, 10, 20, 20), 0.9, "person"),
             ((12, 12, 22, 22), 0.8, "person"),
@@ -14,7 +15,7 @@ class TestUtilsNonMaximaSuppression(object):
         assert len(filtered) == 1
         assert filtered[0] == predictions[0]
 
-    def test_non_max_suppression_empty_predictions(self):
+    def test_non_max_suppression_empty_predictions(self) -> None:
         predictions = [
             ((10, 10, 20, 20), 0.2, "person"),
             ((12, 12, 22, 22), 0.25, "person"),
@@ -22,7 +23,7 @@ class TestUtilsNonMaximaSuppression(object):
         filtered = non_max_suppression_(predictions, confidence_treshold=0.4)
         assert len(filtered) == 0
 
-    def test_non_max_suppression_class_suppression(self):
+    def test_non_max_suppression_class_suppression(self) -> None:
         predictions = [
             ((10, 10, 20, 20), 0.9, "jacket"),
             ((12, 12, 22, 22), 0.8, "person"),
@@ -37,7 +38,7 @@ class TestUtilsNonMaximaSuppression(object):
     )
     def test_non_max_suppression_confidence_threshold(
         self, confidence_threshold: float, filtered_count: int
-    ):
+    ) -> None:
         predictions = [
             ((10, 10, 20, 20), 0.4, "person"),
             ((15, 15, 25, 25), 0.8, "person"),
@@ -56,7 +57,7 @@ class TestUtilsNonMaximaSuppression(object):
     )
     def test_non_max_suppression_iou_threshold(
         self, iou_threshold: float, filtered_count: int
-    ):
+    ) -> None:
         predictions = [
             ((10, 10, 20, 20), 0.9, "person"),
             ((15, 15, 25, 25), 0.8, "person"),
@@ -64,7 +65,7 @@ class TestUtilsNonMaximaSuppression(object):
         filtered = non_max_suppression_(predictions, iou_threshold=iou_threshold)
         assert len(filtered) == filtered_count
 
-    def test_class_based_nms(self):
+    def test_class_based_nms(self) -> None:
         predictions = [
             ((10, 10, 20, 20), 0.9, "person"),
             ((12, 12, 22, 22), 0.8, "person"),
@@ -74,7 +75,7 @@ class TestUtilsNonMaximaSuppression(object):
         assert len(filtered) == 1
         assert filtered[0] == predictions[0]
 
-    def test_class_based_nms_empty_predictions(self):
+    def test_class_based_nms_empty_predictions(self) -> None:
         predictions = [
             ((10, 10, 20, 20), 0.2, "person"),
             ((12, 12, 22, 22), 0.25, "person"),
@@ -82,7 +83,7 @@ class TestUtilsNonMaximaSuppression(object):
         filtered = class_based_nms(predictions, confidence_threshold=0.4)
         assert len(filtered) == 0
 
-    def test_class_based_nms_class_suppression(self):
+    def test_class_based_nms_class_suppression(self) -> None:
         predictions = [
             ((10, 10, 20, 20), 0.9, "jacket"),
             ((12, 12, 22, 22), 0.8, "jacket"),
@@ -99,7 +100,7 @@ class TestUtilsNonMaximaSuppression(object):
     )
     def test_class_based_nms_confidence_threshold(
         self, confidence_threshold: float, filtered_count: int
-    ):
+    ) -> None:
         predictions = [
             ((10, 10, 20, 20), 0.4, "person"),
             ((15, 15, 25, 25), 0.8, "person"),
@@ -118,7 +119,7 @@ class TestUtilsNonMaximaSuppression(object):
     )
     def test_class_based_nms_iou_threshold(
         self, iou_threshold: float, filtered_count: int
-    ):
+    ) -> None:
         predictions = [
             ((10, 10, 20, 20), 0.9, "person"),
             ((15, 15, 25, 25), 0.8, "person"),

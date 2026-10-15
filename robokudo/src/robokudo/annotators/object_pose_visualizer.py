@@ -5,6 +5,8 @@ This module provides an annotator for visualizing the poses of detected objects 
 2D (image overlays) and 3D (coordinate frames) representations.
 """
 
+from __future__ import annotations
+
 from timeit import default_timer
 
 import numpy as np
@@ -30,7 +32,7 @@ class ObjectPoseVisualizer(BaseAnnotator):
     * Displaying the coordinate frames alongside the point cloud
     """
 
-    def __init__(self, name: str = "ObjectPoseVisualizer"):
+    def __init__(self, name: str = "ObjectPoseVisualizer") -> None:
         """
         Initialize the object pose visualizer.
 

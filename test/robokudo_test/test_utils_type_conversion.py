@@ -1,3 +1,4 @@
+from __future__ import annotations
 import sys
 
 import numpy as np
@@ -19,7 +20,7 @@ from robokudo.utils.type_conversion import (
 
 
 class TestUtilsTypeConversion(object):
-    def test_ros_camera_info_to_dict(self):
+    def test_ros_camera_info_to_dict(self) -> None:
         kinect_camera_info = sensor_msgs.msg.CameraInfo()
         kinect_camera_info.width = 1024
         kinect_camera_info.height = 1280
@@ -44,7 +45,7 @@ class TestUtilsTypeConversion(object):
             0.0,
         ]
 
-    def test_ros_camera_info_from_dict(self):
+    def test_ros_camera_info_from_dict(self) -> None:
         camera_info_dict = {
             "header": {"frame_id": "camera_link", "stamp": {"secs": 100, "nsecs": 100}},
             "width": 1024,
@@ -85,7 +86,7 @@ class TestUtilsTypeConversion(object):
         assert kinect_camera_info.roi.width == 20
         assert kinect_camera_info.roi.do_rectify == True
 
-    def test_ros_camera_info_from_dict_header_frame_id_only(self):
+    def test_ros_camera_info_from_dict_header_frame_id_only(self) -> None:
         camera_info_dict = {"header": {"frame_id": "camera_link"}}
 
         kinect_camera_info = ros_camera_info_from_dict(camera_info_dict)
@@ -93,7 +94,7 @@ class TestUtilsTypeConversion(object):
         assert isinstance(kinect_camera_info, sensor_msgs.msg.CameraInfo)
         assert kinect_camera_info.header.frame_id == "camera_link"
 
-    def test_ros_camera_info_from_dict_header_stamp_only(self):
+    def test_ros_camera_info_from_dict_header_stamp_only(self) -> None:
         camera_info_dict = {"header": {"stamp": {"secs": 100, "nsecs": 100}}}
 
         kinect_camera_info = ros_camera_info_from_dict(camera_info_dict)
@@ -102,11 +103,11 @@ class TestUtilsTypeConversion(object):
         assert kinect_camera_info.header.stamp.sec == 100
         assert kinect_camera_info.header.stamp.nanosec == 100
 
-    def test_ros_camera_info_from_dict_empty_dict(self):
+    def test_ros_camera_info_from_dict_empty_dict(self) -> None:
         kinect_camera_info = ros_camera_info_from_dict({})
         assert isinstance(kinect_camera_info, sensor_msgs.msg.CameraInfo)
 
-    def test_ros_camera_info_from_dict_invalid_dict(self):
+    def test_ros_camera_info_from_dict_invalid_dict(self) -> None:
         camera_info_dict = {
             "header": {"invalid_key": "invalid_value"},
             "invalid_key": "invalid_value",
@@ -115,7 +116,7 @@ class TestUtilsTypeConversion(object):
         kinect_camera_info = ros_camera_info_from_dict(camera_info_dict)
         assert isinstance(kinect_camera_info, sensor_msgs.msg.CameraInfo)
 
-    def test_get_geometry_msgs_pose_from_position_annotation(self):
+    def test_get_geometry_msgs_pose_from_position_annotation(self) -> None:
         position_ann = PositionAnnotation()
         position_ann.translation = np.random.rand(3)
 
@@ -130,7 +131,7 @@ class TestUtilsTypeConversion(object):
         assert pose_msg.orientation.z == 0.0
         assert pose_msg.orientation.w == 1.0
 
-    def test_get_geometry_msgs_pose_from_pose_annotation(self):
+    def test_get_geometry_msgs_pose_from_pose_annotation(self) -> None:
         pose_ann = PoseAnnotation()
         pose_ann.translation = np.random.rand(3)
         pose_ann.rotation = np.random.rand(4)
@@ -146,7 +147,7 @@ class TestUtilsTypeConversion(object):
         assert pose_msg.orientation.z == pose_ann.rotation[2]
         assert pose_msg.orientation.w == pose_ann.rotation[3]
 
-    def test_get_geometry_msgs_pose_stamped_from_pose_annotation(self):
+    def test_get_geometry_msgs_pose_stamped_from_pose_annotation(self) -> None:
         pose_ann = PoseAnnotation()
         pose_ann.translation = np.random.rand(3)
         pose_ann.rotation = np.random.rand(4)
@@ -171,7 +172,7 @@ class TestUtilsTypeConversion(object):
         assert pose_msg.pose.orientation.z == pose_ann.rotation[2]
         assert pose_msg.pose.orientation.w == pose_ann.rotation[3]
 
-    def test_get_geometry_msgs_pose_stamped_from_position_annotation(self):
+    def test_get_geometry_msgs_pose_stamped_from_position_annotation(self) -> None:
         position_ann = PositionAnnotation()
         position_ann.translation = np.random.rand(3)
 
@@ -197,7 +198,7 @@ class TestUtilsTypeConversion(object):
         assert pose_msg.pose.orientation.z == 0.0
         assert pose_msg.pose.orientation.w == 1.0
 
-    def test_get_transform_matrix_from_pose_annotation(self):
+    def test_get_transform_matrix_from_pose_annotation(self) -> None:
         pose_ann = PoseAnnotation()
         pose_ann.translation = np.random.rand(3)
         pose_ann.rotation = [0.707, 0.0, 0.707, 0.0]
@@ -210,7 +211,7 @@ class TestUtilsTypeConversion(object):
         )
         assert np.allclose(transform_matrix[:3, 3], pose_ann.translation)
 
-    def test_o3d_camera_intrinsics_from_ros_camera_info(self):
+    def test_o3d_camera_intrinsics_from_ros_camera_info(self) -> None:
         kinect_camera_info = sensor_msgs.msg.CameraInfo()
         kinect_camera_info.width = 1024
         kinect_camera_info.height = 1280

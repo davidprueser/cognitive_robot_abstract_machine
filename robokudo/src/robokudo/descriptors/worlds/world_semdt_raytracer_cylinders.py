@@ -1,10 +1,13 @@
+from __future__ import annotations
 from robokudo.world_descriptor import BaseWorldDescriptor, ObjectSpec, RegionSpec
 from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
 from semantic_digital_twin.world_description.geometry import Scale, Color
 
 
 class WorldDescriptor(BaseWorldDescriptor):
-    """A compact tabletop world for SemDT RayTracer with cylindrical target objects."""
+    """
+    A compact tabletop world for SemDT RayTracer with cylindrical target objects.
+    """
 
     def __init__(self) -> None:
         super().__init__()

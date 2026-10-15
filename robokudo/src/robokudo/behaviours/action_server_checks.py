@@ -13,6 +13,8 @@ These behaviors are typically used in pipelines that interact with ROS action
 servers to ensure proper state management and error handling.
 """
 
+from __future__ import annotations
+
 import logging
 
 from py_trees.common import Status

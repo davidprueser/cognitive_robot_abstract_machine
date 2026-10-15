@@ -106,7 +106,7 @@ def _classnames(classifications: list[Classification]) -> list[str]:
 # %% scene scope
 
 
-def test_scene_scope_adds_the_image_classifications_to_the_cas():
+def test_scene_scope_adds_the_image_classifications_to_the_cas() -> None:
     color = COLOR_BY_WORD["green"]
     annotator = _annotator_in_pipeline(_color_descriptor(), solid_image(color))
 
@@ -118,7 +118,7 @@ def test_scene_scope_adds_the_image_classifications_to_the_cas():
     )
 
 
-def test_images_are_classified_in_rgb_channel_order():
+def test_images_are_classified_in_rgb_channel_order() -> None:
     """
     The CAS color image is stored in BGR channel order; classifiers receive it in RGB.
     """
@@ -134,7 +134,7 @@ def test_images_are_classified_in_rgb_channel_order():
 # %% object hypothesis scope
 
 
-def test_object_hypothesis_scope_classifies_each_hypothesis_by_its_region():
+def test_object_hypothesis_scope_classifies_each_hypothesis_by_its_region() -> None:
     annotator = _annotator_in_pipeline(
         _object_hypothesis_descriptor(), two_color_scene()
     )
@@ -149,7 +149,7 @@ def test_object_hypothesis_scope_classifies_each_hypothesis_by_its_region():
     assert hypothesis_classifications(blue_object)[0].classname == "blue"
 
 
-def test_object_hypothesis_scope_skips_hypotheses_rejected_by_filter():
+def test_object_hypothesis_scope_skips_hypotheses_rejected_by_filter() -> None:
     descriptor = _object_hypothesis_descriptor()
     rejected_object = object_hypothesis(x=0, y=0, width=10, height=10)
     descriptor.parameters.filter_fn = (
@@ -167,7 +167,7 @@ def test_object_hypothesis_scope_skips_hypotheses_rejected_by_filter():
     )
 
 
-def test_object_hypothesis_scope_without_hypotheses_adds_nothing():
+def test_object_hypothesis_scope_without_hypotheses_adds_nothing() -> None:
     annotator = _annotator_in_pipeline(
         _object_hypothesis_descriptor(), two_color_scene()
     )
@@ -181,7 +181,7 @@ def test_object_hypothesis_scope_without_hypotheses_adds_nothing():
 # %% unsupported scope
 
 
-def test_unsupported_analysis_scope_fails():
+def test_unsupported_analysis_scope_fails() -> None:
     descriptor = _color_descriptor()
     descriptor.parameters.analysis_scope = CASViews.DEPTH_IMAGE
     annotator = _annotator_in_pipeline(descriptor, solid_image(COLOR_BY_WORD["red"]))

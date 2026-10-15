@@ -1,3 +1,4 @@
+from __future__ import annotations
 import numpy as np
 import pytest
 
@@ -10,11 +11,15 @@ from robokudo.world_descriptor import BaseWorldDescriptor, RegionSpec
 from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
 from semantic_digital_twin.world_description.geometry import Scale
 from semantic_digital_twin.world_description.world_entity import Region
+from typing_extensions import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from semantic_digital_twin.world import World
 
 
 class TestUtilsRegion:
     @pytest.fixture
-    def world_and_region(self):
+    def world_and_region(self) -> tuple[World, Region]:
         world_descriptor = BaseWorldDescriptor()
         root = world_descriptor.world.root
         spec = RegionSpec(
@@ -36,7 +41,7 @@ class TestUtilsRegion:
         assert len(regions) == 1
         return world_descriptor.world, regions[0]
 
-    def test_region_obb(self, world_and_region):
+    def test_region_obb(self, world_and_region: tuple[World, Region]) -> None:
         world, region = world_and_region
         obb = region_obb(region, world=world)
 
@@ -44,7 +49,9 @@ class TestUtilsRegion:
         assert np.allclose(np.asarray(obb.center).reshape(-1)[:3], [3.0, 2.0, 1.0])
         assert np.allclose(obb.R, [[0.0, 0.0, 1.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]])
 
-    def test_region_obb_in_camera_coordinates(self, world_and_region):
+    def test_region_obb_in_camera_coordinates(
+        self, world_and_region: tuple[World, Region]
+    ) -> None:
         world, region = world_and_region
         world_to_camera = np.array(
             [
@@ -63,7 +70,9 @@ class TestUtilsRegion:
         assert np.allclose(np.asarray(obb.center).reshape(-1)[:3], [2.0, -1.0, 1.0])
         assert np.allclose(obb.R, [[0.0, 1.0, 0.0], [0.0, 0.0, -1.0], [-1.0, 0.0, 0.0]])
 
-    def test_region_pose_annotation(self, world_and_region):
+    def test_region_pose_annotation(
+        self, world_and_region: tuple[World, Region]
+    ) -> None:
         _, region = world_and_region
         pose_annotation = region_pose_annotation(region)
 

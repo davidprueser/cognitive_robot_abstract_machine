@@ -1,3 +1,4 @@
+from __future__ import annotations
 from py_trees.common import Status
 
 import robokudo.world as rk_world
@@ -10,7 +11,7 @@ from semantic_digital_twin.world_description.world_entity import Region
 
 
 class TestWorldDescriptorBootstrapAnnotator:
-    def test_augment_world_keeps_existing_frame_references(self):
+    def test_augment_world_keeps_existing_frame_references(self) -> None:
         rk_world.init_world_with_entity_tracker()
         rk_world.setup_world_for_camera_frame(world_frame="map", camera_frame="camera")
 
@@ -57,7 +58,7 @@ class TestWorldDescriptorBootstrapAnnotator:
         }
         assert "kitchen_island" in region_names
 
-    def test_update_is_idempotent_for_same_world_instance(self):
+    def test_update_is_idempotent_for_same_world_instance(self) -> None:
         rk_world.init_world_with_entity_tracker()
         annotator = WorldDescriptorBootstrapAnnotator()
 

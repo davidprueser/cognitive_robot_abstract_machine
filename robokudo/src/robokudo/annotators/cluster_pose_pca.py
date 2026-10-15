@@ -19,6 +19,8 @@ The module uses:
    Requires at least 10 points per object hypothesis.
 """
 
+from __future__ import annotations
+
 import copy
 from timeit import default_timer
 

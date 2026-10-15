@@ -1,3 +1,4 @@
+from __future__ import annotations
 from robokudo.world_descriptor import BaseWorldDescriptor, PredefinedObject
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
@@ -7,7 +8,7 @@ from semantic_digital_twin.world_description.shape_collection import ShapeCollec
 from semantic_digital_twin.world_description.world_entity import Body
 
 
-def test_get_predefined_object_bodies():
+def test_get_predefined_object_bodies() -> None:
     world_descriptor = BaseWorldDescriptor()
     test_world = world_descriptor.world
     root = test_world.root
