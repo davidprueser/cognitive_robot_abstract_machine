@@ -20,9 +20,10 @@ The module is used for:
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
+
 import copy
 import json
-from timeit import default_timer
 
 from py_trees.common import Status
 from semantic_digital_twin.adapters.ros.messages import WorldModelSnapshot
@@ -33,52 +34,43 @@ from robokudo.annotators.core import BaseAnnotator
 from robokudo.io.storage import Storage
 
 
+@dataclass(kw_only=True)
 class StorageWriter(BaseAnnotator):
-    """Annotator for storing sensor data in MongoDB.
+    """
+    Annotator for storing sensor data in MongoDB.
 
-    This annotator provides methods to store sensor data in a MongoDB database,
-    allowing for data recording and offline processing without using ROS bag files.
+    This annotator provides methods to store sensor data in a MongoDB database, allowing
+    for data recording and offline processing without using ROS bag files.
     """
 
-    class Descriptor(BaseAnnotator.Descriptor):
-        """Configuration descriptor for storage writer."""
+    db_name: str = "rk_scenes"
+    """
+    Name of the MongoDB database the CAS data is written to.
+    """
 
-        class Parameters:
-            """Parameter container for storage configuration."""
+    drop_database_on_storage: bool = True
+    """
+    Whether to clear database before recording.
+    """
 
-            def __init__(self) -> None:
-                self.db_name: str = "rk_scenes"
-                """Database name"""
+    storage: Storage = field(init=False, repr=False)
+    """
+    The database the CAS data is written to.
+    """
 
-                self.drop_database_on_storage: bool = True
-                """Whether to clear database before recording"""
+    storage_preparation_completed: bool = field(default=False, init=False)
+    """
+    Whether storage setup has already run for this writer.
+    """
 
-        # Overwrite the parameters explicitly to enable auto-completion
-        parameters = Parameters()
-
-    def __init__(
-        self,
-        name: str = "StorageWriter",
-        descriptor: StorageWriter.Descriptor | None = None,
-    ) -> None:
-        """Initialize the storage writer. Minimal one-time init!
-
-        :param name: Annotator name
-        :param descriptor: Configuration descriptor
-        """
-        super().__init__(name, descriptor)
-        self.rk_logger.debug("%s.__init__()" % self.__class__.__name__)
-        self.storage = Storage(self.descriptor.parameters.db_name)
-        self.storage_preparation_completed: bool = False
-        """
-        Whether storage setup has already run for this writer.
-        """
+    def __post_init__(self) -> None:
+        super().__post_init__()
+        self.storage = Storage(self.db_name)
 
     def setup(self, **kwargs: Any) -> bool:
         """
-        Prepare storage before recording begins.
-        It is guarded to execute only once, since setup might be called multiple times
-        in the chosen tree executor.
+        Prepare storage before recording begins. It is guarded to execute only once,
+        since setup might be called multiple times in the chosen tree executor.
 
         :param kwargs: Arguments forwarded to BaseAnnotator.setup()
         :return: Whether storage preparation succeeded.
@@ -88,22 +80,21 @@ class StorageWriter(BaseAnnotator):
         if self.storage_preparation_completed:
             return True
 
-        if self.descriptor.parameters.drop_database_on_storage:
+        if self.drop_database_on_storage:
             self.storage.drop_database()
 
         self.storage_preparation_completed = True
         return True
 
-    def update(self) -> Status:
-        """Store current CAS data in MongoDB.
+    def compute(self) -> Status:
+        """
+        Store current CAS data in MongoDB.
 
-        Creates a deep copy of the CAS, flattens it into a dictionary,
-        and stores both views and CAS data in the database.
+        Creates a deep copy of the CAS, flattens it into a dictionary, and stores both
+        views and CAS data in the database.
 
         :return: SUCCESS if storage successful, FAILURE otherwise
         """
-        start_timer = default_timer()
-
         persist_cas = copy.deepcopy(self.get_cas())
 
         flat_cas = self.storage.generate_dict_from_real_cas(persist_cas)
@@ -129,9 +120,7 @@ class StorageWriter(BaseAnnotator):
         del flat_cas["views"]
         result = self.storage.store_cas_dict(flat_cas)
         if not result.acknowledged:
-            self.rk_logger.error(f"mongo db error when trying to store cas")
+            self.robokudo_logger.error(f"mongo db error when trying to store cas")
             return Status.FAILURE
 
-        end_timer = default_timer()
-        self.feedback_message = f"Processing took {(end_timer - start_timer):.4f}s"
         return Status.SUCCESS

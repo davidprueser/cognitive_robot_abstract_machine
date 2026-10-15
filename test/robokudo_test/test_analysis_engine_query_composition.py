@@ -15,13 +15,11 @@ import importlib
 import pkgutil
 import signal
 from contextlib import contextmanager
-from dataclasses import dataclass
 from types import FrameType
-from typing_extensions import Any, Iterator, TYPE_CHECKING
+from typing_extensions import Iterator, TYPE_CHECKING
 
 import pytest
 
-from robokudo.annotators.collection_reader import CollectionReaderAnnotator
 from robokudo.annotators.query import GenerateQueryResult, QueryReply
 import robokudo.descriptors.analysis_engines as analysis_engines_package
 from robokudo.descriptors.analysis_engines.stretch_demo import (
@@ -29,9 +27,6 @@ from robokudo.descriptors.analysis_engines.stretch_demo import (
 )
 from robokudo.descriptors.analysis_engines.tiago_demo import (
     AnalysisEngine as TiagoDemoAnalysisEngine,
-)
-from robokudo.descriptors.factories.cr_descriptor_factory import (
-    CollectionReaderDescriptorFactory,
 )
 from robokudo.pipeline import Pipeline
 
@@ -63,7 +58,9 @@ def bounded_build_time() -> Iterator[None]:
     """
 
     def raise_timeout(signal_number: int, frame: FrameType | None) -> None:
-        """Raise the build timeout exception for the active alarm."""
+        """
+        Raise the build timeout exception for the active alarm.
+        """
         raise AnalysisEngineBuildTimedOut(
             f"implementation() did not return within {BUILD_TIMEOUT_SECONDS}s."
         )
@@ -75,63 +72,6 @@ def bounded_build_time() -> Iterator[None]:
     finally:
         signal.alarm(0)
         signal.signal(signal.SIGALRM, previous_handler)
-
-
-# %% camera descriptor test double
-
-
-@dataclass
-class FakeCameraConfig:
-    """
-    Camera config for composition tests that do not exercise ROS camera I/O.
-    """
-
-    interface_type: str = "FakeCameraInterface"
-    """Camera-interface identifier expected by the collection reader."""
-
-
-@dataclass
-class FakeCameraInterface:
-    """
-    Camera interface for composition tests that only inspect pipeline nodes.
-    """
-
-    interface_type: str = "FakeCameraInterface"
-    """Camera-interface identifier expected by the collection reader."""
-
-    def has_new_data(self) -> bool:
-        """
-        Report that no sensor data is available.
-        """
-        return False
-
-    def set_data(self, cas: Any) -> None:
-        """
-        Leave the CAS unchanged.
-        """
-
-
-def create_fake_collection_reader_descriptor(
-    camera: str, **kwargs: Any
-) -> CollectionReaderAnnotator.Descriptor:
-    """
-    Create a collection-reader descriptor without live ROS subscriptions.
-    """
-    return CollectionReaderAnnotator.Descriptor(
-        camera_config=FakeCameraConfig(),
-        camera_interface=FakeCameraInterface(),
-    )
-
-
-def install_fake_collection_reader_descriptor(monkeypatch: pytest.MonkeyPatch) -> None:
-    """
-    Replace descriptor creation with a build-only test double.
-    """
-    monkeypatch.setattr(
-        CollectionReaderDescriptorFactory,
-        "create_descriptor",
-        staticmethod(create_fake_collection_reader_descriptor),
-    )
 
 
 def flattened_pipeline_nodes(behaviour: Behaviour) -> list[object]:
@@ -168,19 +108,13 @@ def assert_query_reply_does_not_follow_generate_query_result(
 # %% regression tests for the two analysis engines that shipped with the bug
 
 
-def test_stretch_demo_does_not_discard_its_real_answer(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    install_fake_collection_reader_descriptor(monkeypatch)
+def test_stretch_demo_does_not_discard_its_real_answer() -> None:
     with bounded_build_time():
         pipeline = StretchDemoAnalysisEngine().implementation()
     assert_query_reply_does_not_follow_generate_query_result(pipeline)
 
 
-def test_tiago_demo_does_not_discard_its_real_answer(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    install_fake_collection_reader_descriptor(monkeypatch)
+def test_tiago_demo_does_not_discard_its_real_answer() -> None:
     with bounded_build_time():
         pipeline = TiagoDemoAnalysisEngine().implementation()
     assert_query_reply_does_not_follow_generate_query_result(pipeline)
@@ -211,7 +145,6 @@ def discovered_analysis_engine_module_names() -> list[str]:
 )
 def test_no_analysis_engine_discards_its_real_answer_with_query_reply(
     module_name: str,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """
     No analysis engine may chain ``QueryReply`` after ``GenerateQueryResult``.
@@ -230,7 +163,6 @@ def test_no_analysis_engine_discards_its_real_answer_with_query_reply(
     if analysis_engine_class is None:
         pytest.skip(f"{module_name} defines no AnalysisEngine class.")
 
-    install_fake_collection_reader_descriptor(monkeypatch)
     try:
         with bounded_build_time():
             pipeline = analysis_engine_class().implementation()

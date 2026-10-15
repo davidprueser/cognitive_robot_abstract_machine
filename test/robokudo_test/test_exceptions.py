@@ -4,7 +4,6 @@ import pytest
 
 from robokudo.cas import CASViews
 from robokudo.exceptions import (
-    CASCheckConfigurationError,
     CASCheckFailed,
     CameraDataMissing,
     ColorToDepthRatioMissing,
@@ -129,11 +128,6 @@ class TestRoboKudoExceptions:
         assert "Recreate the recording with the current storage format" in str(
             exception
         )
-
-    def test_cas_check_configuration_error_message(self) -> None:
-        exception = CASCheckConfigurationError(component_name="CASCheckFunc")
-
-        assert "CASCheckFunc needs a check function" in str(exception)
 
     def test_cas_check_failed_message(self) -> None:
         exception = CASCheckFailed(reason="object hypothesis missing")

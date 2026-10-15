@@ -2,6 +2,9 @@ from __future__ import annotations
 from semantic_digital_twin.adapters.ros.tf_publisher import TFPublisher
 
 from robokudo.analysis_engine import AnalysisEngineInterface
+from robokudo.descriptors.camera_configs.config_mongodb_playback import (
+    MongoCameraConfig,
+)
 from robokudo.annotators.cluster_pose_bb import ClusterPoseBBAnnotator
 from robokudo.annotators.collection_reader import CollectionReaderAnnotator
 from robokudo.annotators.image_preprocessor import ImagePreprocessorAnnotator
@@ -11,9 +14,6 @@ from robokudo.annotators.outlier_removal_objecthypothesis import (
 from robokudo.annotators.plane import PlaneAnnotator
 from robokudo.annotators.pointcloud_cluster_extractor import PointCloudClusterExtractor
 from robokudo.annotators.pointcloud_crop import PointcloudCropAnnotator
-from robokudo.descriptors.factories.cr_descriptor_factory import (
-    CollectionReaderDescriptorFactory,
-)
 from robokudo.idioms import pipeline_init
 from robokudo.pipeline import Pipeline
 from robokudo.world import world_instance
@@ -50,14 +50,14 @@ class AnalysisEngine(AnalysisEngineInterface):
             _world=world_instance(), node=ROSNodeRegistry().get()
         )
 
-        cr_storage_config = CollectionReaderDescriptorFactory.create_descriptor("mongo")
+        cr_storage_config = MongoCameraConfig()
 
         seq = Pipeline("StoragePipeline")
         seq.add_children(
             [
                 pipeline_init(),
-                CollectionReaderAnnotator(descriptor=cr_storage_config),
-                ImagePreprocessorAnnotator("ImagePreprocessor"),
+                CollectionReaderAnnotator(camera_config=cr_storage_config),
+                ImagePreprocessorAnnotator(name="ImagePreprocessor"),
                 PointcloudCropAnnotator(),
                 PlaneAnnotator(),
                 PointCloudClusterExtractor(),

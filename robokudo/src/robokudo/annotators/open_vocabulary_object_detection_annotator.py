@@ -6,14 +6,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import IntEnum, StrEnum
-from timeit import default_timer
 
 import cv2
 import numpy
 import py_trees
 import torch
 from transformers import Owlv2Processor, Owlv2ForObjectDetection
-from typing_extensions import TYPE_CHECKING
+from typing_extensions import TYPE_CHECKING, Any
 from ultralytics import SAM as SegmentAnythingModel
 
 import robokudo.annotators.core
@@ -24,7 +23,6 @@ import robokudo.utils.annotator_helper
 import robokudo.utils.cv_helper
 from robokudo.cas import CASViews
 from robokudo.types.scene import ObjectHypothesis
-from robokudo.utils.error_handling import catch_and_raise_to_blackboard
 from semantic_digital_twin.world_description.geometry import Color
 
 if TYPE_CHECKING:
@@ -94,7 +92,7 @@ def get_box_text(object_hypothesis: ObjectHypothesis) -> str:
 # %% Open-vocabulary object detection
 
 
-@dataclass(eq=False)
+@dataclass(kw_only=True)
 class OpenVocabularyObjectDetectionAnnotator(
     robokudo.annotators.core.ThreadedAnnotator
 ):
@@ -102,60 +100,39 @@ class OpenVocabularyObjectDetectionAnnotator(
     Detect configured text classes and optionally segment their image regions.
     """
 
-    class Descriptor(robokudo.annotators.core.BaseAnnotator.Descriptor):
-        class Parameters:
-            def __init__(self) -> None:
-                """
-                Set default detection and segmentation settings.
-                """
-                self.classes = ["Cat", "Dog"]
-                """
-                Text labels to detect in the color image.
-                """
-                self.detection_model = "google/owlv2-base-patch16-ensemble"
-                """
-                Pretrained OWLv2 model name or local checkpoint directory.
-                """
-                self.detection_processor = "google/owlv2-base-patch16-ensemble"
-                """
-                Pretrained OWLv2 processor name or local checkpoint directory.
-                """
-                self.detection_threshold = 0.2
-                """
-                Confidence threshold for retaining detections.
-                """
-
-                self.segment_anything_model_path = "mobile_sam.pt"
-                """
-                Checkpoint for the Segment Anything model.
-                """
-                self.precision_mode = False
-                """
-                Whether to predict object masks with Segment Anything.
-                """
-                self.refine_bounding_boxes = False
-                """
-                Whether to refine boxes when ``precision_mode`` is enabled.
-                """
-
-        parameters = Parameters()
-        """
-        Detection and segmentation configuration defaults.
-        """
-
-    name: str = __qualname__
+    classes: list[str] = field(default_factory=lambda: ["Cat", "Dog"])
     """
-    Name of the behaviour-tree node.
+    Text labels to detect in the color image.
     """
 
-    descriptor: Descriptor = field(default_factory=Descriptor)
+    detection_model: str = "google/owlv2-base-patch16-ensemble"
     """
-    Detection and segmentation configuration.
+    Pretrained OWLv2 model name or local checkpoint directory.
     """
 
-    classes: list[str] = field(init=False)
+    detection_processor: str = "google/owlv2-base-patch16-ensemble"
     """
-    Text labels supplied to the detection processor.
+    Pretrained OWLv2 processor name or local checkpoint directory.
+    """
+
+    detection_threshold: float = 0.2
+    """
+    Confidence threshold for retaining detections.
+    """
+
+    segment_anything_model_path: str = "mobile_sam.pt"
+    """
+    Checkpoint for the Segment Anything model.
+    """
+
+    precision_mode: bool = False
+    """
+    Whether to predict object masks with Segment Anything.
+    """
+
+    refine_bounding_boxes: bool = False
+    """
+    Whether to refine boxes when ``precision_mode`` is enabled.
     """
 
     model: Owlv2ForObjectDetection = field(init=False, repr=False)
@@ -175,37 +152,29 @@ class OpenVocabularyObjectDetectionAnnotator(
     Segmentation model when precision mode is enabled.
     """
 
-    def __post_init__(self) -> None:
+    def setup(self, **kwargs: Any) -> bool:
         """
-        Initialize the threaded behaviour and load the configured models.
+        Load the detection model and, in precision mode, the segmentation model.
         """
-        super().__init__(self.name, self.descriptor)
-        self.classes = self.descriptor.parameters.classes
-        self.model = Owlv2ForObjectDetection.from_pretrained(
-            self.descriptor.parameters.detection_model
-        )
-        self.processor = Owlv2Processor.from_pretrained(
-            self.descriptor.parameters.detection_processor
-        )
-        if self.descriptor.parameters.precision_mode:
+        self.model = Owlv2ForObjectDetection.from_pretrained(self.detection_model)
+        self.processor = Owlv2Processor.from_pretrained(self.detection_processor)
+        if self.precision_mode:
             self.segment_anything_model = SegmentAnythingModel(
-                self.descriptor.parameters.segment_anything_model_path
+                self.segment_anything_model_path
             )
+        return super().setup(**kwargs)
 
-    @catch_and_raise_to_blackboard
     def compute(self) -> py_trees.common.Status:
         """
         Main method: Detect objects based on configured classes and update the visualization.
 
         :return: ``py_trees.common.Status.SUCCESS`` after processing the color image.
         """
-        start_timer = default_timer()
         image = self.get_cas().get(CASViews.COLOR_IMAGE)
         object_hypotheses = self.detect_objects(image)
         visualization = self.visualize_objects(image, object_hypotheses)
         self.get_cas().annotations.extend(object_hypotheses)
         self.get_annotator_output_struct().set_image(visualization)
-        self.feedback_message = f"Processing took {default_timer() - start_timer:.4f}s"
         return py_trees.common.Status.SUCCESS
 
     def detect_objects(
@@ -229,7 +198,7 @@ class OpenVocabularyObjectDetectionAnnotator(
         results = self.processor.post_process_grounded_object_detection(
             outputs=outputs,
             target_sizes=torch.Tensor([image.shape[:2]]),
-            threshold=self.descriptor.parameters.detection_threshold,
+            threshold=self.detection_threshold,
         )
         result = results[0]
         object_hypotheses = []
@@ -245,7 +214,7 @@ class OpenVocabularyObjectDetectionAnnotator(
                 for coordinate in box.tolist()
             ]
             confidence = round(score.item(), confidence_decimal_places)
-            self.rk_logger.info(
+            self.robokudo_logger.info(
                 f"Detected {self.classes[label]} with confidence {confidence} at location {box}"
             )
             left, top, right, bottom = box
@@ -254,9 +223,9 @@ class OpenVocabularyObjectDetectionAnnotator(
             object_hypothesis.roi.roi.pos.y = int(top)
             object_hypothesis.roi.roi.width = int(right - left)
             object_hypothesis.roi.roi.height = int(bottom - top)
-            if self.descriptor.parameters.precision_mode:
+            if self.precision_mode:
                 object_hypothesis.roi.mask = self.predict_mask(image, box)
-                if self.descriptor.parameters.refine_bounding_boxes:
+                if self.refine_bounding_boxes:
                     self.refine_bounding_box(object_hypothesis)
                 object_hypothesis.roi.mask = robokudo.utils.cv_helper.crop_image_roi(
                     object_hypothesis.roi.mask, object_hypothesis.roi
@@ -264,7 +233,7 @@ class OpenVocabularyObjectDetectionAnnotator(
             object_hypothesis.annotations.append(
                 robokudo.types.annotation.Classification(
                     classname=self.classes[label],
-                    source=self.get_class_name(),
+                    source=self.name,
                     confidence=confidence,
                 )
             )
@@ -300,13 +269,13 @@ class OpenVocabularyObjectDetectionAnnotator(
         )
         if not contours:
             return
-        self.rk_logger.info(f"Attempting to fix {object_hypothesis.roi.roi}")
+        self.robokudo_logger.info(f"Attempting to fix {object_hypothesis.roi.roi}")
         left, top, width, height = cv2.boundingRect(contours[0])
         object_hypothesis.roi.roi.pos.x = int(left)
         object_hypothesis.roi.roi.pos.y = int(top)
         object_hypothesis.roi.roi.width = int(width)
         object_hypothesis.roi.roi.height = int(height)
-        self.rk_logger.info(f"After fix: {object_hypothesis.roi.roi}")
+        self.robokudo_logger.info(f"After fix: {object_hypothesis.roi.roi}")
 
     def visualize_objects(
         self,
@@ -325,7 +294,7 @@ class OpenVocabularyObjectDetectionAnnotator(
         robokudo.utils.annotator_helper.draw_bounding_boxes_from_object_hypotheses(
             visualization, object_hypotheses, get_box_text
         )
-        if not self.descriptor.parameters.precision_mode:
+        if not self.precision_mode:
             return visualization
         palette = (
             Color.BLUE(),

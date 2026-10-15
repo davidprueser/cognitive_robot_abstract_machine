@@ -9,13 +9,11 @@ This module provides utilities to:
 
 from __future__ import annotations
 
-from typing_extensions import Iterable, NoReturn
 
 import numpy as np
 import open3d as o3d
 
 import robokudo.types.annotation
-from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
 from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.geometry import Box
@@ -112,18 +110,3 @@ def region_pose_annotation(region: Region) -> robokudo.types.annotation.PoseAnno
     pose.translation = T.position.to_np().tolist()
     pose.rotation = T.quaternion.to_np().tolist()
     return pose
-
-
-def region_marker_array(
-    regions: Iterable[Region],
-    highlighted: Iterable[str] | None = None,
-    highlight_color: tuple[float, float, float] = (0.0, 1.0, 0.0),
-    default_color: tuple[float, float, float] = (0.0, 0.0, 0.7),
-) -> NoReturn:
-    """
-    Optional helper for visualization markers.
-
-    This can replace BaseSemanticMap.publish_visualization_markers.
-    """
-    # Outline only; implement in actual migration if needed.
-    raise NotImplementedError("Marker creation sketch placeholder")

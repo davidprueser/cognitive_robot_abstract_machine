@@ -14,16 +14,13 @@ from py_trees.composites import Composite, Sequence
 from robokudo_msgs.action import Query
 from typing_extensions import Any, Callable
 
-from robokudo.annotators.core import BaseAnnotator
 from robokudo.cas import CASViews
+from robokudo.annotators.core import PipelineMember
 from robokudo.tree_components.task_scheduler import TaskSchedulerBase
 from robokudo.utils.tree import add_child_to_parent, setup_with_descendants_on_behavior
 
 
-class QueryBasedScheduler(
-    TaskSchedulerBase,
-    BaseAnnotator,
-):
+class QueryBasedScheduler(TaskSchedulerBase, PipelineMember):
     """
     A Task Scheduler that checks the active Query in the CAS to infer which perception
     subtree to execute. You can apply a function to infer per use-case which perception

@@ -22,9 +22,7 @@ from robokudo.utils.annotator_helper import (
     get_world_to_camera_transform_matrix,
     draw_bounding_boxes_from_object_hypotheses,
     scale_camera_intrinsics,
-    get_color_image,
     resize_mask,
-    generate_source_name,
 )
 from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
 
@@ -33,7 +31,7 @@ class TestUtilsAnnotatorHelper(object):
     @pytest.fixture()
     def annotator_in_pipeline(self) -> BaseAnnotator:
         root = Pipeline("Sequence")
-        annotator = ImagePreprocessorAnnotator("1")
+        annotator = ImagePreprocessorAnnotator(name="1")
         root.add_child(annotator)
         return annotator
 
@@ -376,7 +374,6 @@ class TestUtilsAnnotatorHelper(object):
         annotator_in_pipeline: BaseAnnotator,
         kinect_intrinsics: o3d.camera.PinholeCameraIntrinsic,
     ) -> None:
-        annotator_in_pipeline.descriptor.parameters.global_with_depth = True
         width, height = kinect_intrinsics.width, kinect_intrinsics.height
         scalex, scaley = scale_factor
 
@@ -412,82 +409,12 @@ class TestUtilsAnnotatorHelper(object):
             (2.0, 3.0),  # Non-uniform scaling
         ],
     )
-    def test_get_color_image(
-        self,
-        scale_factor: tuple[float, float],
-        annotator_in_pipeline: BaseAnnotator,
-        kinect_intrinsics: o3d.camera.PinholeCameraIntrinsic,
-    ) -> None:
-        annotator_in_pipeline.descriptor.parameters.global_with_depth = True
-        cas = annotator_in_pipeline.get_cas()
-        width, height = kinect_intrinsics.width, kinect_intrinsics.height
-        scalex, scaley = scale_factor
-
-        cas.set(
-            robokudo.cas.CASViews.COLOR_IMAGE,
-            np.zeros((height, width, 3), dtype=np.uint8),
-        )
-        cas.set(
-            robokudo.cas.CASViews.COLOR_TO_DEPTH_RATIO,
-            ColorToDepthRatio(horizontal=scalex, vertical=scaley),
-        )
-
-        annotator_in_pipeline.camera_intrinsics = copy.deepcopy(kinect_intrinsics)
-
-        image = get_color_image(annotator_in_pipeline)
-        assert image.shape[:2] == (
-            height * scaley,
-            width * scalex,
-        ), f"Image should be scaled to {scalex}, {scaley}"
-
-    def test_get_color_image_no_depth(
-        self,
-        annotator_in_pipeline: BaseAnnotator,
-        kinect_intrinsics: o3d.camera.PinholeCameraIntrinsic,
-    ) -> None:
-        annotator_in_pipeline.descriptor.parameters.global_with_depth = False
-        cas = annotator_in_pipeline.get_cas()
-        width, height = kinect_intrinsics.width, kinect_intrinsics.height
-        image = np.zeros((height, width, 3), dtype=np.uint8)
-
-        cas.set(robokudo.cas.CASViews.COLOR_IMAGE, image)
-
-        resized_image = get_color_image(annotator_in_pipeline)
-
-        assert np.array_equal(image, resized_image)
-
-    def test_get_color_image_invalid_depth(
-        self,
-        annotator_in_pipeline: BaseAnnotator,
-        kinect_intrinsics: o3d.camera.PinholeCameraIntrinsic,
-    ) -> None:
-        annotator_in_pipeline.descriptor.parameters.global_with_depth = True
-        cas = annotator_in_pipeline.get_cas()
-        width, height = kinect_intrinsics.width, kinect_intrinsics.height
-        image = np.zeros((height, width, 3), dtype=np.uint8)
-
-        cas.set(robokudo.cas.CASViews.COLOR_IMAGE, image)
-        cas.set(robokudo.cas.CASViews.COLOR_TO_DEPTH_RATIO, None)
-
-        assert get_color_image(annotator_in_pipeline) == None
-
-    @pytest.mark.parametrize(
-        "scale_factor",
-        [
-            (1.0, 1.0),  # No scaling
-            (2.0, 2.0),  # Upscaling
-            (0.5, 0.5),  # Downscaling
-            (3.0, 2.0),  # Non-uniform scaling
-            (2.0, 3.0),  # Non-uniform scaling
-        ],
-    )
     def test_resize_mask(
         self,
         scale_factor: tuple[float, float],
         annotator_in_pipeline: BaseAnnotator,
         kinect_intrinsics: o3d.camera.PinholeCameraIntrinsic,
     ) -> None:
-        annotator_in_pipeline.descriptor.parameters.global_with_depth = True
         cas = annotator_in_pipeline.get_cas()
         width, height = kinect_intrinsics.width, kinect_intrinsics.height
         scalex, scaley = scale_factor
@@ -497,7 +424,7 @@ class TestUtilsAnnotatorHelper(object):
             ColorToDepthRatio(horizontal=scalex, vertical=scaley),
         )
         mask = np.zeros((int(height * scaley), int(width * scalex), 3), dtype=np.uint8)
-        mask = resize_mask(annotator_in_pipeline, mask)
+        mask = resize_mask(annotator_in_pipeline.get_cas(), mask)
         assert mask.shape[:2] == (
             1280,
             1024,
@@ -506,28 +433,11 @@ class TestUtilsAnnotatorHelper(object):
     def test_resize_mask_invalid_depth(
         self, annotator_in_pipeline: BaseAnnotator
     ) -> None:
-        annotator_in_pipeline.descriptor.parameters.global_with_depth = True
 
         cas = annotator_in_pipeline.get_cas()
         cas.set(robokudo.cas.CASViews.COLOR_TO_DEPTH_RATIO, None)
 
         mask = np.zeros((640, 480, 3), dtype=np.uint8)
-        assert pytest.raises(RuntimeError, resize_mask, annotator_in_pipeline, mask)
-
-    def test_resize_mask_no_depth(
-        self,
-        annotator_in_pipeline: BaseAnnotator,
-        kinect_intrinsics: o3d.camera.PinholeCameraIntrinsic,
-    ) -> None:
-        annotator_in_pipeline.descriptor.parameters.global_with_depth = False
-        width, height = kinect_intrinsics.width, kinect_intrinsics.height
-        mask = np.zeros((height, width, 3), dtype=np.uint8)
-
-        resized_mask = resize_mask(annotator_in_pipeline, mask)
-
-        assert np.array_equal(mask, resized_mask)
-
-    def test_generate_source_name(self, annotator_in_pipeline: BaseAnnotator) -> None:
-        name = generate_source_name(annotator_in_pipeline)
-        assert name, f"source name should be non-empty"
-        assert type(name) is str, f"source name should be a string"
+        assert pytest.raises(
+            RuntimeError, resize_mask, annotator_in_pipeline.get_cas(), mask
+        )

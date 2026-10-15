@@ -1,7 +1,6 @@
 from __future__ import annotations
 from dataclasses import dataclass, field
 
-from typing_extensions import ClassVar
 
 from robokudo.descriptors.camera_configs.components import (
     RGBDComponent,
@@ -10,12 +9,13 @@ from robokudo.descriptors.camera_configs.components import (
     WorldDescriptorComponent,
 )
 from robokudo.descriptors.camera_configs.base_camera_config import BaseCameraConfig
+from robokudo.io.camera_interface import KinectCameraInterface
 from robokudo.types.cv import ColorToDepthRatio
 
 
-@dataclass(slots=True)
+@dataclass(kw_only=True)
 class KinectCameraConfig(
-    BaseCameraConfig,
+    BaseCameraConfig[KinectCameraInterface],
     RGBDComponent,
     TfComponent,
     StableViewpointComponent,
@@ -27,16 +27,6 @@ class KinectCameraConfig(
     This class defines the configuration parameters for a Kinect camera, including
     interface settings, topic names, and transformation settings. It is designed to work
     with ROS topics and TF transformations.
-    """
-
-    registry_name: ClassVar[str] = "kinect"
-    """
-    Overwrite BaseCameraConfig.
-    """
-
-    interface_type: str = "Kinect"
-    """
-    Overwrite BaseCameraConfig.
     """
 
     topic_depth: str = "/kinect_head/depth_registered/image_raw/compressedDepth"

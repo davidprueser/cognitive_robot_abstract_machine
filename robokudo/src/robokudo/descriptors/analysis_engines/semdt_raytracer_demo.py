@@ -9,6 +9,9 @@ world descriptor instead of reading a physical camera stream.
 from __future__ import annotations
 
 from robokudo.analysis_engine import AnalysisEngineInterface
+from robokudo.descriptors.camera_configs.config_semdt_raytracer import (
+    SemDTRayTracerCameraConfig,
+)
 from robokudo.annotators.cluster_color import ClusterColorAnnotator
 from robokudo.annotators.cluster_pose_bb import ClusterPoseBBAnnotator
 from robokudo.annotators.collection_reader import CollectionReaderAnnotator
@@ -16,9 +19,6 @@ from robokudo.annotators.image_preprocessor import ImagePreprocessorAnnotator
 from robokudo.annotators.plane import PlaneAnnotator
 from robokudo.annotators.pointcloud_cluster_extractor import PointCloudClusterExtractor
 from robokudo.annotators.pointcloud_crop import PointcloudCropAnnotator
-from robokudo.descriptors.factories.cr_descriptor_factory import (
-    CollectionReaderDescriptorFactory,
-)
 from robokudo.idioms import pipeline_init
 from robokudo.pipeline import Pipeline
 
@@ -28,21 +28,18 @@ class AnalysisEngine(AnalysisEngineInterface):
         return "semdt_raytracer_demo"
 
     def implementation(self) -> Pipeline:
-        raytracer_config = CollectionReaderDescriptorFactory.create_descriptor(
-            "semdt_raytracer",
-            world_descriptor_name="world_semdt_raytracer_tabletop",
+        raytracer_config = SemDTRayTracerCameraConfig(
+            world_descriptor_name="world_semdt_raytracer_tabletop"
         )
-        plane_desc = PlaneAnnotator.Descriptor()
-        plane_desc.parameters.distance_threshold = 0.01
 
         seq = Pipeline("SemDTRayTracerPipeline")
         seq.add_children(
             [
                 pipeline_init(),
-                CollectionReaderAnnotator(descriptor=raytracer_config),
-                ImagePreprocessorAnnotator("ImagePreprocessor"),
+                CollectionReaderAnnotator(camera_config=raytracer_config),
+                ImagePreprocessorAnnotator(name="ImagePreprocessor"),
                 PointcloudCropAnnotator(),
-                PlaneAnnotator(descriptor=plane_desc),
+                PlaneAnnotator(distance_threshold=0.01),
                 PointCloudClusterExtractor(),
                 ClusterColorAnnotator(),
                 ClusterPoseBBAnnotator(),

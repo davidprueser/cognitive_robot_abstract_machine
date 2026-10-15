@@ -19,9 +19,6 @@ The pipeline implements the following functionality:
 
 from __future__ import annotations
 
-from robokudo.descriptors.factories.cr_descriptor_factory import (
-    CollectionReaderDescriptorFactory,
-)
 from robokudo.analysis_engine import AnalysisEngineInterface
 from robokudo.behaviours.clear_annotator_outputs import ClearAnnotatorOutputs
 from robokudo.pipeline import Pipeline
@@ -30,6 +27,7 @@ from py_trees.common import Status
 from py_trees.decorators import Condition
 from py_trees.composites import Sequence
 
+from robokudo.descriptors.camera_configs.config_kinect_robot import KinectCameraConfig
 from robokudo.annotators.collection_reader import CollectionReaderAnnotator
 from robokudo.annotators.image_preprocessor import ImagePreprocessorAnnotator
 from robokudo.annotators.testing import SlowAnnotator
@@ -82,7 +80,7 @@ class AnalysisEngine(AnalysisEngineInterface):
 
         :return: The configured pipeline with nested belief state processing
         """
-        kinect_config = CollectionReaderDescriptorFactory.create_descriptor("kinect")
+        kinect_config = KinectCameraConfig()
 
         second_seq = Sequence(name="Belief State Pipeline", memory=True)
         second_seq.add_children(
@@ -110,9 +108,9 @@ class AnalysisEngine(AnalysisEngineInterface):
 
         for annotator in [
             ClearAnnotatorOutputs(),
-            CollectionReaderAnnotator(descriptor=kinect_config),
-            ImagePreprocessorAnnotator("ImagePreprocessor"),
-            SlowAnnotator("SlowAnnotator"),
+            CollectionReaderAnnotator(camera_config=kinect_config),
+            ImagePreprocessorAnnotator(name="ImagePreprocessor"),
+            SlowAnnotator(name="SlowAnnotator"),
         ]:
             seq.add_child(annotator)
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 from robokudo.analysis_engine import AnalysisEngineInterface
+from robokudo.descriptors.camera_configs.config_kinect_robot import KinectCameraConfig
 from robokudo.annotators.cluster_color import ClusterColorAnnotator
 from robokudo.annotators.cluster_color_histogram import ClusterColorHistogramAnnotator
 from robokudo.annotators.cluster_pose_bb import ClusterPoseBBAnnotator
@@ -9,9 +10,6 @@ from robokudo.annotators.plane import PlaneAnnotator
 from robokudo.annotators.pointcloud_cluster_extractor import PointCloudClusterExtractor
 from robokudo.annotators.pointcloud_crop import PointcloudCropAnnotator
 from robokudo.annotators.semantic_world_connector import SemanticDigitalTwinConnector
-from robokudo.descriptors.factories.cr_descriptor_factory import (
-    CollectionReaderDescriptorFactory,
-)
 from robokudo.idioms import pipeline_init
 from robokudo.pipeline import Pipeline
 from semantic_digital_twin.adapters.ros.visualization.viz_marker import (
@@ -28,14 +26,14 @@ class AnalysisEngine(AnalysisEngineInterface):
         Create a pipeline that does tabletop segmentation and integrates primary
         navigation using a YOLO annotator.
         """
-        kinect_config = CollectionReaderDescriptorFactory.create_descriptor("kinect")
+        kinect_config = KinectCameraConfig()
 
         seq = Pipeline("RWPipeline")
         seq.add_children(
             [
                 pipeline_init(),
-                CollectionReaderAnnotator(descriptor=kinect_config),
-                ImagePreprocessorAnnotator("ImagePreprocessor"),
+                CollectionReaderAnnotator(camera_config=kinect_config),
+                ImagePreprocessorAnnotator(name="ImagePreprocessor"),
                 PointcloudCropAnnotator(),
                 PlaneAnnotator(),
                 PointCloudClusterExtractor(),

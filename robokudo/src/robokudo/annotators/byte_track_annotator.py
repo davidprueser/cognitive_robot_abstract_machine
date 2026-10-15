@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import dataclass, field
+
 import copy
 
 import numpy as np
@@ -19,8 +21,10 @@ if TYPE_CHECKING:
     import numpy.typing as npt
 
 
+@dataclass(kw_only=True)
 class ByteTrackAnnotator(BaseAnnotator):
-    """A ByteTrack annotator that tracks detected objects across pipeline ticks.
+    """
+    A ByteTrack annotator that tracks detected objects across pipeline ticks.
 
     The annotator is capable of utilizing:
 
@@ -29,43 +33,58 @@ class ByteTrackAnnotator(BaseAnnotator):
     * ObjectHypothesis ROI + Mask + Classification annotation
     """
 
-    def __init__(self, name: str = "ByteTrackAnnotator") -> None:
-        super().__init__(name)
+    tracker: ByteTrackTracker = field(default_factory=ByteTrackTracker, init=False)
+    """
+    Tracks the object instances across ticks.
+    """
 
-        self.tracker: ByteTrackTracker = ByteTrackTracker()
-        """Main ByteTrack instance for object instance tracking."""
+    last_ts: float = field(default=0.0, init=False)
+    """
+    Timestamp of the last data received, used to detect that the data looped.
+    """
 
-        self.last_ts: float = 0.0
-        """Timestamp of the last data received, used for tracker reset detection."""
+    label_annotator: sv.RichLabelAnnotator = field(
+        default_factory=lambda: sv.RichLabelAnnotator(
+            color_lookup=sv.ColorLookup.TRACK
+        ),
+        init=False,
+    )
+    """
+    Draws the track labels; it cannot be applied like :attr:`vis_annotators`.
+    """
 
-        self.label_annotator = sv.RichLabelAnnotator(color_lookup=sv.ColorLookup.TRACK)
-        """A special label annotator, that cannot simply be used like the annotators in `self.vis_annotators`."""
-
-        self.vis_annotators = [
+    vis_annotators: list[sv.BaseAnnotator] = field(
+        default_factory=lambda: [
             sv.BoxAnnotator(color_lookup=sv.ColorLookup.TRACK),
             sv.MaskAnnotator(color_lookup=sv.ColorLookup.INDEX),
             sv.TraceAnnotator(color_lookup=sv.ColorLookup.TRACK),
-        ]
-        """A list of simple supervision annotators to use for visualization. They will be applied in order."""
+        ],
+        init=False,
+    )
+    """
+    Supervision annotators drawing the visualization, applied in order.
+    """
 
-    def update(self) -> Status:
+    def compute(self) -> Status:
         cas = self.get_cas()
 
         data_ts = cas.get(CASViews.DATA_TIMESTAMP)
         if data_ts < self.last_ts:
             # This is expected when looping data
-            self.rk_logger.debug("Time moved backward, resetting tracker.")
+            self.robokudo_logger.debug("Time moved backward, resetting tracker.")
             self.tracker.reset()
         self.last_ts = data_ts
 
         ohs: list[ObjectHypothesis] = cas.filter_annotations_by_type(ObjectHypothesis)
         if len(ohs) == 0:
-            self.rk_logger.debug(f"{len(ohs)} object hypothesis found, nothing to do.")
+            self.robokudo_logger.debug(
+                f"{len(ohs)} object hypothesis found, nothing to do."
+            )
             return Status.SUCCESS
 
         rois_xyxy = np.array([oh.roi.roi.get_corner_points() for oh in ohs])
         if len(rois_xyxy) == 0:
-            self.rk_logger.debug(f"No ROI found in {len(ohs)} object hypothesis.")
+            self.robokudo_logger.debug(f"No ROI found in {len(ohs)} object hypothesis.")
             return Status.FAILURE
 
         detections = {
@@ -90,7 +109,7 @@ class ByteTrackAnnotator(BaseAnnotator):
                 restored_masks.append(restored_mask)
             detections["mask"] = np.array(restored_masks).astype(bool)
 
-            self.rk_logger.debug(
+            self.robokudo_logger.debug(
                 f"Using {len(restored_masks)} masks for object tracking."
             )
 
@@ -112,7 +131,9 @@ class ByteTrackAnnotator(BaseAnnotator):
                 detections["confidence"][i] = cls.confidence
                 detections["data"][CLASS_NAME_DATA_FIELD] = cls.classname
 
-            self.rk_logger.debug(f"Using {len(ohs)} class ids for object tracking.")
+            self.robokudo_logger.debug(
+                f"Using {len(ohs)} class ids for object tracking."
+            )
 
         detections = sv.Detections(**detections)
         tracked_detections = self.tracker.update(detections)
@@ -122,7 +143,9 @@ class ByteTrackAnnotator(BaseAnnotator):
         return Status.SUCCESS
 
     def visualize(self, tracked_detections: sv.Detections) -> None:
-        """Visualize the tracked detections and set the resulting image in the annotator output struct.
+        """
+        Visualize the tracked detections and set the resulting image in the annotator
+        output struct.
 
         :param tracked_detections: The tracked detections to visualize.
         """

@@ -1,14 +1,16 @@
 from __future__ import annotations
 from dataclasses import dataclass
 
-from typing_extensions import ClassVar
 
 from robokudo.descriptors.camera_configs.base_camera_config import BaseCameraConfig
+from robokudo.io.storage_reader_interface import StorageReaderInterface
 from robokudo.descriptors.camera_configs.components import WorldDescriptorComponent
 
 
-@dataclass(slots=True)
-class MongoCameraConfig(BaseCameraConfig, WorldDescriptorComponent):
+@dataclass(kw_only=True)
+class MongoCameraConfig(
+    BaseCameraConfig[StorageReaderInterface], WorldDescriptorComponent
+):
     """
     Configuration class for MongoDB-based camera data playback.
 
@@ -20,10 +22,6 @@ class MongoCameraConfig(BaseCameraConfig, WorldDescriptorComponent):
         This configuration is used to read previously stored camera data from a
         MongoDB database, allowing for replay and analysis of recorded scenes.
     """
-
-    registry_name: ClassVar[str] = "mongo"
-
-    interface_type: str = "StorageReader"
 
     loop: bool = True
     """

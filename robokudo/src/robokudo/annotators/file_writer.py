@@ -1,4 +1,5 @@
-"""Sensor data storage to filesystem.
+"""
+Sensor data storage to filesystem.
 
 This module provides an annotator for:
 
@@ -20,9 +21,10 @@ The module uses:
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import json
 from pathlib import Path
-from timeit import default_timer
 
 import cv2
 from py_trees.common import Status
@@ -32,8 +34,10 @@ from robokudo.cas import CASViews
 from robokudo.utils.type_conversion import ros_camera_info_to_dict
 
 
+@dataclass(kw_only=True)
 class FileWriter(BaseAnnotator):
-    """Sensor data storage to filesystem.
+    """
+    Sensor data storage to filesystem.
 
     This module provides methods to store sensor data into the local filesystem.
     This way you can work on recorded data without having to use bag files.
@@ -43,54 +47,19 @@ class FileWriter(BaseAnnotator):
        Target directory must exist and be writable.
     """
 
-    class Descriptor(BaseAnnotator.Descriptor):
-        """Configuration descriptor for file writer."""
+    target_directory: Path = Path("/tmp/")
+    """
+    Existing directory the files are written to.
+    """
 
-        class Parameters:
-            """Parameters for configuring file storage.
-
-            .. note::
-               filename_prefix should match FileReader configuration.
-            """
-
-            def __init__(self) -> None:
-                self.target_dir: str = "/tmp/"
-                """Directory to store files in"""
-
-                self.filename_prefix: str = "rk_"
-                """Prefix for generated filenames, make sure that this matches the FileReader filename_prefix"""
-
-        # Overwrite the parameters explicitly to enable auto-completion
-        parameters = Parameters()
-
-    def __init__(
-        self,
-        name: str = "FileWriter",
-        descriptor: FileWriter.Descriptor | None = None,
-    ) -> None:
-        """Initialize the file writer.
-
-        :param name: Name of this annotator instance
-        :param descriptor: Configuration descriptor
-        """
-        super().__init__(name, descriptor)
-        self.initialized = False
-
-        self.rk_logger.debug("%s.__init__()" % self.__class__.__name__)
-        self.rk_logger.debug(
-            f"Writing files to {self.descriptor.parameters.target_dir}"
-        )
-        self.target_dir_path: Path = Path(self.descriptor.parameters.target_dir)
-
-        if self.target_dir_path.exists() and self.target_dir_path.is_dir():
-            self.initialized = True
-        else:
-            self.rk_logger.error(
-                f"{self.descriptor.parameters.target_dir} is not existing or not a directory"
-            )
+    filename_prefix: str = "rk_"
+    """
+    Prefix of the file names; must match the prefix the file reader expects.
+    """
 
     def generate_full_file_path_(self, cas_view: str, file_extension: str) -> str:
-        """Generate the full filename and path where data should be stored.
+        """
+        Generate the full filename and path where data should be stored.
 
         Creates a filepath using:
 
@@ -103,16 +72,15 @@ class FileWriter(BaseAnnotator):
         :param file_extension: File extension without dot (e.g. "jpg")
         :return: A string with the full path according to our naming scheme.
         """
-        fn_prefix = self.descriptor.parameters.filename_prefix
         timestamp = self.get_cas().timestamp
         return str(
-            self.target_dir_path.joinpath(
-                f"{fn_prefix}{str(timestamp)}_{cas_view}.{file_extension}"
-            )
+            self.target_directory
+            / f"{self.filename_prefix}{timestamp}_{cas_view}.{file_extension}"
         )
 
-    def update(self) -> Status:
-        """Process and store sensor data.
+    def compute(self) -> Status:
+        """
+        Process and store sensor data.
 
         The method:
 
@@ -124,12 +92,8 @@ class FileWriter(BaseAnnotator):
 
         :return: SUCCESS after storing, FAILURE if not initialized
         """
-        start_timer = default_timer()
-
-        if not self.initialized:
-            print(
-                f"FileWriter has not been properly instantiated. Check error log for __init__ errors."
-            )
+        if not self.target_directory.is_dir():
+            self.feedback_message = f"{self.target_directory} is not a directory"
             return Status.FAILURE
 
         color = self.get_cas().get(CASViews.COLOR_IMAGE)
@@ -160,6 +124,4 @@ class FileWriter(BaseAnnotator):
         ) as fp:
             json.dump(camera_info_dict, fp)
 
-        end_timer = default_timer()
-        self.feedback_message = f"Processing took {(end_timer - start_timer):.4f}s"
         return Status.SUCCESS

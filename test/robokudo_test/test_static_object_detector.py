@@ -46,11 +46,10 @@ def test_bounding_box_cloud_covers_box_on_depth_resolution(
     detector_on_half_resolution_depth: StaticObjectDetectorAnnotator,
 ) -> None:
     detector = detector_on_half_resolution_depth
-    parameters = detector.descriptor.parameters
-    parameters.bounding_box_x = 4
-    parameters.bounding_box_y = 6
-    parameters.bounding_box_width = 10
-    parameters.bounding_box_height = 8
+    detector.bounding_box_x = 4
+    detector.bounding_box_y = 6
+    detector.bounding_box_width = 10
+    detector.bounding_box_height = 8
     color_rgb = np.zeros((*detector.depth.shape, 3), dtype=np.uint8)
 
     cloud = detector.get_cloud_from_2d_bb_roi(color_rgb)

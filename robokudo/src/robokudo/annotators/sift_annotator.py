@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+from dataclasses import dataclass, field
+
 import colorsys
-import copy
 
 import cv2
 import numpy as np
@@ -20,21 +21,16 @@ if TYPE_CHECKING:
     from robokudo.types.cv import ColorToDepthRatio
 
 
+@dataclass(kw_only=True)
 class SIFTAnnotator(ThreadedAnnotator):
     """
     Annotator for SIFT feature extraction and matching using OpenCV.
     """
 
-    def __init__(
-        self,
-        name: str = "SIFTAnnotator",
-    ) -> None:
-        super().__init__(name)
-
-        self._sift: cv2.SIFT = cv2.SIFT_create()
-        """
-        SIFT feature extractor.
-        """
+    sift: cv2.SIFT = field(default_factory=cv2.SIFT_create, init=False, repr=False)
+    """
+    SIFT feature extractor.
+    """
 
     def compute(self) -> Status:
         """
@@ -72,7 +68,7 @@ class SIFTAnnotator(ThreadedAnnotator):
             else:
                 roi_mask = oh.roi.mask
 
-            keypoints, descriptors = self._sift.detectAndCompute(roi_image, roi_mask)
+            keypoints, descriptors = self.sift.detectAndCompute(roi_image, roi_mask)
 
             for k in keypoints:
                 k.pt = (k.pt[0] + roi[0], k.pt[1] + roi[1])

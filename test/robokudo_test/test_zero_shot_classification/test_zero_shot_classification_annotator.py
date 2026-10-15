@@ -5,9 +5,12 @@ the CAS, independent of the model that classifies them.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import numpy as np
 import pytest
 from PIL import Image
+from typing_extensions import Any
 from py_trees.common import Status
 
 from robokudo.annotators.zero_shot_classification_annotator import (
@@ -33,6 +36,7 @@ pytestmark = pytest.mark.usefixtures("annotator_output_buffer")
 # %% channel mean classifier
 
 
+@dataclass(kw_only=True)
 class ChannelMeanClassificationAnnotator(ZeroShotClassificationAnnotator):
     """
     Ranks each color word of the vocabulary by how strongly the image shows the color it
@@ -53,38 +57,27 @@ class ChannelMeanClassificationAnnotator(ZeroShotClassificationAnnotator):
                 classname=word,
                 confidence=float(mean_color @ (rgb(COLOR_BY_WORD[word]) / 255.0)),
             )
-            for word in self.descriptor.parameters.vocabulary
+            for word in self.vocabulary
         ]
         classifications.sort(
             key=lambda classification: classification.confidence, reverse=True
         )
-        return classifications[: self.descriptor.parameters.save_top_k]
-
-
-def _color_descriptor() -> ZeroShotClassificationAnnotator.Descriptor:
-    """
-    :return: A descriptor classifying against the color vocabulary.
-    """
-    descriptor = ZeroShotClassificationAnnotator.Descriptor()
-    descriptor.parameters.vocabulary = COLOR_VOCABULARY
-    descriptor.parameters.save_top_k = len(COLOR_VOCABULARY)
-    return descriptor
-
-
-def _object_hypothesis_descriptor() -> ZeroShotClassificationAnnotator.Descriptor:
-    descriptor = _color_descriptor()
-    descriptor.parameters.analysis_scope = ObjectHypothesis
-    return descriptor
+        return classifications[: self.save_top_k]
 
 
 def _annotator_in_pipeline(
-    descriptor: ZeroShotClassificationAnnotator.Descriptor, color_image: np.ndarray
+    color_image: np.ndarray, **configuration: Any
 ) -> ChannelMeanClassificationAnnotator:
     """
+    :param configuration: Fields overriding classification against the color
+        vocabulary.
     :return: An annotator whose CAS holds the given color image.
     """
+    color_configuration = dict(
+        vocabulary=COLOR_VOCABULARY, save_top_k=len(COLOR_VOCABULARY)
+    )
     annotator = ChannelMeanClassificationAnnotator(
-        name="ChannelMeanClassificationAnnotator", descriptor=descriptor
+        **(color_configuration | configuration)
     )
     pipeline = Pipeline("Sequence")
     pipeline.add_child(annotator)
@@ -108,7 +101,7 @@ def _classnames(classifications: list[Classification]) -> list[str]:
 
 def test_scene_scope_adds_the_image_classifications_to_the_cas() -> None:
     color = COLOR_BY_WORD["green"]
-    annotator = _annotator_in_pipeline(_color_descriptor(), solid_image(color))
+    annotator = _annotator_in_pipeline(solid_image(color))
 
     status = annotator.compute()
 
@@ -122,9 +115,7 @@ def test_images_are_classified_in_rgb_channel_order() -> None:
     """
     The CAS color image is stored in BGR channel order; classifiers receive it in RGB.
     """
-    annotator = _annotator_in_pipeline(
-        _color_descriptor(), solid_image(COLOR_BY_WORD["red"])
-    )
+    annotator = _annotator_in_pipeline(solid_image(COLOR_BY_WORD["red"]))
 
     annotator.compute()
 
@@ -136,7 +127,7 @@ def test_images_are_classified_in_rgb_channel_order() -> None:
 
 def test_object_hypothesis_scope_classifies_each_hypothesis_by_its_region() -> None:
     annotator = _annotator_in_pipeline(
-        _object_hypothesis_descriptor(), two_color_scene()
+        two_color_scene(), analysis_scope=ObjectHypothesis
     )
     red_object = object_hypothesis(x=0, y=0, width=10, height=10)
     blue_object = object_hypothesis(x=30, y=0, width=10, height=10)
@@ -150,26 +141,24 @@ def test_object_hypothesis_scope_classifies_each_hypothesis_by_its_region() -> N
 
 
 def test_object_hypothesis_scope_skips_hypotheses_rejected_by_filter() -> None:
-    descriptor = _object_hypothesis_descriptor()
     rejected_object = object_hypothesis(x=0, y=0, width=10, height=10)
-    descriptor.parameters.filter_fn = (
-        lambda hypothesis: hypothesis is not rejected_object
+    annotator = _annotator_in_pipeline(
+        two_color_scene(),
+        analysis_scope=ObjectHypothesis,
+        hypothesis_filter=lambda hypothesis: hypothesis is not rejected_object,
     )
-    annotator = _annotator_in_pipeline(descriptor, two_color_scene())
     accepted_object = object_hypothesis(x=30, y=0, width=10, height=10)
     annotator.get_cas().annotations.extend([rejected_object, accepted_object])
 
     annotator.compute()
 
     assert hypothesis_classifications(rejected_object) == []
-    assert len(hypothesis_classifications(accepted_object)) == (
-        descriptor.parameters.save_top_k
-    )
+    assert len(hypothesis_classifications(accepted_object)) == (annotator.save_top_k)
 
 
 def test_object_hypothesis_scope_without_hypotheses_adds_nothing() -> None:
     annotator = _annotator_in_pipeline(
-        _object_hypothesis_descriptor(), two_color_scene()
+        two_color_scene(), analysis_scope=ObjectHypothesis
     )
 
     status = annotator.compute()
@@ -182,8 +171,8 @@ def test_object_hypothesis_scope_without_hypotheses_adds_nothing() -> None:
 
 
 def test_unsupported_analysis_scope_fails() -> None:
-    descriptor = _color_descriptor()
-    descriptor.parameters.analysis_scope = CASViews.DEPTH_IMAGE
-    annotator = _annotator_in_pipeline(descriptor, solid_image(COLOR_BY_WORD["red"]))
+    annotator = _annotator_in_pipeline(
+        solid_image(COLOR_BY_WORD["red"]), analysis_scope=CASViews.DEPTH_IMAGE
+    )
 
     assert annotator.compute() == Status.FAILURE

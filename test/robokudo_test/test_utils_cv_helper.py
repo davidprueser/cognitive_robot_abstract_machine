@@ -31,7 +31,7 @@ class TestUtilsCVHelper(object):
     @pytest.fixture()
     def annotator_in_pipeline(self) -> BaseAnnotator:
         root = Pipeline("Sequence")
-        annotator = ImagePreprocessorAnnotator("1")
+        annotator = ImagePreprocessorAnnotator(name="1")
         root.add_child(annotator)
         return annotator
 
@@ -124,7 +124,7 @@ class TestUtilsCVHelper(object):
         annotator_in_pipeline: BaseAnnotator,
         kinect_intrinsics: o3d.camera.PinholeCameraIntrinsic,
     ) -> None:
-        annotator_in_pipeline.descriptor.parameters.global_with_depth = True
+        annotator_in_pipeline.use_depth = True
         cas = annotator_in_pipeline.get_cas()
         width, height = kinect_intrinsics.width, kinect_intrinsics.height
         scalex, scaley = scale_factor

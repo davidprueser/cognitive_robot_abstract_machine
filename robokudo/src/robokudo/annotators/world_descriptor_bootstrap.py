@@ -5,7 +5,6 @@ Bootstrap static world descriptor content into the shared world.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from timeit import default_timer
 from typing_extensions import Any
 from uuid import UUID
 
@@ -62,39 +61,29 @@ class _MergedDescriptorEntities:
         )
 
 
+@dataclass(kw_only=True)
 class WorldDescriptorBootstrapAnnotator(BaseAnnotator):
     """
     Augment the current shared world with descriptor-defined entities.
     """
 
-    class Descriptor(BaseAnnotator.Descriptor):
-        """
-        Configuration descriptor for world descriptor bootstrap.
-        """
+    world_descriptor_ros_package: str = "robokudo"
 
-        class Parameters:
-            """
-            Parameters for world descriptor bootstrap.
-            """
+    world_descriptor_name: str = "world_iai_kitchen20"
 
-            def __init__(self) -> None:
-                self.world_descriptor_ros_package: str = "robokudo"
-                self.world_descriptor_name: str = "world_iai_kitchen20"
-                self.reload_on_update: bool = False
+    reload_on_update: bool = False
 
-        parameters = Parameters()
+    last_augmented_world_id: int | None = field(default=None, init=False)
+    """
+    Identity of the world the descriptor was merged into last.
+    """
 
-    def __init__(
-        self,
-        name: str = "WorldDescriptorBootstrap",
-        descriptor: WorldDescriptorBootstrapAnnotator.Descriptor | None = None,
-    ) -> None:
-        """
-        Initialize the world descriptor bootstrap annotator.
-        """
-        super().__init__(name=name, descriptor=descriptor)
-        self._last_augmented_world_id: int | None = None
-        self._merged_descriptor_entities = _MergedDescriptorEntities()
+    merged_descriptor_entities: _MergedDescriptorEntities = field(
+        default_factory=lambda: _MergedDescriptorEntities(), init=False, repr=False
+    )
+    """
+    The entities the descriptor added to the world.
+    """
 
     def _update_tracker_if_active(self) -> None:
         """
@@ -154,14 +143,13 @@ class WorldDescriptorBootstrapAnnotator(BaseAnnotator):
         """
         Remove only the entities added by the previous descriptor merge.
         """
-        if self._merged_descriptor_entities.is_empty():
+        if self.merged_descriptor_entities.is_empty():
             return
 
         # Runtime entities are expected to not be parented under descriptor-owned
         # entities. Such attachments may be invalidated when the descriptor is replaced.
         connection_object_ids = {
-            id(connection)
-            for connection in self._merged_descriptor_entities.connections
+            id(connection) for connection in self.merged_descriptor_entities.connections
         }
 
         try:
@@ -169,7 +157,7 @@ class WorldDescriptorBootstrapAnnotator(BaseAnnotator):
                 for annotation in list(runtime_world.semantic_annotations):
                     if (
                         annotation.id
-                        in self._merged_descriptor_entities.semantic_annotation_ids
+                        in self.merged_descriptor_entities.semantic_annotation_ids
                     ):
                         runtime_world.remove_semantic_annotation(annotation)
 
@@ -178,7 +166,7 @@ class WorldDescriptorBootstrapAnnotator(BaseAnnotator):
                         runtime_world.remove_connection(connection)
 
                 for dof in list(runtime_world.degrees_of_freedom):
-                    if dof.id in self._merged_descriptor_entities.degree_of_freedom_ids:
+                    if dof.id in self.merged_descriptor_entities.degree_of_freedom_ids:
                         runtime_world.remove_degree_of_freedom(dof)
 
                 for entity in reversed(
@@ -186,7 +174,7 @@ class WorldDescriptorBootstrapAnnotator(BaseAnnotator):
                 ):
                     if (
                         entity.id
-                        in self._merged_descriptor_entities.kinematic_structure_entity_ids
+                        in self.merged_descriptor_entities.kinematic_structure_entity_ids
                     ):
                         runtime_world.remove_kinematic_structure_entity(entity)
         except Exception as error:
@@ -194,7 +182,7 @@ class WorldDescriptorBootstrapAnnotator(BaseAnnotator):
                 operation="remove previous world descriptor contribution"
             ) from error
 
-        self._merged_descriptor_entities.clear()
+        self.merged_descriptor_entities.clear()
 
     def augment_world(self, world_descriptor: BaseWorldDescriptor) -> None:
         """
@@ -202,12 +190,12 @@ class WorldDescriptorBootstrapAnnotator(BaseAnnotator):
         """
         runtime_world = rk_world.world_instance()
         runtime_world_id = id(runtime_world)
-        reload_on_update = self.descriptor.parameters.reload_on_update
+        reload_on_update = self.reload_on_update
 
-        if self._last_augmented_world_id == runtime_world_id and not reload_on_update:
+        if self.last_augmented_world_id == runtime_world_id and not reload_on_update:
             return
-        if self._last_augmented_world_id != runtime_world_id:
-            self._merged_descriptor_entities.clear()
+        if self.last_augmented_world_id != runtime_world_id:
+            self.merged_descriptor_entities.clear()
 
         if reload_on_update:
             self._remove_merged_descriptor_entities(runtime_world)
@@ -215,7 +203,7 @@ class WorldDescriptorBootstrapAnnotator(BaseAnnotator):
         try:
             before = self._snapshot_world_entities(runtime_world)
             runtime_world.merge_world(world_descriptor.world)
-            self._merged_descriptor_entities = self._entities_added_since(
+            self.merged_descriptor_entities = self._entities_added_since(
                 runtime_world, before
             )
         except Exception as error:
@@ -224,23 +212,20 @@ class WorldDescriptorBootstrapAnnotator(BaseAnnotator):
             ) from error
 
         self._update_tracker_if_active()
-        self._last_augmented_world_id = runtime_world_id
+        self.last_augmented_world_id = runtime_world_id
 
-    def update(self) -> Status:
+    def compute(self) -> Status:
         """
         Load descriptor world and merge it into the current world.
         """
-        start_timer = default_timer()
         runtime_world_id = id(rk_world.world_instance())
         if (
-            self._last_augmented_world_id == runtime_world_id
-            and not self.descriptor.parameters.reload_on_update
+            self.last_augmented_world_id == runtime_world_id
+            and not self.reload_on_update
         ):
             return Status.SUCCESS
 
         descriptor = load_world_descriptor(self)
         self.augment_world(descriptor)
 
-        end_timer = default_timer()
-        self.feedback_message = f"Processing took {(end_timer - start_timer):.4f}s"
         return Status.SUCCESS

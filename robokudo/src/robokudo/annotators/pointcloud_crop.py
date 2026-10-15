@@ -1,4 +1,5 @@
-"""Point cloud cropping and visualization.
+"""
+Point cloud cropping and visualization.
 
 This module provides an annotator for:
 
@@ -13,7 +14,8 @@ This module provides an annotator for:
 
 from __future__ import annotations
 
-from timeit import default_timer
+from dataclasses import dataclass
+
 
 import cv2
 import open3d as o3d
@@ -26,15 +28,16 @@ from robokudo.utils.annotator_helper import (
     transform_cloud_from_camera_to_world,
     transform_cloud_from_world_to_camera,
 )
-from robokudo.utils.error_handling import catch_and_raise_to_blackboard
 from robokudo.utils.o3d_helper import get_mask_from_pointcloud
 
 if TYPE_CHECKING:
-    import numpy.typing as npt
+    pass
 
 
+@dataclass(kw_only=True)
 class PointcloudCropAnnotator(BaseAnnotator):
-    """Point cloud cropping using axis-aligned bounding boxes.
+    """
+    Point cloud cropping using axis-aligned bounding boxes.
 
     Crop a subset of points from a pointcloud data based on min/max X,Y,Z values.
     The crop is either done in sensor coordinates (default) or relative to the world frame.
@@ -43,56 +46,44 @@ class PointcloudCropAnnotator(BaseAnnotator):
        When using world coordinates, requires valid camera-to-world transform in CAS.
     """
 
-    class Descriptor(BaseAnnotator.Descriptor):
-        """Configuration descriptor for point cloud cropping."""
+    minimum_x: float = -2.0
+    """
+    Lower x bound of the crop box, in meters.
+    """
 
-        class Parameters:
-            """Parameters for configuring point cloud cropping."""
+    minimum_y: float = -2.0
+    """
+    Lower y bound of the crop box, in meters.
+    """
 
-            def __init__(self) -> None:
-                self.min_x: float = -2.0
-                """Minimum X coordinate"""
+    minimum_z: float = -9.0
+    """
+    Lower z bound of the crop box, in meters.
+    """
 
-                self.min_y: float = -2.0
-                """Minimum Y coordinate"""
+    maximum_x: float = 2.0
+    """
+    Upper x bound of the crop box, in meters.
+    """
 
-                self.min_z: float = -9.0
-                """Minimum Z coordinate"""
+    maximum_y: float = 2.0
+    """
+    Upper y bound of the crop box, in meters.
+    """
 
-                self.max_x: float = 2.0
-                """Maximum X coordinate"""
+    maximum_z: float = 3.0
+    """
+    Upper z bound of the crop box, in meters.
+    """
 
-                self.max_y: float = 2.0
-                """Maximum Y coordinate"""
+    relative_to_world: bool = False
+    """
+    Whether the crop box is given in world coordinates instead of camera coordinates.
+    """
 
-                self.max_z: float = 3.0
-                """Maximum Z coordinate"""
-
-                self.relative_to_world: bool = False
-                """Whether to crop the PC in camera/sensor coordinates or whether it shoudl be transformed to world coordinates beforehand."""
-
-        # Overwrite the parameters explicitly to enable auto-completion
-        parameters = Parameters()
-
-    def __init__(
-        self,
-        name: str = "PointcloudCropAnnotator",
-        descriptor: PointcloudCropAnnotator.Descriptor | None = None,
-    ) -> None:
-        """Initialize the point cloud cropper.
-
-        :param name: Name of this annotator instance
-        :param descriptor: Configuration descriptor
+    def compute(self) -> Status:
         """
-        super().__init__(name, descriptor)
-        self.rk_logger.debug("%s.__init__()" % self.__class__.__name__)
-
-        self.color: npt.NDArray | None = None
-        """A copy of the color image currently being worked with."""
-
-    @catch_and_raise_to_blackboard
-    def update(self) -> Status:
-        """Process and crop point cloud data.
+        Process and crop point cloud data.
 
         The method:
 
@@ -106,11 +97,10 @@ class PointcloudCropAnnotator(BaseAnnotator):
         :return: SUCCESS after processing
         :raises Exception: If world transform not found when needed
         """
-        start_timer = default_timer()
-        self.rk_logger.warning(f"{self.__class__.__name__} called for update()")
+        self.robokudo_logger.warning(f"{self.__class__.__name__} called for update()")
 
         cloud = self.get_cas().get(CASViews.CLOUD)
-        self.color = self.get_cas().get(CASViews.COLOR_IMAGE)
+        color = self.get_cas().get(CASViews.COLOR_IMAGE)
         pointcloud_camera_intrinsics = self.get_cas().get(
             CASViews.POINTCLOUD_CAMERA_INTRINSIC
         )
@@ -120,11 +110,11 @@ class PointcloudCropAnnotator(BaseAnnotator):
         # Lookup camera information if the crop should be done relative to the world frame
         #
 
-        if self.descriptor.parameters.relative_to_world:
+        if self.relative_to_world:
             try:
                 cloud = transform_cloud_from_camera_to_world(self.get_cas(), cloud)
             except Exception as e:
-                self.rk_logger.warning(
+                self.robokudo_logger.warning(
                     f"Couldn't find camera viewpoint in the CAS and relative_to_world is true. "
                     f"Fail. Error: {e}"
                 )
@@ -137,21 +127,21 @@ class PointcloudCropAnnotator(BaseAnnotator):
 
         abb = o3d.geometry.AxisAlignedBoundingBox(
             [
-                self.descriptor.parameters.min_x,
-                self.descriptor.parameters.min_y,
-                self.descriptor.parameters.min_z,
+                self.minimum_x,
+                self.minimum_y,
+                self.minimum_z,
             ],
             [
-                self.descriptor.parameters.max_x,
-                self.descriptor.parameters.max_y,
-                self.descriptor.parameters.max_z,
+                self.maximum_x,
+                self.maximum_y,
+                self.maximum_z,
             ],
         )
 
         cropped_cloud = cloud.crop(abb)
 
         # Transform cloud back to camera coordinates if it has been transformed to world before
-        if self.descriptor.parameters.relative_to_world:
+        if self.relative_to_world:
             cropped_cloud_transformed = transform_cloud_from_world_to_camera(
                 self.get_cas(), cropped_cloud
             )
@@ -165,14 +155,12 @@ class PointcloudCropAnnotator(BaseAnnotator):
         mask_scale = 1.0 / color_to_depth_ratio.horizontal
         mask = get_mask_from_pointcloud(
             cropped_cloud,
-            self.color,
+            color,
             pointcloud_camera_intrinsics,
             mask_scale_factor=mask_scale,
             crop_to_ref=True,
         )
-        combined_mask_color = cv2.addWeighted(self.color, 0.5, mask, 0.5, 0)
+        combined_mask_color = cv2.addWeighted(color, 0.5, mask, 0.5, 0)
         self.get_annotator_output_struct().set_image(combined_mask_color)
 
-        end_timer = default_timer()
-        self.feedback_message = f"Processing took {(end_timer - start_timer):.4f}s"
         return Status.SUCCESS

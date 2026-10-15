@@ -1,17 +1,19 @@
 from __future__ import annotations
 from dataclasses import dataclass, field
 
-from typing_extensions import ClassVar
 
 from robokudo.descriptors.camera_configs.base_camera_config import BaseCameraConfig
+from robokudo.io.file_reader_interface import RGBDFileReaderInterface
 from robokudo.descriptors.camera_configs.components import (
     StaticCameraTransformComponent,
 )
 from robokudo.types.cv import ColorToDepthRatio
 
 
-@dataclass(slots=True)
-class FileReaderCameraConfig(BaseCameraConfig, StaticCameraTransformComponent):
+@dataclass(kw_only=True)
+class FileReaderCameraConfig(
+    BaseCameraConfig[RGBDFileReaderInterface], StaticCameraTransformComponent
+):
     """
     Configuration class for file-based camera data playback.
 
@@ -23,10 +25,6 @@ class FileReaderCameraConfig(BaseCameraConfig, StaticCameraTransformComponent):
         If target_ros_package is None, target_dir is used as an absolute or relative
         path. Otherwise, target_dir is appended to the ROS package path.
     """
-
-    registry_name: ClassVar[str] = "file_reader"
-
-    interface_type: str = "FileReader"
 
     lookup_viewpoint: bool = False
     """

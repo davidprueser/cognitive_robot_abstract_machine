@@ -20,12 +20,10 @@ The pipeline implements the following functionality:
 from __future__ import annotations
 
 from robokudo.analysis_engine import AnalysisEngineInterface
+from robokudo.descriptors.camera_configs.config_kinect_robot import KinectCameraConfig
 from robokudo.annotators.collection_reader import CollectionReaderAnnotator
 from robokudo.annotators.image_preprocessor import ImagePreprocessorAnnotator
 from robokudo.annotators.testing import SlowAnnotator
-from robokudo.descriptors.factories.cr_descriptor_factory import (
-    CollectionReaderDescriptorFactory,
-)
 from robokudo.idioms import pipeline_init
 from robokudo.pipeline import Pipeline
 
@@ -73,20 +71,15 @@ class AnalysisEngine(AnalysisEngineInterface):
 
         :return: The configured pipeline with custom parameters
         """
-        kinect_config = CollectionReaderDescriptorFactory.create_descriptor("kinect")
-
-        image_preprocessor_config = ImagePreprocessorAnnotator.Descriptor()
-        image_preprocessor_config.parameters.depth_trunc = 4.5
+        kinect_config = KinectCameraConfig()
 
         seq = Pipeline("RWPipeline")
         seq.add_children(
             [
                 pipeline_init(),
-                CollectionReaderAnnotator(descriptor=kinect_config),
-                ImagePreprocessorAnnotator(
-                    "ImagePreprocessor", descriptor=image_preprocessor_config
-                ),
-                SlowAnnotator("SlowAnnotator"),
+                CollectionReaderAnnotator(camera_config=kinect_config),
+                ImagePreprocessorAnnotator(name="ImagePreprocessor", maximum_depth=4.5),
+                SlowAnnotator(name="SlowAnnotator"),
             ]
         )
 

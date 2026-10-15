@@ -20,12 +20,15 @@ The module is used for:
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from py_trees.blackboard import Blackboard
 from py_trees.common import Status
 
 from robokudo.annotators.core import BaseAnnotator
 
 
+@dataclass(kw_only=True)
 class Redraw(BaseAnnotator):
     """
     Annotator for triggering visualization updates.
@@ -34,15 +37,7 @@ class Redraw(BaseAnnotator):
     latest visualization output.
     """
 
-    def __init__(self, name: str = "Redraw") -> None:
-        """
-        Initialize the redraw annotator.
-
-        :param name: Annotator name
-        """
-        super().__init__(name=name)
-
-    def update(self) -> Status:
+    def compute(self) -> Status:
         """
         Set redraw flag to trigger visualization update.
 

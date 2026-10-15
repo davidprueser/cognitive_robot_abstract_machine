@@ -22,6 +22,7 @@ from __future__ import annotations
 
 from robokudo.analysis_engine import AnalysisEngineInterface
 
+from robokudo.descriptors.camera_configs.config_kinect_robot import KinectCameraConfig
 from robokudo.annotators.collection_reader import CollectionReaderAnnotator
 from robokudo.annotators.image_preprocessor import ImagePreprocessorAnnotator
 from robokudo.annotators.pipeline_trigger import PipelineTrigger
@@ -29,9 +30,6 @@ from robokudo.annotators.testing import SlowAnnotator
 from robokudo.tree_components.better_parallel import Parallel, ParallelPolicy
 from robokudo.behaviours.clear_annotator_outputs import ClearAnnotatorOutputs
 from robokudo.pipeline import Pipeline
-from robokudo.descriptors.factories.cr_descriptor_factory import (
-    CollectionReaderDescriptorFactory,
-)
 
 
 class AnalysisEngine(AnalysisEngineInterface):
@@ -83,7 +81,7 @@ class AnalysisEngine(AnalysisEngineInterface):
 
         :return: The configured pipeline with parallel processing
         """
-        kinect_config = CollectionReaderDescriptorFactory.create_descriptor("kinect")
+        kinect_config = KinectCameraConfig()
 
         seq = Pipeline("RWPipeline")
         parallel = Parallel(
@@ -93,19 +91,19 @@ class AnalysisEngine(AnalysisEngineInterface):
             [
                 # py_trees.behaviours.Count(name="Annotator A", fail_until=-1, running_until=30, success_until=1000),
                 # py_trees.behaviours.Count(name="Annotator B", fail_until=-1, running_until=15, success_until=1000)
-                SlowAnnotator("Slow1Annotator", sleep_in_s=4),
-                SlowAnnotator("Slow2Annotator", sleep_in_s=2),
+                SlowAnnotator(name="Slow1Annotator", sleep_seconds=4),
+                SlowAnnotator(name="Slow2Annotator", sleep_seconds=2),
             ]
         )
 
         for annotator in [
             PipelineTrigger(),
             ClearAnnotatorOutputs(),
-            CollectionReaderAnnotator(descriptor=kinect_config),
-            ImagePreprocessorAnnotator("ImagePreprocessor"),
-            SlowAnnotator("FastAnnotator", sleep_in_s=1),
+            CollectionReaderAnnotator(camera_config=kinect_config),
+            ImagePreprocessorAnnotator(name="ImagePreprocessor"),
+            SlowAnnotator(name="FastAnnotator", sleep_seconds=1),
             parallel,
-            SlowAnnotator("Slow3Annotator", sleep_in_s=2),
+            SlowAnnotator(name="Slow3Annotator", sleep_seconds=2),
         ]:
             seq.add_child(annotator)
 

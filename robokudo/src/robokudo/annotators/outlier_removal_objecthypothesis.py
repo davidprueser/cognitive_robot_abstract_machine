@@ -1,4 +1,5 @@
-"""Statistical outlier removal and clustering for object hypotheses.
+"""
+Statistical outlier removal and clustering for object hypotheses.
 
 This module implements statistical outlier removal based on standard deviation and
 number of neighbors in point clouds, followed by clustering to refine object hypotheses.
@@ -19,20 +20,17 @@ Authors:
 
 from __future__ import annotations
 
-from timeit import default_timer
+from dataclasses import dataclass, field
+
 
 import numpy as np
 import open3d as o3d
 from py_trees.common import Status
-from rcl_interfaces.msg import SetParametersResult
-from rclpy.parameter import Parameter
 
 from robokudo.annotators.core import BaseAnnotator
 from robokudo.cas import CAS, CASViews
 from robokudo.types.annotation import Classification
 from robokudo.types.scene import ObjectHypothesis
-from robokudo.utils.error_handling import catch_and_raise_to_blackboard
-from semantic_digital_twin.adapters.ros.node_registry import ROSNodeRegistry
 
 """
 This module implements a statistical outlierremoval based on the standard deviation and
@@ -52,8 +50,10 @@ _PYTYPE_TO_ROS_FIELD: dict[type, str] = {
 }
 
 
+@dataclass(kw_only=True)
 class OutlierRemovalOnObjectHypothesisAnnotator(BaseAnnotator):
-    """Annotator for statistical outlier removal and clustering refinement.
+    """
+    Annotator for statistical outlier removal and clustering refinement.
 
     This annotator processes object hypotheses by:
 
@@ -66,89 +66,56 @@ class OutlierRemovalOnObjectHypothesisAnnotator(BaseAnnotator):
     The processing can be selectively disabled for specific object classes.
     """
 
-    class Descriptor(BaseAnnotator.Descriptor):
-        """Configuration descriptor for outlier removal and clustering."""
+    dbscan_neighbors: int = 90
+    """
+    Minimum points to form a cluster (DBSCAN min_samples)
+    """
 
-        class Parameters:
-            """Parameter container for outlier removal configuration."""
+    dbscan_epsilon: float = 0.02
+    """
+    DBSCAN neighborhood size.
+    """
 
-            def __init__(self) -> None:
-                # TODO Rename the dbscan_neighbors parameter. It is not about neighbors, but it is the MINIMUM
-                self.dbscan_neighbors: int = 90
-                """Minimum points to form a cluster (DBSCAN min_samples)"""
+    stat_neighbors: int = 200
+    """
+    Number of neighbors for statistical analysis.
+    """
 
-                self.dbscan_epsilon: float = 0.02
-                """DBSCAN neighborhood size"""
+    stat_std: float = 0.5
+    """
+    Standard deviation threshold for outlier removal.
+    """
 
-                self.stat_neighbors: int = 200
-                """Number of neighbors for statistical analysis"""
+    skip_removal_on_classes: list[str] = field(default_factory=list)
+    """
+    List of class names to skip processing.
 
-                self.stat_std: float = 0.5
-                """Standard deviation threshold for outlier removal"""
+    If you want to skip the complete outlier removal process on certain classes, you can
+    add a list of strings here. The values are case-sensitive!
+    """
 
-                self.skip_removal_on_classes: list[str] = []
-                """List of class names to skip processing
-                
-                If you want to skip the complete outlier removal process on certain classes, you can add a list of
-                strings here. The values are case-sensitive!
-                """
-
-        parameters = Parameters()
-
-    def __init__(
-        self,
-        name: str = "OutlierRemovalOnObjectHypothesis",
-        descriptor: OutlierRemovalOnObjectHypothesisAnnotator.Descriptor | None = None,
-    ) -> None:
-        """Initialize the outlier removal annotator.
-
-        :param name: Name of this annotator instance
-        :param descriptor: Configuration descriptor
+    def compute(self) -> Status:
         """
-        super().__init__(name, descriptor)
-        self.rk_logger.debug("%s.__init__()" % self.__class__.__name__)
-
-        self.node = ROSNodeRegistry().get()
-
-        for param_name, default_value in vars(self.descriptor.parameters).items():
-            self.node.declare_parameter(f"{self.name}/{param_name}", default_value)
-
-        self.node.add_on_set_parameters_callback(self.parameters_callback)
-
-        self.rk_logger.info("OutlierRemovalNode initialized with current parameters")
-
-    def parameters_callback(self, params: list[Parameter]) -> SetParametersResult:
-        for param in params:
-            if hasattr(self.descriptor.parameters, param.name):
-                setattr(self.descriptor.parameters, param.name, param.value)
-
-        self.rk_logger.info("Received reconf call: " + str(params))
-        return SetParametersResult(successful=True)
-
-    @catch_and_raise_to_blackboard
-    def update(self) -> Status:
-        """Process object hypotheses to remove outliers and refine clusters.
+        Process object hypotheses to remove outliers and refine clusters.
 
         :return: SUCCESS if processing completed, raises Exception if no clusters found
         :raises Exception: If no clusters are found after processing
         """
-
-        start_timer = default_timer()
         pcd_cluster = self.cluster_statistical_outlierremoval_pcd()
 
         if not pcd_cluster:
             # TODO This should not be decided by this Annotator, but by the Result Generator - Refactor and test AEs
-            self.rk_logger.warning(f"No Clusters have been found.")
+            self.robokudo_logger.warning(f"No Clusters have been found.")
             self.feedback_message = f"No clusters have been found"
             raise Exception("No Clusters have been found.")
-        end_timer = default_timer()
-        self.feedback_message = f"Processing took {(end_timer - start_timer):.4f}s"
         return Status.SUCCESS
 
     def cluster_statistical_outlierremoval_pcd(self) -> bool:
-        """Perform outlier removal and clustering on each object hypothesis.
+        """
+        Perform outlier removal and clustering on each object hypothesis.
 
-        :return: True, if at least one of the object hypotheses could be optimized. False otherwise.
+        :return: True, if at least one of the object hypotheses could be optimized.
+            False otherwise.
         """
         annotations = self.get_cas().filter_annotations_by_type(ObjectHypothesis)
         vis_geometries = []
@@ -159,17 +126,14 @@ class OutlierRemovalOnObjectHypothesisAnnotator(BaseAnnotator):
             if annotation.points is None:
                 continue
 
-            if len(self.descriptor.parameters.skip_removal_on_classes) > 0:
+            if len(self.skip_removal_on_classes) > 0:
                 classes: list[Classification] = CAS.filter_by_type(
                     Classification, annotation.annotations
                 )
 
                 found_class = False
                 for c in classes:
-                    if (
-                        c.classname
-                        in self.descriptor.parameters.skip_removal_on_classes
-                    ):
+                    if c.classname in self.skip_removal_on_classes:
                         found_class = True
                         optimized_one_cluster = True  # this cluster could probably been optimized, but is ignored by config
                         continue
@@ -178,8 +142,8 @@ class OutlierRemovalOnObjectHypothesisAnnotator(BaseAnnotator):
 
             pcd = annotation.points
             cl, ind = pcd.remove_statistical_outlier(
-                nb_neighbors=self.descriptor.parameters.stat_neighbors,
-                std_ratio=self.descriptor.parameters.stat_std,
+                nb_neighbors=self.stat_neighbors,
+                std_ratio=self.stat_std,
             )
 
             pcd = pcd.select_by_index(ind)
@@ -189,8 +153,8 @@ class OutlierRemovalOnObjectHypothesisAnnotator(BaseAnnotator):
             ) as cm:
                 labels = np.array(
                     pcd.cluster_dbscan(
-                        eps=self.descriptor.parameters.dbscan_epsilon,
-                        min_points=self.descriptor.parameters.dbscan_neighbors,
+                        eps=self.dbscan_epsilon,
+                        min_points=self.dbscan_neighbors,
                         print_progress=True,
                     )
                 )

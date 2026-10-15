@@ -1,4 +1,5 @@
-"""Color histogram analysis for object hypotheses.
+"""
+Color histogram analysis for object hypotheses.
 
 This module provides an annotator for:
 
@@ -18,6 +19,8 @@ The module uses:
 """
 
 from __future__ import annotations
+
+from dataclasses import dataclass
 from py_trees.common import Status
 
 from robokudo.annotators.core import BaseAnnotator
@@ -25,23 +28,22 @@ from robokudo.types.annotation import ColorHistogram
 from robokudo.types.scene import ObjectHypothesis
 import copy
 import math
-from timeit import default_timer
 
 import cv2
 import numpy as np
 from matplotlib import pyplot as plt
 from typing_extensions import TYPE_CHECKING
 
-from robokudo.annotators.cluster_color import Color
 from robokudo.cas import CASViews
-from robokudo.types.cv import Rect
 
 if TYPE_CHECKING:
     import numpy.typing as npt
 
 
+@dataclass(kw_only=True)
 class ClusterColorHistogramAnnotator(BaseAnnotator):
-    """Hue and saturation histogram analysis for object hypotheses with RGB ROI and Mask.
+    """
+    Hue and saturation histogram analysis for object hypotheses with RGB ROI and Mask.
 
     This annotator:
 
@@ -54,40 +56,26 @@ class ClusterColorHistogramAnnotator(BaseAnnotator):
        Histogram plotting can significantly impact performance (200-500ms).
     """
 
-    class Descriptor(BaseAnnotator.Descriptor):
-        """Configuration descriptor for color histogram analysis."""
+    histogram_cols: int = 16
+    """
+    Number of histogram columns (hue bins)
+    """
 
-        class Parameters:
-            """Parameters for configuring histogram calculation."""
+    histogram_rows: int = 16
+    """
+    Number of histogram rows (saturation bins)
+    """
 
-            def __init__(self) -> None:
-                self.histogram_cols: int = 16
-                """Number of histogram columns (hue bins)"""
+    generate_plot_output: bool = False
+    """
+    Whether to generate histogram plots.
 
-                self.histogram_rows: int = 16
-                """Number of histogram rows (saturation bins)"""
+    Plotting takes a lot of time in matplotlib (200-500ms)
+    """
 
-                self.generate_plot_output: bool = False
-                """Whether to generate histogram plots. Plotting takes a lot of time in matplotlib (200-500ms)"""
-
-        # Overwrite the parameters explicitly to enable auto-completion
-        parameters = Parameters()
-
-    def __init__(
-        self,
-        name: str = "ClusterColorHistogramAnnotator",
-        descriptor: ClusterColorHistogramAnnotator.Descriptor | None = None,
-    ) -> None:
-        """Initialize the color histogram analyzer. Minimal one-time init!
-
-        :param name: Name of this annotator instance
-        :param descriptor: Configuration descriptor
+    def compute(self) -> Status:
         """
-        super().__init__(name, descriptor)
-        self.rk_logger.debug("%s.__init__()" % self.__class__.__name__)
-
-    def update(self) -> Status:
-        """Process object hypotheses and calculate color histograms.
+        Process object hypotheses and calculate color histograms.
 
         The method:
 
@@ -97,8 +85,6 @@ class ClusterColorHistogramAnnotator(BaseAnnotator):
 
         :return: SUCCESS after processing
         """
-        start_timer = default_timer()
-
         cloud = self.get_cas().get(CASViews.CLOUD)
         color = self.get_cas().get(CASViews.COLOR_IMAGE)
 
@@ -115,14 +101,13 @@ class ClusterColorHistogramAnnotator(BaseAnnotator):
         self.get_annotator_output_struct().set_geometries(vis_geometries)
         self.get_annotator_output_struct().set_image(visualization_img)
 
-        end_timer = default_timer()
-        self.feedback_message = f"Processing took {(end_timer - start_timer):.4f}s"
         return Status.SUCCESS
 
     def create_color_histogram_annotations(
         self, color: npt.NDArray
     ) -> npt.NDArray | None:
-        """Calculate 2D color histograms for object hypotheses.
+        """
+        Calculate 2D color histograms for object hypotheses.
 
         For each object hypothesis with a valid ROI mask:
 
@@ -141,7 +126,7 @@ class ClusterColorHistogramAnnotator(BaseAnnotator):
 
         object_hypotheses = self.get_cas().filter_annotations_by_type(ObjectHypothesis)
 
-        if self.descriptor.parameters.generate_plot_output:
+        if self.generate_plot_output:
             plot_columns = 3
             cluster_count = len(object_hypotheses)
             fig, axes = plt.subplots(
@@ -175,8 +160,8 @@ class ClusterColorHistogramAnnotator(BaseAnnotator):
 
             # Generate the actual histogram
             hist_size = [
-                self.descriptor.parameters.histogram_cols,
-                self.descriptor.parameters.histogram_rows,
+                self.histogram_cols,
+                self.histogram_rows,
             ]
             histogram_2d = cv2.calcHist(
                 [cluster_hsv_color_img],
@@ -193,7 +178,7 @@ class ClusterColorHistogramAnnotator(BaseAnnotator):
             object_hypothesis.annotations.append(color_histogram_annotation)
 
             # Add the histogram to the plot if desired
-            if self.descriptor.parameters.generate_plot_output:
+            if self.generate_plot_output:
                 p = axes1d[cluster_index].imshow(
                     normalized_histogram2d, interpolation="nearest"
                 )
@@ -206,7 +191,7 @@ class ClusterColorHistogramAnnotator(BaseAnnotator):
             cluster_index += 1
 
         # Draw the final result containing all plots if desired
-        if self.descriptor.parameters.generate_plot_output:
+        if self.generate_plot_output:
             # https://stackoverflow.com/questions/43099734/combining-cv2-imshow-with-matplotlib-plt-show-in-real-time/43101480
             fig.canvas.draw()
             # Matplotlib >= 3.10 removed tostring_rgb(); buffer_rgba() is the supported Agg buffer API.

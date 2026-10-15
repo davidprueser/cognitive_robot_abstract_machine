@@ -11,16 +11,17 @@ using HSV color space segmentation.
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
+
 import copy
 from enum import Enum
-from timeit import default_timer
 
 import cv2
 import numba
 import numpy as np
 import numpy.ma
 from py_trees.common import Status
-from typing_extensions import TYPE_CHECKING
+from typing_extensions import TYPE_CHECKING, Any
 
 from robokudo.annotators.core import BaseAnnotator
 from robokudo.cas import CASViews
@@ -51,9 +52,29 @@ class Color(Enum):
     WHITE = (6,)
     BLACK = (7,)
     GREY = (8,)
-    # COUNT # Use len(Color) instead
+
+    @property
+    def bgr(self) -> tuple[int, int, int]:
+        """
+        The color the visualization draws this color with, in OpenCV's BGR order.
+
+        Only the visualization uses it; the classification uses the hue ranges.
+        """
+        red, green, blue = {
+            Color.RED: (255, 0, 0),
+            Color.YELLOW: (255, 255, 0),
+            Color.GREEN: (0, 255, 0),
+            Color.CYAN: (0, 255, 255),
+            Color.BLUE: (0, 0, 255),
+            Color.MAGENTA: (255, 0, 255),
+            Color.WHITE: (255, 255, 255),
+            Color.BLACK: (0, 0, 0),
+            Color.GREY: (127, 127, 127),
+        }[self]
+        return blue, green, red
 
 
+@dataclass(kw_only=True)
 class ClusterColorAnnotator(BaseAnnotator):
     """
     Calculate the semantic color for every Object Hypothesis (cluster) that has a RGB
@@ -73,96 +94,94 @@ class ClusterColorAnnotator(BaseAnnotator):
     * Value thresholds for black/white/grey
     """
 
-    class Descriptor(BaseAnnotator.Descriptor):
+    chromatic_color_count: int = 6
+    """
+    Number of equally wide hue ranges the chromatic colors divide the hue circle into.
+    """
+
+    compile_on_setup: bool = False
+    """
+    Whether to compile the numba color counting in :meth:`setup` instead of on the first
+    tick.
+    """
+
+    minimum_chromatic_value: int = 60
+    """
+    HSV value a pixel must exceed to count as a chromatic color.
+    """
+
+    minimum_chromatic_saturation: int = 60
+    """
+    HSV saturation a pixel must exceed to count as a chromatic color.
+    """
+
+    maximum_black_value: int = 60
+    """
+    Highest HSV value of an achromatic pixel that counts as black.
+    """
+
+    minimum_white_value: int = 120
+    """
+    HSV value an achromatic pixel must exceed to count as white; the ones in between
+    count as grey.
+    """
+
+    minimum_annotated_color_ratio: float = 0.2
+    """
+    Share of the analyzed pixels a color must exceed to be annotated.
+    """
+
+    analysis_scope: type[AnalyzableAnnotation] = AnalyzableAnnotation
+    """
+    Type of the annotations whose colors are analyzed.
+    """
+
+    cluster_color_info: list[list[tuple[Color, int, float]]] = field(
+        default_factory=list, init=False
+    )
+    """
+    For each analyzed annotation of the current tick, its colors with pixel count and
+    ratio, the most frequent first.
+    """
+
+    cluster_rois: list[Rect] = field(default_factory=list, init=False)
+    """
+    The region of each analyzed annotation of the current tick.
+    """
+
+    @property
+    def hue_range(self) -> float:
         """
-        Configuration descriptor for the ClusterColorAnnotator.
-
-        Defines parameters that control the color analysis behavior:
-
-        * Number of color divisions in hue space
-        * Thresholds for color classification
-        * Minimum ratio for color annotation
+        Width of the hue range of each chromatic color.
         """
+        return 256 / self.chromatic_color_count
 
-        class Parameters:
-            """
-            Parameters for color analysis configuration.
-            """
-
-            def __init__(self) -> None:
-                self.num_of_colors: int = 6
-                self.color_range: float = 256 / self.num_of_colors
-                self.jit_compile_on_init: bool = False
-                self.min_value_color: int = 60
-                self.min_saturation_color: int = 60
-                self.max_value_black: int = 60
-                self.min_value_white: int = 120
-                self.ratio_annotation_threshold: float = 0.2
-                self.analysis_scope: type = AnalyzableAnnotation
-
-        # Overwrite the parameters explicitly to enable auto-completion
-        parameters = Parameters()
-
-    # To easily define this, we use RGB here and then flip it. OpenCV in python uses BGR per default.
-    # Please note, that this color will not be used for the segmentation!
-    # The segmentation is mainly done with self.color_hue_positions
-    color_name_to_bgr_values: dict[Color, tuple[int, ...]] = {
-        Color.RED: tuple(reversed((255, 0, 0))),
-        Color.YELLOW: tuple(reversed((255, 255, 0))),
-        Color.GREEN: tuple(reversed((0, 255, 0))),
-        Color.CYAN: tuple(reversed((0, 255, 255))),
-        Color.BLUE: tuple(reversed((0, 0, 255))),
-        Color.MAGENTA: tuple(reversed((255, 0, 255))),
-        Color.WHITE: tuple(reversed((255, 255, 255))),
-        Color.BLACK: tuple(reversed((0, 0, 0))),
-        Color.GREY: tuple(reversed((127, 127, 127))),
-    }
-
-    def __init__(
-        self,
-        name: str = "ClusterColorAnnotator",
-        descriptor: ClusterColorAnnotator.Descriptor | None = None,
-    ) -> None:
+    @property
+    def color_hue_positions(self) -> dict[Color, float]:
         """
-        Default construction.
-
-        Minimal one-time init!
-        :param name: Name of the annotator instance
-        :param descriptor: Configuration descriptor
+        The hue each chromatic color's range ends at.
         """
-        super().__init__(name, descriptor)
-        self.rk_logger.debug("%s.__init__()" % self.__class__.__name__)
-
-        # This list defines the range of a certain color.
-        hue_intervals = [
-            i * self.descriptor.parameters.color_range
-            + self.descriptor.parameters.color_range / 2
-            + 0.5
-            for i in range(0, self.descriptor.parameters.num_of_colors)
+        hue_interval_ends = [
+            i * self.hue_range + self.hue_range / 2 + 0.5
+            for i in range(0, self.chromatic_color_count)
         ]
+        chromatic_colors = [
+            Color.RED,
+            Color.YELLOW,
+            Color.GREEN,
+            Color.CYAN,
+            Color.BLUE,
+            Color.MAGENTA,
+        ]
+        return dict(zip(chromatic_colors, hue_interval_ends))
 
-        self.color_hue_positions = {
-            Color.RED: hue_intervals[0],
-            Color.YELLOW: hue_intervals[1],
-            Color.GREEN: hue_intervals[2],
-            Color.CYAN: hue_intervals[3],
-            Color.BLUE: hue_intervals[4],
-            Color.MAGENTA: hue_intervals[5],
-        }
-
-        self.cluster_color_info: list[list[tuple[Color, int, float]]] = []
-        self.cluster_rois: list[Rect] = []
-
-        # Trigger JIT by calling method first time with empty data
-        if self.descriptor.parameters.jit_compile_on_init:
-            start_timer_jit = default_timer()
-            hsv_image = np.array([[[0, 0, 0]]])
-            mask = np.array([[0]])
-            self.count_colors_numba(hsv_image, mask)
-            end_timer_jit = default_timer()
-            self.rk_logger.info(
-                f"Pre-compilation took {(end_timer_jit - start_timer_jit):.4f}s"
-            )
+    def setup(self, **kwargs: Any) -> bool:
+        """
+        Compile the numba color counting if :attr:`compile_on_setup` is set.
+        """
+        if self.compile_on_setup:
+            self.count_colors_numba(np.array([[[0, 0, 0]]]), np.array([[0]]))
+        return super().setup(**kwargs)
 
     def count_colors_numba(
         self, hsv_image: npt.NDArray, mask: npt.NDArray
@@ -182,12 +201,12 @@ class ClusterColorAnnotator(BaseAnnotator):
             hsv_image,
             mask,
             len(Color),
-            self.descriptor.parameters.min_saturation_color,
-            self.descriptor.parameters.min_value_color,
-            self.descriptor.parameters.max_value_black,
-            self.descriptor.parameters.min_value_white,
-            self.descriptor.parameters.num_of_colors,
-            self.descriptor.parameters.color_range,
+            self.minimum_chromatic_saturation,
+            self.minimum_chromatic_value,
+            self.maximum_black_value,
+            self.minimum_white_value,
+            self.chromatic_color_count,
+            self.hue_range,
         )
 
         color_count_map = {}
@@ -304,17 +323,17 @@ class ClusterColorAnnotator(BaseAnnotator):
         pl_color, pl_bw_range = split(
             im,
             np.logical_and(
-                im[:, 1] > self.descriptor.parameters.min_saturation_color,
-                im[:, 2] > self.descriptor.parameters.min_value_color,
+                im[:, 1] > self.minimum_chromatic_saturation,
+                im[:, 2] > self.minimum_chromatic_value,
             ),
         )
 
         pl_black, pl_grey_white = split(
-            pl_bw_range, pl_bw_range[:, 2] <= self.descriptor.parameters.max_value_black
+            pl_bw_range, pl_bw_range[:, 2] <= self.maximum_black_value
         )
         pl_white, pl_grey = split(
             pl_grey_white,
-            pl_grey_white[:, 2] > self.descriptor.parameters.min_value_white,
+            pl_grey_white[:, 2] > self.minimum_white_value,
         )
 
         # Check on the HUE channel the color and reduce the list of pixels piece-by-piece
@@ -354,7 +373,7 @@ class ClusterColorAnnotator(BaseAnnotator):
 
         return len(all_image_pixel_values_in_mask), color_count
 
-    def update(self) -> Status:
+    def compute(self) -> Status:
         """
         Process current scene to analyze colors of object hypotheses.
 
@@ -367,8 +386,6 @@ class ClusterColorAnnotator(BaseAnnotator):
 
         :return: SUCCESS after processing is complete
         """
-        start_timer = default_timer()
-
         cloud = self.get_cas().get(CASViews.CLOUD)
         color = self.get_cas().get(CASViews.COLOR_IMAGE)
 
@@ -389,8 +406,6 @@ class ClusterColorAnnotator(BaseAnnotator):
         self.get_annotator_output_struct().set_geometries(vis_geometries)
         self.get_annotator_output_struct().set_image(visualization_img)
 
-        end_timer = default_timer()
-        self.feedback_message = f"Processing took {(end_timer - start_timer):.4f}s"
         return Status.SUCCESS
 
     def create_color_annotations(self, color: npt.NDArray) -> None:
@@ -410,7 +425,7 @@ class ClusterColorAnnotator(BaseAnnotator):
         """
         # Iterate over everything that is an Object hypothesis and calculate the colors
         object_hypotheses = self.get_cas().filter_annotations_by_type(
-            self.descriptor.parameters.analysis_scope
+            self.analysis_scope
         )
 
         for object_hypothesis in object_hypotheses:
@@ -469,7 +484,7 @@ class ClusterColorAnnotator(BaseAnnotator):
                 color_pixel_count,
                 color_ratio,
             ) in color_count_result_sorted_by_count:
-                if color_ratio > self.descriptor.parameters.ratio_annotation_threshold:
+                if color_ratio > self.minimum_annotated_color_ratio:
                     color_annotation = SemanticColor()
                     color_annotation.color = str(color_name.name.lower())
                     color_annotation.source = self.name
@@ -499,7 +514,7 @@ class ClusterColorAnnotator(BaseAnnotator):
             cci = self.cluster_color_info[i]
             dominant_color = cci[0][0]
             assert isinstance(dominant_color, Color)
-            dominant_color_value = self.color_name_to_bgr_values[dominant_color]
+            dominant_color_value = dominant_color.bgr
 
             upper_left = (roi.pos.x, roi.pos.y)
             upper_left_text = (roi.pos.x, roi.pos.y - 5)
@@ -565,7 +580,7 @@ class ClusterColorAnnotator(BaseAnnotator):
                 cv2.rectangle(
                     histogram_region,
                     hist_color_rect,
-                    self.color_name_to_bgr_values[hist_color],
+                    hist_color.bgr,
                     thickness=-1,
                 )
         return visualization_img

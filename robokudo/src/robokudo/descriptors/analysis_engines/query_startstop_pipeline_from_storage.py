@@ -32,6 +32,9 @@ from py_trees.behaviours import SuccessEveryN
 from py_trees.common import Status
 
 from robokudo.analysis_engine import AnalysisEngineInterface
+from robokudo.descriptors.camera_configs.config_mongodb_playback import (
+    MongoCameraConfig,
+)
 from robokudo.annotators.collection_reader import CollectionReaderAnnotator
 from robokudo.annotators.image_preprocessor import ImagePreprocessorAnnotator
 from robokudo.annotators.plane import PlaneAnnotator
@@ -43,9 +46,6 @@ from robokudo.annotators.vis import Redraw
 from robokudo.behaviours.action_server_checks import (
     ActionServerNoPreemptRequest,
     AbortGoal,
-)
-from robokudo.descriptors.factories.cr_descriptor_factory import (
-    CollectionReaderDescriptorFactory,
 )
 from robokudo.idioms import pipeline_init
 from robokudo.pipeline import Pipeline
@@ -111,13 +111,13 @@ class AnalysisEngine(AnalysisEngineInterface):
             The pipeline will automatically fail after 30 iterations to
             demonstrate error handling mechanisms.
         """
-        cr_storage_config = CollectionReaderDescriptorFactory.create_descriptor("mongo")
+        cr_storage_config = MongoCameraConfig()
 
         processing_sequence = Sequence(name="Stored Data Processing", memory=True)
         processing_sequence.add_children(
             [
-                CollectionReaderAnnotator(descriptor=cr_storage_config),
-                ImagePreprocessorAnnotator("ImagePreprocessor"),
+                CollectionReaderAnnotator(camera_config=cr_storage_config),
+                ImagePreprocessorAnnotator(name="ImagePreprocessor"),
                 PointcloudCropAnnotator(),
                 PlaneAnnotator(),
                 PointCloudClusterExtractor(),

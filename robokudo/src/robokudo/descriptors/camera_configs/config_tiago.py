@@ -1,7 +1,6 @@
 from __future__ import annotations
 from dataclasses import dataclass
 
-from typing_extensions import ClassVar
 
 from robokudo.descriptors.camera_configs.components import (
     RGBDComponent,
@@ -10,11 +9,12 @@ from robokudo.descriptors.camera_configs.components import (
     WorldDescriptorComponent,
 )
 from robokudo.descriptors.camera_configs.base_camera_config import BaseCameraConfig
+from robokudo.io.camera_interface import KinectCameraInterface
 
 
-@dataclass(slots=True)
+@dataclass(kw_only=True)
 class TiagoCameraConfig(
-    BaseCameraConfig,
+    BaseCameraConfig[KinectCameraInterface],
     RGBDComponent,
     TfComponent,
     StableViewpointComponent,
@@ -31,10 +31,6 @@ class TiagoCameraConfig(
         The configuration uses the Kinect interface type for compatibility with
         the Xtion camera, as both cameras use similar RGB-D data formats.
     """
-
-    registry_name: ClassVar[str] = "tiago"
-
-    interface_type: str = "Kinect"
 
     topic_depth: str = "/xtion/depth_registered/image_raw/compressedDepth"
 

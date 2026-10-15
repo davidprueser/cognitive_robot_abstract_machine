@@ -1,7 +1,8 @@
-"""Shape estimation for object hypotheses.
+"""
+Shape estimation for object hypotheses.
 
-This module provides a minimal, pure-Python annotator that fits primitive
-shape models to segmented object point clouds.
+This module provides a minimal, pure-Python annotator that fits primitive shape models
+to segmented object point clouds.
 """
 
 from __future__ import annotations
@@ -14,7 +15,7 @@ import open3d as o3d
 from py_trees.common import Status
 from typing_extensions import Any
 
-from robokudo.annotators.core import BaseAnnotator, ThreadedAnnotator
+from robokudo.annotators.core import ThreadedAnnotator
 from robokudo.types.annotation import Shape
 from robokudo.types.scene import ObjectHypothesis
 from robokudo.utils.shape_estimator_adapters import (
@@ -41,15 +42,19 @@ from robokudo.utils.shape_fitting import (
 
 @dataclass
 class CylinderAxisCandidate:
-    """Candidate axis direction together with a refitted cylinder."""
+    """
+    Candidate axis direction together with a refitted cylinder.
+    """
 
     source: str
     axis_direction: np.ndarray
     fit: CylinderFit
 
 
+@dataclass(kw_only=True)
 class ShapeEstimatorAnnotator(ThreadedAnnotator):
-    """Estimate one primitive shape per object hypothesis point cloud.
+    """
+    Estimate one primitive shape per object hypothesis point cloud.
 
     Overview:
     1. Validate input cloud (`minimum_point_count`) and optionally run
@@ -83,155 +88,224 @@ class ShapeEstimatorAnnotator(ThreadedAnnotator):
     objects.
     """
 
-    class Descriptor(BaseAnnotator.Descriptor):
-        """Configuration descriptor for shape estimation."""
+    minimum_point_count: int = 80
+    """
+    Minimum number of points required for fitting.
+    """
 
-        class Parameters:
-            """Parameter container for shape estimation."""
+    distance_threshold: float = 0.01
+    """
+    Inlier threshold used for all shape residuals.
+    """
 
-            def __init__(self) -> None:
-                self.minimum_point_count: int = 80
-                """Minimum number of points required for fitting."""
+    robust_loss: str = "soft_l1"
+    """
+    Robust loss used for non-linear least squares.
+    """
 
-                self.distance_threshold: float = 0.01
-                """Inlier threshold used for all shape residuals."""
+    minimum_inlier_ratio: float = 0.5
+    """
+    Minimum inlier ratio required for publishing a shape.
+    """
 
-                self.robust_loss: str = "soft_l1"
-                """Robust loss used for non-linear least squares."""
+    remove_statistical_outliers: bool = False
+    """
+    Whether statistical outlier removal is applied before fitting.
+    """
 
-                self.minimum_inlier_ratio: float = 0.5
-                """Minimum inlier ratio required for publishing a shape."""
+    outlier_neighbor_count: int = 30
+    """
+    Neighbor count for statistical outlier removal.
+    """
 
-                self.remove_statistical_outliers: bool = False
-                """Whether statistical outlier removal is applied before fitting."""
+    outlier_standard_deviation_ratio: float = 2.0
+    """
+    Standard deviation ratio for statistical outlier removal.
+    """
 
-                self.outlier_neighbor_count: int = 30
-                """Neighbor count for statistical outlier removal."""
+    fit_sphere: bool = False
+    """
+    Whether sphere fitting is enabled.
+    """
 
-                self.outlier_standard_deviation_ratio: float = 2.0
-                """Standard deviation ratio for statistical outlier removal."""
+    max_sphere_radius_meters: float = 0.4
+    """
+    Maximum allowed sphere radius.
+    """
 
-                self.fit_sphere: bool = False
-                """Whether sphere fitting is enabled."""
+    max_sphere_radius_to_bbox_diagonal_ratio: float = 1.0
+    """
+    Maximum allowed ratio between sphere radius and point cloud diagonal.
+    """
 
-                self.max_sphere_radius_meters: float = 0.4
-                """Maximum allowed sphere radius."""
+    max_sphere_radius_to_observed_extent_ratio: float = 0.8
+    """
+    Maximum allowed ratio between sphere radius and observed cloud extent.
+    """
 
-                self.max_sphere_radius_to_bbox_diagonal_ratio: float = 1.0
-                """Maximum allowed ratio between sphere radius and point cloud diagonal."""
+    max_sphere_center_distance_to_bbox_diagonal_ratio: float = 0.9
+    """
+    Maximum allowed ratio between center offset and point cloud diagonal.
+    """
 
-                self.max_sphere_radius_to_observed_extent_ratio: float = 0.8
-                """Maximum allowed ratio between sphere radius and observed cloud extent."""
+    fit_cylinder: bool = True
+    """
+    Whether cylinder fitting is enabled.
+    """
 
-                self.max_sphere_center_distance_to_bbox_diagonal_ratio: float = 0.9
-                """Maximum allowed ratio between center offset and point cloud diagonal."""
+    cylinder_minimum_inlier_ratio: float = 0.87
+    """
+    Minimum inlier ratio required for cylinder candidates.
+    """
 
-                self.fit_cylinder: bool = True
-                """Whether cylinder fitting is enabled."""
+    max_cylinder_radius_meters: float = 0.4
+    """
+    Maximum allowed cylinder radius.
+    """
 
-                self.cylinder_minimum_inlier_ratio: float = 0.87
-                """Minimum inlier ratio required for cylinder candidates."""
+    max_cylinder_height_meters: float = 1.0
+    """
+    Maximum allowed cylinder height.
+    """
 
-                self.max_cylinder_radius_meters: float = 0.4
-                """Maximum allowed cylinder radius."""
+    max_cylinder_radius_to_bbox_diagonal_ratio: float = 1.0
+    """
+    Maximum allowed ratio between cylinder radius and cloud diagonal.
+    """
 
-                self.max_cylinder_height_meters: float = 1.0
-                """Maximum allowed cylinder height."""
+    max_cylinder_radius_to_cross_section_extent_ratio: float = 0.95
+    """
+    Maximum allowed ratio between cylinder radius and observed cross-section extent.
+    """
 
-                self.max_cylinder_radius_to_bbox_diagonal_ratio: float = 1.0
-                """Maximum allowed ratio between cylinder radius and cloud diagonal."""
+    max_cylinder_center_distance_to_bbox_diagonal_ratio: float = 0.8
+    """
+    Maximum allowed ratio between axis center offset and cloud diagonal.
+    """
 
-                self.max_cylinder_radius_to_cross_section_extent_ratio: float = 0.95
-                """Maximum allowed ratio between cylinder radius and observed cross-section extent."""
+    cylinder_max_initializations: int = 12
+    """
+    Maximum number of cylinder initialization hypotheses for multi-start optimization.
+    """
 
-                self.max_cylinder_center_distance_to_bbox_diagonal_ratio: float = 0.8
-                """Maximum allowed ratio between axis center offset and cloud diagonal."""
+    cylinder_consensus_trials: int = 30
+    """
+    Number of random axis hypotheses used to seed cylinder multi-start optimization.
+    """
 
-                self.cylinder_max_initializations: int = 12
-                """Maximum number of cylinder initialization hypotheses for multi-start optimization."""
+    cylinder_inlier_polishing_iterations: int = 0
+    """
+    Number of post-optimization inlier-only polishing iterations for cylinder fitting.
+    """
 
-                self.cylinder_consensus_trials: int = 30
-                """Number of random axis hypotheses used to seed cylinder multi-start optimization."""
+    stabilize_cylinder_axis_with_principal_axis: bool = True
+    """
+    Whether cylinder axis should be stabilized using point principal axis.
+    """
 
-                self.cylinder_inlier_polishing_iterations: int = 0
-                """Number of post-optimization inlier-only polishing iterations for cylinder fitting."""
+    cylinder_axis_stabilization_trigger_degrees: float = 8.0
+    """
+    Minimum axis deviation angle required to trigger cylinder stabilization.
+    """
 
-                self.stabilize_cylinder_axis_with_principal_axis: bool = True
-                """Whether cylinder axis should be stabilized using point principal axis."""
+    cylinder_axis_stabilization_max_score_drop: float = 0.08
+    """
+    Maximum tolerated score drop for accepting stabilized cylinder.
+    """
 
-                self.cylinder_axis_stabilization_trigger_degrees: float = 8.0
-                """Minimum axis deviation angle required to trigger cylinder stabilization."""
+    prefer_upright_cylinder_axis: bool = True
+    """
+    Whether an upright preferred axis should be favored when scores are close.
+    """
 
-                self.cylinder_axis_stabilization_max_score_drop: float = 0.08
-                """Maximum tolerated score drop for accepting stabilized cylinder."""
+    preferred_cylinder_axis_direction: tuple[float, float, float] = (
+        0.0,
+        0.0,
+        1.0,
+    )
+    """
+    Preferred global cylinder axis direction used as stabilization prior.
+    """
 
-                self.prefer_upright_cylinder_axis: bool = True
-                """Whether an upright preferred axis should be favored when scores are close."""
+    upright_cylinder_axis_score_tolerance: float = 0.05
+    """
+    Maximum score gap for preferring a more upright cylinder axis.
+    """
 
-                self.preferred_cylinder_axis_direction: tuple[float, float, float] = (
-                    0.0,
-                    0.0,
-                    1.0,
-                )
-                """Preferred global cylinder axis direction used as stabilization prior."""
+    fit_cuboid: bool = True
+    """
+    Whether cuboid fitting is enabled.
+    """
 
-                self.upright_cylinder_axis_score_tolerance: float = 0.05
-                """Maximum score gap for preferring a more upright cylinder axis."""
+    max_cuboid_extent_meters: float = 0.6
+    """
+    Maximum allowed cuboid edge length for any axis.
+    """
 
-                self.fit_cuboid: bool = True
-                """Whether cuboid fitting is enabled."""
+    cuboid_distance_threshold: float = 0.015
+    """
+    Inlier threshold used specifically for cuboid fitting.
+    """
 
-                self.max_cuboid_extent_meters: float = 0.6
-                """Maximum allowed cuboid edge length for any axis."""
+    cuboid_minimum_inlier_ratio: float = 0.35
+    """
+    Minimum inlier ratio required for cuboid candidates.
+    """
 
-                self.cuboid_distance_threshold: float = 0.015
-                """Inlier threshold used specifically for cuboid fitting."""
+    selection_score_tolerance: float = 0.05
+    """
+    Maximum score gap for considering two fits equivalent.
+    """
 
-                self.cuboid_minimum_inlier_ratio: float = 0.35
-                """Minimum inlier ratio required for cuboid candidates."""
+    prefer_cuboid_when_score_close: bool = True
+    """
+    Whether cuboids should be preferred when scores are close.
+    """
 
-                self.selection_score_tolerance: float = 0.05
-                """Maximum score gap for considering two fits equivalent."""
+    cuboid_preference_score_margin: float = 0.06
+    """
+    Maximum score gap to still prefer a box-like cuboid candidate.
+    """
 
-                self.prefer_cuboid_when_score_close: bool = True
-                """Whether cuboids should be preferred when scores are close."""
+    cuboid_preference_inlier_ratio_tolerance: float = 0.05
+    """
+    Maximum inlier-ratio gap to still prefer a cuboid.
+    """
 
-                self.cuboid_preference_score_margin: float = 0.06
-                """Maximum score gap to still prefer a box-like cuboid candidate."""
+    cuboid_box_like_cross_section_asymmetry_threshold: float = 0.12
+    """
+    Minimum cross-section asymmetry to classify a cuboid as box-like.
+    """
 
-                self.cuboid_preference_inlier_ratio_tolerance: float = 0.05
-                """Maximum inlier-ratio gap to still prefer a cuboid."""
+    cuboid_box_like_cube_axis_similarity_tolerance: float = 0.12
+    """
+    Maximum axis spread ratio to classify a cuboid as cube-like.
+    """
 
-                self.cuboid_box_like_cross_section_asymmetry_threshold: float = 0.12
-                """Minimum cross-section asymmetry to classify a cuboid as box-like."""
+    stabilize_ambiguous_cuboid_orientation: bool = True
+    """
+    Whether ambiguous cuboid in-plane orientation should be stabilized.
+    """
 
-                self.cuboid_box_like_cube_axis_similarity_tolerance: float = 0.12
-                """Maximum axis spread ratio to classify a cuboid as cube-like."""
+    cuboid_ambiguous_in_plane_extent_relative_difference: float = 0.3
+    """
+    Maximum relative in-plane extent difference treated as orientation-ambiguous.
+    """
 
-                self.stabilize_ambiguous_cuboid_orientation: bool = True
-                """Whether ambiguous cuboid in-plane orientation should be stabilized."""
+    log_candidate_metrics: bool = True
+    """
+    Whether candidate metrics are logged on debug level.
+    """
 
-                self.cuboid_ambiguous_in_plane_extent_relative_difference: float = 0.3
-                """Maximum relative in-plane extent difference treated as orientation-ambiguous."""
-
-                self.log_candidate_metrics: bool = True
-                """Whether candidate metrics are logged on debug level."""
-
-                self.log_rejection_reasons: bool = True
-                """Whether shape rejection reasons are logged when metrics logging is enabled."""
-
-        parameters = Parameters()
-
-    def __init__(
-        self,
-        name: str = "ShapeEstimatorAnnotator",
-        descriptor: ShapeEstimatorAnnotator.Descriptor | None = None,
-    ) -> None:
-        """Initialize the shape estimator annotator."""
-        super().__init__(name=name, descriptor=descriptor)
+    log_rejection_reasons: bool = True
+    """
+    Whether shape rejection reasons are logged when metrics logging is enabled.
+    """
 
     def compute(self) -> Status:
-        """Estimate shapes and publish annotations and 3D visualizations."""
+        """
+        Estimate shapes and publish annotations and 3D visualizations.
+        """
         object_hypotheses = self.get_cas().filter_annotations_by_type(ObjectHypothesis)
 
         total_object_hypotheses = 0
@@ -264,13 +338,15 @@ class ShapeEstimatorAnnotator(ThreadedAnnotator):
         self,
         object_hypothesis: ObjectHypothesis,
     ) -> tuple[Shape, list[dict[str, Any]]] | None:
-        """Estimate one shape candidate for a single object hypothesis."""
+        """
+        Estimate one shape candidate for a single object hypothesis.
+        """
         point_cloud = object_hypothesis.points
         if not self._valid_point_cloud(point_cloud):
             return None
 
         filtered_cloud, retained_point_indices = self._prepare_point_cloud(point_cloud)
-        if len(filtered_cloud.points) < self.descriptor.parameters.minimum_point_count:
+        if len(filtered_cloud.points) < self.minimum_point_count:
             return None
 
         points = np.asarray(filtered_cloud.points, dtype=np.float64)
@@ -304,19 +380,23 @@ class ShapeEstimatorAnnotator(ThreadedAnnotator):
         return shape_annotation, visual_geometries
 
     def _valid_point_cloud(self, point_cloud: o3d.geometry.PointCloud | None) -> bool:
-        """Return whether a point cloud has enough points for shape estimation."""
+        """
+        Return whether a point cloud has enough points for shape estimation.
+        """
         if point_cloud is None:
             return False
         if not isinstance(point_cloud, o3d.geometry.PointCloud):
             return False
-        return len(point_cloud.points) >= self.descriptor.parameters.minimum_point_count
+        return len(point_cloud.points) >= self.minimum_point_count
 
     def _collect_shape_candidates(
         self,
         object_hypothesis: ObjectHypothesis,
         points: np.ndarray,
     ) -> list[FittedShape]:
-        """Fit all enabled primitives and return accepted candidates."""
+        """
+        Fit all enabled primitives and return accepted candidates.
+        """
         candidates: list[FittedShape] = []
 
         for adapter, fit_parameters in self._enabled_shape_fit_requests():
@@ -335,68 +415,69 @@ class ShapeEstimatorAnnotator(ThreadedAnnotator):
     def _enabled_shape_fit_requests(
         self,
     ) -> list[tuple[ShapeFitAdapter, ShapeFitParameters]]:
-        """Return enabled shape fitters with explicit fit parameters."""
-        parameters = self.descriptor.parameters
+        """
+        Return enabled shape fitters with explicit fit parameters.
+        """
         fit_requests: list[tuple[ShapeFitAdapter, ShapeFitParameters]] = []
 
-        if parameters.fit_sphere:
+        if self.fit_sphere:
             fit_requests.append(
                 (
                     SPHERE_FIT_ADAPTER,
                     SphereFitParameters(
-                        distance_threshold=parameters.distance_threshold,
-                        robust_loss=parameters.robust_loss,
-                        max_radius=parameters.max_sphere_radius_meters,
+                        distance_threshold=self.distance_threshold,
+                        robust_loss=self.robust_loss,
+                        max_radius=self.max_sphere_radius_meters,
                         max_radius_to_bbox_diagonal_ratio=(
-                            parameters.max_sphere_radius_to_bbox_diagonal_ratio
+                            self.max_sphere_radius_to_bbox_diagonal_ratio
                         ),
                         max_radius_to_observed_extent_ratio=(
-                            parameters.max_sphere_radius_to_observed_extent_ratio
+                            self.max_sphere_radius_to_observed_extent_ratio
                         ),
                         max_center_distance_to_bbox_diagonal_ratio=(
-                            parameters.max_sphere_center_distance_to_bbox_diagonal_ratio
+                            self.max_sphere_center_distance_to_bbox_diagonal_ratio
                         ),
-                        min_inlier_ratio=parameters.minimum_inlier_ratio,
+                        min_inlier_ratio=self.minimum_inlier_ratio,
                     ),
                 )
             )
 
-        if parameters.fit_cylinder:
+        if self.fit_cylinder:
             fit_requests.append(
                 (
                     CYLINDER_FIT_ADAPTER,
                     CylinderFitParameters(
-                        distance_threshold=parameters.distance_threshold,
-                        robust_loss=parameters.robust_loss,
-                        max_radius=parameters.max_cylinder_radius_meters,
-                        max_height=parameters.max_cylinder_height_meters,
+                        distance_threshold=self.distance_threshold,
+                        robust_loss=self.robust_loss,
+                        max_radius=self.max_cylinder_radius_meters,
+                        max_height=self.max_cylinder_height_meters,
                         max_radius_to_bbox_diagonal_ratio=(
-                            parameters.max_cylinder_radius_to_bbox_diagonal_ratio
+                            self.max_cylinder_radius_to_bbox_diagonal_ratio
                         ),
                         max_radius_to_cross_section_extent_ratio=(
-                            parameters.max_cylinder_radius_to_cross_section_extent_ratio
+                            self.max_cylinder_radius_to_cross_section_extent_ratio
                         ),
                         max_axis_center_distance_to_bbox_diagonal_ratio=(
-                            parameters.max_cylinder_center_distance_to_bbox_diagonal_ratio
+                            self.max_cylinder_center_distance_to_bbox_diagonal_ratio
                         ),
-                        min_inlier_ratio=parameters.cylinder_minimum_inlier_ratio,
-                        max_initializations=parameters.cylinder_max_initializations,
-                        consensus_trials=parameters.cylinder_consensus_trials,
+                        min_inlier_ratio=self.cylinder_minimum_inlier_ratio,
+                        max_initializations=self.cylinder_max_initializations,
+                        consensus_trials=self.cylinder_consensus_trials,
                         inlier_polishing_iterations=(
-                            parameters.cylinder_inlier_polishing_iterations
+                            self.cylinder_inlier_polishing_iterations
                         ),
                     ),
                 )
             )
 
-        if parameters.fit_cuboid:
+        if self.fit_cuboid:
             fit_requests.append(
                 (
                     CUBOID_FIT_ADAPTER,
                     CuboidFitParameters(
-                        distance_threshold=parameters.cuboid_distance_threshold,
-                        max_extent=parameters.max_cuboid_extent_meters,
-                        min_inlier_ratio=parameters.cuboid_minimum_inlier_ratio,
+                        distance_threshold=self.cuboid_distance_threshold,
+                        max_extent=self.max_cuboid_extent_meters,
+                        min_inlier_ratio=self.cuboid_minimum_inlier_ratio,
                     ),
                 )
             )
@@ -410,7 +491,9 @@ class ShapeEstimatorAnnotator(ThreadedAnnotator):
         shape_name: str,
         fit_result: FittedShape | None,
     ) -> None:
-        """Append accepted candidate or log its rejection."""
+        """
+        Append accepted candidate or log its rejection.
+        """
         if fit_result is None:
             self._log_rejected_candidate(
                 object_hypothesis=object_hypothesis,
@@ -424,7 +507,9 @@ class ShapeEstimatorAnnotator(ThreadedAnnotator):
     def _postprocess_shape_candidate(
         self, fit_result: FittedShape | None, points: np.ndarray
     ) -> FittedShape | None:
-        """Apply annotator-level stabilization policies to fitted shape candidates."""
+        """
+        Apply annotator-level stabilization policies to fitted shape candidates.
+        """
         if isinstance(fit_result, CylinderFit):
             return self._stabilize_cylinder_axis_if_tilted(
                 cylinder_fit=fit_result,
@@ -438,56 +523,60 @@ class ShapeEstimatorAnnotator(ThreadedAnnotator):
         return fit_result
 
     def _cylinder_fit_constraints(self) -> CylinderFitConstraints:
-        """Return cylinder constraints from descriptor parameters."""
+        """
+        Return cylinder constraints from the configured parameters.
+        """
         return CylinderFitConstraints(
-            distance_threshold=self.descriptor.parameters.distance_threshold,
-            robust_loss=self.descriptor.parameters.robust_loss,
-            max_radius=self.descriptor.parameters.max_cylinder_radius_meters,
-            max_height=self.descriptor.parameters.max_cylinder_height_meters,
+            distance_threshold=self.distance_threshold,
+            robust_loss=self.robust_loss,
+            max_radius=self.max_cylinder_radius_meters,
+            max_height=self.max_cylinder_height_meters,
             max_radius_to_bbox_diagonal_ratio=(
-                self.descriptor.parameters.max_cylinder_radius_to_bbox_diagonal_ratio
+                self.max_cylinder_radius_to_bbox_diagonal_ratio
             ),
             max_radius_to_cross_section_extent_ratio=(
-                self.descriptor.parameters.max_cylinder_radius_to_cross_section_extent_ratio
+                self.max_cylinder_radius_to_cross_section_extent_ratio
             ),
             max_axis_center_distance_to_bbox_diagonal_ratio=(
-                self.descriptor.parameters.max_cylinder_center_distance_to_bbox_diagonal_ratio
+                self.max_cylinder_center_distance_to_bbox_diagonal_ratio
             ),
         )
 
     def _select_best_shape_candidate(
         self, candidates: list[FittedShape]
     ) -> FittedShape | None:
-        """Select the best shape candidate using descriptor preferences."""
+        """
+        Select the best shape candidate using the configured preferences.
+        """
         return select_best_shape(
             candidates=candidates,
-            score_tolerance=self.descriptor.parameters.selection_score_tolerance,
-            prefer_cuboid_when_close=self.descriptor.parameters.prefer_cuboid_when_score_close,
-            cuboid_preference_score_margin=(
-                self.descriptor.parameters.cuboid_preference_score_margin
-            ),
+            score_tolerance=self.selection_score_tolerance,
+            prefer_cuboid_when_close=self.prefer_cuboid_when_score_close,
+            cuboid_preference_score_margin=(self.cuboid_preference_score_margin),
             cuboid_preference_inlier_ratio_tolerance=(
-                self.descriptor.parameters.cuboid_preference_inlier_ratio_tolerance
+                self.cuboid_preference_inlier_ratio_tolerance
             ),
             cuboid_box_like_cross_section_asymmetry_threshold=(
-                self.descriptor.parameters.cuboid_box_like_cross_section_asymmetry_threshold
+                self.cuboid_box_like_cross_section_asymmetry_threshold
             ),
             cuboid_box_like_cube_axis_similarity_tolerance=(
-                self.descriptor.parameters.cuboid_box_like_cube_axis_similarity_tolerance
+                self.cuboid_box_like_cube_axis_similarity_tolerance
             ),
         )
 
     def _prepare_point_cloud(
         self, point_cloud: o3d.geometry.PointCloud
     ) -> tuple[o3d.geometry.PointCloud, np.ndarray]:
-        """Return a filtered point cloud and retained index mapping."""
+        """
+        Return a filtered point cloud and retained index mapping.
+        """
         filtered_cloud = copy.deepcopy(point_cloud)
         retained_point_indices = np.arange(len(filtered_cloud.points), dtype=np.int64)
 
-        if self.descriptor.parameters.remove_statistical_outliers:
+        if self.remove_statistical_outliers:
             _, inlier_indices = filtered_cloud.remove_statistical_outlier(
-                nb_neighbors=self.descriptor.parameters.outlier_neighbor_count,
-                std_ratio=self.descriptor.parameters.outlier_standard_deviation_ratio,
+                nb_neighbors=self.outlier_neighbor_count,
+                std_ratio=self.outlier_standard_deviation_ratio,
             )
             inlier_indices_as_array = np.asarray(inlier_indices, dtype=np.int64)
             filtered_cloud = filtered_cloud.select_by_index(
@@ -500,8 +589,10 @@ class ShapeEstimatorAnnotator(ThreadedAnnotator):
     def _stabilize_cylinder_axis_if_tilted(
         self, cylinder_fit: CylinderFit, points: np.ndarray
     ) -> CylinderFit:
-        """Stabilize cylinder axis using principal axes and optional upright prior."""
-        if not self.descriptor.parameters.stabilize_cylinder_axis_with_principal_axis:
+        """
+        Stabilize cylinder axis using principal axes and optional upright prior.
+        """
+        if not self.stabilize_cylinder_axis_with_principal_axis:
             return cylinder_fit
         if len(points) < 8:
             return cylinder_fit
@@ -529,7 +620,9 @@ class ShapeEstimatorAnnotator(ThreadedAnnotator):
     def _refit_cylinder_axis_candidates(
         self, cylinder_fit: CylinderFit, points: np.ndarray
     ) -> list[CylinderAxisCandidate]:
-        """Refit configured cylinder axis candidates and include the original fit."""
+        """
+        Refit configured cylinder axis candidates and include the original fit.
+        """
         candidate_fits: list[CylinderAxisCandidate] = [
             CylinderAxisCandidate(
                 source="original",
@@ -555,9 +648,7 @@ class ShapeEstimatorAnnotator(ThreadedAnnotator):
                 points=points,
                 fixed_axis_direction=aligned_axis_direction,
                 constraints=self._cylinder_fit_constraints(),
-                min_inlier_ratio=(
-                    self.descriptor.parameters.cylinder_minimum_inlier_ratio
-                ),
+                min_inlier_ratio=(self.cylinder_minimum_inlier_ratio),
             )
             if refitted_cylinder is None:
                 continue
@@ -575,7 +666,9 @@ class ShapeEstimatorAnnotator(ThreadedAnnotator):
     def _align_axis_with_reference(
         self, axis_direction: np.ndarray, reference_axis_direction: np.ndarray
     ) -> np.ndarray:
-        """Return an axis direction flipped to agree with a reference direction."""
+        """
+        Return an axis direction flipped to agree with a reference direction.
+        """
         aligned_axis_direction = np.asarray(axis_direction, dtype=np.float64).copy()
         if float(np.dot(aligned_axis_direction, reference_axis_direction)) < 0.0:
             aligned_axis_direction *= -1.0
@@ -586,20 +679,20 @@ class ShapeEstimatorAnnotator(ThreadedAnnotator):
         original_fit: CylinderFit,
         selected_candidate: CylinderAxisCandidate,
     ) -> bool:
-        """Return whether a stabilized cylinder candidate should replace the original."""
+        """
+        Return whether a stabilized cylinder candidate should replace the original.
+        """
         axis_deviation_degrees = self._axis_angle_degrees(
             original_fit.axis_direction, selected_candidate.axis_direction
         )
         if (
-            axis_deviation_degrees
-            <= self.descriptor.parameters.cylinder_axis_stabilization_trigger_degrees
+            axis_deviation_degrees <= self.cylinder_axis_stabilization_trigger_degrees
             and selected_candidate.fit.score <= original_fit.score
         ):
             return False
 
         minimum_accepted_score = (
-            original_fit.score
-            - self.descriptor.parameters.cylinder_axis_stabilization_max_score_drop
+            original_fit.score - self.cylinder_axis_stabilization_max_score_drop
         )
         if selected_candidate.fit.score < minimum_accepted_score:
             return False
@@ -611,13 +704,15 @@ class ShapeEstimatorAnnotator(ThreadedAnnotator):
         original_fit: CylinderFit,
         selected_candidate: CylinderAxisCandidate,
     ) -> None:
-        """Log an accepted cylinder-axis stabilization."""
-        if not self.descriptor.parameters.log_candidate_metrics:
+        """
+        Log an accepted cylinder-axis stabilization.
+        """
+        if not self.log_candidate_metrics:
             return
         axis_deviation_degrees = self._axis_angle_degrees(
             original_fit.axis_direction, selected_candidate.axis_direction
         )
-        self.rk_logger.info(
+        self.robokudo_logger.info(
             f"{self.name} stabilized cylinder axis: "
             f"source={selected_candidate.source}, "
             f"deviation={axis_deviation_degrees:.2f}deg, "
@@ -628,7 +723,9 @@ class ShapeEstimatorAnnotator(ThreadedAnnotator):
     def _collect_cylinder_axis_candidates(
         self, points: np.ndarray
     ) -> list[tuple[str, np.ndarray]]:
-        """Return candidate cylinder axis directions for stabilization."""
+        """
+        Return candidate cylinder axis directions for stabilization.
+        """
         candidate_axes: list[tuple[str, np.ndarray]] = []
         principal_axes = self._point_cloud_principal_axes(points)
         for principal_axis_index, principal_axis in enumerate(principal_axes):
@@ -653,7 +750,9 @@ class ShapeEstimatorAnnotator(ThreadedAnnotator):
         candidate_axis_direction: np.ndarray,
         similarity_threshold_degrees: float = 8.0,
     ) -> bool:
-        """Return whether candidate axis is similar to one axis already in the list."""
+        """
+        Return whether candidate axis is similar to one axis already in the list.
+        """
         for _, existing_axis_direction in existing_axis_candidates:
             angle = self._axis_angle_degrees(
                 existing_axis_direction, candidate_axis_direction
@@ -663,12 +762,14 @@ class ShapeEstimatorAnnotator(ThreadedAnnotator):
         return False
 
     def _preferred_cylinder_axis_direction(self) -> np.ndarray | None:
-        """Return configured preferred cylinder axis direction if valid."""
-        if not self.descriptor.parameters.prefer_upright_cylinder_axis:
+        """
+        Return configured preferred cylinder axis direction if valid.
+        """
+        if not self.prefer_upright_cylinder_axis:
             return None
 
         preferred_axis_direction = np.asarray(
-            self.descriptor.parameters.preferred_cylinder_axis_direction,
+            self.preferred_cylinder_axis_direction,
             dtype=np.float64,
         )
         if np.linalg.norm(preferred_axis_direction) < 1e-9:
@@ -678,7 +779,9 @@ class ShapeEstimatorAnnotator(ThreadedAnnotator):
     def _select_cylinder_axis_candidate(
         self, candidate_fits: list[CylinderAxisCandidate]
     ) -> CylinderAxisCandidate:
-        """Select one cylinder axis candidate by score and optional upright preference."""
+        """
+        Select one cylinder axis candidate by score and optional upright preference.
+        """
         best_candidate_by_score = max(
             candidate_fits, key=lambda candidate: candidate.fit.score
         )
@@ -689,9 +792,7 @@ class ShapeEstimatorAnnotator(ThreadedAnnotator):
         if preferred_axis_direction is None:
             return best_candidate_by_score
 
-        score_tolerance = (
-            self.descriptor.parameters.upright_cylinder_axis_score_tolerance
-        )
+        score_tolerance = self.upright_cylinder_axis_score_tolerance
         close_candidates = [
             candidate
             for candidate in candidate_fits
@@ -712,7 +813,9 @@ class ShapeEstimatorAnnotator(ThreadedAnnotator):
         )
 
     def _point_cloud_principal_axes(self, points: np.ndarray) -> list[np.ndarray]:
-        """Return principal point-cloud axes sorted by descending variance."""
+        """
+        Return principal point-cloud axes sorted by descending variance.
+        """
         centered_points = points - points.mean(axis=0)
         covariance_matrix = np.cov(centered_points.T)
         eigenvalues, eigenvectors = np.linalg.eigh(covariance_matrix)
@@ -725,7 +828,9 @@ class ShapeEstimatorAnnotator(ThreadedAnnotator):
     def _axis_angle_degrees(
         self, first_axis: np.ndarray, second_axis: np.ndarray
     ) -> float:
-        """Return unsigned angle in degrees between two axis directions."""
+        """
+        Return unsigned angle in degrees between two axis directions.
+        """
         normalized_first_axis = self._normalized_vector(first_axis)
         normalized_second_axis = self._normalized_vector(second_axis)
         cosine = float(
@@ -738,7 +843,9 @@ class ShapeEstimatorAnnotator(ThreadedAnnotator):
         return float(np.degrees(np.arccos(cosine)))
 
     def _normalized_vector(self, vector: np.ndarray) -> np.ndarray:
-        """Return normalized vector with safe fallback for near-zero norm."""
+        """
+        Return normalized vector with safe fallback for near-zero norm.
+        """
         norm = float(np.linalg.norm(vector))
         if norm < 1e-9:
             return np.asarray([0.0, 0.0, 1.0], dtype=np.float64)
@@ -747,8 +854,10 @@ class ShapeEstimatorAnnotator(ThreadedAnnotator):
     def _stabilize_cuboid_orientation_if_ambiguous(
         self, cuboid_fit: CuboidFit, points: np.ndarray
     ) -> CuboidFit:
-        """Stabilize in-plane cuboid orientation for near-square visible faces."""
-        if not self.descriptor.parameters.stabilize_ambiguous_cuboid_orientation:
+        """
+        Stabilize in-plane cuboid orientation for near-square visible faces.
+        """
+        if not self.stabilize_ambiguous_cuboid_orientation:
             return cuboid_fit
 
         extents = np.asarray(cuboid_fit.extents, dtype=np.float64)
@@ -784,7 +893,9 @@ class ShapeEstimatorAnnotator(ThreadedAnnotator):
     def _cuboid_orientation_axis_indices(
         self, extents: np.ndarray
     ) -> tuple[int, int, int]:
-        """Return normal-axis index followed by the two in-plane axis indices."""
+        """
+        Return normal-axis index followed by the two in-plane axis indices.
+        """
         smallest_axis_index = int(np.argmin(extents))
         in_plane_axis_indices = [
             axis_index for axis_index in range(3) if axis_index != smallest_axis_index
@@ -801,7 +912,9 @@ class ShapeEstimatorAnnotator(ThreadedAnnotator):
         first_in_plane_axis_index: int,
         second_in_plane_axis_index: int,
     ) -> bool:
-        """Return whether in-plane extents are close enough to stabilize."""
+        """
+        Return whether in-plane extents are close enough to stabilize.
+        """
         first_in_plane_extent = float(extents[first_in_plane_axis_index])
         second_in_plane_extent = float(extents[second_in_plane_axis_index])
         in_plane_extent_relative_difference = abs(
@@ -809,7 +922,7 @@ class ShapeEstimatorAnnotator(ThreadedAnnotator):
         ) / max(max(first_in_plane_extent, second_in_plane_extent), 1e-9)
         return (
             in_plane_extent_relative_difference
-            <= self.descriptor.parameters.cuboid_ambiguous_in_plane_extent_relative_difference
+            <= self.cuboid_ambiguous_in_plane_extent_relative_difference
         )
 
     def _stabilized_cuboid_rotation_matrix(
@@ -819,7 +932,9 @@ class ShapeEstimatorAnnotator(ThreadedAnnotator):
         first_in_plane_axis_index: int,
         second_in_plane_axis_index: int,
     ) -> np.ndarray | None:
-        """Return a cuboid rotation matrix with canonical in-plane axes."""
+        """
+        Return a cuboid rotation matrix with canonical in-plane axes.
+        """
         normal_axis = rotation_matrix[:, smallest_axis_index]
         normal_axis = normal_axis / max(np.linalg.norm(normal_axis), 1e-9)
         projected_reference_axis = self._first_projected_reference_axis(normal_axis)
@@ -850,7 +965,9 @@ class ShapeEstimatorAnnotator(ThreadedAnnotator):
     def _first_projected_reference_axis(
         self, normal_axis: np.ndarray
     ) -> np.ndarray | None:
-        """Return the first global reference axis that projects onto the cuboid plane."""
+        """
+        Return the first global reference axis that projects onto the cuboid plane.
+        """
         reference_axes = [
             np.asarray([1.0, 0.0, 0.0], dtype=np.float64),
             np.asarray([0.0, 1.0, 0.0], dtype=np.float64),
@@ -869,7 +986,9 @@ class ShapeEstimatorAnnotator(ThreadedAnnotator):
         original_first_axis: np.ndarray,
         original_second_axis: np.ndarray,
     ) -> tuple[np.ndarray, np.ndarray]:
-        """Return canonical in-plane axes aligned with the original axis signs."""
+        """
+        Return canonical in-plane axes aligned with the original axis signs.
+        """
         canonical_first_axis = projected_reference_axis / max(
             np.linalg.norm(projected_reference_axis), 1e-9
         )
@@ -893,16 +1012,18 @@ class ShapeEstimatorAnnotator(ThreadedAnnotator):
         points: np.ndarray,
         stabilized_rotation_matrix: np.ndarray,
     ) -> CuboidFit:
-        """Refit a stabilized cuboid and keep the original fit on failure."""
+        """
+        Refit a stabilized cuboid and keep the original fit on failure.
+        """
         stabilized_fit = refit_cuboid_with_fixed_orientation(
             points=points,
             fixed_rotation_matrix=stabilized_rotation_matrix,
             extent_support_indices=np.asarray(
                 cuboid_fit.inlier_indices, dtype=np.int64
             ),
-            distance_threshold=self.descriptor.parameters.cuboid_distance_threshold,
-            max_extent=self.descriptor.parameters.max_cuboid_extent_meters,
-            min_inlier_ratio=self.descriptor.parameters.cuboid_minimum_inlier_ratio,
+            distance_threshold=self.cuboid_distance_threshold,
+            max_extent=self.max_cuboid_extent_meters,
+            min_inlier_ratio=self.cuboid_minimum_inlier_ratio,
         )
         if stabilized_fit is None:
             return cuboid_fit
@@ -911,7 +1032,9 @@ class ShapeEstimatorAnnotator(ThreadedAnnotator):
     def _project_axis_onto_plane(
         self, axis: np.ndarray, plane_normal: np.ndarray
     ) -> np.ndarray:
-        """Project axis onto the plane orthogonal to the given plane normal."""
+        """
+        Project axis onto the plane orthogonal to the given plane normal.
+        """
         return np.asarray(axis, dtype=np.float64) - float(
             np.dot(axis, plane_normal)
         ) * np.asarray(plane_normal, dtype=np.float64)
@@ -921,7 +1044,9 @@ class ShapeEstimatorAnnotator(ThreadedAnnotator):
         object_hypothesis: ObjectHypothesis,
         local_indices: np.ndarray,
     ) -> list[int]:
-        """Map local point indices back to object hypothesis index space."""
+        """
+        Map local point indices back to object hypothesis index space.
+        """
         if len(object_hypothesis.point_indices) == 0:
             return local_indices.astype(np.int64).tolist()
 
@@ -946,7 +1071,9 @@ class ShapeEstimatorAnnotator(ThreadedAnnotator):
         filtered_cloud: o3d.geometry.PointCloud,
         best_fit: FittedShape,
     ) -> list[dict[str, Any]]:
-        """Create visualization geometries for one fitted object."""
+        """
+        Create visualization geometries for one fitted object.
+        """
         object_name = object_hypothesis.id if object_hypothesis.id != "" else "object"
         fit_adapter = adapter_for_fit(best_fit)
         shape_name = fit_adapter.shape_name
@@ -976,7 +1103,9 @@ class ShapeEstimatorAnnotator(ThreadedAnnotator):
     def _create_inlier_colored_cloud(
         self, cloud: o3d.geometry.PointCloud, inlier_indices: np.ndarray
     ) -> o3d.geometry.PointCloud:
-        """Return a copy of the cloud with inliers and outliers color coded."""
+        """
+        Return a copy of the cloud with inliers and outliers color coded.
+        """
         colored_cloud = copy.deepcopy(cloud)
         point_count = len(colored_cloud.points)
         colors = np.tile(
@@ -991,22 +1120,28 @@ class ShapeEstimatorAnnotator(ThreadedAnnotator):
         object_hypothesis: ObjectHypothesis,
         shape_name: str,
     ) -> None:
-        """Log one rejected shape candidate."""
-        if not self.descriptor.parameters.log_candidate_metrics:
+        """
+        Log one rejected shape candidate.
+        """
+        if not self.log_candidate_metrics:
             return
-        if not self.descriptor.parameters.log_rejection_reasons:
+        if not self.log_rejection_reasons:
             return
         object_name = object_hypothesis.id if object_hypothesis.id != "" else "object"
-        self.rk_logger.info(f"{self.name} rejected {shape_name} for {object_name}")
+        self.robokudo_logger.info(
+            f"{self.name} rejected {shape_name} for {object_name}"
+        )
 
     def _log_candidate_metrics(
         self, object_hypothesis: ObjectHypothesis, fit_result: FittedShape
     ) -> None:
-        """Log shape candidate metrics for debugging."""
-        if not self.descriptor.parameters.log_candidate_metrics:
+        """
+        Log shape candidate metrics for debugging.
+        """
+        if not self.log_candidate_metrics:
             return
         object_name = object_hypothesis.id if object_hypothesis.id != "" else "object"
-        self.rk_logger.info(
+        self.robokudo_logger.info(
             f"{self.name} candidate {object_name}: "
             f"{adapter_for_fit(fit_result).summary(fit_result)}"
         )
@@ -1014,11 +1149,13 @@ class ShapeEstimatorAnnotator(ThreadedAnnotator):
     def _log_selected_candidate(
         self, object_hypothesis: ObjectHypothesis, fit_result: FittedShape
     ) -> None:
-        """Log selected candidate metrics for debugging."""
-        if not self.descriptor.parameters.log_candidate_metrics:
+        """
+        Log selected candidate metrics for debugging.
+        """
+        if not self.log_candidate_metrics:
             return
         object_name = object_hypothesis.id if object_hypothesis.id != "" else "object"
-        self.rk_logger.info(
+        self.robokudo_logger.info(
             f"{self.name} selected {object_name}: "
             f"{adapter_for_fit(fit_result).summary(fit_result)}"
         )

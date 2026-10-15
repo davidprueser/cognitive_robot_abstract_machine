@@ -13,12 +13,15 @@ This module provides an annotator for:
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from py_trees.blackboard import Blackboard
 from py_trees.common import Status
 
 from robokudo.annotators.core import BaseAnnotator
 
 
+@dataclass(kw_only=True)
 class PipelineTrigger(BaseAnnotator):
     """
     Pipeline execution controller using triggers.
@@ -31,15 +34,7 @@ class PipelineTrigger(BaseAnnotator):
        The trigger is accessed via "pipeline_trigger" on the blackboard.
     """
 
-    def __init__(self, name: str = "PipelineTrigger") -> None:
-        """
-        Initialize the pipeline trigger.
-
-        :param name: Name of this annotator instance
-        """
-        super().__init__(name)
-
-    def update(self) -> Status:
+    def compute(self) -> Status:
         """
         Check trigger state and control pipeline execution.
 
@@ -52,7 +47,7 @@ class PipelineTrigger(BaseAnnotator):
 
         :return: SUCCESS if triggered, RUNNING otherwise
         """
-        self.rk_logger.debug("%s.update()" % (self.__class__.__name__))
+        self.robokudo_logger.debug("%s.update()" % (self.__class__.__name__))
         blackboard = Blackboard()
         pipeline_trigger = blackboard.get("pipeline_trigger")
 

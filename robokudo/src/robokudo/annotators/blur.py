@@ -1,4 +1,5 @@
-"""Image blur detection for RoboKudo.
+"""
+Image blur detection for RoboKudo.
 
 This module provides an annotator for calculating and visualizing image blur metrics
 using the Laplacian variance method. It can optionally halt pipeline execution if
@@ -13,8 +14,9 @@ blur exceeds a threshold.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import copy
-from timeit import default_timer
 
 import cv2
 from py_trees.common import Status
@@ -27,8 +29,10 @@ if TYPE_CHECKING:
     import numpy.typing as npt
 
 
+@dataclass(kw_only=True)
 class BlurAnnotator(BaseAnnotator):
-    """Annotator for calculating and visualizing image blur metrics.
+    """
+    Annotator for calculating and visualizing image blur metrics.
 
     This annotator:
 
@@ -41,34 +45,15 @@ class BlurAnnotator(BaseAnnotator):
        advancement when the blur threshold is exceeded.
     """
 
-    class Descriptor(BaseAnnotator.Descriptor):
-        """Configuration descriptor for blur detection."""
+    blur_threshold: float = 100.0
+    """
+    Threshold for acceptable blur level.
+    """
 
-        class Parameters:
-            """Parameters for configuring blur detection behavior."""
-
-            def __init__(self) -> None:
-                self.blur_threshold: float = 100.0
-                """Threshold for acceptable blur level"""
-
-                self.return_failure_above_threshold: bool = True
-                """Let this behaviour return failure to stop the advancement of the current pipeline"""
-
-        # Overwrite the parameters explicitly to enable auto-completion
-        parameters = Parameters()
-
-    def __init__(
-        self,
-        name: str = "BlurAnnotator",
-        descriptor: BlurAnnotator.Descriptor | None = None,
-    ) -> None:
-        """Initialize the blur annotator. Minimal one-time init!
-
-        :param name: Name of the annotator instance
-        :param descriptor: Configuration descriptor
-        """
-        super().__init__(name, descriptor)
-        self.logger.debug("%s.__init__()" % self.__class__.__name__)
+    return_failure_above_threshold: bool = True
+    """
+    Let this behaviour return failure to stop the advancement of the current pipeline.
+    """
 
     def compute_bluriness(self, img: npt.NDArray) -> float:
         """Compute the blur metric for an image.
@@ -85,8 +70,9 @@ class BlurAnnotator(BaseAnnotator):
         img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         return cv2.Laplacian(img, cv2.CV_64F).var()
 
-    def update(self) -> Status:
-        """Update blur detection and visualization.
+    def compute(self) -> Status:
+        """
+        Update blur detection and visualization.
 
         Creates visualizations containing:
 
@@ -95,8 +81,6 @@ class BlurAnnotator(BaseAnnotator):
 
         :return: SUCCESS if blur is acceptable, FAILURE if above threshold (if configured)
         """
-        start_timer = default_timer()
-
         cloud = self.get_cas().get(CASViews.CLOUD)
         color = self.get_cas().get(CASViews.COLOR_IMAGE)
 
@@ -123,6 +107,4 @@ class BlurAnnotator(BaseAnnotator):
         self.get_annotator_output_struct().set_geometries(vis_geometries)
         self.get_annotator_output_struct().set_image(visualization_img)
 
-        end_timer = default_timer()
-        self.feedback_message = f"Processing took {(end_timer - start_timer):.4f}s"
         return Status.SUCCESS

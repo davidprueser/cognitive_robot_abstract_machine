@@ -10,16 +10,20 @@ import robokudo.utils.module_loader as module_loader
 from robokudo.exceptions import WorldDescriptorLoadError
 
 if TYPE_CHECKING:
-    from robokudo.annotators.core import BaseAnnotator
+    from robokudo.annotators.world_descriptor_bootstrap import (
+        WorldDescriptorBootstrapAnnotator,
+    )
     from robokudo.world_descriptor import BaseWorldDescriptor
 
 
-def load_world_descriptor(annotator: BaseAnnotator) -> BaseWorldDescriptor:
+def load_world_descriptor(
+    annotator: WorldDescriptorBootstrapAnnotator,
+) -> BaseWorldDescriptor:
     """
-    Load world descriptor from annotator parameters.
+    Load the world descriptor the annotator is configured with.
     """
-    ros_package = annotator.descriptor.parameters.world_descriptor_ros_package
-    module_name = annotator.descriptor.parameters.world_descriptor_name
+    ros_package = annotator.world_descriptor_ros_package
+    module_name = annotator.world_descriptor_name
     loader = module_loader.ModuleLoader()
     try:
         return loader.load_world_descriptor(ros_package, module_name)

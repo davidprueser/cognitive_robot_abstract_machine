@@ -21,13 +21,13 @@ The pipeline implements the following functionality:
 from __future__ import annotations
 
 from robokudo.analysis_engine import AnalysisEngineInterface
+from robokudo.descriptors.camera_configs.config_mongodb_playback import (
+    MongoCameraConfig,
+)
 from robokudo.annotators.collection_reader import CollectionReaderAnnotator
 from robokudo.annotators.image_preprocessor import ImagePreprocessorAnnotator
 from robokudo.annotators.object_hypothesis_visualizer import ObjectHypothesisVisualizer
 from robokudo.annotators.static_object_detector import StaticObjectDetectorAnnotator
-from robokudo.descriptors.factories.cr_descriptor_factory import (
-    CollectionReaderDescriptorFactory,
-)
 from robokudo.idioms import pipeline_init
 from robokudo.pipeline import Pipeline
 
@@ -76,21 +76,20 @@ class AnalysisEngine(AnalysisEngineInterface):
 
         :return: The configured pipeline for static object detection
         """
-        cr_storage_config = CollectionReaderDescriptorFactory.create_descriptor("mongo")
-
-        sod = StaticObjectDetectorAnnotator.Descriptor()
-        sod.parameters.bounding_box_x = 40
-        sod.parameters.bounding_box_y = 40
-        sod.parameters.bounding_box_width = 100
-        sod.parameters.bounding_box_height = 60
+        cr_storage_config = MongoCameraConfig()
 
         seq = Pipeline("StoragePipeline")
         seq.add_children(
             [
                 pipeline_init(),
-                CollectionReaderAnnotator(descriptor=cr_storage_config),
-                ImagePreprocessorAnnotator("ImagePreprocessor"),
-                StaticObjectDetectorAnnotator(descriptor=sod),
+                CollectionReaderAnnotator(camera_config=cr_storage_config),
+                ImagePreprocessorAnnotator(name="ImagePreprocessor"),
+                StaticObjectDetectorAnnotator(
+                    bounding_box_x=40,
+                    bounding_box_y=40,
+                    bounding_box_width=100,
+                    bounding_box_height=60,
+                ),
                 ObjectHypothesisVisualizer(),
             ]
         )

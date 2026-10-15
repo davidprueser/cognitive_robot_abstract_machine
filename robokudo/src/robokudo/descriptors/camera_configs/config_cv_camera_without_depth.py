@@ -7,17 +7,18 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 import cv2
-from typing_extensions import TYPE_CHECKING, Any, ClassVar
+from typing_extensions import TYPE_CHECKING, Any
 
 from robokudo.descriptors.camera_configs.base_camera_config import BaseCameraConfig
+from robokudo.io.camera_without_depth_interface import OpenCVCameraWithoutDepthInterface
 from robokudo.types.cv import ColorToDepthRatio
 
 if TYPE_CHECKING:
     import numpy.typing as npt
 
 
-@dataclass(slots=True)
-class OpenCVCameraConfig(BaseCameraConfig):
+@dataclass(kw_only=True)
+class OpenCVCameraConfig(BaseCameraConfig[OpenCVCameraWithoutDepthInterface]):
     """
     Configuration class for OpenCV-based cameras without depth information.
 
@@ -29,10 +30,6 @@ class OpenCVCameraConfig(BaseCameraConfig):
         When using image sequences as input, the first image must have a number
         between 0 and 4, and there cannot be any gaps in the sequence numbering.
     """
-
-    registry_name: ClassVar[str] = "opencv"
-
-    interface_type: str = "OpenCV"
 
     device: int | str = 0
     """
@@ -75,11 +72,6 @@ class OpenCVCameraConfig(BaseCameraConfig):
     depth: npt.NDArray | None = None
     """
     Static depth image, which is used as depth image for all rgb images.
-    """
-
-    update_global_with_depth_parameter: bool = True
-    """
-    Flag to update global depth parameters.
     """
 
     camera_info: dict[str, Any] = None

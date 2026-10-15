@@ -20,18 +20,18 @@ The module is used for:
 
 from __future__ import annotations
 
-from timeit import default_timer
+from dataclasses import dataclass, field
+
 
 from py_trees.common import Status
 from semantic_digital_twin.world_description.world_entity import Region
 from typing_extensions import TYPE_CHECKING
 
 import robokudo.world as rk_world
-from robokudo.annotators.core import BaseAnnotator, ThreadedAnnotator
+from robokudo.annotators.core import ThreadedAnnotator
 from robokudo.types.annotation import LocationAnnotation
 from robokudo.types.scene import ObjectHypothesis
 from robokudo.utils.annotator_helper import get_world_to_camera_transform_matrix
-from robokudo.utils.error_handling import catch_and_raise_to_blackboard
 from robokudo.utils.region import region_obb_in_camera_coordinates
 
 if TYPE_CHECKING:
@@ -40,8 +40,10 @@ if TYPE_CHECKING:
     import numpy.typing as npt
 
 
+@dataclass(kw_only=True)
 class LocationAnnotator(ThreadedAnnotator):
-    """Determine object locations within semantic regions.
+    """
+    Determine object locations within semantic regions.
 
     The purpose of this location annotator is to receive a list of intriguing regions and incorporate the
     corresponding region names into the location annotations for objects that reside within those specific regions.
@@ -56,36 +58,22 @@ class LocationAnnotator(ThreadedAnnotator):
     * Handles coordinate frame transformations
     """
 
-    class Descriptor(BaseAnnotator.Descriptor):
-        """Configuration descriptor for location annotator."""
+    percentage: int = 50
+    """
+    Threshold percentage for an object to be considered in a region.
+    """
 
-        class Parameters:
-            """Parameter container for location configuration."""
+    world_frame_name: str = "map"
+    """
+    Name of the world coordinate frame.
+    """
 
-            def __init__(self) -> None:
-                self.percentage: int = 50
-                """Threshold percentage for an object to be considered in a region"""
+    desired_regions: list[str] = field(default_factory=lambda: ["kitchen_island"])
+    """
+    List of region names to consider.
 
-                self.world_frame_name: str = "map"
-                """Name of the world coordinate frame"""
-
-                self.desired_regions: list[str] = ["kitchen_island"]
-                """List of region names to consider. Leave empty to include all regions."""
-
-        # overwrite the parameters explicitly to enable auto-completion
-        parameters = Parameters()
-
-    def __init__(
-        self,
-        name: str = "LocationAnnotator",
-        descriptor: LocationAnnotator.Descriptor | None = None,
-    ) -> None:
-        """Initialize the location annotator.
-
-        :param name: Annotator name
-        :param descriptor: Configuration descriptor
-        """
-        super().__init__(name=name, descriptor=descriptor)
+    Leave empty to include all regions.
+    """
 
     def add_location_in_object_hypotheses(
         self,
@@ -93,7 +81,8 @@ class LocationAnnotator(ThreadedAnnotator):
         world_to_camera_transform_matrix: npt.NDArray,
         object_hypotheses: Iterable[ObjectHypothesis],
     ) -> None:
-        """Add location annotations to objects within a region.
+        """
+        Add location annotations to objects within a region.
 
         For each object hypothesis:
 
@@ -121,16 +110,16 @@ class LocationAnnotator(ThreadedAnnotator):
                 continue
             # Calculate the percentage
             percentage_indices_inside = (len(object_indices) / total_indices) * 100
-            if percentage_indices_inside >= self.descriptor.parameters.percentage:
+            if percentage_indices_inside >= self.percentage:
                 # Create a location annotation object
                 location_annotation = LocationAnnotation()
                 location_annotation.region = region
                 location_annotation.name = str(region.name)
                 object_hypothesis.annotations.append(location_annotation)
 
-    @catch_and_raise_to_blackboard
     def compute(self) -> Status:
-        """Process object hypotheses to determine their locations.
+        """
+        Process object hypotheses to determine their locations.
 
         The method:
 
@@ -143,7 +132,6 @@ class LocationAnnotator(ThreadedAnnotator):
 
         :return: SUCCESS after processing
         """
-        start_timer = default_timer()
         runtime_world = rk_world.world_instance()
         regions = runtime_world.get_kinematic_structure_entity_by_type(Region)
         active_regions = {str(region.name): region for region in regions}
@@ -156,20 +144,18 @@ class LocationAnnotator(ThreadedAnnotator):
 
         for region_name, region in active_regions.items():
 
-            if len(self.descriptor.parameters.desired_regions) == 0:
+            if len(self.desired_regions) == 0:
                 self.add_location_in_object_hypotheses(
                     region,
                     world_to_camera_transform_matrix,
                     object_hypotheses,
                 )
 
-            elif region_name in self.descriptor.parameters.desired_regions:
+            elif region_name in self.desired_regions:
                 self.add_location_in_object_hypotheses(
                     region,
                     world_to_camera_transform_matrix,
                     object_hypotheses,
                 )
 
-        end_timer = default_timer()
-        self.feedback_message = f"Processing took {(end_timer - start_timer):.4f}s"
         return Status.SUCCESS

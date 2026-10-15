@@ -14,133 +14,86 @@ The annotators follow these principles:
 
 from __future__ import annotations
 
-import functools
+from abc import ABC, abstractmethod
+from dataclasses import dataclass
 
 from py_trees.common import Status
 from typing_extensions import Callable
 
 from robokudo.annotators.core import BaseAnnotator
 from robokudo.cas import CAS
-from robokudo.exceptions import CASCheckConfigurationError, CASCheckFailed
+from robokudo.exceptions import CASCheckFailed
+from robokudo.types.core import Annotation
 from robokudo.types.scene import ObjectHypothesis
 
+# %% checks
 
-class CASCheckFunc(BaseAnnotator):
+
+@dataclass(kw_only=True)
+class CASCheck(BaseAnnotator, ABC):
     """
-    Function-based CAS condition checker.
-
-    Evaluates a given function that checks conditions in the CAS and returns:
-
-    * SUCCESS if function returns True
-    * FAILURE if function returns False
-
-    .. warning::
-       Will raise an exception if initialized without a function.
+    Succeeds if a condition on the CAS holds and fails otherwise.
     """
 
-    def __init__(
-        self,
-        name: str = "CASCheckFunc",
-        func: Callable[[CAS], bool] | None = None,
-        raise_with_str: str = "",
-    ) -> None:
-        """
-        Initialize the CAS condition checker.
+    failure_reason: str = ""
+    """
+    If set, a condition that does not hold raises :class:`CASCheckFailed` with this
+    reason instead of failing, so that the query interface reports it to the caller.
+    """
 
-        :param name: Name of this node in the behavior tree
-        :param func: Function that evaluates CAS conditions, must return bool
-        :param raise_with_str: Error message to raise on failure, empty string disables
-            raising
-        :raises CASCheckConfigurationError: If func is None
+    @abstractmethod
+    def holds(self, cas: CAS) -> bool:
         """
-        super(CASCheckFunc, self).__init__(name=name)
-        if func is None:
-            raise CASCheckConfigurationError(component_name=name)
-        self.func = func
-        self.raise_with_str = raise_with_str
+        :param cas: The CAS to check.
+        :return: Whether the condition holds.
+        """
 
-    def update(self) -> Status:
+    def compute(self) -> Status:
         """
-        Check the CAS condition.
-
-        :return: SUCCESS if condition is True, FAILURE if False
-        :raises CASCheckFailed: If raise_with_str is set and condition is False
+        :return: Success if the condition holds, failure otherwise.
+        :raises CASCheckFailed: If it does not hold and :attr:`failure_reason` is set.
         """
-        cas = self.get_cas()
-        if self.func(cas):
+        if self.holds(self.get_cas()):
             return Status.SUCCESS
-        else:
-            if self.raise_with_str != "":
-                raise CASCheckFailed(reason=self.raise_with_str)
-            else:
-                return Status.FAILURE
+        if self.failure_reason != "":
+            raise CASCheckFailed(reason=self.failure_reason)
+        return Status.FAILURE
 
 
-def any_of_type_present(annotation_type: type, cas: CAS) -> bool:
+@dataclass(kw_only=True)
+class CASCheckFunc(CASCheck):
     """
-    Check if any annotations of a specific type exist in the CAS.
-
-    :param annotation_type: Type of annotation to check for
-    :param cas: Common Analysis System instance
-    :return: True if at least one annotation exists, False otherwise
-    """
-    annotations = cas.filter_annotations_by_type(annotation_type)
-    return len(annotations) > 0
-
-
-class CASCheckAnnotationTypeExists(CASCheckFunc):
-    """
-    Check for existence of specific annotation types.
-
-    Specialized CASCheckFunc that:
-
-    * Checks for presence of specific annotation types
-    * Returns SUCCESS if at least one annotation exists
-    * Returns FAILURE if no annotations exist
+    Checks the condition a given function evaluates.
     """
 
-    def __init__(
-        self,
-        name: str = "CASCheckAnnotationTypeExists",
-        annotation_type: type | None = None,
-        raise_with_str: str = "",
-    ) -> None:
-        """
-        Initialize annotation type checker.
+    check: Callable[[CAS], bool]
+    """
+    Evaluates the condition on the CAS.
+    """
 
-        :param name: Name of this node in the behavior tree
-        :param annotation_type: Type of annotation to check for
-        :param raise_with_str: Error message to raise on failure, empty string disables
-            raising. This is useful in scenarios where you want to raise an error which
-            will be sent via the Query Interface to the caller.
-        """
-        func = functools.partial(any_of_type_present, annotation_type)
-        super(CASCheckAnnotationTypeExists, self).__init__(
-            name=name, func=func, raise_with_str=raise_with_str
-        )
+    def holds(self, cas: CAS) -> bool:
+        return self.check(cas)
 
 
+@dataclass(kw_only=True)
+class CASCheckAnnotationTypeExists(CASCheck):
+    """
+    Checks that the CAS holds at least one annotation of a type.
+    """
+
+    annotation_type: type[Annotation]
+    """
+    The type of annotation that has to be present.
+    """
+
+    def holds(self, cas: CAS) -> bool:
+        return len(cas.filter_annotations_by_type(self.annotation_type)) > 0
+
+
+@dataclass(kw_only=True)
 class CASCheckOHExists(CASCheckAnnotationTypeExists):
     """
-    Check for existence of ObjectHypothesis annotations.
-
-    Specialized CASCheckAnnotationTypeExists that:
-
-    * Specifically checks for ObjectHypothesis annotations
-    * Returns SUCCESS if any ObjectHypothesis exists
-    * Returns FAILURE if no ObjectHypothesis exists
+    Checks that the CAS holds at least one object hypothesis.
     """
 
-    def __init__(
-        self, name: str = "CASCheckOHExists", raise_with_str: str = ""
-    ) -> None:
-        """
-        Initialize ObjectHypothesis checker.
-
-        :param name: Name of this node in the behavior tree
-        :param raise_with_str: Error message to raise on failure, empty string disables
-            raising
-        """
-        super(CASCheckOHExists, self).__init__(
-            name=name, annotation_type=ObjectHypothesis, raise_with_str=raise_with_str
-        )
+    annotation_type: type[Annotation] = ObjectHypothesis

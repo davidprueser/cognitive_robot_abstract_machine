@@ -1,4 +1,6 @@
 from __future__ import annotations
+
+from dataclasses import dataclass, field
 from py_trees.common import Status
 
 from robokudo.annotators.core import BaseAnnotator
@@ -13,18 +15,25 @@ from robokudo.types.scene import ObjectHypothesis
 from robokudo.utils.hypothesis_comparators import ObjectHypothesisComparator
 
 
+@dataclass(kw_only=True)
 class ObjectAssociator(BaseAnnotator):
     """
     An annotator that associates the objects of the current iteration with the objects
     of the last iteration.
     """
 
-    def __init__(self, name: str = "ObjectAssociator") -> None:
-        super().__init__(name)
-        self.rk_logger.debug("%s.__init__()" % self.__class__.__name__)
+    tracked_objects: list[ObjectHypothesis] = field(default_factory=list, init=False)
+    """
+    The objects seen so far, matched against the objects of each new CAS.
+    """
 
-        self.tracked_objects: list[ObjectHypothesis] = []
+    obj_comparator: ObjectHypothesisComparator = field(init=False, repr=False)
+    """
+    Measures how similar two object hypotheses are.
+    """
 
+    def __post_init__(self) -> None:
+        super().__post_init__()
         self.obj_comparator = (
             ObjectHypothesisComparator(self.get_cas)
             .with_comparator_for(PoseAnnotation, 0.3, max_distance=0.5)
@@ -34,7 +43,7 @@ class ObjectAssociator(BaseAnnotator):
             .with_comparator_for(ImageROI, 0.1)
         )
 
-    def update(self) -> Status:
+    def compute(self) -> Status:
         new_ohs: list[ObjectHypothesis] = self.get_cas().filter_annotations_by_type(
             ObjectHypothesis
         )
@@ -57,14 +66,14 @@ class ObjectAssociator(BaseAnnotator):
                     best_similarity = similarity
 
             if best_match_id is not None and best_similarity > 0.5:
-                self.rk_logger.info(
+                self.robokudo_logger.info(
                     f"Associate object {new_oh.id} with {best_match_id} ({self.tracked_objects[best_match_id].id})."
                 )
                 matched_new_ids.add(best_match_id)
                 self.tracked_objects[best_match_id] = new_oh
             else:
                 self.tracked_objects.append(new_oh)
-                self.rk_logger.info(
+                self.robokudo_logger.info(
                     f"Discovered new object {len(self.tracked_objects)}"
                 )
         return Status.SUCCESS

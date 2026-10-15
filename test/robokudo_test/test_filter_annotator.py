@@ -34,9 +34,7 @@ def test_filter_annotator_keeps_only_annotations_matching_configured_function() 
     classification = Classification(classname="cup")
     color = SemanticColor(color="red")
     annotator.get_cas().annotations = [classification, color]
-    annotator.descriptor.parameters.func = lambda annotation: isinstance(
-        annotation, Classification
-    )
+    annotator.function = lambda annotation: isinstance(annotation, Classification)
 
     status = annotator.update()
 
@@ -60,9 +58,9 @@ def test_filter_annotator_passes_configured_function_args_and_kwargs() -> None:
             and annotation.confidence >= minimum_confidence
         )
 
-    annotator.descriptor.parameters.func = matches_class_with_minimum_confidence
-    annotator.descriptor.parameters.func_args = ("cup",)
-    annotator.descriptor.parameters.func_kwargs = {"minimum_confidence": 0.5}
+    annotator.function = matches_class_with_minimum_confidence
+    annotator.arguments = ("cup",)
+    annotator.keyword_arguments = {"minimum_confidence": 0.5}
 
     status = annotator.update()
 

@@ -11,6 +11,9 @@ import json
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from krrood.utils import get_default_value
+from typing_extensions import Any
+
 import numpy as np
 import pytest
 from py_trees.common import Status
@@ -43,7 +46,7 @@ class CupScene(BlackWallScene):
 
     class_names: dict[int, str] = field(
         default_factory=lambda: {
-            0: YoloAnnotator.Descriptor.Parameters().person_class_name,
+            0: get_default_value(YoloAnnotator, "person_class_name"),
             41: "cup",
             46: "banana",
         }
@@ -77,26 +80,29 @@ class CupScene(BlackWallScene):
         """
         return [int(corner) for corner in self.cup_box.corners_in(self.color_image())]
 
-    def descriptor(self) -> YoloAnnotator.Descriptor:
+    def annotator(self, **configuration: Any) -> YoloAnnotator:
         """
-        :return: A descriptor loading the pretrained model and ignoring depth.
+        :param configuration: Fields overriding the scene's configuration.
+        :return: An annotator loading the pretrained model and ignoring depth.
         """
-        descriptor = YoloAnnotator.Descriptor()
-        descriptor.parameters.models_directory = self.models_directory
-        descriptor.parameters.pretrained_model = self.pretrained_model
-        descriptor.parameters.threshold = 0.5
-        descriptor.parameters.global_with_depth = False
-        return descriptor
+        scene_configuration = dict(
+            models_directory=self.models_directory,
+            pretrained_model=self.pretrained_model,
+            threshold=0.5,
+            use_depth=False,
+        )
+        return YoloAnnotator(**(scene_configuration | configuration))
 
     def annotator_in_pipeline(
-        self, descriptor: YoloAnnotator.Descriptor, color_to_depth_ratio: float = 1.0
+        self, color_to_depth_ratio: float = 1.0, **configuration: Any
     ) -> YoloAnnotator:
         """
         :param color_to_depth_ratio: Size of the depth image relative to the color
             image.
+        :param configuration: Fields overriding the scene's configuration.
         :return: An annotator whose CAS holds a color image and a matching depth image.
         """
-        annotator = YoloAnnotator(descriptor=descriptor)
+        annotator = self.annotator(**configuration)
         self.place_in_pipeline(annotator, color_to_depth_ratio)
         return annotator
 
@@ -140,12 +146,6 @@ def model_loader(monkeypatch: pytest.MonkeyPatch, scene: CupScene) -> MockModelL
     return model_loader
 
 
-def _depth_descriptor(scene: CupScene) -> YoloAnnotator.Descriptor:
-    descriptor = scene.descriptor()
-    descriptor.parameters.global_with_depth = True
-    return descriptor
-
-
 def _hypotheses(annotator: YoloAnnotator) -> list[ObjectHypothesis]:
     return annotator.get_cas().filter_annotations_by_type(ObjectHypothesis)
 
@@ -177,40 +177,40 @@ def _hypothesis_at(x: int, y: int, width: int, height: int) -> ObjectHypothesis:
 
 
 def test_models_directory_defaults_to_models_folder_of_robokudo_package() -> None:
-    parameters = YoloAnnotator.Descriptor.Parameters()
-
-    assert parameters.models_directory == Path(robokudo.__file__).parent / "models"
+    assert (
+        get_default_value(YoloAnnotator, "models_directory")
+        == Path(robokudo.__file__).parent / "models"
+    )
 
 
 def test_pretrained_model_is_loaded_from_models_directory(
     model_loader: MockModelLoader, scene: CupScene
 ) -> None:
-    descriptor = scene.descriptor()
+    annotator = scene.annotator()
 
-    YoloAnnotator(descriptor=descriptor).setup()
+    annotator.setup()
 
     assert model_loader.loaded_model_locations == [
-        str(scene.models_directory / descriptor.parameters.pretrained_model)
+        str(scene.models_directory / annotator.pretrained_model)
     ]
 
 
 def test_segmentation_model_is_loaded_from_models_directory(
     model_loader: MockModelLoader, scene: CupScene
 ) -> None:
-    descriptor = scene.descriptor()
-    descriptor.parameters.precision_mode = True
+    annotator = scene.annotator(precision_mode=True)
 
-    YoloAnnotator(descriptor=descriptor).setup()
+    annotator.setup()
 
     assert model_loader.loaded_segmentation_model_locations == [
-        str(scene.models_directory / descriptor.parameters.segmentation_model)
+        str(scene.models_directory / annotator.segmentation_model)
     ]
 
 
 def test_setup_creates_missing_models_directory(
     model_loader: MockModelLoader, scene: CupScene
 ) -> None:
-    YoloAnnotator(descriptor=scene.descriptor()).setup()
+    scene.annotator().setup()
 
     assert scene.models_directory.is_dir()
 
@@ -218,11 +218,8 @@ def test_setup_creates_missing_models_directory(
 def test_annotator_without_model_raises(
     model_loader: MockModelLoader, scene: CupScene
 ) -> None:
-    descriptor = scene.descriptor()
-    descriptor.parameters.pretrained_model = None
-
     with pytest.raises(DetectionModelNotConfigured):
-        YoloAnnotator(descriptor=descriptor)
+        scene.annotator(pretrained_model=None)
 
 
 def test_custom_weights_and_class_names_are_read_from_ros_package(
@@ -238,22 +235,21 @@ def test_custom_weights_and_class_names_are_read_from_ros_package(
             lambda ros_pkg_name, relative_path: tmp_path / ros_pkg_name / relative_path
         ),
     )
-    descriptor = scene.descriptor()
-    parameters = descriptor.parameters
-    parameters.pretrained_model = None
-    parameters.ros_package_name = "custom_models"
-    parameters.weights_path = "models/best.pt"
+    annotator = scene.annotator(
+        pretrained_model=None,
+        ros_package_name="custom_models",
+        weights_path="models/best.pt",
+    )
     class_names_file = (
-        tmp_path / parameters.ros_package_name / parameters.class_names_path
+        tmp_path / annotator.ros_package_name / annotator.class_names_path
     )
     class_names_file.parent.mkdir(parents=True)
     class_names_file.write_text(json.dumps({"3": "mug"}), encoding="utf-8")
 
-    annotator = YoloAnnotator(descriptor=descriptor)
     annotator.setup()
 
     assert model_loader.loaded_model_locations == [
-        str(tmp_path / parameters.ros_package_name / parameters.weights_path)
+        str(tmp_path / annotator.ros_package_name / annotator.weights_path)
     ]
     assert annotator.class_names == {3: "mug"}
 
@@ -264,7 +260,7 @@ def test_custom_weights_and_class_names_are_read_from_ros_package(
 def test_detection_becomes_hypothesis_classified_as_detected_class(
     model_loader: MockModelLoader, scene: CupScene
 ) -> None:
-    annotator = scene.annotator_in_pipeline(scene.descriptor())
+    annotator = scene.annotator_in_pipeline()
 
     status = annotator.compute()
 
@@ -283,7 +279,7 @@ def test_detection_becomes_hypothesis_classified_as_detected_class(
 def test_hypothesis_region_is_detection_bounding_box(
     model_loader: MockModelLoader, scene: CupScene
 ) -> None:
-    annotator = scene.annotator_in_pipeline(scene.descriptor())
+    annotator = scene.annotator_in_pipeline()
 
     annotator.compute()
 
@@ -295,14 +291,13 @@ def test_hypothesis_region_is_detection_bounding_box(
 def test_person_detection_becomes_human_hypothesis(
     model_loader: MockModelLoader, scene: CupScene
 ) -> None:
-    descriptor = scene.descriptor()
     person_class_id = next(
         class_id
         for class_id, name in scene.class_names.items()
-        if name == descriptor.parameters.person_class_name
+        if name == get_default_value(YoloAnnotator, "person_class_name")
     )
     model_loader.model.detections[0].class_id = person_class_id
-    annotator = scene.annotator_in_pipeline(descriptor)
+    annotator = scene.annotator_in_pipeline()
 
     annotator.compute()
 
@@ -312,9 +307,9 @@ def test_person_detection_becomes_human_hypothesis(
 def test_detection_of_configured_person_class_becomes_human_hypothesis(
     model_loader: MockModelLoader, scene: CupScene
 ) -> None:
-    descriptor = scene.descriptor()
-    descriptor.parameters.person_class_name = scene.class_names[scene.cup_class_id]
-    annotator = scene.annotator_in_pipeline(descriptor)
+    annotator = scene.annotator_in_pipeline(
+        person_class_name=scene.class_names[scene.cup_class_id]
+    )
 
     annotator.compute()
 
@@ -324,11 +319,9 @@ def test_detection_of_configured_person_class_becomes_human_hypothesis(
 def test_detection_of_ignored_class_is_not_annotated(
     model_loader: MockModelLoader, scene: CupScene
 ) -> None:
-    descriptor = scene.descriptor()
-    descriptor.parameters.ignored_class_names = [
-        f" {scene.class_names[scene.cup_class_id]} "
-    ]
-    annotator = scene.annotator_in_pipeline(descriptor)
+    annotator = scene.annotator_in_pipeline(
+        ignored_class_names=[f" {scene.class_names[scene.cup_class_id]} "]
+    )
 
     annotator.compute()
 
@@ -338,13 +331,11 @@ def test_detection_of_ignored_class_is_not_annotated(
 def test_model_predicts_with_configured_threshold(
     model_loader: MockModelLoader, scene: CupScene
 ) -> None:
-    descriptor = scene.descriptor()
-    descriptor.parameters.threshold = 0.42
-    annotator = scene.annotator_in_pipeline(descriptor)
+    annotator = scene.annotator_in_pipeline(threshold=0.42)
 
     annotator.compute()
 
-    assert model_loader.model.received_confidence == descriptor.parameters.threshold
+    assert model_loader.model.received_confidence == annotator.threshold
 
 
 # %% masks
@@ -353,7 +344,7 @@ def test_model_predicts_with_configured_threshold(
 def test_mask_fills_bounding_box_without_precision_mode(
     model_loader: MockModelLoader, scene: CupScene
 ) -> None:
-    annotator = scene.annotator_in_pipeline(scene.descriptor())
+    annotator = scene.annotator_in_pipeline()
 
     annotator.compute()
 
@@ -362,12 +353,6 @@ def test_mask_fills_bounding_box_without_precision_mode(
         _only_hypothesis(annotator).roi.mask,
         np.full((y2 - y1, x2 - x1), YoloAnnotator.mask_foreground, dtype=np.uint8),
     )
-
-
-def _precision_descriptor(scene: CupScene) -> YoloAnnotator.Descriptor:
-    descriptor = scene.descriptor()
-    descriptor.parameters.precision_mode = True
-    return descriptor
 
 
 def _segmented_cup_mask(model_loader: MockModelLoader, scene: CupScene) -> np.ndarray:
@@ -385,7 +370,7 @@ def _segmented_cup_mask(model_loader: MockModelLoader, scene: CupScene) -> np.nd
 def test_precision_mode_mask_is_segmentation_of_detection(
     model_loader: MockModelLoader, scene: CupScene
 ) -> None:
-    annotator = scene.annotator_in_pipeline(_precision_descriptor(scene))
+    annotator = scene.annotator_in_pipeline(precision_mode=True)
 
     annotator.compute()
 
@@ -397,10 +382,11 @@ def test_precision_mode_mask_is_segmentation_of_detection(
 def test_precision_mode_erosion_shrinks_segmentation(
     model_loader: MockModelLoader, scene: CupScene
 ) -> None:
-    descriptor = _precision_descriptor(scene)
-    descriptor.parameters.precision_mode_apply_erosion = True
-    descriptor.parameters.precision_mode_erosion_kernel_size = 3
-    annotator = scene.annotator_in_pipeline(descriptor)
+    annotator = scene.annotator_in_pipeline(
+        precision_mode=True,
+        precision_mode_apply_erosion=True,
+        precision_mode_erosion_kernel_size=3,
+    )
 
     annotator.compute()
 
@@ -418,7 +404,7 @@ def test_precision_mode_erosion_shrinks_segmentation(
 def test_visualization_draws_labelled_bounding_box_of_each_detection(
     model_loader: MockModelLoader, scene: CupScene
 ) -> None:
-    annotator = scene.annotator_in_pipeline(scene.descriptor())
+    annotator = scene.annotator_in_pipeline()
 
     annotator.compute()
 
@@ -438,7 +424,7 @@ def test_visualization_draws_labelled_bounding_box_of_each_detection(
 def test_precision_mode_visualization_paints_mask_in_palette_color(
     model_loader: MockModelLoader, scene: CupScene
 ) -> None:
-    annotator = scene.annotator_in_pipeline(_precision_descriptor(scene))
+    annotator = scene.annotator_in_pipeline(precision_mode=True)
 
     annotator.compute()
 
@@ -457,7 +443,7 @@ def test_precision_mode_visualization_paints_mask_in_palette_color(
 def test_point_cloud_holds_depth_measured_inside_bounding_box(
     model_loader: MockModelLoader, scene: CupScene
 ) -> None:
-    annotator = scene.annotator_in_pipeline(_depth_descriptor(scene))
+    annotator = scene.annotator_in_pipeline(use_depth=True)
 
     annotator.compute()
 
@@ -470,9 +456,7 @@ def test_point_cloud_holds_depth_measured_inside_bounding_box(
 def test_region_detected_on_smaller_depth_resolution_is_in_color_pixels(
     model_loader: MockModelLoader, scene: CupScene
 ) -> None:
-    annotator = scene.annotator_in_pipeline(
-        _depth_descriptor(scene), color_to_depth_ratio=0.5
-    )
+    annotator = scene.annotator_in_pipeline(color_to_depth_ratio=0.5, use_depth=True)
 
     annotator.compute()
 
@@ -485,16 +469,12 @@ def test_region_detected_on_smaller_depth_resolution_is_in_color_pixels(
 # %% existing hypotheses
 
 
-def _existing_hypothesis_descriptor(scene: CupScene) -> YoloAnnotator.Descriptor:
-    descriptor = scene.descriptor()
-    descriptor.parameters.classify_existing_hypotheses = True
-    return descriptor
-
-
 def _annotator_with_existing_hypothesis(
-    scene: CupScene, descriptor: YoloAnnotator.Descriptor, existing: ObjectHypothesis
+    scene: CupScene, existing: ObjectHypothesis, classify_existing_hypotheses: bool
 ) -> YoloAnnotator:
-    annotator = scene.annotator_in_pipeline(descriptor)
+    annotator = scene.annotator_in_pipeline(
+        classify_existing_hypotheses=classify_existing_hypotheses
+    )
     annotator.get_cas().annotations.append(existing)
     return annotator
 
@@ -504,7 +484,7 @@ def test_detection_overlapping_existing_hypothesis_classifies_it(
 ) -> None:
     existing = scene.cup_shaped_hypothesis()
     annotator = _annotator_with_existing_hypothesis(
-        scene, _existing_hypothesis_descriptor(scene), existing
+        scene, existing, classify_existing_hypotheses=True
     )
 
     annotator.compute()
@@ -518,7 +498,7 @@ def test_detection_apart_from_existing_hypothesis_creates_new_one(
 ) -> None:
     existing = _hypothesis_at(x=0, y=0, width=5, height=5)
     annotator = _annotator_with_existing_hypothesis(
-        scene, _existing_hypothesis_descriptor(scene), existing
+        scene, existing, classify_existing_hypotheses=True
     )
 
     annotator.compute()
@@ -531,7 +511,9 @@ def test_existing_hypotheses_are_left_alone_unless_enabled(
     model_loader: MockModelLoader, scene: CupScene
 ) -> None:
     existing = scene.cup_shaped_hypothesis()
-    annotator = _annotator_with_existing_hypothesis(scene, scene.descriptor(), existing)
+    annotator = _annotator_with_existing_hypothesis(
+        scene, existing, classify_existing_hypotheses=False
+    )
 
     annotator.compute()
 

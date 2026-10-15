@@ -15,7 +15,7 @@ class TestImageClusterExtractorHsvThreshold:
     """
 
     def annotator(self) -> ImageClusterExtractor:
-        return ImageClusterExtractor("test")
+        return ImageClusterExtractor(name="test")
 
     def hsv_image_with_hue(self, hue_values: list[int]) -> np.ndarray:
         """

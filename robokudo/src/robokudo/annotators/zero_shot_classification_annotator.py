@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-import time
+from dataclasses import dataclass, field
+
 from abc import ABC, abstractmethod
 
 import cv2
@@ -19,52 +20,46 @@ if TYPE_CHECKING:
     import numpy.typing as npt
 
 
+@dataclass(kw_only=True)
 class ZeroShotClassificationAnnotator(ThreadedAnnotator, ABC):
     """
     Classifies the whole image or each object hypothesis against a freely chosen
     vocabulary of class names, without training on those classes.
     """
 
-    class Descriptor(ThreadedAnnotator.Descriptor):
-        """
-        Descriptor for the ZeroShotClassificationAnnotator.
-        """
+    vocabulary: list[str] = field(
+        default_factory=lambda: [
+            "Milk Container",
+            "Box of Cornflakes",
+            "Pancake Batter",
+            "Instant Coffee",
+            "Crepe Pan",
+            "Dish Soap",
+        ]
+    )
+    """
+    The vocabulary used for object classification.
+    """
 
-        class Parameters:
-            """
-            Parameters for the Descriptor.
-            """
+    analysis_scope: CASViews | type[ObjectHypothesis] = CASViews.COLOR_IMAGE
+    """
+    The analysis scope of the annotator.
 
-            def __init__(self) -> None:
-                self.vocabulary: list[str] = [
-                    "Milk Container",
-                    "Box of Cornflakes",
-                    "Pancake Batter",
-                    "Instant Coffee",
-                    "Crepe Pan",
-                    "Dish Soap",
-                ]
-                """
-                The vocabulary used for object classification.
-                """
-                self.analysis_scope = CASViews.COLOR_IMAGE
-                """
-                The analysis scope of the annotator.
+    Possible values:
 
-                Possible values:
+    * CASViews.COLOR_IMAGE: Analyze the entire color image at once.
+    * ObjectHypothesis: Analyze each object hypothesis individually.
+    """
 
-                * CASViews.COLOR_IMAGE: Analyze the entire color image at once.
-                * ObjectHypothesis: Analyze each object hypothesis individually.
-                """
-                self.filter_fn: Callable[[ObjectHypothesis], bool] | None = None
-                """
-                An optional filter function used to filter object hypotheses before
-                analyzing them.
-                """
-                self.save_top_k: int = min(5, len(self.vocabulary))
-                """
-                How many annotations to create per analyzed image or hypothesis.
-                """
+    hypothesis_filter: Callable[[ObjectHypothesis], bool] | None = None
+    """
+    Selects the object hypotheses to analyze; all are analyzed if ``None``.
+    """
+
+    save_top_k: int = 5
+    """
+    How many annotations to create at most per analyzed image or hypothesis.
+    """
 
     @classproperty
     def visualization_font(cls) -> int:
@@ -103,8 +98,8 @@ class ZeroShotClassificationAnnotator(ThreadedAnnotator, ABC):
 
         visualization_img = color_image.copy()
 
-        self.rk_logger.info("Image Classification Results:")
-        self.rk_logger.info("Label \t\t Score")
+        self.robokudo_logger.info("Image Classification Results:")
+        self.robokudo_logger.info("Label \t\t Score")
         for i, classification in enumerate(classifications):
             text = f"{classification.confidence:.2f} /{classification.classname}"
             visualization_img = cv2.putText(
@@ -118,7 +113,7 @@ class ZeroShotClassificationAnnotator(ThreadedAnnotator, ABC):
                 2,
             )
 
-            self.rk_logger.info(
+            self.robokudo_logger.info(
                 f"Top {i} prediction: Class {classification.classname} with "
                 f"confidence\t {classification.confidence:.4f}"
             )
@@ -137,14 +132,14 @@ class ZeroShotClassificationAnnotator(ThreadedAnnotator, ABC):
             ObjectHypothesis
         )
         if len(ohs) == 0:
-            self.rk_logger.info("Found 0 object hypotheses to analyze")
+            self.robokudo_logger.info("Found 0 object hypotheses to analyze")
             return Status.SUCCESS
 
-        if self.descriptor.parameters.filter_fn is not None:
-            ohs = list(filter(self.descriptor.parameters.filter_fn, ohs))
+        if self.hypothesis_filter is not None:
+            ohs = list(filter(self.hypothesis_filter, ohs))
 
             if len(ohs) == 0:
-                self.rk_logger.info("All object hypotheses were filtered out")
+                self.robokudo_logger.info("All object hypotheses were filtered out")
                 return Status.SUCCESS
 
         # Create per-object image crop
@@ -156,7 +151,7 @@ class ZeroShotClassificationAnnotator(ThreadedAnnotator, ABC):
         for object_hypothesis, classifications in zip(
             ohs, self.classify(cropped_images)
         ):
-            self.rk_logger.info(
+            self.robokudo_logger.info(
                 f"Classification results for Object hypothesis ID: '{object_hypothesis.id}'"
             )
 
@@ -182,7 +177,7 @@ class ZeroShotClassificationAnnotator(ThreadedAnnotator, ABC):
 
             object_hypothesis.annotations.extend(classifications)
             for i, classification in enumerate(classifications):
-                self.rk_logger.info(
+                self.robokudo_logger.info(
                     f"Top {i}: Classified as {classification.classname} "
                     f"with confidence {classification.confidence:.4f}"
                 )
@@ -197,8 +192,7 @@ class ZeroShotClassificationAnnotator(ThreadedAnnotator, ABC):
 
         :return: Whether the computation was successfull or not.
         """
-        start_time = time.perf_counter()
-        analysis_scope = self.descriptor.parameters.analysis_scope
+        analysis_scope = self.analysis_scope
 
         color_image = self.get_cas().get(CASViews.COLOR_IMAGE).copy()
 
@@ -209,8 +203,4 @@ class ZeroShotClassificationAnnotator(ThreadedAnnotator, ABC):
         else:
             self.feedback_message = f"Unknown analysis scope: {analysis_scope}"
             return Status.FAILURE
-
-        self.feedback_message = (
-            f"Processing took {time.perf_counter() - start_time:.2f}s"
-        )
         return status
