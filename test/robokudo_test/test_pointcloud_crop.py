@@ -9,6 +9,8 @@ made every step after the transform unreachable, so the mode never actually crop
 anything even when the camera-to-world transform was available.
 """
 
+from __future__ import annotations
+
 import numpy as np
 import open3d as o3d
 import pytest
@@ -73,7 +75,9 @@ def cas_with_cloud_at_world_origin(
 
 
 @pytest.fixture()
-def crop_annotator_in_pipeline(cas_with_cloud_at_world_origin: CAS):
+def crop_annotator_in_pipeline(
+    cas_with_cloud_at_world_origin: CAS,
+) -> PointcloudCropAnnotator:
     """
     A ``PointcloudCropAnnotator`` configured to crop relative to the world frame, wired
     up with just enough pipeline/blackboard state for ``update()`` to run.
@@ -101,7 +105,7 @@ def crop_annotator_in_pipeline(cas_with_cloud_at_world_origin: CAS):
 
 def test_world_relative_crop_succeeds_when_the_transform_is_available(
     crop_annotator_in_pipeline: PointcloudCropAnnotator,
-):
+) -> None:
     status = crop_annotator_in_pipeline.update()
 
     assert status == Status.SUCCESS
@@ -109,7 +113,7 @@ def test_world_relative_crop_succeeds_when_the_transform_is_available(
 
 def test_world_relative_crop_actually_crops_the_cloud(
     crop_annotator_in_pipeline: PointcloudCropAnnotator,
-):
+) -> None:
     crop_annotator_in_pipeline.update()
 
     cropped_cloud = crop_annotator_in_pipeline.get_cas().get(CASViews.CLOUD)
@@ -119,7 +123,7 @@ def test_world_relative_crop_actually_crops_the_cloud(
 
 def test_world_relative_crop_fails_without_a_camera_to_world_transform(
     crop_annotator_in_pipeline: PointcloudCropAnnotator,
-):
+) -> None:
     crop_annotator_in_pipeline.get_cas().camera_to_world_transform = None
 
     status = crop_annotator_in_pipeline.update()

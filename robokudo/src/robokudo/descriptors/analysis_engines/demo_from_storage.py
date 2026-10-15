@@ -1,3 +1,4 @@
+from __future__ import annotations
 from semantic_digital_twin.adapters.ros.tf_publisher import TFPublisher
 
 from robokudo.analysis_engine import AnalysisEngineInterface

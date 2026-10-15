@@ -1,3 +1,4 @@
+from __future__ import annotations
 from robokudo.types.cv import ColorToDepthRatio
 from robokudo.descriptors.factories.cr_descriptor_factory import (
     CollectionReaderDescriptorFactory,
@@ -32,19 +33,25 @@ from robokudo.annotators.query import QueryAnnotator, GenerateQueryResult
 from robokudo.pipeline import Pipeline
 
 import robokudo.scripts.query_test_client
+from typing_extensions import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from rclpy.node import Node
+    from py_trees.composites import Sequence
+    from py_trees.common import Status
 
 
 class QueryWorkerThread(threading.Thread):
-    def __init__(self, node):
+    def __init__(self, node: Node) -> None:
         threading.Thread.__init__(self)
         self.node = node
         self.result = None
 
-    def run(self):
+    def run(self) -> None:
         self.result = query_simple_pipeline(self.node)
 
 
-def query_simple_pipeline(node):
+def query_simple_pipeline(node: Node) -> tuple[Sequence, Status]:
     cr_fr_config = CollectionReaderDescriptorFactory.create_descriptor(
         "file_reader",
         loop=True,
@@ -80,19 +87,21 @@ def query_simple_pipeline(node):
 
 
 @pytest.fixture
-def tree_run(node):
+def tree_run(node: Node) -> tuple[Sequence, Status]:
     print("tree_run")
     return query_simple_pipeline(node)
 
 
 class TestQueryInterface:
-    def test_query_annotator_returns_running(self, tree_run):
+    def test_query_annotator_returns_running(
+        self, tree_run: tuple[Sequence, Status]
+    ) -> None:
         seq, tree_result = tree_run
 
         # We are not sending a query just yet. So the QueryAnnotator should block indefinitely with RUNNING
         assert tree_result is py_trees.common.Status.RUNNING
 
-    def test_query(self, node):
+    def test_query(self, node: Node) -> None:
         # seq, tree_result = query_simple_pipeline(node)
         multiprocessing.set_start_method("spawn", force=True)
 

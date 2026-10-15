@@ -17,6 +17,8 @@ The pipeline implements the following functionality:
     for more complex object detection and segmentation tasks.
 """
 
+from __future__ import annotations
+
 from robokudo.analysis_engine import AnalysisEngineInterface
 from robokudo.pipeline import Pipeline
 from robokudo.idioms import pipeline_init

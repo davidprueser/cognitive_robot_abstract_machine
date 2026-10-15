@@ -1,4 +1,5 @@
-from typing import Any
+from __future__ import annotations
+from typing_extensions import Any, TYPE_CHECKING
 
 import py_trees
 import pytest
@@ -15,21 +16,24 @@ from robokudo.tree_components.task_scheduler import (
 )
 from robokudo_msgs.action import Query
 
+if TYPE_CHECKING:
+    from py_trees.common import Status
+
 
 class DummyBehaviour(py_trees.behaviour.Behaviour):
-    def __init__(self, name):
+    def __init__(self, name: str) -> None:
         super().__init__(name)
         self._setup = False
 
-    def setup(self, **kwargs: Any):
+    def setup(self, **kwargs: Any) -> None:
         self._setup = True
 
-    def update(self):
+    def update(self) -> Status:
         return py_trees.common.Status.SUCCESS
 
 
 class TestTreeComponents:
-    def test_iterative_task_scheduler(self):
+    def test_iterative_task_scheduler(self) -> None:
         leaf_behaviour1 = DummyBehaviour("Behaviour1")
         par1 = py_trees.composites.Parallel(
             "Par1", policy=py_trees.common.ParallelPolicy.SuccessOnAll()
@@ -64,7 +68,7 @@ class TestTreeComponents:
             task = scheduler.parent.children[1]
             assert task.children[0].name == job.name
 
-    def test_query_based_scheduler(self):
+    def test_query_based_scheduler(self) -> None:
         leaf_behaviour1 = DummyBehaviour("Behaviour1")
         par1 = py_trees.composites.Parallel(
             "Par1", policy=py_trees.common.ParallelPolicy.SuccessOnAll()

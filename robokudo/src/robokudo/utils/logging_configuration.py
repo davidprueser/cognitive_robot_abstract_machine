@@ -14,6 +14,8 @@ It handles:
    a workaround to enable proper Python logging alongside ROS logging.
 """
 
+from __future__ import annotations
+
 import os
 import re
 import sys
@@ -27,7 +29,7 @@ class DynamicCompactFormatter(Formatter):
     Extended `logging.Formatter` that supports dynamic truncation of filenames.
     """
 
-    def __init__(self, fmt: str = None, datefmt: str = None, style: str = "%"):
+    def __init__(self, fmt: str = None, datefmt: str = None, style: str = "%") -> None:
         """
         Initialize formatter with custom format string.
 

@@ -1,8 +1,13 @@
+from __future__ import annotations
 from py_trees.common import Status
 
 from robokudo.annotators.filter import FilterAnnotator
 from robokudo.pipeline import Pipeline
 from robokudo.types.annotation import Classification, SemanticColor
+from typing_extensions import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from robokudo.types.core import Annotation
 
 
 def _filter_annotator_in_pipeline() -> FilterAnnotator:
@@ -12,7 +17,7 @@ def _filter_annotator_in_pipeline() -> FilterAnnotator:
     return annotator
 
 
-def test_filter_annotator_keeps_annotations_when_no_function_is_configured():
+def test_filter_annotator_keeps_annotations_when_no_function_is_configured() -> None:
     annotator = _filter_annotator_in_pipeline()
     classification = Classification(classname="cup")
     color = SemanticColor(color="red")
@@ -24,7 +29,7 @@ def test_filter_annotator_keeps_annotations_when_no_function_is_configured():
     assert annotator.get_cas().annotations == [classification, color]
 
 
-def test_filter_annotator_keeps_only_annotations_matching_configured_function():
+def test_filter_annotator_keeps_only_annotations_matching_configured_function() -> None:
     annotator = _filter_annotator_in_pipeline()
     classification = Classification(classname="cup")
     color = SemanticColor(color="red")
@@ -39,7 +44,7 @@ def test_filter_annotator_keeps_only_annotations_matching_configured_function():
     assert annotator.get_cas().annotations == [classification]
 
 
-def test_filter_annotator_passes_configured_function_args_and_kwargs():
+def test_filter_annotator_passes_configured_function_args_and_kwargs() -> None:
     annotator = _filter_annotator_in_pipeline()
     cup = Classification(classname="cup", confidence=0.8)
     low_confidence_cup = Classification(classname="cup", confidence=0.2)
@@ -47,7 +52,7 @@ def test_filter_annotator_passes_configured_function_args_and_kwargs():
     annotator.get_cas().annotations = [cup, low_confidence_cup, bowl]
 
     def matches_class_with_minimum_confidence(
-        annotation, classname: str, *, minimum_confidence: float
+        annotation: Annotation, classname: str, *, minimum_confidence: float
     ) -> bool:
         return (
             isinstance(annotation, Classification)

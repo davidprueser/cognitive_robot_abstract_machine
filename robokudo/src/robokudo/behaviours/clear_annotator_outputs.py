@@ -2,6 +2,8 @@
 Behaviour that resets the visualization outputs of a pipeline's annotators.
 """
 
+from __future__ import annotations
+
 import logging
 from dataclasses import dataclass, field
 

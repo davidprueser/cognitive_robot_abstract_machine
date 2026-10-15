@@ -18,6 +18,8 @@ The module is primarily used for:
 * Visualization of stored data
 """
 
+from __future__ import annotations
+
 from robokudo.descriptors.camera_configs.config_mongodb_playback import (
     MongoCameraConfig,
 )

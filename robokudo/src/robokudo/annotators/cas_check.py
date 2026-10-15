@@ -12,10 +12,12 @@ The annotators follow these principles:
    For RUNNING status checks, use CASCondition from cas_condition.py instead.
 """
 
+from __future__ import annotations
+
 import functools
 
 from py_trees.common import Status
-from typing_extensions import Callable, Type, Optional
+from typing_extensions import Callable
 
 from robokudo.annotators.core import BaseAnnotator
 from robokudo.cas import CAS
@@ -39,7 +41,7 @@ class CASCheckFunc(BaseAnnotator):
     def __init__(
         self,
         name: str = "CASCheckFunc",
-        func: Optional[Callable[[CAS], bool]] = None,
+        func: Callable[[CAS], bool] | None = None,
         raise_with_str: str = "",
     ) -> None:
         """
@@ -74,7 +76,7 @@ class CASCheckFunc(BaseAnnotator):
                 return Status.FAILURE
 
 
-def any_of_type_present(annotation_type: Type, cas: CAS) -> bool:
+def any_of_type_present(annotation_type: type, cas: CAS) -> bool:
     """
     Check if any annotations of a specific type exist in the CAS.
 
@@ -100,7 +102,7 @@ class CASCheckAnnotationTypeExists(CASCheckFunc):
     def __init__(
         self,
         name: str = "CASCheckAnnotationTypeExists",
-        annotation_type: Optional[Type] = None,
+        annotation_type: type | None = None,
         raise_with_str: str = "",
     ) -> None:
         """

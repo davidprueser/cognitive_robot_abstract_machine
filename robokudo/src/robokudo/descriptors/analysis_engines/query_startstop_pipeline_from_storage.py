@@ -24,6 +24,8 @@ The pipeline implements the following functionality:
     error handling and recovery mechanisms.
 """
 
+from __future__ import annotations
+
 from py_trees.composites import Sequence
 from py_trees.decorators import Inverter, Condition
 from py_trees.behaviours import SuccessEveryN

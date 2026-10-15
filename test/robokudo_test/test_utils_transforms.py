@@ -1,3 +1,4 @@
+from __future__ import annotations
 import geometry_msgs.msg
 import numpy as np
 import pytest
@@ -24,7 +25,7 @@ from robokudo.utils.transform import (
 
 class TestUtilsTransforms(object):
     @pytest.fixture(scope="function")
-    def transform_matrix(self, request) -> np.ndarray:
+    def transform_matrix(self, request: pytest.FixtureRequest) -> np.ndarray:
         seq, angles = request.param
         transform_matrix = np.eye(4)
         transform_matrix[:3, :3] = Rotation.from_euler(
@@ -66,7 +67,7 @@ class TestUtilsTransforms(object):
         self,
         transform_matrix: np.ndarray,
         quaternion: tuple[float, float, float, float],
-    ):
+    ) -> None:
         pose = get_pose_from_transform_matrix(transform_matrix)
 
         pose_quat = np.array(
@@ -85,7 +86,7 @@ class TestUtilsTransforms(object):
     @pytest.mark.parametrize("translation", TRANSLATION_CASES)
     def test_get_pose_from_transform_matrix_valid_translations(
         self, translation: tuple[float, float, float]
-    ):
+    ) -> None:
         matrix = np.eye(4)
         matrix[:3, 3] = translation
         pose = get_pose_from_transform_matrix(matrix)
@@ -99,7 +100,7 @@ class TestUtilsTransforms(object):
         assert pose_quat == [0.0, 0.0, 0.0, 1.0]
         assert [pose.position.x, pose.position.y, pose.position.z] == translation
 
-    def test_get_pose_from_transform_matrix_invalid_matrix(self):
+    def test_get_pose_from_transform_matrix_invalid_matrix(self) -> None:
         matrix = np.zeros((4, 4))
         # Please note that this exception has been introduced in newer versions of scipy. 1.11.X will fail on this!
         assert pytest.raises(ValueError, get_pose_from_transform_matrix, matrix)
@@ -113,7 +114,7 @@ class TestUtilsTransforms(object):
         self,
         transform_matrix: np.ndarray,
         quaternion: tuple[float, float, float, float],
-    ):
+    ) -> None:
         pose = geometry_msgs.msg.Pose()
         pose.orientation.x = quaternion[0]
         pose.orientation.y = quaternion[1]
@@ -128,7 +129,7 @@ class TestUtilsTransforms(object):
     @pytest.mark.parametrize("translation", TRANSLATION_CASES)
     def test_get_transform_matrix_from_pose_valid_translations(
         self, translation: tuple[float, float, float]
-    ):
+    ) -> None:
         pose = geometry_msgs.msg.Pose()
         pose.position.x = translation[0]
         pose.position.y = translation[1]
@@ -143,7 +144,7 @@ class TestUtilsTransforms(object):
             matrix[:3, :3] == np.eye(3)
         ), "rotation should not change from default during conversion with translation only"
 
-    def test_get_transform_matrix_from_pose_invalid_rotations(self):
+    def test_get_transform_matrix_from_pose_invalid_rotations(self) -> None:
         pose = geometry_msgs.msg.Pose()
         pose.orientation.x = 0
         pose.orientation.y = 0
@@ -161,14 +162,14 @@ class TestUtilsTransforms(object):
         self,
         transform_matrix: np.ndarray,
         quaternion: tuple[float, float, float, float],
-    ):
+    ) -> None:
         matrix = get_transform_matrix(transform_matrix[:3, :3], transform_matrix[:3, 3])
         assert np.all(matrix == transform_matrix)
 
     @pytest.mark.parametrize("translation", TRANSLATION_CASES)
     def test_get_transform_matrix_valid_translations(
         self, translation: tuple[float, float, float]
-    ):
+    ) -> None:
         transform_matrix = np.eye(4)
         transform_matrix[:3, 3] = translation
         matrix = get_transform_matrix(transform_matrix[:3, :3], transform_matrix[:3, 3])
@@ -177,7 +178,7 @@ class TestUtilsTransforms(object):
     @pytest.mark.parametrize("translation", TRANSLATION_CASES)
     def test_get_transform_matrix_from_translation(
         self, translation: tuple[float, float, float]
-    ):
+    ) -> None:
         matrix = get_transform_matrix_from_translation(translation)
         assert np.all(
             matrix[:3, 3] == translation
@@ -189,8 +190,10 @@ class TestUtilsTransforms(object):
         indirect=["transform_matrix"],
     )
     def test_get_transform_matrix_from_q_valid_rotations(
-        self, transform_matrix, quaternion
-    ):
+        self,
+        transform_matrix: np.ndarray,
+        quaternion: tuple[float, float, float, float],
+    ) -> None:
         matrix = get_transform_matrix_from_q(
             np.array(quaternion), np.array([0.0, 0.0, 0.0])
         )
@@ -201,7 +204,7 @@ class TestUtilsTransforms(object):
     @pytest.mark.parametrize("translation", TRANSLATION_CASES)
     def test_get_transform_matrix_from_q_valid_translations(
         self, translation: tuple[float, float, float]
-    ):
+    ) -> None:
         matrix = get_transform_matrix_from_q(
             np.array([0.0, 0.0, 0.0, 1.0]), translation
         )
@@ -212,7 +215,7 @@ class TestUtilsTransforms(object):
             matrix[:3, 3] == translation
         ), "translation should not change during conversion"
 
-    def test_get_transform_matrix_from_q_invalid_quaternion(self):
+    def test_get_transform_matrix_from_q_invalid_quaternion(self) -> None:
         assert pytest.raises(
             ValueError,
             get_transform_matrix_from_q,
@@ -229,13 +232,13 @@ class TestUtilsTransforms(object):
         self,
         transform_matrix: np.ndarray,
         quaternion: tuple[float, float, float, float],
-    ):
+    ) -> None:
         q = get_quaternion_from_rotation_matrix(transform_matrix[:3, :3])
         assert np.allclose(
             q, quaternion
         ), "rotation should not change during conversion"
 
-    def test_get_quaternion_from_rotation_matrix_invalid_rotation_matrix(self):
+    def test_get_quaternion_from_rotation_matrix_invalid_rotation_matrix(self) -> None:
         assert pytest.raises(
             ValueError, get_quaternion_from_rotation_matrix, np.zeros((3, 3))
         )
@@ -249,13 +252,13 @@ class TestUtilsTransforms(object):
         self,
         transform_matrix: np.ndarray,
         quaternion: tuple[float, float, float, float],
-    ):
+    ) -> None:
         q = get_quaternion_from_transform_matrix(transform_matrix)
         assert np.allclose(
             q, quaternion
         ), "rotation should not change during conversion"
 
-    def test_get_quaternion_from_transform_matrix_invalid_rotation_matrix(self):
+    def test_get_quaternion_from_transform_matrix_invalid_rotation_matrix(self) -> None:
         assert pytest.raises(
             ValueError, get_quaternion_from_rotation_matrix, np.zeros((4, 4))
         )
@@ -263,7 +266,7 @@ class TestUtilsTransforms(object):
     @pytest.mark.parametrize("translation", TRANSLATION_CASES)
     def test_get_translation_from_transform_matrix(
         self, translation: tuple[float, float, float]
-    ):
+    ) -> None:
         transform_matrix = np.eye(4)
         transform_matrix[:3, 3] = translation
         tran = get_translation_from_transform_matrix(transform_matrix)
@@ -278,7 +281,7 @@ class TestUtilsTransforms(object):
         self,
         transform_matrix: np.ndarray,
         quaternion: tuple[float, float, float, float],
-    ):
+    ) -> None:
         rot = get_rotation_from_transform_matrix(transform_matrix)
         assert np.all(rot == transform_matrix[:3, :3])
         assert np.allclose(Rotation.from_matrix(rot).as_quat(True), quaternion)
@@ -300,7 +303,7 @@ class TestUtilsTransforms(object):
     )
     def test_quaternion_about_axis(
         self, rotation: tuple[str, float], quaternion: tuple[float, float, float, float]
-    ):
+    ) -> None:
         axis = (
             1 if rotation[0] == "x" else 0,
             1 if rotation[0] == "y" else 0,
@@ -347,7 +350,7 @@ class TestUtilsTransforms(object):
     )
     def test_get_transform_matrix_for_rotation_around_axis(
         self, rotation: tuple[str, float], transform_matrix: list[list[float]]
-    ):
+    ) -> None:
         axis = (
             1 if rotation[0] == "x" else 0,
             1 if rotation[0] == "y" else 0,
@@ -463,7 +466,7 @@ class TestUtilsTransforms(object):
     )
     def test_get_rotation_matrix_from_euler_angles(
         self, rotation: dict[str, float], rotation_matrix: list[list[float]]
-    ):
+    ) -> None:
         rotation = {"x": 0, "y": 0, "z": 0} | rotation
         assert np.allclose(
             get_rotation_matrix_from_euler_angles(**rotation), rotation_matrix
@@ -488,7 +491,7 @@ class TestUtilsTransforms(object):
     )
     def test_get_transform_from_plane_equation(
         self, plane_equation: np.ndarray, expected_transform: np.ndarray
-    ):
+    ) -> None:
         transform = get_transform_from_plane_equation(plane_equation)
         assert np.allclose(transform, expected_transform)
 
@@ -547,7 +550,7 @@ class TestUtilsTransforms(object):
         rotation: np.ndarray,
         axis_order: tuple[int, int, int],
         new_rotation: np.ndarray,
-    ):
+    ) -> None:
         assert np.allclose(
             construct_rotation_matrix(rotation, axis_order), new_rotation
         )
@@ -560,7 +563,9 @@ class TestUtilsTransforms(object):
             [0, 1, 3],  # Invalid axis index
         ],
     )
-    def test_construct_rotation_matrix_invalid_axis_order(self, axis_order: list[int]):
+    def test_construct_rotation_matrix_invalid_axis_order(
+        self, axis_order: list[int]
+    ) -> None:
         assert pytest.raises(
             ValueError, construct_rotation_matrix, np.eye(3), axis_order
         )
@@ -576,14 +581,14 @@ class TestUtilsTransforms(object):
     )
     def test_get_rotation_matrix_from_direction_vector(
         self, direction: np.ndarray, up_hint: np.ndarray
-    ):
+    ) -> None:
         rot = get_rotation_matrix_from_direction_vector(direction, up_hint=up_hint)
 
         assert np.allclose(rot[:, 0], direction / np.linalg.norm(direction))
         assert np.allclose(rot @ rot.T, np.eye(3), atol=1e-6)
         assert np.allclose(np.linalg.det(rot), 1, atol=1e-6)
 
-    def test_get_rotation_matrix_from_direction_vector_invalid_vector(self):
+    def test_get_rotation_matrix_from_direction_vector_invalid_vector(self) -> None:
         assert pytest.raises(
             ValueError, get_rotation_matrix_from_direction_vector, np.array([0, 0, 0])
         )

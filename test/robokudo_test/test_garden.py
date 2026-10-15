@@ -2,6 +2,8 @@
 Tests for selecting which visualizer backends a grown tree's GUI uses.
 """
 
+from __future__ import annotations
+
 from py_trees.behaviours import Success
 
 # robokudo.pipeline must be imported before robokudo.garden: robokudo.garden pulls in
@@ -13,9 +15,13 @@ from robokudo.vis.cv_visualizer import CVVisualizer
 from robokudo.vis.o3d_visualizer import O3DVisualizer
 from robokudo.vis.ros_visualizer import AllAnnotatorROSVisualizer, SharedROSVisualizer
 from robokudo.vis.visualizer_manager import VisualizationManager
+from typing_extensions import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from rclpy.node import Node
 
 
-def test_visualization_manager_defaults_to_every_visualizer():
+def test_visualization_manager_defaults_to_every_visualizer() -> None:
     manager = VisualizationManager("VisManager")
 
     assert set(manager.visualizer_types) == {
@@ -26,13 +32,15 @@ def test_visualization_manager_defaults_to_every_visualizer():
     }
 
 
-def test_visualization_manager_respects_a_visualizer_type_override():
+def test_visualization_manager_respects_a_visualizer_type_override() -> None:
     manager = VisualizationManager("VisManager", visualizer_types=[CVVisualizer])
 
     assert manager.visualizer_types == [CVVisualizer]
 
 
-def test_grow_tree_forwards_visualizer_types_to_the_visualization_manager(node):
+def test_grow_tree_forwards_visualizer_types_to_the_visualization_manager(
+    node: Node,
+) -> None:
     """
     ``_no3d`` (main.py) excludes the Open3D viewer this way, so it must actually reach
     the ``VisualizationManager`` the tree ends up with rather than being dropped along

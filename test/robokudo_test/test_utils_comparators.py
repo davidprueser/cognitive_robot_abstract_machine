@@ -104,7 +104,7 @@ class TestUtilsComparators(object):
         query_value: tuple[float, float, float],
         obj_value: tuple[float, float, float],
         expected_similarity: float,
-    ):
+    ) -> None:
         comparator = TranslationComparator(weight=1.0, max_distance=1.0)
         assert comparator.compute_similarity(query_value, obj_value) == pytest.approx(
             expected_similarity
@@ -114,7 +114,7 @@ class TestUtilsComparators(object):
     def bounding_box_from_tuple(
         self,
     ) -> Callable[[tuple[float, float, float]], BoundingBox3DAnnotation]:
-        def _make(lengths: tuple[float, float, float]):
+        def _make(lengths: tuple[float, float, float]) -> BoundingBox3DAnnotation:
             bbox = BoundingBox3DAnnotation()
             bbox.x_length, bbox.y_length, bbox.z_length = lengths
             return bbox
@@ -138,7 +138,7 @@ class TestUtilsComparators(object):
         bounding_box_from_tuple: Callable[
             [tuple[float, float, float]], BoundingBox3DAnnotation
         ],
-    ):
+    ) -> None:
         query_bbox = bounding_box_from_tuple(query_value)
         obj_bbox = bounding_box_from_tuple(obj_value)
         comparator = BboxComparator(weight=1.0)
@@ -161,7 +161,7 @@ class TestUtilsComparators(object):
         query_value: list[float],
         obj_value: list[float],
         expected_similarity: float,
-    ):
+    ) -> None:
         comparator = SizeComparator(weight=1.0)
 
         similarity = comparator.compute_similarity(query_value, obj_value)
@@ -200,7 +200,7 @@ class TestUtilsComparators(object):
         query_value: np.ndarray,
         obj_value: np.ndarray,
         expected_similarity: pytest.approx,
-    ):
+    ) -> None:
         comparator = HistogramComparator(weight=1.0)
 
         query_hist, _ = np.histogram(query_value.ravel(), bins=256, range=[0, 256])
@@ -232,7 +232,7 @@ class TestUtilsComparators(object):
         query_value: tuple[str, float],
         obj_value: tuple[str, float],
         expected_similarity: float,
-    ):
+    ) -> None:
         comparator = SemanticColorComparator(weight=1.0)
 
         query_color = SemanticColor()
@@ -265,7 +265,7 @@ class TestUtilsComparators(object):
     )
     def test_additional_data_comparator(
         self, query_value: Any, obj_value: Any, expected_similarity: float
-    ):
+    ) -> None:
         comparator = AdditionalDataComparator(weight=1.0)
 
         similarity = comparator.compute_similarity(query_value, obj_value)
@@ -283,10 +283,10 @@ class TestUtilsComparators(object):
     )
     def test_roi_comparator(
         self,
-        query_value: Tuple[int, int, int, int],
-        obj_value: Tuple[int, int, int, int],
+        query_value: tuple[int, int, int, int],
+        obj_value: tuple[int, int, int, int],
         expected_similarity: float,
-    ):
+    ) -> None:
         query_rect = Rect()
         query_rect.pos.x = query_value[0]
         query_rect.pos.y = query_value[1]
@@ -336,7 +336,7 @@ class TestUtilsComparators(object):
         query_value: npt.NDArray,
         obj_value: npt.NDArray,
         expected_similarity: float,
-    ):
+    ) -> None:
         comparator = MaskComparator(weight=1.0)
 
         similarity = comparator.compute_similarity(query_value, obj_value)
@@ -395,8 +395,8 @@ class TestUtilsComparators(object):
         ],
     )
     def test_classification_comparator(
-        self, query_value, obj_value, expected_similarity
-    ):
+        self, query_value: Pose, obj_value: Pose, expected_similarity: float
+    ) -> None:
         comparator = ClassificationComparator(weight=1.0)
 
         similarity = comparator.compute_similarity(query_value, obj_value)
@@ -476,7 +476,9 @@ class TestUtilsComparators(object):
             ),  # Positions are not identical, but roi masks are
         ],
     )
-    def test_image_roi_comparator(self, query_value, obj_value, expected_similarity):
+    def test_image_roi_comparator(
+        self, query_value: Pose, obj_value: Pose, expected_similarity: float
+    ) -> None:
         comparator = ImageROIComparator(weight=1.0)
 
         similarity = comparator.compute_similarity(query_value, obj_value)
@@ -496,7 +498,9 @@ class TestUtilsComparators(object):
             ),
         ],
     )
-    def test_orientation_comparator(self, query_value, obj_value, expected_similarity):
+    def test_orientation_comparator(
+        self, query_value: Pose, obj_value: Pose, expected_similarity: float
+    ) -> None:
         comparator = OrientationComparator(weight=1.0)
 
         similarity = comparator.compute_similarity(query_value, obj_value)
@@ -542,7 +546,9 @@ class TestUtilsComparators(object):
             ),
         ],
     )
-    def test_pose_comparator(self, query_value, obj_value, expected_similarity):
+    def test_pose_comparator(
+        self, query_value: Pose, obj_value: Pose, expected_similarity: float
+    ) -> None:
         comparator = PoseComparator(weight=1.0)
 
         similarity = comparator.compute_similarity(query_value, obj_value)

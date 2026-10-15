@@ -1,9 +1,10 @@
+from __future__ import annotations
 from pathlib import Path
 
 import pooch
 from filelock import FileLock
 
-# ---- Configuration ----
+# %% configuration
 DATA_PACKAGE_NAME: str = "robokudo_test_data"
 DATA_VERSION: str = "b991b2f15cd734672f449349a9e566fb67aad81e"
 KNOWN_HASH: str = (

@@ -1,4 +1,5 @@
-"""A lightweight replacement for cv_bridge while NumPy 2 is in use.
+"""
+A lightweight replacement for cv_bridge while NumPy 2 is in use.
 
 This class exists because the currently available ``cv_bridge`` binary can be
 compiled against NumPy 1.x and fails to import in environments that use NumPy 2.
@@ -21,7 +22,7 @@ import re
 import cv2
 import numpy as np
 from sensor_msgs.msg import Image
-from typing_extensions import TYPE_CHECKING, Tuple
+from typing_extensions import TYPE_CHECKING
 
 from robokudo.exceptions import (
     CVBridgeImageConversionError,
@@ -39,10 +40,11 @@ if TYPE_CHECKING:
 
 
 class CVBridgeWorkaround:
-    """Subset replacement for ``cv_bridge.CvBridge``.
+    """
+    Subset replacement for ``cv_bridge.CvBridge``.
 
-    The API is intentionally close to cv_bridge for drop-in usage in existing
-    code paths.
+    The API is intentionally close to cv_bridge for drop-in usage in existing code
+    paths.
     """
 
     _GENERIC_ENCODING_RE = re.compile(r"^(8|16|32|64)([USFusf])C([1-4])$")
@@ -78,7 +80,9 @@ class CVBridgeWorkaround:
     def imgmsg_to_cv2(
         self, img_msg: Image, desired_encoding: str = "passthrough"
     ) -> npt.NDArray:
-        """Convert ROS ``sensor_msgs/Image`` to a NumPy/OpenCV image."""
+        """
+        Convert ROS ``sensor_msgs/Image`` to a NumPy/OpenCV image.
+        """
         image = self._decode_image_message(img_msg)
         source_encoding = img_msg.encoding.strip().lower()
         target_encoding = desired_encoding.strip().lower()
@@ -117,7 +121,9 @@ class CVBridgeWorkaround:
     def cv2_to_imgmsg(
         self, cv_image: npt.NDArray, encoding: str = "passthrough"
     ) -> Image:
-        """Convert a NumPy/OpenCV image to ROS ``sensor_msgs/Image``."""
+        """
+        Convert a NumPy/OpenCV image to ROS ``sensor_msgs/Image``.
+        """
         np_image = np.asarray(cv_image)
         if np_image.ndim not in (2, 3):
             raise CVBridgeImageShapeError(
@@ -157,7 +163,7 @@ class CVBridgeWorkaround:
         return ros_image
 
     @classmethod
-    def _encoding_to_dtype_channels(cls, encoding: str) -> Tuple[np.dtype, int]:
+    def _encoding_to_dtype_channels(cls, encoding: str) -> tuple[np.dtype, int]:
         normalized = encoding.strip().lower()
         if normalized in cls._ENCODING_TO_DTYPE_CHANNELS:
             dtype, channels = cls._ENCODING_TO_DTYPE_CHANNELS[normalized]

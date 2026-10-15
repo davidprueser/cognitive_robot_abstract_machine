@@ -1,3 +1,4 @@
+from __future__ import annotations
 import py_trees
 import pytest
 
@@ -9,7 +10,7 @@ from robokudo.exceptions import ParentPipelineMissing
 class TestClearAnnotatorOutputs:
     def test_raises_without_parent_pipeline(
         self, annotator_output_buffer: AnnotatorOutputPerPipelineMap
-    ):
+    ) -> None:
         root = py_trees.composites.Sequence("Sequence", memory=True)
         clear_outputs = ClearAnnotatorOutputs()
         root.add_child(clear_outputs)
@@ -17,7 +18,7 @@ class TestClearAnnotatorOutputs:
         with pytest.raises(ParentPipelineMissing):
             clear_outputs.update()
 
-    def test_removing_one_of_two_instances_keeps_the_other(self):
+    def test_removing_one_of_two_instances_keeps_the_other(self) -> None:
         """
         Instances with the same name stay distinct children of a composite.
         """

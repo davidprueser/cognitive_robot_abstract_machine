@@ -1,3 +1,4 @@
+from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
@@ -34,10 +35,16 @@ from robokudo.descriptors.factories.cr_descriptor_factory import (
 )
 from robokudo.world_descriptor import PredefinedObject
 from semantic_digital_twin.world_description.geometry import Mesh
+from typing_extensions import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from robokudo.cas import CAS
+    from typing_extensions import Iterator
+    from rclpy.node import Node
 
 
 @pytest.fixture
-def clean_semantic_world():
+def clean_semantic_world() -> Iterator[None]:
     rk_world.get_object_belief_states().clear()
     rk_world.init_world_with_entity_tracker()
     yield
@@ -46,7 +53,7 @@ def clean_semantic_world():
 
 
 class TestFullAEExecution(object):
-    def test_run_simple_ae_successfully(self, node):
+    def test_run_simple_ae_successfully(self, node: Node) -> None:
         # rclpy.init()
         # node = Node(robokudo.defs.TEST_ROS_NODE_NAME)
 
@@ -91,8 +98,8 @@ class TestFullAEExecution(object):
         assert types_of_annotations.count(robokudo.types.scene.ObjectHypothesis) == 1
 
     def test_run_file_reader_ae_synchronizes_semantic_digital_twin_belief_state(
-        self, node, clean_semantic_world
-    ):
+        self, node: Node, clean_semantic_world: None
+    ) -> None:
         cr_fr_config = CollectionReaderDescriptorFactory.create_descriptor(
             "file_reader",
             loop=False,
@@ -126,7 +133,7 @@ class TestFullAEExecution(object):
 
         belief_uuids_after_each_successful_cas = []
 
-        def assert_current_cas_updates_single_belief(cas):
+        def assert_current_cas_updates_single_belief(cas: CAS) -> None:
             object_hypotheses = cas.filter_annotations_by_type(
                 robokudo.types.scene.ObjectHypothesis
             )
@@ -245,7 +252,7 @@ class TestFullAEExecution(object):
             len(object_belief.body.visual.shapes) == 1
         ), "The object belief body should contain one visual shape derived from the latest bounding box."
 
-    def test_run_semdt_raytracer_ae_successfully(self, node):
+    def test_run_semdt_raytracer_ae_successfully(self, node: Node) -> None:
         raytracer_config = CollectionReaderDescriptorFactory.create_descriptor(
             "semdt_raytracer",
             world_descriptor_name="world_semdt_raytracer_cylinders",
@@ -323,7 +330,9 @@ class TestFullAEExecution(object):
         )
         assert all(len(shapes[0].inliers) > 0 for shapes in object_shapes)
 
-    def test_run_semdt_raytracer_tabletop_ae_loads_mesh_world_descriptor(self, node):
+    def test_run_semdt_raytracer_tabletop_ae_loads_mesh_world_descriptor(
+        self, node: Node
+    ) -> None:
         raytracer_config = CollectionReaderDescriptorFactory.create_descriptor(
             "semdt_raytracer",
             world_descriptor_name="world_semdt_raytracer_tabletop",

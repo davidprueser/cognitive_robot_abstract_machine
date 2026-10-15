@@ -24,7 +24,7 @@ import open3d as o3d
 from matplotlib import pyplot as plt
 from py_trees.common import Status
 from scipy.spatial.transform import Rotation as R
-from typing_extensions import TYPE_CHECKING, List, Tuple
+from typing_extensions import TYPE_CHECKING
 
 from robokudo.annotators.core import BaseAnnotator, ThreadedAnnotator
 from robokudo.cas import CASViews
@@ -55,7 +55,7 @@ def generate_roi_with_mask_from_points(
     pointcloud_camera_intrinsics: o3d.camera.PinholeCameraIntrinsic,
     cloud: o3d.geometry.PointCloud,
     color_to_depth_ratio: ColorToDepthRatio,
-) -> Tuple[ImageROI, npt.NDArray]:
+) -> tuple[ImageROI, npt.NDArray]:
     """Generate ROI and mask from projected point cloud points.
 
     Projects 3D points to image plane and creates:
@@ -105,7 +105,7 @@ def cluster_points(
     eps: float,
     min_points: int,
     rk_logger: logging.Logger,
-) -> List[int]:
+) -> list[int]:
     """Cluster points using DBSCAN algorithm.
 
     :param input_cloud: Point cloud to cluster
@@ -158,7 +158,7 @@ class PointCloudClusterExtractor(ThreadedAnnotator):
         class Parameters:
             """Parameters for configuring cluster extraction."""
 
-            def __init__(self):
+            def __init__(self) -> None:
                 self.dbscan_min_cluster_count: int = 90
                 """Minimum points for DBSCAN cluster"""
 
@@ -190,11 +190,11 @@ class PointCloudClusterExtractor(ThreadedAnnotator):
         self,
         plane_model: Plane,
         cloud: o3d.geometry.PointCloud,
-    ) -> Tuple[
+    ) -> tuple[
         o3d.geometry.OrientedBoundingBox,
         o3d.geometry.OrientedBoundingBox,
         o3d.geometry.PointCloud,
-        List[int],
+        list[int],
         o3d.geometry.PointCloud,
     ]:
         """Extract points above a detected plane.
@@ -241,7 +241,6 @@ class PointCloudClusterExtractor(ThreadedAnnotator):
             new_obb_rotation = np.matmul(plane_obb.R, rotation)
             plane_obb.R = new_obb_rotation
 
-        # ------------------------------------------------
         # Plane OBB should be good now (normal points up)
         # Begin the actual segmentation
 
@@ -400,7 +399,7 @@ class PointCloudClusterExtractor(ThreadedAnnotator):
             self.feedback_message = f"Processing took {(end_timer - start_timer):.4f}s"
             return Status.FAILURE
 
-        ##### Visualization
+        # Visualization
         # 3D
         visualization_cloud = concatenate_clouds(all_vis_clouds)
 
@@ -576,7 +575,7 @@ class NaivePointCloudClusterExtractor(ThreadedAnnotator):
             self.feedback_message = f"Processing took {(end_timer - start_timer):.4f}s"
             return Status.FAILURE
 
-        ##### Visualization
+        # Visualization
         # 3D
         visualization_cloud = concatenate_clouds(all_vis_clouds)
 

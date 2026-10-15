@@ -18,8 +18,9 @@ from timeit import default_timer
 import cv2
 import numpy as np
 from py_trees.common import Status
+from semantic_digital_twin.world_description.shape_collection import ShapeCollection
 from semantic_digital_twin.world_description.world_entity import Body
-from typing_extensions import TYPE_CHECKING, Dict, List, Optional
+from typing_extensions import TYPE_CHECKING
 
 import robokudo.world as rk_world
 from robokudo.annotators.core import BaseAnnotator
@@ -115,7 +116,7 @@ class StaticObjectDetectorAnnotator(BaseAnnotator):
                 Only used for StaticObjectMode.BOUNDING_BOX
                 """
 
-                self.class_names: List[str] = []
+                self.class_names: list[str] = []
                 """Used for StaticObjectMode.WORLD_DESCRIPTOR"""
 
                 self.create_pose_annotation: bool = False
@@ -148,12 +149,12 @@ class StaticObjectDetectorAnnotator(BaseAnnotator):
         """
         super().__init__(name, descriptor)
         self.rk_logger.debug("%s.__init__()" % self.__class__.__name__)
-        self.color: Optional[npt.NDArray] = None
-        self.depth: Optional[npt.NDArray] = None
-        self.cloud: Optional[o3d.geometry.PointCloud] = None
+        self.color: npt.NDArray | None = None
+        self.depth: npt.NDArray | None = None
+        self.cloud: o3d.geometry.PointCloud | None = None
         self.camera_intrinsics = None
-        self.object_body: Optional[Body] = None
-        self.object_bodies_by_name: Dict[str, Body] = {}
+        self.object_body: Body | None = None
+        self.object_bodies_by_name: dict[str, Body] = {}
 
     def detect_from_bb_descriptor(self, color_rgb: npt.NDArray) -> ObjectHypothesis:
         """
@@ -192,7 +193,7 @@ class StaticObjectDetectorAnnotator(BaseAnnotator):
         return body.name.name
 
     @staticmethod
-    def _select_body_shape_collection(body: Body):
+    def _select_body_shape_collection(body: Body) -> ShapeCollection | None:
         if body.collision is not None and len(body.collision) > 0:
             return body.collision
         if body.visual is not None and len(body.visual) > 0:
@@ -312,8 +313,8 @@ class StaticObjectDetectorAnnotator(BaseAnnotator):
         return object_hypothesis
 
     def detect_from_body_base(
-        self, world_to_camera_transform_matrix: Optional[npt.NDArray] = None
-    ) -> List[ObjectHypothesis]:
+        self, world_to_camera_transform_matrix: npt.NDArray | None = None
+    ) -> list[ObjectHypothesis]:
         """
         Detect from a completed world descriptor
 
@@ -494,7 +495,7 @@ class StaticObjectDetectorAnnotator(BaseAnnotator):
 
     def get_rotation_list_based_on_parameters(
         self, rotation_x: float, rotation_y: float, rotation_z: float, rotation_w: float
-    ) -> List[float]:
+    ) -> list[float]:
         """Return a quaternion based on the parametrization of the Annotator.
 
         :param rotation_x: rotation about x-axis

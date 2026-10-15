@@ -1,3 +1,4 @@
+from __future__ import annotations
 import pytest
 from std_msgs.msg import String
 
@@ -7,7 +8,7 @@ from robokudo.types.cv import ColorToDepthRatio
 from robokudo.types.tf import StampedTransform
 
 
-def test_bytes_codec_roundtrip():
+def test_bytes_codec_roundtrip() -> None:
     registry = CASViewCodecRegistry()
     input_payload = b"\x00\x01\x02\x03"
 
@@ -20,7 +21,7 @@ def test_bytes_codec_roundtrip():
     assert decoded_payload == input_payload
 
 
-def test_ros_message_codec_roundtrip():
+def test_ros_message_codec_roundtrip() -> None:
     registry = CASViewCodecRegistry()
     msg = String(data="hello")
 
@@ -34,7 +35,7 @@ def test_ros_message_codec_roundtrip():
     assert decoded_msg.data == "hello"
 
 
-def test_stamped_transform_codec_roundtrip():
+def test_stamped_transform_codec_roundtrip() -> None:
     registry = CASViewCodecRegistry()
     transform = StampedTransform()
     transform.rotation = [0.0, 0.0, 0.0, 1.0]
@@ -59,7 +60,7 @@ def test_stamped_transform_codec_roundtrip():
     assert decoded_transform.timestamp.nanosec == transform.timestamp.nanosec
 
 
-def test_color_to_depth_ratio_roundtrip():
+def test_color_to_depth_ratio_roundtrip() -> None:
     registry = CASViewCodecRegistry()
     ratio = ColorToDepthRatio(horizontal=0.5, vertical=0.25)
 
@@ -68,7 +69,7 @@ def test_color_to_depth_ratio_roundtrip():
     assert registry.decode_view(encoded) == (CASViews.COLOR_TO_DEPTH_RATIO, ratio)
 
 
-def test_decode_view_unknown_serializer_raises():
+def test_decode_view_unknown_serializer_raises() -> None:
     registry = CASViewCodecRegistry()
     with pytest.raises(ValueError):
         registry.decode_view(
@@ -82,7 +83,7 @@ def test_decode_view_unknown_serializer_raises():
         )
 
 
-def test_decode_view_missing_required_field_raises():
+def test_decode_view_missing_required_field_raises() -> None:
     registry = CASViewCodecRegistry()
     with pytest.raises(KeyError):
         registry.decode_view(

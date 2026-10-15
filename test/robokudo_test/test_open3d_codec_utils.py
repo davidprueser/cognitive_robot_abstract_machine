@@ -1,9 +1,14 @@
+from __future__ import annotations
 import numpy as np
 
 from robokudo.io import open3d_codec_utils
+from typing_extensions import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import open3d as o3d
 
 
-def _create_point_cloud():
+def _create_point_cloud() -> o3d.geometry.PointCloud:
     points = np.array(
         [
             [0.0, 0.0, 0.0],
@@ -17,7 +22,7 @@ def _create_point_cloud():
     return point_cloud
 
 
-def test_open3d_point_cloud_base64_pcd_roundtrip():
+def test_open3d_point_cloud_base64_pcd_roundtrip() -> None:
     point_cloud = _create_point_cloud()
     payload = open3d_codec_utils.encode_open3d_point_cloud_to_base64_pcd(point_cloud)
     restored = open3d_codec_utils.decode_open3d_point_cloud_from_base64_pcd(payload)
@@ -28,12 +33,12 @@ def test_open3d_point_cloud_base64_pcd_roundtrip():
     )
 
 
-def test_decode_open3d_point_cloud_invalid_base64_results_in_empty_cloud():
+def test_decode_open3d_point_cloud_invalid_base64_results_in_empty_cloud() -> None:
     restored = open3d_codec_utils.decode_open3d_point_cloud_from_base64_pcd("%%%")
     assert len(np.asarray(restored.points)) == 0
 
 
-def test_is_open3d_point_cloud_detects_type():
+def test_is_open3d_point_cloud_detects_type() -> None:
     point_cloud = _create_point_cloud()
     assert open3d_codec_utils.is_open3d_point_cloud(point_cloud) is True
     assert open3d_codec_utils.is_open3d_point_cloud({"not": "a point cloud"}) is False

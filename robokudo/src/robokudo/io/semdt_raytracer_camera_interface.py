@@ -6,13 +6,13 @@ from __future__ import annotations
 
 import io
 import time
-from typing import Dict, Tuple
 
 import numpy as np
 import open3d as o3d
 from PIL import Image as PILImage, UnidentifiedImageError
 from pyglet.canvas.xlib import NoSuchDisplayException
 from sensor_msgs.msg import CameraInfo
+from typing_extensions import TYPE_CHECKING
 
 import robokudo.world as rk_world
 from robokudo.cas import CASViews, CAS
@@ -30,6 +30,11 @@ from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.connections import Connection6DoF
 from semantic_digital_twin.world_description.world_entity import Body
 
+if TYPE_CHECKING:
+    from robokudo.descriptors.camera_configs.config_semdt_raytracer import (
+        SemDTRayTracerCameraConfig,
+    )
+
 
 class SemDTRayTracerCameraInterface(CameraInterface):
     """
@@ -44,7 +49,7 @@ class SemDTRayTracerCameraInterface(CameraInterface):
         SemDT ray tracer renders from a camera-link-like frame.
     """
 
-    def __init__(self, camera_config):
+    def __init__(self, camera_config: SemDTRayTracerCameraConfig) -> None:
         """
         Initialize the camera interface.
 
@@ -201,7 +206,7 @@ class SemDTRayTracerCameraInterface(CameraInterface):
 
     def _set_camera_pose(
         self, world: World, world_frame_body: Body, camera_body: Body
-    ) -> Tuple[HomogeneousTransformationMatrix, HomogeneousTransformationMatrix]:
+    ) -> tuple[HomogeneousTransformationMatrix, HomogeneousTransformationMatrix]:
         """
         Apply the configured camera pose to the runtime world.
 
@@ -272,7 +277,7 @@ class SemDTRayTracerCameraInterface(CameraInterface):
         field_of_view: FieldOfView,
         min_distance: float,
         max_distance: float,
-    ) -> Tuple[np.ndarray, np.ndarray]:
+    ) -> tuple[np.ndarray, np.ndarray]:
         """
         Render object segmentation and projective depth.
 
@@ -337,12 +342,12 @@ class SemDTRayTracerCameraInterface(CameraInterface):
     def _render_color_image(
         self,
         world: World,
-        ray_tracer,
+        ray_tracer: RayTracer,
         camera_to_world: HomogeneousTransformationMatrix,
         segmentation: np.ndarray,
         resolution: CameraResolution,
         field_of_view: FieldOfView,
-    ) -> Tuple[np.ndarray, Dict[str, str]]:
+    ) -> tuple[np.ndarray, dict[str, str]]:
         """
         Render a BGR color image for the current frame.
 
@@ -375,7 +380,7 @@ class SemDTRayTracerCameraInterface(CameraInterface):
 
     def _try_render_trimesh_rgb(
         self,
-        ray_tracer,
+        ray_tracer: RayTracer,
         camera_to_world: HomogeneousTransformationMatrix,
         resolution: CameraResolution,
         field_of_view: FieldOfView,
@@ -404,7 +409,7 @@ class SemDTRayTracerCameraInterface(CameraInterface):
 
     def _render_semantic_rgb(
         self, world: World, segmentation: np.ndarray
-    ) -> Tuple[np.ndarray, Dict[str, str]]:
+    ) -> tuple[np.ndarray, dict[str, str]]:
         """
         Render deterministic semantic RGB colors from segmentation labels.
 
@@ -415,7 +420,7 @@ class SemDTRayTracerCameraInterface(CameraInterface):
         rgb = np.zeros(
             (segmentation.shape[0], segmentation.shape[1], 3), dtype=np.uint8
         )
-        object_color_map: Dict[str, str] = {}
+        object_color_map: dict[str, str] = {}
         unique_indices = np.unique(segmentation)
         for body_index in unique_indices:
             if body_index < 0:
@@ -472,7 +477,7 @@ class SemDTRayTracerCameraInterface(CameraInterface):
     @staticmethod
     def _build_camera_models(
         frame_id: str, resolution: int, fov_deg: float
-    ) -> Tuple[CameraInfo, o3d.camera.PinholeCameraIntrinsic]:
+    ) -> tuple[CameraInfo, o3d.camera.PinholeCameraIntrinsic]:
         """
         Build ROS and Open3D pinhole camera models.
 

@@ -104,7 +104,7 @@ class OpenVocabularyObjectDetectionAnnotator(
 
     class Descriptor(robokudo.annotators.core.BaseAnnotator.Descriptor):
         class Parameters:
-            def __init__(self):
+            def __init__(self) -> None:
                 """
                 Set default detection and segmentation settings.
                 """

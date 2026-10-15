@@ -2,6 +2,8 @@
 Decorator utilities for RoboKudo annotators.
 """
 
+from __future__ import annotations
+
 import timeit
 from collections import defaultdict
 
@@ -29,7 +31,7 @@ def timer_decorator(func: Callable[[...], Any]) -> Callable[[...], Any]:
         Uses rk_logger if available, otherwise prints to stdout
     """
 
-    def wrapper(*args, **kwargs):
+    def wrapper(*args: Any, **kwargs: Any) -> Any:
         logger = None
         class_name = None
 
@@ -81,7 +83,7 @@ def record_time(func: Callable[[...], Any]) -> Callable[[...], Any]:
     """
     function_name = func.__name__
 
-    def wrapper(*args, **kwargs):
+    def wrapper(*args: Any, **kwargs: Any) -> Any:
         self = args[0]
         if not hasattr(self, "_times"):
             setattr(self, "_times", defaultdict(list))
@@ -117,7 +119,7 @@ def publish_variables(func: Callable[[...], Any]) -> Callable[[...], Any]:
         Only works on BaseAnnotator instance methods
     """
 
-    def wrapper(*args, **kwargs):
+    def wrapper(*args: Any, **kwargs: Any) -> Any:
         result = func(*args, **kwargs)
         assert isinstance(args[0], BaseAnnotator)
         args[0].publish_variables()

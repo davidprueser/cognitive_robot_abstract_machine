@@ -1,3 +1,4 @@
+from __future__ import annotations
 import os
 from collections.abc import Iterator
 from dataclasses import dataclass
@@ -87,7 +88,7 @@ class MongoStoragePreservationCheck:
 
 
 @pytest.fixture(autouse=True, scope="session")
-def preserve_initial_robokudo_storage_database():
+def preserve_initial_robokudo_storage_database() -> Iterator[None]:
     """
     Verify that an existing default RoboKudo storage database survives the suite.
     """
@@ -107,7 +108,7 @@ def preserve_initial_robokudo_storage_database():
 
 
 @pytest.fixture(scope="session", autouse=True)
-def ros_default():
+def ros_default() -> Iterator[None]:
     # RoboKudo keeps its own ROS lifecycle fixture on purpose.
     # We do not use test/conftest.py::rclpy_node here because:
     # 1) RoboKudo tests need a session-wide ROS context for many tests/files.
@@ -127,7 +128,7 @@ def ros_default():
 
 
 @pytest.fixture
-def node(ros_default):
+def node(ros_default: None) -> Iterator[Node]:
     node_registry = ROSNodeRegistry()
     n = Node(robokudo.defs.TEST_ROS_NODE_NAME)
     node_registry.register(n)
