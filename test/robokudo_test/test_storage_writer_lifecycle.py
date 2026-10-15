@@ -7,6 +7,7 @@ from typing_extensions import TYPE_CHECKING
 
 if TYPE_CHECKING:
     import pytest
+from krrood.utils import get_default_value
 
 # %% storage preparation
 
@@ -38,11 +39,12 @@ def test_storage_writer_defers_database_reset_until_setup(
     """
     A storage writer resets its database exactly once during setup.
     """
-    descriptor = StorageWriter.Descriptor()
-    storage = StorageResetRecorder(database_name=descriptor.parameters.db_name)
+    storage = StorageResetRecorder(
+        database_name=get_default_value(StorageWriter, "db_name")
+    )
     monkeypatch.setattr(storage_module, "Storage", lambda database_name: storage)
 
-    writer = StorageWriter(descriptor=descriptor)
+    writer = StorageWriter()
 
     assert storage.reset_count == 0
 

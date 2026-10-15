@@ -1,13 +1,14 @@
 from __future__ import annotations
 
-from timeit import default_timer
+from dataclasses import dataclass, field
+
 
 import numpy as np
 from py_trees.common import Status
 from scipy.optimize import linear_sum_assignment
 
 from robokudo import world
-from robokudo.annotators.core import BaseAnnotator, ThreadedAnnotator
+from robokudo.annotators.core import ThreadedAnnotator
 from robokudo.cas import CAS, CASViews
 from robokudo.types.annotation import (
     BoundingBox3DAnnotation,
@@ -25,28 +26,21 @@ from robokudo.utils.hypothesis_comparators import ObjectHypothesisComparator
 from robokudo.world import world_instance
 
 
+@dataclass(kw_only=True)
 class SemanticDigitalTwinConnector(ThreadedAnnotator):
-    """An annotator that synchronizes the current state of the world with the semdt."""
+    """
+    An annotator that synchronizes the current state of the world with the semdt.
+    """
 
-    class Descriptor(BaseAnnotator.Descriptor):
-        class Parameters:
-            def __init__(self) -> None:
-                """Initialize a new set of parameters for the descriptor."""
+    confidence_threshold: float = 0.05
 
-                self.confidence_threshold = 0.05
+    object_comparator: ObjectHypothesisComparator = field(init=False, repr=False)
+    """
+    Measures how similar two object hypotheses are.
+    """
 
-        # Overwrite the parameters explicitly to enable auto-completion
-        parameters = Parameters()
-
-    def __init__(
-        self,
-        name: str = "SemanticDigitalTwinSynchronization",
-        descriptor: SemanticDigitalTwinConnector.Descriptor | None = None,
-    ) -> None:
-        """Default construction. Minimal one-time init!"""
-        super().__init__(name, descriptor)
-        self.rk_logger.debug("%s.__init__()" % self.__class__.__name__)
-
+    def __post_init__(self) -> None:
+        super().__post_init__()
         self.object_comparator = (
             ObjectHypothesisComparator(self.get_cas)
             .with_comparator_for(ImageROI, weight=0.2)
@@ -55,9 +49,9 @@ class SemanticDigitalTwinConnector(ThreadedAnnotator):
         )
 
     def compute(self) -> Status:
-        """Synchronise the current RoboKudo state with the current semdt state."""
-        start_timer = default_timer()
-
+        """
+        Synchronise the current RoboKudo state with the current semdt state.
+        """
         cas = self.get_cas()
         object_hypotheses: list[ObjectHypothesis] = cas.filter_annotations_by_type(
             ObjectHypothesis
@@ -70,8 +64,6 @@ class SemanticDigitalTwinConnector(ThreadedAnnotator):
         self.create_association_visualization(associated_hypotheses)
         self.log_world_state()
 
-        end_timer = default_timer()
-        self.feedback_message = f"Processing took {(end_timer - start_timer):.4f}s"
         return Status.SUCCESS
 
     def associate_hypotheses_with_beliefs(
@@ -80,7 +72,9 @@ class SemanticDigitalTwinConnector(ThreadedAnnotator):
         object_beliefs: list[ObjectBeliefState],
         cas: CAS,
     ) -> list[tuple[ObjectHypothesis, ObjectBeliefState]]:
-        """Associate current object hypotheses with existing or new object beliefs."""
+        """
+        Associate current object hypotheses with existing or new object beliefs.
+        """
         if len(object_hypotheses) == 0:
             return []
 
@@ -113,7 +107,9 @@ class SemanticDigitalTwinConnector(ThreadedAnnotator):
     def add_world_pose_annotations(
         self, object_hypotheses: list[ObjectHypothesis], cas: CAS
     ) -> None:
-        """Add world-frame stamped poses to hypotheses when a camera pose is available."""
+        """
+        Add world-frame stamped poses to hypotheses when a camera pose is available.
+        """
         if cas.camera_to_world_transform is None:
             return
 
@@ -124,7 +120,7 @@ class SemanticDigitalTwinConnector(ThreadedAnnotator):
 
             pose_in_world = transform_pose_from_camera_to_world(cas, pose_annotation)
             stamped_pose = StampedPoseAnnotation()
-            stamped_pose.source = self.get_class_name()
+            stamped_pose.source = self.name
             stamped_pose.translation = pose_in_world.translation
             stamped_pose.rotation = pose_in_world.rotation
             if cas.world_frame is not None:
@@ -138,7 +134,9 @@ class SemanticDigitalTwinConnector(ThreadedAnnotator):
     def get_latest_pose_annotation(
         object_hypothesis: ObjectHypothesis,
     ) -> PoseAnnotation | None:
-        """Return the latest plain pose annotation for a hypothesis."""
+        """
+        Return the latest plain pose annotation for a hypothesis.
+        """
         for annotation in reversed(object_hypothesis.annotations):
             if type(annotation) is PoseAnnotation:
                 return annotation
@@ -149,7 +147,9 @@ class SemanticDigitalTwinConnector(ThreadedAnnotator):
         object_hypotheses: list[ObjectHypothesis],
         object_beliefs: list[ObjectBeliefState],
     ) -> np.ndarray:
-        """Create a negative-similarity cost matrix for Hungarian assignment."""
+        """
+        Create a negative-similarity cost matrix for Hungarian assignment.
+        """
         cost_matrix = np.full((len(object_hypotheses), len(object_beliefs)), 1e9)
         for hypothesis_idx, object_hypothesis in enumerate(object_hypotheses):
             for belief_idx, object_belief in enumerate(object_beliefs):
@@ -168,9 +168,11 @@ class SemanticDigitalTwinConnector(ThreadedAnnotator):
         belief_indices: np.ndarray,
         cas: CAS,
     ) -> list[tuple[ObjectHypothesis, ObjectBeliefState]]:
-        """Update matched beliefs or create new beliefs for low-confidence matches."""
+        """
+        Update matched beliefs or create new beliefs for low-confidence matches.
+        """
         associated_hypotheses: list[tuple[ObjectHypothesis, ObjectBeliefState]] = []
-        threshold = self.descriptor.parameters.confidence_threshold
+        threshold = self.confidence_threshold
 
         for hypothesis_idx, belief_idx in zip(hypothesis_indices, belief_indices):
             object_hypothesis = object_hypotheses[hypothesis_idx]
@@ -192,7 +194,9 @@ class SemanticDigitalTwinConnector(ThreadedAnnotator):
     def create_new_beliefs_for_hypotheses(
         self, object_hypotheses: list[ObjectHypothesis], cas: CAS
     ) -> list[tuple[ObjectHypothesis, ObjectBeliefState]]:
-        """Create object beliefs for all given hypotheses."""
+        """
+        Create object beliefs for all given hypotheses.
+        """
         return [
             (
                 object_hypothesis,
@@ -207,7 +211,9 @@ class SemanticDigitalTwinConnector(ThreadedAnnotator):
         matched_hypothesis_indices: set[int],
         cas: CAS,
     ) -> list[tuple[ObjectHypothesis, ObjectBeliefState]]:
-        """Create object beliefs for hypotheses not returned by Hungarian assignment."""
+        """
+        Create object beliefs for hypotheses not returned by Hungarian assignment.
+        """
         unmatched_hypotheses = [
             object_hypothesis
             for hypothesis_idx, object_hypothesis in enumerate(object_hypotheses)
@@ -217,9 +223,11 @@ class SemanticDigitalTwinConnector(ThreadedAnnotator):
         return self.create_new_beliefs_for_hypotheses(unmatched_hypotheses, cas)
 
     def log_world_state(self) -> None:
-        """Log a compact summary of the current SemDT world contents."""
+        """
+        Log a compact summary of the current SemDT world contents.
+        """
         rk_world = world_instance()
-        self.rk_logger.debug(
+        self.robokudo_logger.debug(
             f"SemDT \nKS Entities: {len(rk_world.kinematic_structure_entities)}\nViews: {len(rk_world.semantic_annotations)}\nConnections: {len(rk_world.connections)}"
         )
 
@@ -227,7 +235,9 @@ class SemanticDigitalTwinConnector(ThreadedAnnotator):
         self,
         associated_hypotheses: list[tuple[ObjectHypothesis, ObjectBeliefState]],
     ) -> None:
-        """Publish a 2D image showing which SemDT UUID each hypothesis maps to."""
+        """
+        Publish a 2D image showing which SemDT UUID each hypothesis maps to.
+        """
         cas = self.get_cas()
         if not cas.contains(CASViews.COLOR_IMAGE):
             return
@@ -248,5 +258,7 @@ class SemanticDigitalTwinConnector(ThreadedAnnotator):
 
     @staticmethod
     def get_object_belief_label(object_belief: ObjectBeliefState) -> str:
-        """Return a compact display label for an object belief UUID."""
+        """
+        Return a compact display label for an object belief UUID.
+        """
         return f"{str(object_belief.uuid)[:10]}..."

@@ -13,6 +13,8 @@ Features:
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
+
 from queue import Queue
 
 from py_trees.blackboard import Blackboard
@@ -32,13 +34,31 @@ from robokudo.idioms import pipeline_init
 from robokudo.pipeline import Pipeline
 
 
+@dataclass(kw_only=True)
 class PrintNumbers(BaseAnnotator):
-    def __init__(self, name: str = "PrintNumbers") -> None:
-        super().__init__(name)
-        self.current_number: int = 1
-        self.completed: bool = False
-        self.result: list[int] = []
-        self.result_string: str = ""
+    """
+    Counts to 100, one number per tick, and answers the query with the numbers.
+    """
+
+    current_number: int = field(default=1, init=False)
+    """
+    The number printed next.
+    """
+
+    completed: bool = field(default=False, init=False)
+    """
+    Whether all numbers were printed.
+    """
+
+    result: list[int] = field(default_factory=list, init=False)
+    """
+    The numbers printed so far.
+    """
+
+    result_string: str = field(default="", init=False)
+    """
+    The numbers printed so far, as the text of the answer.
+    """
 
     def initialise(self) -> None:
         self.result = []
@@ -46,7 +66,7 @@ class PrintNumbers(BaseAnnotator):
         self.current_number = 1
         self.completed = False
 
-    def update(self) -> Status:
+    def compute(self) -> Status:
         blackboard = Blackboard()
         feedback_queue = blackboard.get(BBIdentifier.QUERY_FEEDBACK)
         if feedback_queue is None:
@@ -72,15 +92,13 @@ class PrintNumbers(BaseAnnotator):
             return Status.SUCCESS
 
 
+@dataclass(kw_only=True)
 class CheckQueryType(BaseAnnotator):
     """
     Checks if the query type on the CAS is 'numbers'.
     """
 
-    def __init__(self, name: str = "CheckQueryType") -> None:
-        super().__init__(name)
-
-    def update(self) -> Status:
+    def compute(self) -> Status:
         # Retrieve the query from the CAS
         query = self.get_cas().get(CASViews.QUERY)
 

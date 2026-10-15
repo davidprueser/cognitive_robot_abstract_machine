@@ -1,4 +1,5 @@
-"""Point cloud filtering based on semantic regions.
+"""
+Point cloud filtering based on semantic regions.
 
 This module provides an annotator for:
 
@@ -12,68 +13,48 @@ This module provides an annotator for:
 
 from __future__ import annotations
 
-from timeit import default_timer
+from dataclasses import dataclass
+
 
 import open3d as o3d
 from py_trees.common import Status
 from semantic_digital_twin.world_description.world_entity import Region
 
 import robokudo.world as rk_world
-from robokudo.annotators.core import BaseAnnotator, ThreadedAnnotator
+from robokudo.annotators.core import ThreadedAnnotator
 from robokudo.cas import CASViews
 from robokudo.types.scene import RegionHypothesis
 from robokudo.utils.annotator_helper import get_world_to_camera_transform_matrix
-from robokudo.utils.error_handling import catch_and_raise_to_blackboard
 from robokudo.utils.region import (
     region_obb_in_camera_coordinates,
     region_pose_annotation,
 )
 
 
+@dataclass(kw_only=True)
 class RegionFilter(ThreadedAnnotator):
-    """Point cloud filtering using world regions.
+    """
+    Point cloud filtering using world regions.
 
     The RegionFilter can be used to filter point clouds based on an environment model
     that provides semantic_digital_twin Regions via a shared World.
     """
 
-    class Descriptor(BaseAnnotator.Descriptor):
-        """Configuration descriptor for region filtering."""
+    world_frame_name: str = "map"
+    """
+    Name of the world coordinate frame.
+    """
 
-        class Parameters:
-            """Parameters for configuring region filtering."""
+    active_region: str = ""
+    """
+    Name of active region to filter.
 
-            def __init__(self) -> None:
-                self.world_frame_name: str = "map"
-                """Name of the world coordinate frame"""
+    Does not define a specific region but can be used to check the active regions.
+    """
 
-                self.active_region: str = ""
-                """Name of active region to filter. Does not define a specific region but can be used to check the active regions."""
-
-        # Overwrite the parameters explicitly to enable auto-completion
-        parameters = Parameters()
-
-    def __init__(
-        self,
-        name: str = "RegionFilter",
-        descriptor: RegionFilter.Descriptor | None = None,
-    ) -> None:
-        """Initialize the region filter.
-
-        :param name: Name of this annotator instance
-        :param descriptor: Configuration descriptor
-        """
-        super().__init__(name=name, descriptor=descriptor)
-
-        self.world_frame_name: str = self.descriptor.parameters.world_frame_name
-        """Name of the world coordinate frame read from parameters"""
-
-        self.active_region = self.descriptor.parameters.active_region
-        """Name of the active region to filter read from parameters"""
-
-    @catch_and_raise_to_blackboard
     def compute(self) -> Status:
-        """Filter point cloud using semantic map regions.
+        """
+        Filter point cloud using semantic map regions.
 
         The method:
 
@@ -89,7 +70,6 @@ class RegionFilter(ThreadedAnnotator):
         :return: SUCCESS after processing
         :raises Exception: If queried region not found in map
         """
-        start_timer = default_timer()
         cloud = self.get_cas().get(CASViews.CLOUD)
 
         query = None
@@ -106,7 +86,7 @@ class RegionFilter(ThreadedAnnotator):
         if query is not None:
             queried_location = query.obj.location
             if queried_location != "" and queried_location != self.active_region:
-                self.rk_logger.info(
+                self.robokudo_logger.info(
                     f"Setting region filter to check for location '{queried_location}'"
                 )
                 active_regions = dict()
@@ -120,14 +100,14 @@ class RegionFilter(ThreadedAnnotator):
         visualized_geometries = []
         filtered_indices = set()
 
-        self.rk_logger.debug(f"Analyzing {len(active_regions.keys())}")
+        self.robokudo_logger.debug(f"Analyzing {len(active_regions.keys())}")
 
         try:
             world_to_camera_transform = get_world_to_camera_transform_matrix(
                 self.get_cas()
             )
         except KeyError as err:
-            self.rk_logger.warning(f"Couldn't find viewpoint in the CAS: {err}")
+            self.robokudo_logger.warning(f"Couldn't find viewpoint in the CAS: {err}")
             return Status.FAILURE
 
         for key, region in active_regions.items():
@@ -175,6 +155,4 @@ class RegionFilter(ThreadedAnnotator):
         )
         self.get_annotator_output_struct().set_geometries(visualized_geometries)
 
-        end_timer = default_timer()
-        self.feedback_message = f"Processing took {(end_timer - start_timer):.4f}s"
         return Status.SUCCESS

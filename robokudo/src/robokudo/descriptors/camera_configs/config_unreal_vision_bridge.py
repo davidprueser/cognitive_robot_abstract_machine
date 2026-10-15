@@ -1,12 +1,11 @@
 from __future__ import annotations
 from dataclasses import dataclass
 
-from typing_extensions import ClassVar
 
 from robokudo.descriptors.camera_configs.base_camera_config import BaseCameraConfig
 
 
-@dataclass(slots=True)
+@dataclass(kw_only=True)
 class UnrealVisionBridgeCameraConfig(BaseCameraConfig):
     """
     Configuration class for the Unreal Vision Bridge interface.
@@ -20,7 +19,3 @@ class UnrealVisionBridgeCameraConfig(BaseCameraConfig):
         Additional parameters may be required depending on the specific Unreal
         Engine simulation setup.
     """
-
-    registry_name: ClassVar[str] = "unreal_vision_bridge"
-
-    interface_type: str = "UnrealVisionBridge"

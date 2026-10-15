@@ -23,14 +23,14 @@ The pipeline implements the following functionality:
 from __future__ import annotations
 
 from robokudo.analysis_engine import AnalysisEngineInterface
+from robokudo.descriptors.camera_configs.config_mongodb_playback import (
+    MongoCameraConfig,
+)
 from robokudo.annotators.collection_reader import CollectionReaderAnnotator
 from robokudo.annotators.image_preprocessor import ImagePreprocessorAnnotator
 from robokudo.annotators.region_filter import RegionFilter
 from robokudo.annotators.world_descriptor_bootstrap import (
     WorldDescriptorBootstrapAnnotator,
-)
-from robokudo.descriptors.factories.cr_descriptor_factory import (
-    CollectionReaderDescriptorFactory,
 )
 from robokudo.idioms import pipeline_init
 from robokudo.pipeline import Pipeline
@@ -90,18 +90,18 @@ class AnalysisEngine(AnalysisEngineInterface):
             and camera viewpoint visualization, which can be useful for
             debugging and development.
         """
-        cr_storage_config = CollectionReaderDescriptorFactory.create_descriptor("mongo")
-        bootstrap = WorldDescriptorBootstrapAnnotator.Descriptor()
-        bootstrap.parameters.world_descriptor_name = "world_iai_kitchen20"
+        cr_storage_config = MongoCameraConfig()
 
         seq = Pipeline("StoragePipeline")
         seq.add_children(
             [
                 # PipelineTrigger(),
                 pipeline_init(),
-                CollectionReaderAnnotator(descriptor=cr_storage_config),
-                WorldDescriptorBootstrapAnnotator(descriptor=bootstrap),
-                ImagePreprocessorAnnotator("ImagePreprocessor"),
+                CollectionReaderAnnotator(camera_config=cr_storage_config),
+                WorldDescriptorBootstrapAnnotator(
+                    world_descriptor_name="world_iai_kitchen20"
+                ),
+                ImagePreprocessorAnnotator(name="ImagePreprocessor"),
                 RegionFilter(),
                 # CameraViewpointVisualizer(),
             ]

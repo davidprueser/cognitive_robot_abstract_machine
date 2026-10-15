@@ -19,12 +19,15 @@ The module is used for:
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
+
 from py_trees.common import Status
-from typing_extensions import Callable
+from typing_extensions import Any, Callable
 
 from robokudo.annotators.core import BaseAnnotator
 
 
+@dataclass(kw_only=True)
 class LambdaFunctionAnnotator(BaseAnnotator):
     """
     Annotator for executing arbitrary functions.
@@ -33,43 +36,24 @@ class LambdaFunctionAnnotator(BaseAnnotator):
     for dynamic behavior definition without creating new annotator classes.
     """
 
-    class Descriptor(BaseAnnotator.Descriptor):
-        """
-        Configuration descriptor for lambda function annotator.
-        """
+    function: Callable[..., Any] | None = None
+    """
+    The function to run; nothing runs if ``None``.
 
-        class Parameters:
-            """
-            Parameter container for function configuration.
+    It receives the annotator first.
+    """
 
-            :type func: callable
-            :type func_args: tuple
-            :type func_kwargs: dict
-            """
+    arguments: tuple[Any, ...] = ()
+    """
+    Further positional arguments of :attr:`function`.
+    """
 
-            def __init__(self) -> None:
-                self.func: Callable | None = None
-                self.func_args: tuple | None = None
-                self.func_kwargs: dict | None = None
+    keyword_arguments: dict[str, Any] = field(default_factory=dict)
+    """
+    Keyword arguments of :attr:`function`.
+    """
 
-        # Overwrite the parameters explicitly to enable auto-completion
-        parameters = Parameters()
-
-    def __init__(
-        self,
-        name: str = "LambdaFunctionAnnotator",
-        descriptor: LambdaFunctionAnnotator.Descriptor | None = None,
-    ) -> None:
-        """
-        Initialize the lambda function annotator.
-
-        :param name: Annotator name
-        :param descriptor: Configuration descriptor
-        """
-        super().__init__(name, descriptor)
-        self.logger.debug("%s.__init__()" % self.__class__.__name__)
-
-    def update(self) -> Status:
+    def compute(self) -> Status:
         """
         Execute the configured function.
 
@@ -78,12 +62,7 @@ class LambdaFunctionAnnotator(BaseAnnotator):
 
         :return: SUCCESS status
         """
-        func = self.descriptor.parameters.func
-
-        if func:
-            func_args = self.descriptor.parameters.func_args or []
-            func_kwargs = self.descriptor.parameters.func_kwargs or {}
-
-            func(self, *func_args, **func_kwargs)
+        if self.function is not None:
+            self.function(self, *self.arguments, **self.keyword_arguments)
 
         return Status.SUCCESS

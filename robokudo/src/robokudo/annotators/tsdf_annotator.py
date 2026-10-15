@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import dataclass, field
+
 import copy
 from enum import Enum
 
@@ -9,7 +11,7 @@ import open3d as o3d
 from py_trees.common import Status
 from typing_extensions import TYPE_CHECKING, Any
 
-from robokudo.annotators.core import BaseAnnotator, ThreadedAnnotator
+from robokudo.annotators.core import ThreadedAnnotator
 from robokudo.cas import CASViews
 from robokudo.types.annotation import PoseAnnotation, TSDFAnnotation
 from robokudo.types.scene import ObjectHypothesis
@@ -25,7 +27,9 @@ if TYPE_CHECKING:
 
 
 class TSDFAnnotatorVisualizationModes(Enum):
-    """Enumeration of supported visualization modes for TSDF volumes."""
+    """
+    Enumeration of supported visualization modes for TSDF volumes.
+    """
 
     NONE = "none"
     MESH = "mesh"
@@ -33,63 +37,67 @@ class TSDFAnnotatorVisualizationModes(Enum):
     VOXEL_POINTCLOUD = "voxel_pointcloud"
 
 
+@dataclass(kw_only=True)
 class TSDFAnnotator(ThreadedAnnotator):
-    """Annotator for per-object TSDF volume integration.
+    """
+    Annotator for per-object TSDF volume integration.
 
     .. note::
         The annotator requires a camera to world transform and object poses to integrate the TSDF volumes.
         To segment objects out of the image a mask is required too. Higher quality masks yield better results.
     """
 
-    class Descriptor(BaseAnnotator.Descriptor):
-        """Configuration descriptor for the TSDF annotator."""
+    voxel_length: float = 0.005
+    """
+    Voxel length for the TSDF volume of each object.
+    """
 
-        class Parameters(BaseAnnotator.Descriptor.Parameters):
-            """Parameters for configuring the TSDF annotator."""
+    sdf_truncation: float = 0.04
+    """
+    SDF truncation distance for the TSDF volume of each object.
+    """
 
-            def __init__(self) -> None:
-                self.voxel_length: float = 0.005
-                """Voxel length for the TSDF volume of each object."""
+    depth_scale: float = 1000.0
+    """
+    Depth scale for the TSDF volume integration.
+    """
 
-                self.sdf_trunc: float = 0.04
-                """SDF truncation distance for the TSDF volume of each object."""
+    maximum_depth: float = 3.0
+    """
+    Depth truncation distance for the TSDF volume integration.
+    """
 
-                self.depth_scale: float = 1000.0
-                """Depth scale for the TSDF volume integration."""
+    geometry_visualization_mode: TSDFAnnotatorVisualizationModes = (
+        TSDFAnnotatorVisualizationModes.MESH
+    )
+    """
+    Whether to visualize the TSDF as a mesh or a point cloud.
+    """
 
-                self.depth_trunc: float = 3.0
-                """Depth truncation distance for the TSDF volume integration."""
+    translation_comparator: TranslationComparator = field(
+        default_factory=lambda: TranslationComparator(weight=1.0, max_distance=0.4),
+        init=False,
+        repr=False,
+    )
+    """
+    Compares world positions between pipeline iterations.
+    """
 
-                self.geometry_visualization_mode: TSDFAnnotatorVisualizationModes = (
-                    TSDFAnnotatorVisualizationModes.MESH
-                )
-                """Whether to visualize the TSDF as a mesh or a point cloud. """
-
-        # Overwrite the parameters explicitly to enable auto-completion
-        parameters = Parameters()
-
-    def __init__(
-        self,
-        name: str = "TSDFAnnotator",
-        descriptor: TSDFAnnotator.Descriptor | None = None,
-    ) -> None:
-        super().__init__(name, descriptor)
-
-        self.translation_comparator = TranslationComparator(
-            weight=1.0, max_distance=0.4
-        )
-        """Translation comparator for comparing world positions between pipeline iterations."""
-
-        self.tracked_objects: list[dict[str, Any]] = []
-        """A list of tracked object data, including the bounding box and the TSDF volume."""
+    tracked_objects: list[dict[str, Any]] = field(default_factory=list, init=False)
+    """
+    The tracked objects, each with its pose and TSDF volume.
+    """
 
     def find_tracked_object(
         self, pose: PoseAnnotation, threshold: float = 0.75
     ) -> dict[str, Any] | None:
-        """Check whether the given bounding box is similar to one that has been seen before.
+        """
+        Check whether the given bounding box is similar to one that has been seen
+        before.
 
         :param pose: The pose to check
-        :param threshold: The similarity threshold between 0.0 and 1.0 for considering the bounding box similar.
+        :param threshold: The similarity threshold between 0.0 and 1.0 for considering
+            the bounding box similar.
         :return: The most similar tracked object or none if no similar object was found.
         """
         best_sim: float = 0.0
@@ -104,7 +112,9 @@ class TSDFAnnotator(ThreadedAnnotator):
         return best_object if best_sim > threshold else None
 
     def compute(self) -> Status:
-        """Generate a TSDF volume for each object hypothesis or integrate into existing volumes.
+        """
+        Generate a TSDF volume for each object hypothesis or integrate into existing
+        volumes.
 
         :return: Whether the TSDF integration was successful or not.
         """
@@ -130,7 +140,9 @@ class TSDFAnnotator(ThreadedAnnotator):
                 ).get_corner_points()
                 oh_data.append((oh, poses[0], roi))
             else:
-                self.rk_logger.debug(f"No pose found for object {oh.id}, skipping...")
+                self.robokudo_logger.debug(
+                    f"No pose found for object {oh.id}, skipping..."
+                )
 
         if len(oh_data) == 0:
             return Status.FAILURE
@@ -154,7 +166,9 @@ class TSDFAnnotator(ThreadedAnnotator):
         for i, (oh, pose, roi) in enumerate(oh_data):
             mask: npt.NDArray[np.uint8] = oh.roi.mask
             if mask is None:
-                self.rk_logger.debug(f"No mask found for object {oh.id}, skipping...")
+                self.robokudo_logger.debug(
+                    f"No mask found for object {oh.id}, skipping..."
+                )
                 continue
 
             # Mask should be or (0, 1)
@@ -188,8 +202,8 @@ class TSDFAnnotator(ThreadedAnnotator):
                 o3d.geometry.RGBDImage.create_from_color_and_depth(
                     color=o3d.geometry.Image(masked_color),
                     depth=o3d.geometry.Image(masked_depth),
-                    depth_scale=self.descriptor.parameters.depth_scale,
-                    depth_trunc=self.descriptor.parameters.depth_trunc,
+                    depth_scale=self.depth_scale,
+                    depth_trunc=self.maximum_depth,
                     convert_rgb_to_intensity=False,
                 )
             )
@@ -204,8 +218,8 @@ class TSDFAnnotator(ThreadedAnnotator):
                 tracked_object["pose"] = pose
             else:
                 volume = o3d.pipelines.integration.ScalableTSDFVolume(
-                    voxel_length=self.descriptor.parameters.voxel_length,
-                    sdf_trunc=self.descriptor.parameters.sdf_trunc,
+                    voxel_length=self.voxel_length,
+                    sdf_trunc=self.sdf_truncation,
                     color_type=o3d.pipelines.integration.TSDFVolumeColorType.RGB8,
                 )
                 self.tracked_objects.append(
@@ -227,7 +241,7 @@ class TSDFAnnotator(ThreadedAnnotator):
             volume_an.transform = pose_in_camera
             oh.annotations.append(volume_an)
 
-            vis_mode = self.descriptor.parameters.geometry_visualization_mode
+            vis_mode = self.geometry_visualization_mode
             if vis_mode != TSDFAnnotatorVisualizationModes.NONE:
                 vis_geom = self.get_visualization_geometries(volume_an)
                 geometries.extend(vis_geom)
@@ -235,9 +249,9 @@ class TSDFAnnotator(ThreadedAnnotator):
         vis_image = self.get_visualization_image(color_image, oh_data, masks)
         self.get_annotator_output_struct().set_image(vis_image)
 
-        vis_mode = self.descriptor.parameters.geometry_visualization_mode
+        vis_mode = self.geometry_visualization_mode
         if vis_mode != TSDFAnnotatorVisualizationModes.NONE:
-            self.rk_logger.debug(
+            self.robokudo_logger.debug(
                 f"Visualizing geometry for {len(geometries) // 3} objects"
             )
             self.get_annotator_output_struct().set_geometries(geometries)
@@ -252,14 +266,15 @@ class TSDFAnnotator(ThreadedAnnotator):
         ],
         masks: list[npt.NDArray[np.uint8]],
     ) -> npt.NDArray[np.uint8]:
-        """Get an image containing the bounding boxes and masks of objects.
+        """
+        Get an image containing the bounding boxes and masks of objects.
 
         :param image: The image to add the visualizations to.
         :param oh_data: The object hypotheses to visualize.
         :param masks: The masks to visualize.
         :return: The image with the visualizations.
         """
-        self.rk_logger.debug(f"Visualizing image for {len(oh_data)} objects")
+        self.robokudo_logger.debug(f"Visualizing image for {len(oh_data)} objects")
 
         overlay = np.zeros_like(image, dtype=np.uint8)
         combined_mask = np.zeros(image.shape[:2], dtype=np.uint8)  # 0-1
@@ -283,12 +298,14 @@ class TSDFAnnotator(ThreadedAnnotator):
     def get_visualization_geometries(
         self, volume: TSDFAnnotation
     ) -> list[o3d.geometry.Geometry]:
-        """Get visualization geometries for the TSDF volume depending on the visualization mode.
+        """
+        Get visualization geometries for the TSDF volume depending on the visualization
+        mode.
 
         :param volume: The TSDF volume annotation to visualize.
         :return: List of visualization geometries for the given volume annotation.
         """
-        vis_mode = self.descriptor.parameters.geometry_visualization_mode
+        vis_mode = self.geometry_visualization_mode
         if vis_mode == TSDFAnnotatorVisualizationModes.POINTCLOUD:
             return [volume.get_point_cloud(), volume.get_coordinate_frame()]
         elif vis_mode == TSDFAnnotatorVisualizationModes.VOXEL_POINTCLOUD:
@@ -296,5 +313,7 @@ class TSDFAnnotator(ThreadedAnnotator):
         elif vis_mode == TSDFAnnotatorVisualizationModes.MESH:
             return [volume.get_mesh(), volume.get_coordinate_frame()]
         else:
-            self.rk_logger.warning(f"Visualization mode '{vis_mode}' not supported!")
+            self.robokudo_logger.warning(
+                f"Visualization mode '{vis_mode}' not supported!"
+            )
             return []

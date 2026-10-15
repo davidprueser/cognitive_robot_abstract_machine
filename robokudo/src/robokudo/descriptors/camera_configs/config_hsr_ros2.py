@@ -1,7 +1,6 @@
 from __future__ import annotations
 from dataclasses import dataclass
 
-from typing_extensions import ClassVar
 
 from robokudo.descriptors.camera_configs.components import (
     RGBDComponent,
@@ -10,11 +9,12 @@ from robokudo.descriptors.camera_configs.components import (
     WorldDescriptorComponent,
 )
 from robokudo.descriptors.camera_configs.base_camera_config import BaseCameraConfig
+from robokudo.io.camera_interface import KinectCameraInterface
 
 
-@dataclass(slots=True)
+@dataclass(kw_only=True)
 class HsrRos2CameraConfig(
-    BaseCameraConfig,
+    BaseCameraConfig[KinectCameraInterface],
     RGBDComponent,
     TfComponent,
     StableViewpointComponent,
@@ -23,10 +23,6 @@ class HsrRos2CameraConfig(
     """
     Camera config for the HSR robot.
     """
-
-    registry_name: ClassVar[str] = "hsr_ros2"
-
-    interface_type: str = "Kinect"
 
     topic_depth: str = "/head_rgbd_sensor/depth_registered/image/compressedDepth"
 

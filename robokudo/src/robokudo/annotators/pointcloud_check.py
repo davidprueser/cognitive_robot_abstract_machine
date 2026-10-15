@@ -1,4 +1,5 @@
-"""Point cloud validation and threshold checking.
+"""
+Point cloud validation and threshold checking.
 
 This module provides an annotator for:
 
@@ -20,7 +21,8 @@ The annotator supports:
 
 from __future__ import annotations
 
-from timeit import default_timer
+from dataclasses import dataclass
+
 
 import open3d as o3d
 from py_trees.common import Status
@@ -28,54 +30,40 @@ from py_trees.common import Status
 from robokudo.annotators.core import BaseAnnotator
 from robokudo.cas import CASViews
 from robokudo.exceptions import PointCloudThresholdError, PointCloudThresholdRelation
-from robokudo.utils.error_handling import catch_and_raise_to_blackboard
 
 
+@dataclass(kw_only=True)
 class PointcloudCheckAnnotator(BaseAnnotator):
-    """Check if the CASViews.Cloud contains more than X points.
+    """
+    Check if the CASViews.Cloud contains more than X points.
 
     .. warning::
        Will raise exception if point cloud not found in CAS.
     """
 
-    class Descriptor(BaseAnnotator.Descriptor):
-        """Configuration descriptor for point cloud checking."""
+    point_threshold: int = 100
+    """
+    Decision boundary for: if CASViews.CLOUD has less than this amount of points.
+    """
 
-        class Parameters:
-            """Parameters for configuring point cloud validation."""
+    status_below_threshold: Status = Status.FAILURE
+    """
+    Status when below threshold.
+    """
 
-            def __init__(self) -> None:
-                #
-                self.point_threshold: int = 100
-                """Decision boundary for: if CASViews.CLOUD has less than this amount of points"""
+    status_above_threshold: Status = Status.SUCCESS
+    """
+    Status when above threshold.
+    """
 
-                self.status_below_threshold: Status = Status.FAILURE
-                """Status when below threshold"""
+    raise_on_failure: bool = True
+    """
+    Whether to raise exception on failure.
+    """
 
-                self.status_above_threshold: Status = Status.SUCCESS
-                """Status when above threshold"""
-
-                self.raise_on_failure: bool = True
-                """Whether to raise exception on failure"""
-
-        # Overwrite the parameters explicitly to enable auto-completion
-        parameters = Parameters()
-
-    def __init__(
-        self,
-        name: str = "PointcloudcloudCheckAnnotator",
-        descriptor: PointcloudCheckAnnotator.Descriptor | None = None,
-    ) -> None:
-        """Initialize the point cloud checker.
-
-        :param name: Name of this annotator instance
-        :param descriptor: Configuration descriptor
+    def compute(self) -> Status:
         """
-        super().__init__(name, descriptor)
-
-    @catch_and_raise_to_blackboard
-    def update(self) -> Status:
-        """Check point cloud size against threshold.
+        Check point cloud size against threshold.
 
         The method:
 
@@ -90,50 +78,32 @@ class PointcloudCheckAnnotator(BaseAnnotator):
         :return: Configured status based on point count
         :raises PointCloudThresholdError: If point count fails threshold and raise_on_failure is True
         """
-        start_timer = default_timer()
-
         cloud = self.get_cas().get(CASViews.CLOUD)
         assert isinstance(cloud, o3d.geometry.PointCloud)
         point_count = len(cloud.points)
-        if point_count < self.descriptor.parameters.point_threshold:
-            if (
-                self.descriptor.parameters.status_below_threshold == Status.FAILURE
-                and self.descriptor.parameters.raise_on_failure
-            ):
+        if point_count < self.point_threshold:
+            if self.status_below_threshold == Status.FAILURE and self.raise_on_failure:
                 raise PointCloudThresholdError(
                     point_count=point_count,
-                    threshold=self.descriptor.parameters.point_threshold,
+                    threshold=self.point_threshold,
                     relation=PointCloudThresholdRelation.BELOW,
                 )
 
-            self.rk_logger.info(
+            self.robokudo_logger.info(
                 f"Scene Pointcloud size({point_count}) is below "
-                f"threshold of {self.descriptor.parameters.point_threshold}"
+                f"threshold of {self.point_threshold}"
             )
-            end_timer = default_timer()
-            self.feedback_message = f"Processing took {(end_timer - start_timer):.4f}s"
-            return self.descriptor.parameters.status_below_threshold
+            return self.status_below_threshold
         else:
-            if (
-                self.descriptor.parameters.status_above_threshold == Status.FAILURE
-                and self.descriptor.parameters.raise_on_failure
-            ):
+            if self.status_above_threshold == Status.FAILURE and self.raise_on_failure:
                 raise PointCloudThresholdError(
                     point_count=point_count,
-                    threshold=self.descriptor.parameters.point_threshold,
+                    threshold=self.point_threshold,
                     relation=PointCloudThresholdRelation.ABOVE,
                 )
 
-            self.rk_logger.info(
+            self.robokudo_logger.info(
                 f"Scene Pointcloud size({point_count}) is above "
-                f"threshold of {self.descriptor.parameters.point_threshold}"
+                f"threshold of {self.point_threshold}"
             )
-            end_timer = default_timer()
-            self.feedback_message = f"Processing took {(end_timer - start_timer):.4f}s"
-            return self.descriptor.parameters.status_above_threshold
-
-        #
-        #
-        # end_timer = default_timer()
-        # self.feedback_message = f'Processing took {(end_timer - start_timer):.4f}s'
-        # return py_trees.common.Status.SUCCESS
+            return self.status_above_threshold

@@ -1,8 +1,5 @@
 from __future__ import annotations
 from robokudo.types.cv import ColorToDepthRatio
-from robokudo.descriptors.factories.cr_descriptor_factory import (
-    CollectionReaderDescriptorFactory,
-)
 import multiprocessing
 import threading
 from pathlib import Path
@@ -24,6 +21,9 @@ import robokudo.types.annotation
 import robokudo.types.scene
 import robokudo.utils.tree_execution
 import robokudo.utils.data_downloader
+from robokudo.descriptors.camera_configs.config_filereader_playback import (
+    FileReaderCameraConfig,
+)
 from robokudo.annotators.collection_reader import CollectionReaderAnnotator
 from robokudo.annotators.image_preprocessor import ImagePreprocessorAnnotator
 from robokudo.annotators.plane import PlaneAnnotator
@@ -52,8 +52,7 @@ class QueryWorkerThread(threading.Thread):
 
 
 def query_simple_pipeline(node: Node) -> tuple[Sequence, Status]:
-    cr_fr_config = CollectionReaderDescriptorFactory.create_descriptor(
-        "file_reader",
+    cr_fr_config = FileReaderCameraConfig(
         loop=True,
         target_dir=robokudo.utils.data_downloader.test_data_path() / Path("data"),
         kinect_height_fix_mode=True,
@@ -61,18 +60,15 @@ def query_simple_pipeline(node: Node) -> tuple[Sequence, Status]:
     )
 
     # Restrict FOV of pointcloud to robustly get only one object
-    pc_crop_config = PointcloudCropAnnotator.Descriptor()
-    pc_crop_config.parameters.min_x = -0.3
-    pc_crop_config.parameters.max_x = 0.3
 
     seq = Pipeline("TestPipeline")
     seq.add_children(
         [
             robokudo.idioms.pipeline_init(),
             QueryAnnotator(),
-            CollectionReaderAnnotator(descriptor=cr_fr_config),
-            ImagePreprocessorAnnotator("ImagePreprocessor"),
-            PointcloudCropAnnotator(descriptor=pc_crop_config),
+            CollectionReaderAnnotator(camera_config=cr_fr_config),
+            ImagePreprocessorAnnotator(name="ImagePreprocessor"),
+            PointcloudCropAnnotator(minimum_x=-0.3, maximum_x=0.3),
             PlaneAnnotator(),
             PointCloudClusterExtractor(),
             GenerateQueryResult(),

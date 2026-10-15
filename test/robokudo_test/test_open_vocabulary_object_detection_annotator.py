@@ -51,10 +51,8 @@ def numpy_image_annotator(
     monkeypatch.setattr(
         Owlv2ForObjectDetection, "from_pretrained", MagicMock(return_value=MagicMock())
     )
-    descriptor = OpenVocabularyObjectDetectionAnnotator.Descriptor()
-    descriptor.parameters = descriptor.Parameters()
-    descriptor.parameters.global_with_depth = False
-    annotator = OpenVocabularyObjectDetectionAnnotator(descriptor=descriptor)
+    annotator = OpenVocabularyObjectDetectionAnnotator()
+    annotator.setup()
     monkeypatch.setattr(annotator, "get_annotator_output_struct", MagicMock())
     pipeline = Pipeline("Detection")
     pipeline.add_child(annotator)
@@ -100,7 +98,7 @@ def test_mask_predictor_receives_original_bgr_numpy_image(
     """
     image = numpy_image_annotator.get_cas().get(CASViews.COLOR_IMAGE)
     height, width = image.shape[:2]
-    numpy_image_annotator.descriptor.parameters.precision_mode = True
+    numpy_image_annotator.precision_mode = True
     numpy_image_annotator.segment_anything_model = MagicMock()
     numpy_image_annotator.segment_anything_model.predict.return_value[
         0
@@ -131,7 +129,7 @@ def precision_mask_annotator(
     annotator = numpy_image_annotator
     image = annotator.get_cas().get(CASViews.COLOR_IMAGE)
     height, width = image.shape[:2]
-    annotator.descriptor.parameters.precision_mode = True
+    annotator.precision_mode = True
     annotator.segment_anything_model = MagicMock()
     mask = numpy.arange(height * width, dtype=numpy.uint8).reshape(height, width) % 2
     annotator.segment_anything_model.predict.return_value[
@@ -160,7 +158,6 @@ def test_precision_mask_preserves_color_coordinates(
     ratio.
     """
     annotator = precision_mask_annotator
-    annotator.descriptor.parameters.global_with_depth = color_to_depth_ratio is not None
     annotator.get_cas().set(CASViews.COLOR_TO_DEPTH_RATIO, color_to_depth_ratio)
     mask = annotator.segment_anything_model.predict.return_value[
         0
@@ -185,7 +182,6 @@ def test_precision_mask_does_not_require_color_to_depth_ratio(
     Process color-resolution Segment Anything masks without depth scaling information.
     """
     annotator = precision_mask_annotator
-    annotator.descriptor.parameters.global_with_depth = True
     annotator.get_cas().set(CASViews.COLOR_TO_DEPTH_RATIO, None)
 
     assert annotator.compute() == Status.SUCCESS
@@ -198,8 +194,7 @@ def test_precision_bounding_box_uses_segment_anything_mask_color_coordinates(
     Keep mask-derived bounding boxes in color-image coordinates with depth enabled.
     """
     annotator = precision_mask_annotator
-    annotator.descriptor.parameters.refine_bounding_boxes = True
-    annotator.descriptor.parameters.global_with_depth = True
+    annotator.refine_bounding_boxes = True
     annotator.get_cas().set(
         CASViews.COLOR_TO_DEPTH_RATIO, ColorToDepthRatio(horizontal=0.5, vertical=0.5)
     )
@@ -249,7 +244,7 @@ def test_detect_objects_creates_classified_hypotheses_without_publishing(
         == annotator.classes[result[DetectionResultField.LABELS][0]]
     )
     assert classification.confidence == result[DetectionResultField.SCORES][0].item()
-    assert classification.source == annotator.get_class_name()
+    assert classification.source == annotator.name
     assert hypotheses[0].roi.roi.get_corner_points() == tuple(
         result[DetectionResultField.BOXES][0].tolist()
     )
@@ -330,13 +325,15 @@ def test_annotator_declares_dataclass_state(
     Declare model state as fields excluded from constructor arguments.
     """
     assert is_dataclass(numpy_image_annotator)
-    assert {item.name for item in fields(numpy_image_annotator) if item.init} == {
-        "name",
-        "descriptor",
+    constructor_arguments = {
+        item.name for item in fields(numpy_image_annotator) if item.init
     }
+    assert constructor_arguments.isdisjoint(
+        {"model", "processor", "segment_anything_model"}
+    )
 
 
-def test_default_descriptors_are_independent(
+def test_default_configurations_are_independent(
     numpy_image_annotator: OpenVocabularyObjectDetectionAnnotator,
 ) -> None:
     """
@@ -344,7 +341,6 @@ def test_default_descriptors_are_independent(
     """
     first = OpenVocabularyObjectDetectionAnnotator()
     second = OpenVocabularyObjectDetectionAnnotator()
-    assert first.descriptor is not second.descriptor
     assert first.classes is not second.classes
 
 
@@ -355,12 +351,10 @@ def test_dataclass_initializes_threaded_behaviour(
     Preserve configured models and the initial threaded behaviour state.
     """
     annotator = numpy_image_annotator
-    assert annotator.classes is annotator.descriptor.parameters.classes
+    assert annotator.classes is annotator.classes
     assert annotator.model is Owlv2ForObjectDetection.from_pretrained.return_value
     assert annotator.processor is Owlv2Processor.from_pretrained.return_value
-    assert annotator.compute_worker is None
-    assert annotator.compute_worker_started is False
-    assert annotator.compute_worker_thread is None
+    assert annotator.computation is None
     assert annotator.segment_anything_model is None
 
 
@@ -388,14 +382,10 @@ def test_precision_mode_loads_segmentation_model(
         "robokudo.annotators.open_vocabulary_object_detection_annotator.SegmentAnythingModel",
         constructor,
     )
-    descriptor = OpenVocabularyObjectDetectionAnnotator.Descriptor()
-    descriptor.parameters.precision_mode = True
     annotator = OpenVocabularyObjectDetectionAnnotator(
-        numpy_image_annotator.name, descriptor
+        name=numpy_image_annotator.name, precision_mode=True
     )
+    annotator.setup()
     assert annotator.name == numpy_image_annotator.name
-    assert annotator.descriptor is descriptor
     assert annotator.segment_anything_model is constructor.return_value
-    constructor.assert_called_once_with(
-        descriptor.parameters.segment_anything_model_path
-    )
+    constructor.assert_called_once_with(annotator.segment_anything_model_path)

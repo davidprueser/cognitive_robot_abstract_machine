@@ -21,7 +21,8 @@ The module uses:
 
 from __future__ import annotations
 
-from timeit import default_timer
+from dataclasses import dataclass
+
 
 import open3d as o3d
 from py_trees.common import Status
@@ -31,6 +32,7 @@ from robokudo.cas import CAS, CASViews
 from robokudo.types import annotation, scene
 
 
+@dataclass(kw_only=True)
 class ClusterPositionAnnotator(BaseAnnotator):
     """
     3D position estimation for object hypotheses.
@@ -47,42 +49,18 @@ class ClusterPositionAnnotator(BaseAnnotator):
        Can process either ObjectHypothesis or CloudAnnotation data.
     """
 
-    class Descriptor(BaseAnnotator.Descriptor):
-        """
-        Configuration descriptor for position estimation.
-        """
+    analysis_scope: type = scene.ObjectHypothesis
+    """
+    Type of data to perform position estimation on(e.g. ObjectHypothesis or
+    CloudAnnotation)
+    """
 
-        class Parameters:
-            """
-            Parameters for configuring position estimation.
-            """
+    visualizer_point_radius: float = 0.04
+    """
+    Radius of centroid sphere markers in meters.
+    """
 
-            def __init__(self) -> None:
-                self.analysis_scope: type = scene.ObjectHypothesis
-                """
-                Type of data to perform position estimation on(e.g. ObjectHypothesis or
-                CloudAnnotation)
-                """
-                self.visualizer_point_radius: float = 0.04
-                """
-                Radius of centroid sphere markers in meters.
-                """
-
-    def __init__(
-        self,
-        name: str = "ClusterPositionAnnotator",
-        descriptor: ClusterPositionAnnotator.Descriptor | None = None,
-    ) -> None:
-        """
-        Initialize the position estimator.
-
-        :param name: Name of this annotator instance
-        :param descriptor: Configuration descriptor
-        """
-        super().__init__(name, descriptor)
-        self.rk_logger.debug("%s.__init__()" % self.__class__.__name__)
-
-    def update(self) -> Status:
+    def compute(self) -> Status:
         """
         Process object hypotheses and estimate positions.
 
@@ -97,8 +75,6 @@ class ClusterPositionAnnotator(BaseAnnotator):
 
         :return: SUCCESS after processing
         """
-        start_timer = default_timer()
-
         cloud = self.get_cas().get(CASViews.CLOUD)
         centroids_to_visualize: list[list[float]] = []
 
@@ -110,13 +86,13 @@ class ClusterPositionAnnotator(BaseAnnotator):
             if object_hypothesis.points is None:
                 continue
 
-            if self.descriptor.parameters.analysis_scope == annotation.CloudAnnotation:
+            if self.analysis_scope == annotation.CloudAnnotation:
                 o_clouds: list[annotation.CloudAnnotation] = CAS.filter_by_type(
                     annotation.CloudAnnotation,
                     object_hypothesis.annotations,
                 )
                 if len(o_clouds) == 0:
-                    self.rk_logger.warning(
+                    self.robokudo_logger.warning(
                         "CloudAnnotation mode, but no CloudAnnotation found on object"
                     )
                     continue
@@ -139,8 +115,6 @@ class ClusterPositionAnnotator(BaseAnnotator):
 
         self.get_annotator_output_struct().set_geometries(vis_geometries)
 
-        end_timer = default_timer()
-        self.feedback_message = f"Processing took {(end_timer - start_timer):.4f}s"
         return Status.SUCCESS
 
     def position_annotation_from_centroid(
@@ -169,7 +143,7 @@ class ClusterPositionAnnotator(BaseAnnotator):
         :param centroids_to_visualize: List to append visualization marker to
         """
         centroid_sphere = o3d.geometry.TriangleMesh.create_sphere(
-            radius=self.descriptor.parameters.visualizer_point_radius
+            radius=self.visualizer_point_radius
         )  # in meters
         centroid_sphere.paint_uniform_color([255, 0, 0])
         centroid_sphere.translate(centroid)

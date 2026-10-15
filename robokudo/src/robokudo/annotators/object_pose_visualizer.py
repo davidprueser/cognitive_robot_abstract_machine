@@ -7,7 +7,8 @@ This module provides an annotator for visualizing the poses of detected objects 
 
 from __future__ import annotations
 
-from timeit import default_timer
+from dataclasses import dataclass
+
 
 import numpy as np
 import open3d as o3d
@@ -17,10 +18,10 @@ from robokudo.annotators.core import BaseAnnotator
 from robokudo.cas import CASViews
 from robokudo.types.annotation import PoseAnnotation
 from robokudo.types.scene import ObjectHypothesis
-from robokudo.utils.error_handling import catch_and_raise_to_blackboard
 from robokudo.utils.transform import get_transform_matrix_from_q
 
 
+@dataclass(kw_only=True)
 class ObjectPoseVisualizer(BaseAnnotator):
     """
     Annotator for visualizing object poses in the CAS.
@@ -32,17 +33,7 @@ class ObjectPoseVisualizer(BaseAnnotator):
     * Displaying the coordinate frames alongside the point cloud
     """
 
-    def __init__(self, name: str = "ObjectPoseVisualizer") -> None:
-        """
-        Initialize the object pose visualizer.
-
-        :param name: Name of the annotator instance
-        """
-        super().__init__(name)
-        self.rk_logger.debug("%s.__init__()" % self.__class__.__name__)
-
-    @catch_and_raise_to_blackboard
-    def update(self) -> Status:
+    def compute(self) -> Status:
         """
         Update the visualization with current object poses.
 
@@ -54,8 +45,6 @@ class ObjectPoseVisualizer(BaseAnnotator):
 
         :return: SUCCESS after creating visualizations
         """
-        start_timer = default_timer()
-
         visualization_img = self.get_cas().get_copy(CASViews.COLOR_IMAGE)
         cloud = self.get_cas().get(CASViews.CLOUD)
 
@@ -89,6 +78,4 @@ class ObjectPoseVisualizer(BaseAnnotator):
         vis_geometries.extend(geometries_to_visualize)
         self.get_annotator_output_struct().set_geometries(vis_geometries)
 
-        end_timer = default_timer()
-        self.feedback_message = f"Processing took {(end_timer - start_timer):.4f}s"
         return Status.SUCCESS

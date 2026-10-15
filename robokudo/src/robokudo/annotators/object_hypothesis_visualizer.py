@@ -1,14 +1,16 @@
-"""Object hypothesis visualization for RoboKudo.
+"""
+Object hypothesis visualization for RoboKudo.
 
-This module provides an annotator for visualizing object hypotheses in both
-2D (image overlays) and 3D (point clouds) representations.
+This module provides an annotator for visualizing object hypotheses in both 2D (image
+overlays) and 3D (point clouds) representations.
 """
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
+
 import copy
 from pathlib import Path
-from timeit import default_timer
 
 import cv2
 import open3d as o3d
@@ -27,7 +29,6 @@ from robokudo.types.annotation import (
 )
 from robokudo.types.scene import ObjectHypothesis
 from robokudo.utils.annotator_helper import draw_bounding_boxes_from_object_hypotheses
-from robokudo.utils.error_handling import catch_and_raise_to_blackboard
 from robokudo.utils.o3d_helper import (
     draw_mesh_wireframe_on_image,
     draw_wireframe_of_obb_into_image,
@@ -43,8 +44,10 @@ if TYPE_CHECKING:
     import numpy.typing as npt
 
 
+@dataclass(kw_only=True)
 class ObjectHypothesisVisualizer(BaseAnnotator):
-    """Annotator for visualizing object hypotheses in the CAS.
+    """
+    Annotator for visualizing object hypotheses in the CAS.
 
     This annotator creates visualizations of detected objects by:
 
@@ -53,42 +56,35 @@ class ObjectHypothesisVisualizer(BaseAnnotator):
     * Optionally filtering objects based on query type
     """
 
-    class Descriptor(BaseAnnotator.Descriptor):
-        """Configuration descriptor for object hypothesis visualization."""
+    query_aware: bool = True
+    """
+    If set to true, only visualize an Object that matches the 'object.type' from the
+    Query.
+    """
 
-        class Parameters:
-            """Parameters for configuring visualization behavior."""
+    visualize_full_cloud: bool = False
+    """
+    If set to true, the scene cloud will be shown and the individual objects will be
+    colored.
+    """
 
-            def __init__(self) -> None:
-                self.query_aware: bool = True
-                """If set to true, only visualize an Object that matches the 'object.type' from the Query."""
-
-                self.visualize_full_cloud: bool = False
-                """If set to true, the scene cloud will be shown and the individual objects will be colored."""
-
-        # Overwrite the parameters explicitly to enable auto-completion
-        parameters = Parameters()
-
-    def __init__(
-        self,
-        name: str = "ObjectHypothesisVisualizer",
-        descriptor: ObjectHypothesisVisualizer.Descriptor | None = None,
-    ) -> None:
-        """Initialize the object hypothesis visualizer.
-
-        :param name: Name of the annotator instance
-        :param descriptor: Configuration descriptor
-        """
-        super().__init__(name, descriptor)
-        self.rk_logger.debug("%s.__init__()" % self.__class__.__name__)
-        self._mesh_cache: dict[tuple[object, ...], o3d.geometry.TriangleMesh] = {}
+    mesh_cache: dict[tuple[object, ...], o3d.geometry.TriangleMesh] = field(
+        default_factory=dict, init=False, repr=False
+    )
+    """
+    The triangle mesh converted from each mesh shape, by shape.
+    """
 
     def _iter_mesh_visuals(self, body: Body) -> list[Mesh]:
-        """Return mesh-based visual shapes for a body."""
+        """
+        Return mesh-based visual shapes for a body.
+        """
         return [shape for shape in body.visual if isinstance(shape, Mesh)]
 
     def _mesh_cache_key(self, shape: Mesh) -> tuple[object, ...]:
-        """Create a stable cache key for mesh conversion results."""
+        """
+        Create a stable cache key for mesh conversion results.
+        """
         filename = shape.filename
         if filename:
             try:
@@ -99,12 +95,14 @@ class ObjectHypothesisVisualizer(BaseAnnotator):
         return ("mesh", id(shape.mesh))
 
     def _mesh_shape_to_o3d(self, shape: Mesh) -> o3d.geometry.TriangleMesh:
-        """Convert a mesh shape to Open3D, cache the result, and apply its local origin."""
+        """
+        Convert a mesh shape to Open3D, cache the result, and apply its local origin.
+        """
         tm: trimesh.Trimesh = shape.mesh
-        cache_key = self._mesh_cache_key(shape)
-        if cache_key not in self._mesh_cache:
-            self._mesh_cache[cache_key] = trimesh_to_o3d_mesh(tm)
-        mesh_instance = copy.deepcopy(self._mesh_cache[cache_key])
+        cache_key = self.mesh_cache_key(shape)
+        if cache_key not in self.mesh_cache:
+            self.mesh_cache[cache_key] = trimesh_to_o3d_mesh(tm)
+        mesh_instance = copy.deepcopy(self.mesh_cache[cache_key])
         mesh_instance.transform(shape.origin.to_np())
         return mesh_instance
 
@@ -117,7 +115,8 @@ class ObjectHypothesisVisualizer(BaseAnnotator):
         font_scale: float = 1.0,
         thickness: int = 2,
     ) -> None:
-        """Draw text in the middle of an image.
+        """
+        Draw text in the middle of an image.
 
         :param image: Image to draw on
         :param text: Text to draw
@@ -136,9 +135,9 @@ class ObjectHypothesisVisualizer(BaseAnnotator):
         # Draw the text on the image
         cv2.putText(image, text, (text_x, text_y), font, font_scale, color, thickness)
 
-    @catch_and_raise_to_blackboard
-    def update(self) -> Status:
-        """Update the visualization with current object hypotheses.
+    def compute(self) -> Status:
+        """
+        Update the visualization with current object hypotheses.
 
         Creates visualizations containing:
 
@@ -148,12 +147,10 @@ class ObjectHypothesisVisualizer(BaseAnnotator):
 
         :return: SUCCESS after creating visualizations
         """
-        start_timer = default_timer()
-
         visualization_img = self.get_cas().get_copy(CASViews.COLOR_IMAGE)
         visualized_geometries = []
 
-        if self.descriptor.parameters.query_aware:
+        if self.query_aware:
             query = None  # type: Query.Goal | None
             if self.get_cas().contains(CASViews.QUERY):
                 query = self.get_cas().get(CASViews.QUERY)
@@ -178,11 +175,7 @@ class ObjectHypothesisVisualizer(BaseAnnotator):
                 else:
                     return f"{oh.id}: {best_classification.classname}, {best_classification.confidence:.2f}"
 
-            if (
-                self.descriptor.parameters.query_aware
-                and query is not None
-                and query.obj.type != ""
-            ):
+            if self.query_aware and query is not None and query.obj.type != "":
                 matching_object_hypotheses = []
                 for oh in object_hypotheses:
                     classifications = self.get_cas().filter_by_type_and_criteria(
@@ -238,12 +231,10 @@ class ObjectHypothesisVisualizer(BaseAnnotator):
                             visualization_img, mesh_shape, transform, self.get_cas()
                         )
 
-        if self.descriptor.parameters.visualize_full_cloud:
+        if self.visualize_full_cloud:
             visualized_geometries.append(self.get_cas().get(CASViews.CLOUD))
 
         self.get_annotator_output_struct().set_image(visualization_img)
         self.get_annotator_output_struct().set_geometries(visualized_geometries)
 
-        end_timer = default_timer()
-        self.feedback_message = f"Processing took {(end_timer - start_timer):.4f}s"
         return Status.SUCCESS

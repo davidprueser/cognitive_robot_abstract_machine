@@ -23,7 +23,6 @@ from typing_extensions import TYPE_CHECKING, Any
 
 from robokudo.io.camera_interface import CameraInterface
 from robokudo.cas import CASViews
-from robokudo.annotator_parameters import AnnotatorPredefinedParameters
 
 import cv2
 
@@ -195,9 +194,6 @@ class OpenCVCameraWithoutDepthInterface(CameraInterface):
         camera_info = self.camera_config.camera_info
         camera_intrinsic = self.camera_config.camera_intrinsic
         color_to_depth_ratio = self.camera_config.color_to_depth_ratio
-
-        if self.camera_config.update_global_with_depth_parameter:
-            AnnotatorPredefinedParameters.global_with_depth = depth is not None
 
         cas.set(CASViews.COLOR_IMAGE, color)
         cas.set(CASViews.DEPTH_IMAGE, depth)

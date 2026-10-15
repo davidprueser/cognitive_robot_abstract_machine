@@ -1,7 +1,6 @@
 from __future__ import annotations
 from dataclasses import dataclass
 
-from typing_extensions import ClassVar
 
 from robokudo.descriptors.camera_configs.components import (
     RGBDComponent,
@@ -10,11 +9,12 @@ from robokudo.descriptors.camera_configs.components import (
     WorldDescriptorComponent,
 )
 from robokudo.descriptors.camera_configs.base_camera_config import BaseCameraConfig
+from robokudo.io.camera_interface import KinectCameraInterface
 
 
-@dataclass(slots=True)
+@dataclass(kw_only=True)
 class RealsenseCameraConfig(
-    BaseCameraConfig,
+    BaseCameraConfig[KinectCameraInterface],
     RGBDComponent,
     TfComponent,
     StableViewpointComponent,
@@ -31,10 +31,6 @@ class RealsenseCameraConfig(
         Requires the RealSense ROS driver to be running with aligned depth:
         roslaunch realsense2_camera rs_aligned_depth.launch
     """
-
-    registry_name: ClassVar[str] = "realsense"
-
-    interface_type: str = "Kinect"
 
     topic_depth: str = "/camera/aligned_depth_to_color/image_raw/compressedDepth"
 

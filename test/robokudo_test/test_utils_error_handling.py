@@ -1,11 +1,14 @@
 from __future__ import annotations
+
+from dataclasses import dataclass
+
+from py_trees.behaviour import Behaviour
 from typing_extensions import Generator
 
 import py_trees
 import pytest
 from py_trees.blackboard import Blackboard
 
-from robokudo.annotators.core import BaseAnnotator
 from robokudo.identifier import BBIdentifier
 from robokudo.utils.error_handling import (
     raise_to_blackboard,
@@ -16,10 +19,19 @@ from robokudo.utils.error_handling import (
 )
 
 
-class DummyAnnotator(BaseAnnotator):
-    def __init__(self) -> None:
-        super().__init__()
-        self.published = False
+@dataclass(eq=False)
+class BlackboardRecordingBehaviour(Behaviour):
+    """
+    A behaviour whose update records its errors on the blackboard.
+    """
+
+    name: str = "BlackboardRecordingBehaviour"
+    """
+    The name of the behaviour in the tree.
+    """
+
+    def __post_init__(self) -> None:
+        super().__init__(self.name)
 
     @catch_and_raise_to_blackboard
     def update(self, fail: bool = True) -> py_trees.common.Status:
@@ -80,7 +92,7 @@ class TestUtilsErrorHandling(object):
         ), "Blackboard should no longer contain exception"
 
     def test_catch_and_raise_to_blackboard(self, blackboard: Blackboard) -> None:
-        dummy = DummyAnnotator()
+        dummy = BlackboardRecordingBehaviour()
         assert has_blackboard_exception() == False
 
         status = dummy.update(fail=False)

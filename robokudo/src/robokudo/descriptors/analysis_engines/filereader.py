@@ -26,6 +26,9 @@ from __future__ import annotations
 
 from robokudo.analysis_engine import AnalysisEngineInterface
 
+from robokudo.descriptors.camera_configs.config_filereader_playback import (
+    FileReaderCameraConfig,
+)
 from robokudo.annotators.collection_reader import CollectionReaderAnnotator
 from robokudo.annotators.image_preprocessor import ImagePreprocessorAnnotator
 
@@ -35,9 +38,6 @@ from robokudo.types.cv import ColorToDepthRatio
 from robokudo.annotators.plane import PlaneAnnotator
 from robokudo.annotators.pointcloud_cluster_extractor import PointCloudClusterExtractor
 from robokudo.annotators.pointcloud_crop import PointcloudCropAnnotator
-from robokudo.descriptors.factories.cr_descriptor_factory import (
-    CollectionReaderDescriptorFactory,
-)
 
 
 class AnalysisEngine(AnalysisEngineInterface):
@@ -88,8 +88,7 @@ class AnalysisEngine(AnalysisEngineInterface):
             Make sure the robokudo_test_data repository is cloned and available
             in your ROS workspace before running this pipeline.
         """
-        cr_fr_config = CollectionReaderDescriptorFactory.create_descriptor(
-            "file_reader",
+        cr_fr_config = FileReaderCameraConfig(
             loop=True,
             target_ros_package="robokudo_test_data",
             target_dir="data",
@@ -98,17 +97,14 @@ class AnalysisEngine(AnalysisEngineInterface):
         )
 
         # Restrict FOV of pointcloud to robustly get only one object
-        pc_crop_config = PointcloudCropAnnotator.Descriptor()
-        pc_crop_config.parameters.min_x = -0.3
-        pc_crop_config.parameters.max_x = 0.3
 
         seq = Pipeline("FileReaderPipeline")
         seq.add_children(
             [
                 ClearAnnotatorOutputs(),
-                CollectionReaderAnnotator(descriptor=cr_fr_config),
-                ImagePreprocessorAnnotator("ImagePreprocessor"),
-                PointcloudCropAnnotator(descriptor=pc_crop_config),
+                CollectionReaderAnnotator(camera_config=cr_fr_config),
+                ImagePreprocessorAnnotator(name="ImagePreprocessor"),
+                PointcloudCropAnnotator(minimum_x=-0.3, maximum_x=0.3),
                 PlaneAnnotator(),
                 PointCloudClusterExtractor(),
             ]

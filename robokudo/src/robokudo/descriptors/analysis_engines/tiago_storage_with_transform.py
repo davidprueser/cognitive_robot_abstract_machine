@@ -21,12 +21,10 @@ The pipeline implements the following functionality:
 from __future__ import annotations
 
 from robokudo.analysis_engine import AnalysisEngineInterface
+from robokudo.descriptors.camera_configs.config_tiago import TiagoCameraConfig
 from robokudo.annotators.collection_reader import CollectionReaderAnnotator
 from robokudo.annotators.image_preprocessor import ImagePreprocessorAnnotator
 from robokudo.annotators.storage import StorageWriter
-from robokudo.descriptors.factories.cr_descriptor_factory import (
-    CollectionReaderDescriptorFactory,
-)
 from robokudo.idioms import pipeline_init
 from robokudo.pipeline import Pipeline
 
@@ -77,14 +75,14 @@ class AnalysisEngine(AnalysisEngineInterface):
 
         :return: The configured pipeline for data recording
         """
-        tiago_config = CollectionReaderDescriptorFactory.create_descriptor("tiago")
+        tiago_config = TiagoCameraConfig()
 
         seq = Pipeline()
         seq.add_children(
             [
                 pipeline_init(),
-                CollectionReaderAnnotator(descriptor=tiago_config),
-                ImagePreprocessorAnnotator("ImagePreprocessor"),
+                CollectionReaderAnnotator(camera_config=tiago_config),
+                ImagePreprocessorAnnotator(name="ImagePreprocessor"),
                 StorageWriter(),
             ]
         )

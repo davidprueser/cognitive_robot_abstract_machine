@@ -19,78 +19,55 @@ The module is used for:
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
+
 from py_trees.common import Status
-from typing_extensions import Callable
+from typing_extensions import Any, Callable
 
 from robokudo.annotators.core import BaseAnnotator
 
 
+@dataclass(kw_only=True)
 class FilterAnnotator(BaseAnnotator):
     """
     Annotator for applying filter conditions to annotations.
 
-    This annotator applies a provided filter function to the current set of
-    annotations, modifying the annotation list in-place based on the filter results.
+    This annotator applies a provided filter function to the current set of annotations,
+    modifying the annotation list in-place based on the filter results.
     """
 
-    class Descriptor(BaseAnnotator.Descriptor):
-        """
-        Configuration descriptor for filter annotator.
+    function: Callable[..., Any] | None = None
+    """
+    Decides whether an annotation is kept; all are kept if ``None``.
 
-        :ivar parameters: Filter parameters
-        :type parameters: FilterAnnotator.Descriptor.Parameters
-        """
+    It receives the annotation first.
+    """
 
-        class Parameters:
-            """Parameter container for filter configuration."""
+    arguments: tuple[Any, ...] = ()
+    """
+    Further positional arguments of :attr:`function`.
+    """
 
-            def __init__(self) -> None:
-                self.func: Callable | None = None
-                """Filter function to apply"""
+    keyword_arguments: dict[str, Any] = field(default_factory=dict)
+    """
+    Keyword arguments of :attr:`function`.
+    """
 
-                self.func_args: tuple | None = None
-                """Positional arguments for filter function"""
-
-                self.func_kwargs: dict | None = None
-                """Keyword arguments for filter function"""
-
-        # overwrite the parameters explicitly to enable auto-completion
-        parameters = Parameters()
-
-    def __init__(
-        self,
-        name: str = "FilterAnnotator",
-        descriptor: FilterAnnotator.Descriptor | None = None,
-    ) -> None:
-        """Initialize the filter annotator.
-
-        :param name: Annotator name
-        :param descriptor: Configuration descriptor
-        """
-        super().__init__(name, descriptor)
-        self.logger.debug("%s.__init__()" % self.__class__.__name__)
-
-    def update(self) -> Status:
+    def compute(self) -> Status:
         """
         Apply the filter function to current annotations.
 
-        The filter function is applied to each annotation with the configured
-        arguments. Only annotations that pass the filter are kept.
+        The filter function is applied to each annotation with the configured arguments.
+        Only annotations that pass the filter are kept.
 
         :return: SUCCESS status
         """
-        func = self.descriptor.parameters.func
-
-        if func:
-            func_args = self.descriptor.parameters.func_args or []
-            func_kwargs = self.descriptor.parameters.func_kwargs or {}
-
-            temporary_annotations = self.get_cas().annotations
-            temporary_annotations = [
-                annotation
-                for annotation in temporary_annotations
-                if func(annotation, *func_args, **func_kwargs)
-            ]
-            self.get_cas().annotations = temporary_annotations
+        if self.function is None:
+            return Status.SUCCESS
+        self.get_cas().annotations = [
+            annotation
+            for annotation in self.get_cas().annotations
+            if self.function(annotation, *self.arguments, **self.keyword_arguments)
+        ]
 
         return Status.SUCCESS

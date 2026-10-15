@@ -20,15 +20,16 @@ The plane detection uses:
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from collections.abc import Iterator
 from contextlib import contextmanager, nullcontext
-from timeit import default_timer
 
 import numpy as np
 import open3d as o3d
 from py_trees.common import Status
 
-from robokudo.annotators.core import BaseAnnotator, ThreadedAnnotator
+from robokudo.annotators.core import ThreadedAnnotator
 from robokudo.cas import CASViews
 from robokudo.types.annotation import Plane
 from robokudo.utils.transform import get_transform_from_plane_equation
@@ -39,13 +40,12 @@ def _deterministic_ransac(seed: int) -> Iterator[None]:
     """
     Make Open3D's RANSAC-based geometry fitting reproducible for one call.
 
-    Seeding Open3D's random generator is not enough on its own: Open3D
-    distributes RANSAC's iterations across threads, and the reduction that
-    picks the best-scoring candidate among several near-tied ones depends on
-    the order in which those threads finish, which OS scheduling makes
-    unpredictable. Restricting Open3D to a single thread for the call removes
-    that source of nondeterminism; the previous thread limit is restored
-    afterwards.
+    Seeding Open3D's random generator is not enough on its own: Open3D distributes
+    RANSAC's iterations across threads, and the reduction that picks the best-scoring
+    candidate among several near-tied ones depends on the order in which those threads
+    finish, which OS scheduling makes unpredictable. Restricting Open3D to a single
+    thread for the call removes that source of nondeterminism; the previous thread limit
+    is restored afterwards.
 
     :param seed: Seed for the random samples RANSAC draws.
     """
@@ -58,8 +58,10 @@ def _deterministic_ransac(seed: int) -> Iterator[None]:
         o3d.utility.set_max_threads(previous_max_threads)
 
 
+@dataclass(kw_only=True)
 class PlaneAnnotator(ThreadedAnnotator):
-    """Plane detector and visualizer for point clouds.
+    """
+    Plane detector and visualizer for point clouds.
 
     This annotator:
 
@@ -72,45 +74,30 @@ class PlaneAnnotator(ThreadedAnnotator):
        Uses Open3D's plane segmentation with configurable parameters.
     """
 
-    class Descriptor(BaseAnnotator.Descriptor):
-        """Configuration descriptor for plane detection."""
+    visualize_plane_model: bool = True
+    """
+    Show plane model mesh.
+    """
 
-        class Parameters:
-            """Parameters for configuring plane detection."""
+    distance_threshold: float = 0.02
+    """
+    
+    """
 
-            def __init__(self) -> None:
-                self.visualize_plane_model: bool = True
-                """Show plane model mesh"""
+    num_iterations: int = 50
+    """
+    
+    """
 
-                self.distance_threshold: float = 0.02
-                """"""
-
-                self.num_iterations: int = 50
-                """"""
-
-                self.random_seed: int | None = None
-                """
-                Seed for the random samples RANSAC draws, so that the same cloud gives
-                the same plane every time; ``None`` leaves the samples unseeded.
-                """
-
-        # Overwrite the parameters explicitly to enable auto-completion
-        parameters = Parameters()
-
-    def __init__(
-        self,
-        name: str = "PlaneAnnotator",
-        descriptor: PlaneAnnotator.Descriptor | None = None,
-    ) -> None:
-        """Initialize the plane detector.
-
-        :param name: Name of this annotator instance
-        :param descriptor: Configuration descriptor
-        """
-        super().__init__(name, descriptor)
+    random_seed: int | None = None
+    """
+    Seed for the random samples RANSAC draws, so that the same cloud gives the same
+    plane every time; ``None`` leaves the samples unseeded.
+    """
 
     def compute(self) -> Status:
-        """Detect and annotate dominant plane in point cloud.
+        """
+        Detect and annotate dominant plane in point cloud.
 
         The method:
 
@@ -128,8 +115,7 @@ class PlaneAnnotator(ThreadedAnnotator):
 
         :return: SUCCESS after processing
         """
-        self.rk_logger.info("Plane compute start")
-        start_timer = default_timer()
+        self.robokudo_logger.info("Plane compute start")
         cloud = self.get_cas().get(CASViews.CLOUD)
         color_image = self.get_cas().get(
             CASViews.COLOR_IMAGE
@@ -140,7 +126,7 @@ class PlaneAnnotator(ThreadedAnnotator):
         camera_intrinsics = self.get_cas().get(CASViews.CAMERA_INTRINSIC)
         # print(f"Loaded cloud with {len(cloud.points)} points")
 
-        random_seed = self.descriptor.parameters.random_seed
+        random_seed = self.random_seed
         segmentation_context = (
             _deterministic_ransac(random_seed)
             if random_seed is not None
@@ -148,9 +134,9 @@ class PlaneAnnotator(ThreadedAnnotator):
         )
         with segmentation_context:
             plane_model, inliers = cloud.segment_plane(
-                distance_threshold=self.descriptor.parameters.distance_threshold,
+                distance_threshold=self.distance_threshold,
                 ransac_n=3,
-                num_iterations=self.descriptor.parameters.num_iterations,
+                num_iterations=self.num_iterations,
             )
 
         [a, b, c, d] = plane_model
@@ -168,7 +154,7 @@ class PlaneAnnotator(ThreadedAnnotator):
         visualized_geometries = []
         visualized_geometries.append({"name": "plane_cloud", "geometry": plane_cloud})
 
-        if self.descriptor.parameters.visualize_plane_model:
+        if self.visualize_plane_model:
             # b) Show the plane model itself by a flat mesh
             plane_model_mesh = o3d.geometry.TriangleMesh.create_box(
                 width=1.0, height=1.0, depth=0.01
@@ -186,7 +172,5 @@ class PlaneAnnotator(ThreadedAnnotator):
             )
             self.get_annotator_output_struct().set_geometries(visualized_geometries)
 
-        end_timer = default_timer()
-        self.feedback_message = f"Processing took {(end_timer - start_timer):.4f}s"
-        self.rk_logger.info("Plane compute end")
+        self.robokudo_logger.info("Plane compute end")
         return Status.SUCCESS

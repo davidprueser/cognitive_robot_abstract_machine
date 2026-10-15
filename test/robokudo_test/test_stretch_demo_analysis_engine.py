@@ -6,7 +6,10 @@ from __future__ import annotations
 
 import numpy as np
 
-from robokudo.annotators.image_cluster_extractor import ImageClusterExtractor
+from robokudo.annotators.image_cluster_extractor import (
+    ImageClusterExtractor,
+    NamedHSVRange,
+)
 from robokudo.annotators.plane import PlaneAnnotator
 from robokudo.annotators.pointcloud_cluster_extractor import PointCloudClusterExtractor
 from robokudo.annotators.pointcloud_crop import PointcloudCropAnnotator
@@ -21,43 +24,36 @@ from robokudo.descriptors.analysis_engines.stretch_demo import (
 )
 from test.robokudo_test.test_analysis_engine_query_composition import (
     bounded_build_time,
-    install_fake_collection_reader_descriptor,
 )
 from typing_extensions import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    import pytest
+    pass
 
 
-def test_pointcloud_crop_is_narrowed_to_the_target_shelf_layer(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_pointcloud_crop_is_narrowed_to_the_target_shelf_layer() -> None:
     """
     Without a height-bounded, world-relative crop, the pipeline's wide RealSense field
     of view sees every shelf layer at once and answers a query with one untyped
     candidate per layer instead of just the object on the targeted one.
     """
-    install_fake_collection_reader_descriptor(monkeypatch)
     with bounded_build_time():
         pipeline = AnalysisEngine().implementation()
 
     crop_annotator = next(
         node for node in pipeline.children if isinstance(node, PointcloudCropAnnotator)
     )
-    parameters = crop_annotator.descriptor.parameters
 
-    assert parameters.relative_to_world is True
-    assert parameters.min_x == TARGET_SHELF_MIN_WORLD_X
-    assert parameters.max_x == TARGET_SHELF_MAX_WORLD_X
-    assert parameters.min_y == TARGET_SHELF_MIN_WORLD_Y
-    assert parameters.max_y == TARGET_SHELF_MAX_WORLD_Y
-    assert parameters.min_z == TARGET_SHELF_LAYER_MIN_WORLD_Z
-    assert parameters.max_z == TARGET_SHELF_LAYER_MAX_WORLD_Z
+    assert crop_annotator.relative_to_world is True
+    assert crop_annotator.minimum_x == TARGET_SHELF_MIN_WORLD_X
+    assert crop_annotator.maximum_x == TARGET_SHELF_MAX_WORLD_X
+    assert crop_annotator.minimum_y == TARGET_SHELF_MIN_WORLD_Y
+    assert crop_annotator.maximum_y == TARGET_SHELF_MAX_WORLD_Y
+    assert crop_annotator.minimum_z == TARGET_SHELF_LAYER_MIN_WORLD_Z
+    assert crop_annotator.maximum_z == TARGET_SHELF_LAYER_MAX_WORLD_Z
 
 
-def test_pipeline_extracts_objects_by_color_not_depth_clustering(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_pipeline_extracts_objects_by_color_not_depth_clustering() -> None:
     """
     The target object is glossy enough that the RealSense returns no depth on its face,
     which starves depth-based clustering of points to work with.
@@ -66,7 +62,6 @@ def test_pipeline_extracts_objects_by_color_not_depth_clustering(
     depth hole just means fewer 3D points survive within an already-correctly-shaped
     region.
     """
-    install_fake_collection_reader_descriptor(monkeypatch)
     with bounded_build_time():
         pipeline = AnalysisEngine().implementation()
 
@@ -78,11 +73,7 @@ def test_pipeline_extracts_objects_by_color_not_depth_clustering(
     cluster_annotator = next(
         node for node in pipeline.children if isinstance(node, ImageClusterExtractor)
     )
-    parameters = cluster_annotator.descriptor.parameters
-    red_hsv_range = parameters.color_name_to_hsv_range["red"]
-
-    assert parameters.hsv_min == red_hsv_range["hsv_min"]
-    assert parameters.hsv_max == red_hsv_range["hsv_max"]
+    assert cluster_annotator.hsv_range == NamedHSVRange.RED.value
 
 
 def test_target_shelf_layer_bounds_are_the_midpoints_to_its_neighbours() -> None:

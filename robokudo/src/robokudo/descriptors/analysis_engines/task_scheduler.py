@@ -2,12 +2,10 @@ from __future__ import annotations
 from py_trees.composites import Sequence
 
 from robokudo.analysis_engine import AnalysisEngineInterface
+from robokudo.descriptors.camera_configs.config_kinect_robot import KinectCameraConfig
 from robokudo.annotators.collection_reader import CollectionReaderAnnotator
 from robokudo.annotators.image_preprocessor import ImagePreprocessorAnnotator
 from robokudo.annotators.testing import SlowAnnotator, EmptyAnnotator
-from robokudo.descriptors.factories.cr_descriptor_factory import (
-    CollectionReaderDescriptorFactory,
-)
 from robokudo.behaviours.clear_annotator_outputs import ClearAnnotatorOutputs
 from robokudo.pipeline import Pipeline
 from robokudo.tree_components.task_scheduler import IterativeTaskScheduler
@@ -22,13 +20,13 @@ class AnalysisEngine(AnalysisEngineInterface):
         """
         Create a pipeline which can schedule different perception tasks in a basic way.
         """
-        kinect_config = CollectionReaderDescriptorFactory.create_descriptor("kinect")
+        kinect_config = KinectCameraConfig()
 
         # Annotator definition
-        collection_reader = CollectionReaderAnnotator(descriptor=kinect_config)
+        collection_reader = CollectionReaderAnnotator(camera_config=kinect_config)
         image_preprocessor = ImagePreprocessorAnnotator()
-        slow1 = SlowAnnotator("Slow1")
-        slow2 = SlowAnnotator("Slow2")
+        slow1 = SlowAnnotator(name="Slow1")
+        slow2 = SlowAnnotator(name="Slow2")
 
         # Subtree construction
         # A subtree is tailored towards solving a specific perception task

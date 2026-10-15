@@ -291,24 +291,6 @@ class AnalysisPreconditionError(RoboKudoError, ABC):
 
 
 @dataclass
-class CASCheckConfigurationError(AnalysisPreconditionError, ValueError):
-    """
-    Raised when a CAS check annotator is not configured correctly.
-    """
-
-    component_name: str
-
-    def error_message(self) -> str:
-        return (
-            f"{self.component_name} needs a check function to work properly, "
-            "but no function was provided."
-        )
-
-    def suggest_correction(self) -> str:
-        return "pass a callable via the 'func' parameter."
-
-
-@dataclass
 class CASCheckFailed(AnalysisPreconditionError):
     """
     Raised when a configured CAS check condition fails.

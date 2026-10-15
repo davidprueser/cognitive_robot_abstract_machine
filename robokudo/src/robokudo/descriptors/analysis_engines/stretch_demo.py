@@ -23,26 +23,16 @@ from __future__ import annotations
 from robokudo.analysis_engine import AnalysisEngineInterface
 from robokudo.annotators.cluster_pose_bb import ClusterPoseBBAnnotator
 from robokudo.annotators.collection_reader import CollectionReaderAnnotator
-from robokudo.annotators.image_cluster_extractor import ImageClusterExtractor
+from robokudo.annotators.image_cluster_extractor import (
+    ImageClusterExtractor,
+    NamedHSVRange,
+)
 from robokudo.annotators.image_preprocessor import ImagePreprocessorAnnotator
 from robokudo.annotators.pointcloud_crop import PointcloudCropAnnotator
 from robokudo.annotators.query import QueryAnnotator, GenerateQueryResult
-from robokudo.descriptors.factories.cr_descriptor_factory import (
-    CollectionReaderDescriptorFactory,
-)
+from robokudo.descriptors.camera_configs.config_realsense import RealsenseCameraConfig
 from robokudo.idioms import pipeline_init
 from robokudo.pipeline import Pipeline
-
-CAMERA_CONFIG_NAME = "realsense"
-"""
-Camera configuration this engine reads from.
-
-The Stretch carries a RealSense D435i publishing on the stock ``realsense2_camera`` topics,
-and its colour frame is named ``camera_color_optical_frame``, so the shared RealSense config
-applies unchanged. Pass overrides to
-:meth:`~robokudo.descriptors.factories.cr_descriptor_factory.CollectionReaderDescriptorFactory.create_descriptor`
-if a particular robot publishes elsewhere.
-"""
 
 TARGET_SHELF_LAYER_MIN_WORLD_Z = 0.4565
 """
@@ -100,23 +90,17 @@ class AnalysisEngine(AnalysisEngineInterface):
 
         :return: The configured pipeline for Stretch perception
         """
-        camera_descriptor = CollectionReaderDescriptorFactory.create_descriptor(
-            CAMERA_CONFIG_NAME
-        )
+        # The Stretch carries a RealSense D435i publishing on the stock
+        # ``realsense2_camera`` topics, and its colour frame is named
+        # ``camera_color_optical_frame``, so the shared RealSense config applies
+        # unchanged.
+        camera_config = RealsenseCameraConfig()
 
         # Isolate the target shelf layer before clustering: without this the crop keeps
         # its class defaults (an effectively unbounded height range), so the camera's
         # wide RealSense field of view also picks up the other shelf layers, and the
         # query answers with an untyped candidate per layer instead of just the one
         # this engine is meant to find.
-        crop_descriptor = PointcloudCropAnnotator.Descriptor()
-        crop_descriptor.parameters.relative_to_world = True
-        crop_descriptor.parameters.min_x = TARGET_SHELF_MIN_WORLD_X
-        crop_descriptor.parameters.max_x = TARGET_SHELF_MAX_WORLD_X
-        crop_descriptor.parameters.min_y = TARGET_SHELF_MIN_WORLD_Y
-        crop_descriptor.parameters.max_y = TARGET_SHELF_MAX_WORLD_Y
-        crop_descriptor.parameters.min_z = TARGET_SHELF_LAYER_MIN_WORLD_Z
-        crop_descriptor.parameters.max_z = TARGET_SHELF_LAYER_MAX_WORLD_Z
 
         # The target object (a cereal box) is glossy enough that the RealSense returns no
         # depth on its face, and depth-based clustering has no way to bound its search to
@@ -125,21 +109,17 @@ class AnalysisEngine(AnalysisEngineInterface):
         # depth, so a hole in the box's depth just means fewer 3D points within an
         # already-correctly-shaped region. Hardcoded to red for now, matching the one
         # object this pipeline currently targets.
-        cluster_descriptor = ImageClusterExtractor.Descriptor()
-        cluster_descriptor.parameters.hsv_min = (
-            cluster_descriptor.parameters.color_name_to_hsv_range["red"]["hsv_min"]
-        )
-        cluster_descriptor.parameters.hsv_max = (
-            cluster_descriptor.parameters.color_name_to_hsv_range["red"]["hsv_max"]
-        )
         # The depth hole leaves few valid 3D points under the color mask. Lowered to
         # ClusterPoseBBAnnotator's own floor (it needs more than 10 points to compute a
         # pose, cluster_pose_bb.py:161-165) rather than the class default of 62, so a
         # sparse-but-real detection reaches pose estimation instead of being dropped here
         # first. Outlier removal is skipped too: pruning an already-sparse, hole-riddled
         # cloud for statistical outliers risks stripping the real points further.
-        cluster_descriptor.parameters.min_points_threshold = 11
-        cluster_descriptor.parameters.outlier_removal = True
+        cluster_extractor = ImageClusterExtractor(
+            hsv_range=NamedHSVRange.RED.value,
+            minimum_point_count=11,
+            outlier_removal=True,
+        )
 
         # ..note:: PointcloudCropAnnotator crops CASViews.CLOUD, but
         #     ImageClusterExtractor reads CASViews.COLOR_IMAGE/DEPTH_IMAGE directly, so
@@ -151,17 +131,22 @@ class AnalysisEngine(AnalysisEngineInterface):
             [
                 pipeline_init(),
                 QueryAnnotator(),
-                CollectionReaderAnnotator(descriptor=camera_descriptor),
-                ImagePreprocessorAnnotator("ImagePreprocessor"),
-                PointcloudCropAnnotator(descriptor=crop_descriptor),
-                ImageClusterExtractor(descriptor=cluster_descriptor),
+                CollectionReaderAnnotator(camera_config=camera_config),
+                ImagePreprocessorAnnotator(name="ImagePreprocessor"),
+                PointcloudCropAnnotator(
+                    relative_to_world=True,
+                    minimum_x=TARGET_SHELF_MIN_WORLD_X,
+                    maximum_x=TARGET_SHELF_MAX_WORLD_X,
+                    minimum_y=TARGET_SHELF_MIN_WORLD_Y,
+                    maximum_y=TARGET_SHELF_MAX_WORLD_Y,
+                    minimum_z=TARGET_SHELF_LAYER_MIN_WORLD_Z,
+                    maximum_z=TARGET_SHELF_LAYER_MAX_WORLD_Z,
+                ),
+                cluster_extractor,
                 ClusterPoseBBAnnotator(),
                 # Left unconfigured so that filtering by query stays off: it compares the
                 # requested type against Classification annotations, which this pipeline
                 # does not produce, so filtering a typed query would discard every object.
-                # ..warning:: `GenerateQueryResult.Descriptor.parameters` is a class
-                #     attribute shared by every instance, so overriding it here would
-                #     change the setting for other pipelines in the same process too.
                 GenerateQueryResult(),
             ]
         )

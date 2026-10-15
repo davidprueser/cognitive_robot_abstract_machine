@@ -5,10 +5,8 @@ Decorator utilities for RoboKudo annotators.
 from __future__ import annotations
 
 import timeit
-from collections import defaultdict
 
 from typing_extensions import Callable, Any
-from robokudo.annotators.core import BaseAnnotator
 
 
 def timer_decorator(func: Callable[[...], Any]) -> Callable[[...], Any]:
@@ -57,72 +55,6 @@ def timer_decorator(func: Callable[[...], Any]) -> Callable[[...], Any]:
         else:
             print(log_msg)
 
-        return result
-
-    return wrapper
-
-
-def record_time(func: Callable[[...], Any]) -> Callable[[...], Any]:
-    """
-    Record execution time of annotator method.
-
-    :param func: Annotator method to time
-    :return: Wrapped method that records execution time
-
-    :Example:
-
-    .. code-block:: python
-
-        @record_time
-        def compute(self):
-            # Method code here
-            pass
-
-    .. note::
-        Only works on annotator instance methods
-    """
-    function_name = func.__name__
-
-    def wrapper(*args: Any, **kwargs: Any) -> Any:
-        self = args[0]
-        if not hasattr(self, "_times"):
-            setattr(self, "_times", defaultdict(list))
-        start_time = timeit.default_timer()
-        result = func(*args, **kwargs)
-        end_time = timeit.default_timer()
-        processing_time = end_time - start_time
-        # self._times[function_name].append(processing_time)
-        self._times[function_name] = processing_time
-        return result
-
-    return wrapper
-
-
-def publish_variables(func: Callable[[...], Any]) -> Callable[[...], Any]:
-    """
-    Publish annotator variables after method execution.
-
-    :param func: Annotator method to wrap
-    :return: Wrapped method that publishes variables
-    :raises AssertionError: If not used on BaseAnnotator instance method
-
-    :Example:
-
-    .. code-block:: python
-
-        @publish_variables
-        def update(self):
-            # Method code here
-            pass
-
-    .. note::
-        Only works on BaseAnnotator instance methods
-    """
-
-    def wrapper(*args: Any, **kwargs: Any) -> Any:
-        result = func(*args, **kwargs)
-        assert isinstance(args[0], BaseAnnotator)
-        args[0].publish_variables()
         return result
 
     return wrapper

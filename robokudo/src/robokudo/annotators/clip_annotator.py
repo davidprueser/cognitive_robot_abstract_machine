@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+from dataclasses import dataclass, field
+
 import faiss
 import numpy as np
 import torch
 from PIL import Image
 from transformers import CLIPModel, CLIPProcessor
-from typing_extensions import TYPE_CHECKING
+from typing_extensions import TYPE_CHECKING, Any
 
 from robokudo.annotators.zero_shot_classification_annotator import (
     ZeroShotClassificationAnnotator,
@@ -16,91 +18,73 @@ if TYPE_CHECKING:
     import numpy.typing as npt
 
 
+@dataclass(kw_only=True)
 class CLIPAnnotator(ZeroShotClassificationAnnotator):
     """
     Zero-shot classification by the similarity of CLIP's image embedding to the CLIP
     text embedding of each vocabulary entry.
     """
 
-    class Descriptor(ZeroShotClassificationAnnotator.Descriptor):
-        """
-        Descriptor for the CLIPAnnotator.
-        """
-
-        class Parameters(ZeroShotClassificationAnnotator.Descriptor.Parameters):
-            """
-            Parameters for the Descriptor.
-            """
-
-            def __init__(self) -> None:
-                super().__init__()
-                self.device = torch.device(
-                    "cuda:0" if torch.cuda.is_available() else "cpu"
-                )
-                """
-                Torch device to be used by the annotator.
-                """
-                self.model_name = "openai/clip-vit-large-patch14"
-                """
-                Name of the CLIP to use for feature extraction.
-                """
-                self.vocabulary_template: str = "A photo of a {}"
-                """
-                A template string that each vocabulary word is inserted into.
-                """
-                self.use_softmax: bool = True
-                """
-                Whether to apply softmax to the results of the analyzed image or
-                hypothesis or not.
-                """
-
-    def __init__(
-        self,
-        name: str = "CLIPAnnotator",
-        descriptor: CLIPAnnotator.Descriptor | None = None,
-    ) -> None:
-        super().__init__(name=name, descriptor=descriptor)
-
-        self.rk_logger.debug(f"Starting to init {self.__class__.__name__}")
-
-        self.clip_model = CLIPModel.from_pretrained(
-            self.descriptor.parameters.model_name
-        ).to(self.descriptor.parameters.device)
-        """
-        CLIP model used for feature extraction.
-        """
-        self.clip_preprocess = CLIPProcessor.from_pretrained(
-            self.descriptor.parameters.model_name
+    device: torch.device = field(
+        default_factory=lambda: torch.device(
+            "cuda:0" if torch.cuda.is_available() else "cpu"
         )
+    )
+    """
+    Torch device the model runs on.
+    """
+
+    model_name: str = "openai/clip-vit-large-patch14"
+    """
+    Name of the pretrained CLIP model.
+    """
+
+    vocabulary_template: str = "A photo of a {}"
+    """
+    A template string that each vocabulary word is inserted into.
+    """
+
+    use_softmax: bool = True
+    """
+    Whether to apply softmax to the results of the analyzed image or hypothesis or not.
+    """
+
+    clip_model: CLIPModel = field(init=False, repr=False)
+    """
+    CLIP model used for feature extraction, loaded in :meth:`setup`.
+    """
+
+    clip_preprocess: CLIPProcessor = field(init=False, repr=False)
+    """
+    CLIP preprocessor used for input preprocessing, loaded in :meth:`setup`.
+    """
+
+    vocabulary_index: faiss.IndexFlatIP = field(init=False, repr=False)
+    """
+    Index of the normalized text features of the vocabulary, built in :meth:`setup`.
+    """
+
+    def setup(self, **kwargs: Any) -> bool:
         """
-        CLIP preprocessor used for input preprocessing.
+        Load the CLIP model and index the text features of the vocabulary.
         """
-        self.clip_tokenizer = self.clip_preprocess.tokenizer
-        """
-        CLIP tokenizer used for text preprocessing.
-        """
-        self.vocabulary_index: faiss.IndexFlatIP = faiss.IndexFlatIP(
-            self.clip_model.config.projection_dim
-        )
-        """
-        A faiss index for text features used in similarity search.
-        """
+        self.clip_model = CLIPModel.from_pretrained(self.model_name).to(self.device)
+        self.clip_preprocess = CLIPProcessor.from_pretrained(self.model_name)
+        self.vocabulary_index = faiss.IndexFlatIP(self.clip_model.config.projection_dim)
         with torch.no_grad():
             templated_texts = [
-                self.descriptor.parameters.vocabulary_template.format(name)
-                for name in self.descriptor.parameters.vocabulary
+                self.vocabulary_template.format(word) for word in self.vocabulary
             ]
-            inputs = self.clip_tokenizer(
+            inputs = self.clip_preprocess.tokenizer(
                 templated_texts,
                 padding=True,
                 return_tensors="pt",
-            ).to(self.descriptor.parameters.device)
+            ).to(self.device)
             text_features = self.clip_model.get_text_features(**inputs).pooler_output
             text_features /= torch.norm(text_features, p=2, dim=-1, keepdim=True)
             text_features = text_features.cpu().numpy()
         self.vocabulary_index.add(text_features)
-
-        self.rk_logger.debug(f"Initialized {self.__class__.__name__}")
+        return super().setup(**kwargs)
 
     def _get_image_features(self, images: list[Image.Image]) -> npt.NDArray[np.float32]:
         """
@@ -125,10 +109,10 @@ class CLIPAnnotator(ZeroShotClassificationAnnotator):
         With softmax, every entry is needed to normalize the confidences; without it,
         only the kept ones, but never more than the vocabulary holds.
         """
-        vocabulary_size = len(self.descriptor.parameters.vocabulary)
-        if self.descriptor.parameters.use_softmax:
+        vocabulary_size = len(self.vocabulary)
+        if self.use_softmax:
             return vocabulary_size
-        return min(self.descriptor.parameters.save_top_k, vocabulary_size)
+        return min(self.save_top_k, vocabulary_size)
 
     def _search_index(
         self,
@@ -167,14 +151,14 @@ class CLIPAnnotator(ZeroShotClassificationAnnotator):
         class_similarities, class_indices = self._search_index(
             features=self._get_image_features(images),
             k=self._candidate_count(),
-            use_softmax=self.descriptor.parameters.use_softmax,
-            save_top_k=self.descriptor.parameters.save_top_k,
+            use_softmax=self.use_softmax,
+            save_top_k=self.save_top_k,
         )
         return [
             [
                 Classification(
                     source=self.name,
-                    classname=self.descriptor.parameters.vocabulary[index],
+                    classname=self.vocabulary[index],
                     confidence=similarity,
                 )
                 for index, similarity in zip(image_indices, image_similarities)

@@ -295,6 +295,13 @@ class CAS:
     def ground_truth_world_ref(self, value: World) -> None:
         self.views[CASViews.GROUND_TRUTH_WORLD_REFERENCE] = value
 
+    @property
+    def has_depth(self) -> bool:
+        """
+        Whether the CAS holds a depth image.
+        """
+        return self.depth_image is not None
+
     def get(self, view_name: str) -> Any:
         """Get a view by name.
 

@@ -6,6 +6,9 @@ import robokudo.behaviours.clear_errors
 import robokudo.descriptors.camera_configs.config_mongodb_playback
 import robokudo.idioms
 import robokudo.io.storage_reader_interface
+from robokudo.descriptors.camera_configs.config_mongodb_playback import (
+    MongoCameraConfig,
+)
 from robokudo.annotators.collection_reader import CollectionReaderAnnotator
 from robokudo.annotators.image_preprocessor import ImagePreprocessorAnnotator
 from robokudo.annotators.location import LocationAnnotator
@@ -17,9 +20,6 @@ from robokudo.annotators.static_object_detector import (
 from robokudo.annotators.world_descriptor_bootstrap import (
     WorldDescriptorBootstrapAnnotator,
 )
-from robokudo.descriptors.factories.cr_descriptor_factory import (
-    CollectionReaderDescriptorFactory,
-)
 
 
 class AnalysisEngine(robokudo.analysis_engine.AnalysisEngineInterface):
@@ -27,29 +27,24 @@ class AnalysisEngine(robokudo.analysis_engine.AnalysisEngineInterface):
         return "static_detector_world_descriptor_from_storage"
 
     def implementation(self) -> Behaviour:
-        cr_storage_config = CollectionReaderDescriptorFactory.create_descriptor("mongo")
-
-        bootstrap = WorldDescriptorBootstrapAnnotator.Descriptor()
-        bootstrap.parameters.world_descriptor_name = "world_iai_kitchen20"
-
-        sod = StaticObjectDetectorAnnotator.Descriptor()
-        sod.parameters.mode = StaticObjectMode.WORLD_DESCRIPTOR
-        sod.parameters.class_names = ["cereal", "milk"]
-        sod.parameters.create_bounding_box_annotation = True
-        sod.parameters.create_pose_annotation = True
-
-        oh_vis = ObjectHypothesisVisualizer.Descriptor()
-        oh_vis.parameters.visualize_full_cloud = True
+        cr_storage_config = MongoCameraConfig()
 
         seq = robokudo.pipeline.Pipeline("StoragePipeline")
         seq.add_children(
             [
                 robokudo.idioms.pipeline_init(),
-                CollectionReaderAnnotator(descriptor=cr_storage_config),
-                WorldDescriptorBootstrapAnnotator(descriptor=bootstrap),
-                ImagePreprocessorAnnotator("ImagePreprocessor"),
-                StaticObjectDetectorAnnotator(descriptor=sod),
-                ObjectHypothesisVisualizer(descriptor=oh_vis),
+                CollectionReaderAnnotator(camera_config=cr_storage_config),
+                WorldDescriptorBootstrapAnnotator(
+                    world_descriptor_name="world_iai_kitchen20"
+                ),
+                ImagePreprocessorAnnotator(name="ImagePreprocessor"),
+                StaticObjectDetectorAnnotator(
+                    mode=StaticObjectMode.WORLD_DESCRIPTOR,
+                    class_names=["cereal", "milk"],
+                    create_bounding_box_annotation=True,
+                    create_pose_annotation=True,
+                ),
+                ObjectHypothesisVisualizer(visualize_full_cloud=True),
             ]
         )
         return seq

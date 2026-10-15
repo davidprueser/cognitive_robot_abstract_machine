@@ -21,8 +21,9 @@ The module uses:
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import copy
-from timeit import default_timer
 
 import numpy as np
 import numpy.linalg
@@ -39,6 +40,7 @@ from robokudo.utils.transform import (
 )
 
 
+@dataclass(kw_only=True)
 class ClusterPosePCAAnnotator(BaseAnnotator):
     """
     3D pose estimation using principal component analysis.
@@ -55,16 +57,7 @@ class ClusterPosePCAAnnotator(BaseAnnotator):
        Requires minimum 10 points per object hypothesis.
     """
 
-    def __init__(self, name: str = "ClusterPosePCAAnnotator") -> None:
-        """
-        Initialize the PCA pose estimator.
-
-        :param name: Name of this annotator instance
-        """
-        super().__init__(name)
-        self.rk_logger.debug("%s.__init__()" % self.__class__.__name__)
-
-    def update(self) -> Status:
+    def compute(self) -> Status:
         """
         Process object hypotheses and estimate poses.
 
@@ -80,8 +73,6 @@ class ClusterPosePCAAnnotator(BaseAnnotator):
 
         :return: SUCCESS after processing
         """
-        start_timer = default_timer()
-
         cloud = self.get_cas().get(CASViews.CLOUD)
         annotations = self.get_cas().annotations
         geometries_to_visualize = []
@@ -152,6 +143,4 @@ class ClusterPosePCAAnnotator(BaseAnnotator):
 
         self.get_annotator_output_struct().set_geometries(vis_geometries)
 
-        end_timer = default_timer()
-        self.feedback_message = f"Processing took {(end_timer - start_timer):.4f}s"
         return Status.SUCCESS

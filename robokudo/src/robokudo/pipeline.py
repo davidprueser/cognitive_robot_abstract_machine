@@ -101,9 +101,8 @@ class Pipeline(Sequence):
                 robokudo.annotators.outputs.AnnotatorOutputs()
             )
 
-        annotators = self.get_annotators()
-        for a in annotators:
-            a.add_self_to_annotator_output_struct()
+        for annotator in self.get_annotators():
+            annotator.get_annotator_outputs().init_annotator(annotator.name)
         annotator_output_pipeline_map_buffer.map[self.name].redraw = True
         return True
 

@@ -1,21 +1,17 @@
 from __future__ import annotations
 from dataclasses import dataclass, field
 
-from typing_extensions import ClassVar
 
 from robokudo.descriptors.camera_configs.base_camera_config import BaseCameraConfig
+from robokudo.io.semdt_raytracer_camera_interface import SemDTRayTracerCameraInterface
 from robokudo.types.cv import ColorToDepthRatio
 
 
-@dataclass(slots=True)
-class SemDTRayTracerCameraConfig(BaseCameraConfig):
+@dataclass(kw_only=True)
+class SemDTRayTracerCameraConfig(BaseCameraConfig[SemDTRayTracerCameraInterface]):
     """
     Configuration for a simulated RGB-D camera backed by SemDT's RayTracer.
     """
-
-    registry_name: ClassVar[str] = "semdt_raytracer"
-
-    interface_type: str = "SemDTRayTracer"
 
     world_descriptor_ros_package: str = "robokudo"
     """

@@ -21,6 +21,9 @@ from __future__ import annotations
 
 from robokudo.analysis_engine import AnalysisEngineInterface
 
+from robokudo.descriptors.camera_configs.config_kinect_robot_wo_transform import (
+    KinectWoTfCameraConfig,
+)
 from robokudo.annotators.collection_reader import CollectionReaderAnnotator
 from robokudo.annotators.image_preprocessor import ImagePreprocessorAnnotator
 from robokudo.annotators.query import QueryAnnotator, QueryReply
@@ -28,9 +31,6 @@ from robokudo.pipeline import Pipeline
 
 from robokudo.idioms import pipeline_init
 from robokudo.behaviours.action_server_checks import ActionServerCheck
-from robokudo.descriptors.factories.cr_descriptor_factory import (
-    CollectionReaderDescriptorFactory,
-)
 from robokudo.utils.tree import add_children_to_parent
 
 
@@ -81,9 +81,7 @@ class AnalysisEngine(AnalysisEngineInterface):
 
         :return: The configured pipeline for query processing
         """
-        kinect_config = CollectionReaderDescriptorFactory.create_descriptor(
-            "kinect_wo_tf"
-        )
+        kinect_config = KinectWoTfCameraConfig()
 
         seq = Pipeline("RWPipeline")
 
@@ -92,8 +90,8 @@ class AnalysisEngine(AnalysisEngineInterface):
             [
                 pipeline_init(),
                 QueryAnnotator(),
-                CollectionReaderAnnotator(descriptor=kinect_config),
-                ImagePreprocessorAnnotator("ImagePreprocessor"),
+                CollectionReaderAnnotator(camera_config=kinect_config),
+                ImagePreprocessorAnnotator(name="ImagePreprocessor"),
                 QueryReply(),
                 ActionServerCheck(),
             ],

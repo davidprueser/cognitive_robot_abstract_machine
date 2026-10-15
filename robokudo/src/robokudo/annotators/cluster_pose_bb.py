@@ -1,4 +1,5 @@
-"""3D pose estimation using oriented bounding boxes.
+"""
+3D pose estimation using oriented bounding boxes.
 
 This module provides an annotator for:
 
@@ -20,9 +21,10 @@ The module uses:
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import copy
 import math
-from timeit import default_timer
 
 import cv2
 import numpy.linalg
@@ -48,8 +50,10 @@ if TYPE_CHECKING:
     import numpy.typing as npt
 
 
+@dataclass(kw_only=True)
 class ClusterPoseBBAnnotator(BaseAnnotator):
-    """3D pose estimation using oriented bounding boxes.
+    """
+    3D pose estimation using oriented bounding boxes.
 
     This annotator:
 
@@ -63,45 +67,26 @@ class ClusterPoseBBAnnotator(BaseAnnotator):
        Default behavior aligns z-axis with world frame up direction.
     """
 
-    class Descriptor(BaseAnnotator.Descriptor):
-        """Configuration descriptor for pose estimation."""
+    align_x_axis_by_max_bbox_extent: bool = False
+    """
+    Whether to align x-axis with longest box side.
 
-        class Parameters:
-            """Parameters for configuring pose estimation."""
+    The default behaviour of this Annotator orients the z-axis such that it always
+    points up w.r.t the world frame. By setting this parameter to True, this behaviour
+    will be overwritten. In that case, x will always point in the direction of the
+    largest side (extent) of the bounding box
+    """
 
-            def __init__(self) -> None:
-                self.align_x_axis_by_max_bbox_extent: bool = False
-                """
-                Whether to align x-axis with longest box side.
-                
-                The default behaviour of this Annotator orients the z-axis such that it always points up w.r.t the
-                world frame. By setting this parameter to True, this behaviour will be overwritten.
-                In that case, x will always point in the direction of the largest side (extent) of the bounding box
-                """
-
-                self.bounding_box_visualization_color: tuple[int, int, int] = (0, 0, 0)
-                """RGB color for box visualization"""
-
-        # Overwrite the parameters explicitly to enable auto-completion
-        parameters = Parameters()
-
-    def __init__(
-        self,
-        name: str = "ClusterPoseBBAnnotator",
-        descriptor: ClusterPoseBBAnnotator.Descriptor | None = None,
-    ) -> None:
-        """Initialize the pose estimator.
-
-        :param name: Name of this annotator instance
-        :param descriptor: Configuration descriptor
-        """
-        super().__init__(name, descriptor)
-        self.rk_logger.debug("%s.__init__()" % self.__class__.__name__)
+    bounding_box_visualization_color: tuple[int, int, int] = (0, 0, 0)
+    """
+    RGB color for box visualization.
+    """
 
     def adjust_bb_orientation_by_bb_size(
         self, pose_orientation: npt.NDArray, bounding_box_extents: list
     ) -> tuple[npt.NDArray, list]:
-        """Align bounding box axes with extent dimensions.
+        """
+        Align bounding box axes with extent dimensions.
 
         Reorients the bounding box so that:
 
@@ -113,7 +98,6 @@ class ClusterPoseBBAnnotator(BaseAnnotator):
         :param bounding_box_extents: Current box dimensions [x,y,z]
         :return: Tuple of (aligned orientation matrix, reordered extents)
         """
-
         # We want to rearrange the axes of the BB by its extents.
         # Let's create a list that contains indices of the bounding box extents, but in sorted order (descending)
         bounding_box_extents_sorted_with_idx = [
@@ -134,8 +118,9 @@ class ClusterPoseBBAnnotator(BaseAnnotator):
             new_bounding_box_extents,
         )
 
-    def update(self) -> Status:
-        """Process object hypotheses and estimate poses.
+    def compute(self) -> Status:
+        """
+        Process object hypotheses and estimate poses.
 
         The method:
 
@@ -150,8 +135,6 @@ class ClusterPoseBBAnnotator(BaseAnnotator):
 
         :return: SUCCESS after processing, FAILURE if transform not found
         """
-        start_timer = default_timer()
-
         cloud = self.get_cas().get(CASViews.CLOUD)
         geometries_to_visualize = []
 
@@ -173,7 +156,7 @@ class ClusterPoseBBAnnotator(BaseAnnotator):
                     self.get_cas(), cluster_cloud, transform_inplace=True
                 )
             except Exception as e:
-                self.rk_logger.warning(
+                self.robokudo_logger.warning(
                     f"Couldn't find camera viewpoint in the CAS.Fail. Error: {e}"
                 )
                 return Status.FAILURE
@@ -232,7 +215,7 @@ class ClusterPoseBBAnnotator(BaseAnnotator):
 
             # We've finished calculating the transformation and size of the bounding box.
             # If the pose shall be aligned w.r.t the bbox extents, call the corresponding method
-            if self.descriptor.parameters.align_x_axis_by_max_bbox_extent:
+            if self.align_x_axis_by_max_bbox_extent:
                 aligned_orientation, aligned_extents = (
                     self.adjust_bb_orientation_by_bb_size(
                         pose_orientation=cluster_rotation_in_camera,
@@ -270,9 +253,7 @@ class ClusterPoseBBAnnotator(BaseAnnotator):
                 R=cluster_rotation_in_camera,
                 extent=numpy.array(bounding_box_extents),
             )
-            cluster_obb.color = (
-                self.descriptor.parameters.bounding_box_visualization_color
-            )
+            cluster_obb.color = self.bounding_box_visualization_color
 
             rk_bb = BoundingBox3DAnnotation()
             rk_bb.x_length = bounding_box_extents[0]
@@ -294,6 +275,4 @@ class ClusterPoseBBAnnotator(BaseAnnotator):
 
         self.get_annotator_output_struct().set_geometries(vis_geometries)
 
-        end_timer = default_timer()
-        self.feedback_message = f"Processing took {(end_timer - start_timer):.4f}s"
         return Status.SUCCESS

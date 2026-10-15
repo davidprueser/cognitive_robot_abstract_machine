@@ -24,7 +24,6 @@ from robokudo.cas import CASViews
 from robokudo.exceptions import ColorToDepthRatioMissing
 from robokudo.types.annotation import PoseAnnotation
 from robokudo.types.scene import ObjectHypothesis
-from robokudo.utils.cv_helper import get_scaled_color_image_for_depth_image
 from robokudo.utils.o3d_helper import scale_o3d_camera_intrinsics
 from robokudo.utils.transform import (
     get_transform_matrix_from_q,
@@ -224,40 +223,7 @@ def scale_camera_intrinsics(annotator: BaseAnnotator) -> None:
         )
 
 
-def get_color_image(annotator: BaseAnnotator) -> npt.NDArray:
-    """
-    Load and potentially resize the color image from the CAS.
-
-    This is useful, as the resolution of the RGB image might differ from the resolution
-    of the depth image. This function resizes the color image to the resolution of the
-    depth image.
-
-    This is important later on when we want to create a point cloud from the depth image
-    and the color image and crop the point cloud to the bounding box of the object
-    hypothesis, which is defined in the color image coordinate system.
-
-    :param annotator: Annotator to get image from
-    :return: The resized color image.
-    """
-    img = annotator.get_cas().get_copy(CASViews.COLOR_IMAGE)
-    resized_color = None
-
-    if annotator.descriptor.parameters.global_with_depth:
-        try:
-            resized_color = get_scaled_color_image_for_depth_image(
-                annotator.get_cas(), img
-            )
-        except ColorToDepthRatioMissing as e:  # pylint: disable=invalid-name
-            annotator.rk_logger.error(
-                f"No color to depth ratio set by your camera driver! Can't preprocess: {e}"
-            )
-    else:
-        resized_color = img
-
-    return resized_color
-
-
-def resize_mask(annotator: BaseAnnotator, mask: npt.NDArray) -> npt.NDArray:
+def resize_mask(cas: CAS, mask: npt.NDArray) -> npt.NDArray:
     """
     Resize mask to match color image resolution.
 
@@ -266,15 +232,11 @@ def resize_mask(annotator: BaseAnnotator, mask: npt.NDArray) -> npt.NDArray:
     the case, we have to bring it back to the original resolution. This method checks
     some usual error cases and decides if we need to resize at all.
 
-    :param annotator: Annotator containing resolution info
-    :param mask: A binary image.
+    :param cas: The CAS holding the color-to-depth ratio.
+    :param mask: A binary image at the depth image resolution.
     :return: The mask scaled back by the color-to-depth ratio.
     """
-    if not annotator.descriptor.parameters.global_with_depth:
-        # nothing to do
-        return mask
-
-    color_to_depth_ratio = annotator.get_cas().get(CASViews.COLOR_TO_DEPTH_RATIO)
+    color_to_depth_ratio = cas.get(CASViews.COLOR_TO_DEPTH_RATIO)
 
     if color_to_depth_ratio is None:
         raise ColorToDepthRatioMissing(operation="resize mask")
@@ -288,13 +250,3 @@ def resize_mask(annotator: BaseAnnotator, mask: npt.NDArray) -> npt.NDArray:
         fy=1 / color_to_depth_ratio.vertical,
         interpolation=cv2.INTER_NEAREST,
     )
-
-
-def generate_source_name(annotator: BaseAnnotator) -> str:
-    """
-    Helper to create the standard name for the 'source' field of Annotations.
-
-    :param annotator: The annotator to generate the source name for
-    :return: The source name as string
-    """
-    return type(annotator).__name__

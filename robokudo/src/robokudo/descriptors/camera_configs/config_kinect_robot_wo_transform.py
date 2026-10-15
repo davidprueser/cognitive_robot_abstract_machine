@@ -1,12 +1,11 @@
 from __future__ import annotations
 from dataclasses import dataclass
 
-from typing_extensions import ClassVar
 
 from robokudo.descriptors.camera_configs.config_kinect_robot import KinectCameraConfig
 
 
-@dataclass(slots=True)
+@dataclass(kw_only=True)
 class KinectWoTfCameraConfig(KinectCameraConfig):
     """
     Configuration class for a Kinect camera setup without transform lookup.
@@ -18,11 +17,6 @@ class KinectWoTfCameraConfig(KinectCameraConfig):
     .. note::
         This configuration is identical to config_kinect_robot.py except that
         lookup_viewpoint is set to False by default.
-    """
-
-    registry_name: ClassVar[str] = "kinect_wo_tf"
-    """
-    Overwrite KinectCameraConfig.
     """
 
     lookup_viewpoint: bool = False

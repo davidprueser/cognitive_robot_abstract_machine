@@ -17,7 +17,8 @@ import torch
 from PIL import Image
 from transformers import BatchEncoding
 from transformers.modeling_outputs import BaseModelOutputWithPooling
-from typing_extensions import Sequence
+from krrood.utils import get_default_value
+from typing_extensions import Any, Sequence
 
 import robokudo.annotators.clip_annotator
 from robokudo.annotators.clip_annotator import CLIPAnnotator
@@ -213,15 +214,20 @@ def color_embedding_clip(monkeypatch: pytest.MonkeyPatch) -> ColorEmbeddingClip:
 # %% classification setup
 
 
-def _color_descriptor() -> CLIPAnnotator.Descriptor:
+def _color_annotator(**configuration: Any) -> CLIPAnnotator:
     """
-    :return: A descriptor classifying against the color vocabulary on the CPU.
+    :param configuration: Fields overriding classification against the color
+        vocabulary on the CPU.
+    :return: An annotator that is set up, so its model is loaded.
     """
-    descriptor = CLIPAnnotator.Descriptor()
-    descriptor.parameters.device = torch.device("cpu")
-    descriptor.parameters.vocabulary = COLOR_VOCABULARY
-    descriptor.parameters.save_top_k = len(COLOR_VOCABULARY)
-    return descriptor
+    color_configuration = dict(
+        device=torch.device("cpu"),
+        vocabulary=COLOR_VOCABULARY,
+        save_top_k=len(COLOR_VOCABULARY),
+    )
+    annotator = CLIPAnnotator(**(color_configuration | configuration))
+    annotator.setup()
+    return annotator
 
 
 def _classify_solid_image(
@@ -236,15 +242,13 @@ def _classify_solid_image(
 # %% construction
 
 
-def test_annotator_without_descriptor_indexes_default_vocabulary(
+def test_annotator_with_default_configuration_indexes_default_vocabulary(
     color_embedding_clip: ColorEmbeddingClip,
 ) -> None:
-    """
-    An annotator built without a descriptor falls back to the default parameters.
-    """
-    default_vocabulary = CLIPAnnotator.Descriptor().parameters.vocabulary
+    default_vocabulary = get_default_value(CLIPAnnotator, "vocabulary")
 
     annotator = CLIPAnnotator()
+    annotator.setup()
 
     assert annotator.vocabulary_index.ntotal == len(default_vocabulary)
 
@@ -252,27 +256,20 @@ def test_annotator_without_descriptor_indexes_default_vocabulary(
 def test_vocabulary_is_encoded_through_the_template(
     color_embedding_clip: ColorEmbeddingClip,
 ) -> None:
-    descriptor = _color_descriptor()
-    descriptor.parameters.vocabulary_template = "A photo of something {}"
-
-    CLIPAnnotator(descriptor=descriptor)
+    annotator = _color_annotator(vocabulary_template="A photo of something {}")
 
     assert color_embedding_clip.processor.tokenizer.received_texts == [
-        descriptor.parameters.vocabulary_template.format(word)
-        for word in COLOR_VOCABULARY
+        annotator.vocabulary_template.format(word) for word in COLOR_VOCABULARY
     ]
 
 
 def test_model_runs_on_the_configured_device(
     color_embedding_clip: ColorEmbeddingClip,
 ) -> None:
-    descriptor = _color_descriptor()
-    descriptor.parameters.device = torch.device("cuda", 0)
-
-    annotator = CLIPAnnotator(descriptor=descriptor)
+    annotator = _color_annotator(device=torch.device("cuda", 0))
     _classify_solid_image(annotator, COLOR_BY_WORD["green"])
 
-    assert color_embedding_clip.model.device == descriptor.parameters.device
+    assert color_embedding_clip.model.device == annotator.device
 
 
 # %% classification
@@ -281,7 +278,7 @@ def test_model_runs_on_the_configured_device(
 def test_word_naming_image_color_ranks_first(
     color_embedding_clip: ColorEmbeddingClip,
 ) -> None:
-    annotator = CLIPAnnotator(descriptor=_color_descriptor())
+    annotator = _color_annotator()
 
     classifications = _classify_solid_image(annotator, COLOR_BY_WORD["green"])
 
@@ -291,7 +288,7 @@ def test_word_naming_image_color_ranks_first(
 def test_each_image_of_a_batch_is_classified_by_its_own_color(
     color_embedding_clip: ColorEmbeddingClip,
 ) -> None:
-    annotator = CLIPAnnotator(descriptor=_color_descriptor())
+    annotator = _color_annotator()
     images = [
         Image.fromarray(solid_image(rgb(COLOR_BY_WORD["red"]))),
         Image.fromarray(solid_image(rgb(COLOR_BY_WORD["blue"]))),
@@ -307,19 +304,17 @@ def test_each_image_of_a_batch_is_classified_by_its_own_color(
 def test_classification_keeps_save_top_k_classifications(
     color_embedding_clip: ColorEmbeddingClip,
 ) -> None:
-    descriptor = _color_descriptor()
-    descriptor.parameters.save_top_k = 2
-    annotator = CLIPAnnotator(descriptor=descriptor)
+    annotator = _color_annotator(save_top_k=2)
 
     classifications = _classify_solid_image(annotator, COLOR_BY_WORD["red"])
 
-    assert len(classifications) == descriptor.parameters.save_top_k
+    assert len(classifications) == annotator.save_top_k
 
 
 def test_classifications_name_the_annotator_as_source(
     color_embedding_clip: ColorEmbeddingClip,
 ) -> None:
-    annotator = CLIPAnnotator(descriptor=_color_descriptor())
+    annotator = _color_annotator()
 
     classifications = _classify_solid_image(annotator, COLOR_BY_WORD["red"])
 
@@ -331,7 +326,7 @@ def test_classifications_name_the_annotator_as_source(
 def test_softmax_confidences_over_whole_vocabulary_sum_to_one(
     color_embedding_clip: ColorEmbeddingClip,
 ) -> None:
-    annotator = CLIPAnnotator(descriptor=_color_descriptor())
+    annotator = _color_annotator()
 
     classifications = _classify_solid_image(annotator, COLOR_BY_WORD["blue"])
 
@@ -346,9 +341,7 @@ def test_confidence_without_softmax_is_rescaled_cosine_similarity(
     Without softmax, a cosine similarity in [-1, 1] is reported as a confidence in
     [0, 1]: the matching color has similarity 1, every other color similarity 0.
     """
-    descriptor = _color_descriptor()
-    descriptor.parameters.use_softmax = False
-    annotator = CLIPAnnotator(descriptor=descriptor)
+    annotator = _color_annotator(use_softmax=False)
 
     classifications = _classify_solid_image(annotator, COLOR_BY_WORD["blue"])
 
@@ -371,10 +364,9 @@ def test_confidence_without_softmax_is_rescaled_cosine_similarity(
 def test_save_top_k_beyond_vocabulary_without_softmax_reports_each_word_once(
     color_embedding_clip: ColorEmbeddingClip,
 ) -> None:
-    descriptor = _color_descriptor()
-    descriptor.parameters.use_softmax = False
-    descriptor.parameters.save_top_k = len(COLOR_VOCABULARY) + 2
-    annotator = CLIPAnnotator(descriptor=descriptor)
+    annotator = _color_annotator(
+        use_softmax=False, save_top_k=len(COLOR_VOCABULARY) + 2
+    )
 
     classifications = _classify_solid_image(annotator, COLOR_BY_WORD["blue"])
 

@@ -6,6 +6,7 @@ from py_trees.decorators import Inverter
 from robokudo.analysis_engine import AnalysisEngineInterface
 from robokudo.idioms import pipeline_init
 from robokudo.pipeline import Pipeline
+from robokudo.descriptors.camera_configs.config_kinect_robot import KinectCameraConfig
 from robokudo.annotators.cluster_color import ClusterColorAnnotator
 from robokudo.annotators.collection_reader import CollectionReaderAnnotator
 from robokudo.annotators.image_preprocessor import ImagePreprocessorAnnotator
@@ -18,9 +19,6 @@ from robokudo.annotators.query import (
     GenerateQueryResult,
 )
 from robokudo.behaviours.action_server_checks import ActionServerNoPreemptRequest
-from robokudo.descriptors.factories.cr_descriptor_factory import (
-    CollectionReaderDescriptorFactory,
-)
 
 
 class AnalysisEngine(AnalysisEngineInterface):
@@ -31,21 +29,23 @@ class AnalysisEngine(AnalysisEngineInterface):
         """
         Create a pipeline which responds to a query.
         """
-        kinect_config = CollectionReaderDescriptorFactory.create_descriptor("kinect")
+        kinect_config = KinectCameraConfig()
 
         seq = Pipeline("RWPipeline")
 
         task_sequence = Sequence(name="TaskSequence", memory=True)
         task_sequence.add_children(
             [
-                CollectionReaderAnnotator(descriptor=kinect_config),
-                ImagePreprocessorAnnotator("ImagePreprocessor"),
+                CollectionReaderAnnotator(camera_config=kinect_config),
+                ImagePreprocessorAnnotator(name="ImagePreprocessor"),
                 PointcloudCropAnnotator(),
                 PlaneAnnotator(),
                 PointCloudClusterExtractor(),
                 ClusterColorAnnotator(),
                 # AbortGoal(),
-                QueryFeedbackAndCount(count_until=50, return_code=Status.RUNNING),
+                QueryFeedbackAndCount(
+                    count_until=50, status_while_counting=Status.RUNNING
+                ),
             ]
         )
 

@@ -20,14 +20,14 @@ from __future__ import annotations
 
 from robokudo.analysis_engine import AnalysisEngineInterface
 
+from robokudo.descriptors.camera_configs.config_cv_camera_without_depth import (
+    OpenCVCameraConfig,
+)
 from robokudo.annotators.collection_reader import CollectionReaderAnnotator
 from robokudo.annotators.object_hypothesis_visualizer import ObjectHypothesisVisualizer
 
 from robokudo.idioms import pipeline_init
 from robokudo.pipeline import Pipeline
-from robokudo.descriptors.factories.cr_descriptor_factory import (
-    CollectionReaderDescriptorFactory,
-)
 
 
 class AnalysisEngine(AnalysisEngineInterface):
@@ -78,18 +78,13 @@ class AnalysisEngine(AnalysisEngineInterface):
         # device = "/home/user_name/Pictures/my_image.jpg"
         # device = "https://raw.githubusercontent.com/cram2/coraplex/refs/heads/dev/doc/images/boxy.gif"
 
-        cv_config = CollectionReaderDescriptorFactory.create_descriptor(
-            "opencv",
-            device=device,
-            loop_mode=1,
-            update_global_with_depth_parameter=True,
-        )
+        cv_config = OpenCVCameraConfig(device=device, loop_mode=1)
 
         seq = Pipeline("RWPipeline")
         seq.add_children(
             [
                 pipeline_init(),
-                CollectionReaderAnnotator(descriptor=cv_config),
+                CollectionReaderAnnotator(camera_config=cv_config),
                 ObjectHypothesisVisualizer(),
             ]
         )

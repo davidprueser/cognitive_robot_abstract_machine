@@ -16,12 +16,15 @@ import robokudo.descriptors.camera_configs.config_filereader_playback
 import robokudo.descriptors.camera_configs.config_mongodb_playback
 import robokudo.utils.data_downloader
 import robokudo.utils.tree_execution
+from robokudo.descriptors.camera_configs.config_filereader_playback import (
+    FileReaderCameraConfig,
+)
+from robokudo.descriptors.camera_configs.config_mongodb_playback import (
+    MongoCameraConfig,
+)
 from robokudo.annotators.collection_reader import CollectionReaderAnnotator
 from robokudo.annotators.storage import StorageWriter
 from robokudo.cas import CASViews
-from robokudo.descriptors.factories.cr_descriptor_factory import (
-    CollectionReaderDescriptorFactory,
-)
 from robokudo.io.storage import Storage
 from robokudo.behaviours.clear_annotator_outputs import ClearAnnotatorOutputs
 from robokudo.pipeline import Pipeline
@@ -44,38 +47,31 @@ def _camera_info_k_values(camera_info: CameraInfo) -> list[float]:
 
 
 def _build_writer_pipeline(db_name: str) -> Pipeline:
-    file_reader_descriptor = CollectionReaderDescriptorFactory.create_descriptor(
-        "file_reader",
+    file_reader_descriptor = FileReaderCameraConfig(
         loop=False,
         target_dir=robokudo.utils.data_downloader.test_data_path() / Path("data"),
         kinect_height_fix_mode=True,
         color_to_depth_ratio=ColorToDepthRatio(horizontal=0.5, vertical=0.5),
     )
 
-    writer_descriptor = StorageWriter.Descriptor()
-    writer_descriptor.parameters.db_name = db_name
-    writer_descriptor.parameters.drop_database_on_storage = True
-
     pipeline = Pipeline("WriterPipeline")
     pipeline.add_children(
         [
             ClearAnnotatorOutputs(),
-            CollectionReaderAnnotator(descriptor=file_reader_descriptor),
-            StorageWriter(descriptor=writer_descriptor),
+            CollectionReaderAnnotator(camera_config=file_reader_descriptor),
+            StorageWriter(db_name=db_name, drop_database_on_storage=True),
         ]
     )
     return pipeline
 
 
 def _build_reader_pipeline(db_name: str) -> Pipeline:
-    mongo_descriptor = CollectionReaderDescriptorFactory.create_descriptor(
-        "mongo", loop=False, db_name=db_name
-    )
+    mongo_descriptor = MongoCameraConfig(loop=False, db_name=db_name)
     pipeline = Pipeline("ReaderPipeline")
     pipeline.add_children(
         [
             ClearAnnotatorOutputs(),
-            CollectionReaderAnnotator(descriptor=mongo_descriptor),
+            CollectionReaderAnnotator(camera_config=mongo_descriptor),
         ]
     )
     return pipeline

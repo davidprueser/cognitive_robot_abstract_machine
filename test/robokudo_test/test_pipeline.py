@@ -20,8 +20,8 @@ def create_test_tree() -> Sequence:
     # for annotator in [CollectionReader(), ThreadedAnnotator("ImagePreprocessor"), CaffeAnnotator("CaffeAnnotator")]:
     for annotator in [
         FakeCollectionReaderAnnotator(),
-        FailingAnnotator("FailingAnnotator"),
-        SlowAnnotator("CaffeAnnotator"),
+        FailingAnnotator(name="FailingAnnotator"),
+        SlowAnnotator(name="CaffeAnnotator"),
     ]:
         root.add_child(annotator)
 
@@ -31,8 +31,8 @@ def create_test_tree() -> Sequence:
 class TestPipeline(object):
     def test_find_cas_direct(self) -> None:
         root = Pipeline("Sequence")
-        annotator1 = BaseAnnotator("1")
-        annotator2 = BaseAnnotator("2")
+        annotator1 = BaseAnnotator(name="1")
+        annotator2 = BaseAnnotator(name="2")
         root.add_child(annotator1)
         root.add_child(annotator2)
 
@@ -40,9 +40,9 @@ class TestPipeline(object):
 
     def test_find_cas_from_deeper_leaf(self) -> None:
         root = Pipeline("Sequence")
-        annotator1 = BaseAnnotator("1")
-        annotator2 = BaseAnnotator("2")
-        annotatorInSelector = BaseAnnotator("annotatorInSelector")
+        annotator1 = BaseAnnotator(name="1")
+        annotator2 = BaseAnnotator(name="2")
+        annotatorInSelector = BaseAnnotator(name="annotatorInSelector")
 
         selector = py_trees.composites.Selector("Selector", memory=True)
         success_after_two = py_trees.behaviours.Dummy(
@@ -59,11 +59,11 @@ class TestPipeline(object):
 
     def test_get_annotators_nested(self) -> None:
         root = Pipeline("Sequence")
-        annotator1 = BaseAnnotator("1")
-        annotator3 = BaseAnnotator("3")
+        annotator1 = BaseAnnotator(name="1")
+        annotator3 = BaseAnnotator(name="3")
 
         sub_sequence = py_trees.composites.Sequence("SubSequence", memory=True)
-        annotator2 = BaseAnnotator("2")
+        annotator2 = BaseAnnotator(name="2")
         sub_sequence.add_child(annotator2)
 
         root.add_child(annotator1)
@@ -74,11 +74,11 @@ class TestPipeline(object):
 
     def test_pipeline_children1(self) -> None:
         root = Pipeline("Sequence")
-        annotator1 = BaseAnnotator("1")
-        annotator3 = BaseAnnotator("3")
+        annotator1 = BaseAnnotator(name="1")
+        annotator3 = BaseAnnotator(name="3")
 
         sub_sequence = py_trees.composites.Sequence("SubSequence", memory=True)
-        annotator2 = BaseAnnotator("2")
+        annotator2 = BaseAnnotator(name="2")
         sub_sequence.add_child(annotator2)
 
         root.add_child(annotator1)
@@ -94,11 +94,11 @@ class TestPipeline(object):
 
     def test_pipeline_children2(self) -> None:
         root = Pipeline("Sequence")
-        annotator1 = BaseAnnotator("1")
-        annotator3 = BaseAnnotator("3")
+        annotator1 = BaseAnnotator(name="1")
+        annotator3 = BaseAnnotator(name="3")
 
         sub_pipeline = Pipeline("Subsequence")
-        annotator2 = BaseAnnotator("2")
+        annotator2 = BaseAnnotator(name="2")
         sub_pipeline.add_child(annotator2)
 
         root.add_child(annotator1)
@@ -109,12 +109,12 @@ class TestPipeline(object):
 
     def test_pipeline_children3(self) -> None:
         root = Pipeline("Sequence")
-        annotator1 = BaseAnnotator("1")
-        annotator3 = BaseAnnotator("3")
+        annotator1 = BaseAnnotator(name="1")
+        annotator3 = BaseAnnotator(name="3")
 
         # Pipeline children will not be fetched in nested RK Pipelines
         sub_pipeline = Pipeline("Subsequence")
-        annotator2 = BaseAnnotator("2")
+        annotator2 = BaseAnnotator(name="2")
         sub_pipeline.add_child(annotator2)
 
         root.add_child(annotator1)

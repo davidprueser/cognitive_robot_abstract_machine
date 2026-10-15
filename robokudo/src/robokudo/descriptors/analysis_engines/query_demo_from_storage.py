@@ -22,6 +22,9 @@ The pipeline implements the following functionality:
 from __future__ import annotations
 
 from robokudo.analysis_engine import AnalysisEngineInterface
+from robokudo.descriptors.camera_configs.config_mongodb_playback import (
+    MongoCameraConfig,
+)
 from robokudo.annotators.cluster_color import ClusterColorAnnotator
 
 from robokudo.annotators.collection_reader import CollectionReaderAnnotator
@@ -34,9 +37,6 @@ from robokudo.annotators.query import QueryAnnotator, QueryReply
 from robokudo.idioms import pipeline_init
 from robokudo.pipeline import Pipeline
 from robokudo.behaviours.action_server_checks import ActionServerCheck
-from robokudo.descriptors.factories.cr_descriptor_factory import (
-    CollectionReaderDescriptorFactory,
-)
 
 
 class AnalysisEngine(AnalysisEngineInterface):
@@ -92,15 +92,15 @@ class AnalysisEngine(AnalysisEngineInterface):
 
         :return: The configured pipeline for query processing
         """
-        cr_storage_config = CollectionReaderDescriptorFactory.create_descriptor("mongo")
+        cr_storage_config = MongoCameraConfig()
 
         seq = Pipeline("StoragePipeline")
         seq.add_children(
             [
                 pipeline_init(),
                 QueryAnnotator(),
-                CollectionReaderAnnotator(descriptor=cr_storage_config),
-                ImagePreprocessorAnnotator("ImagePreprocessor"),
+                CollectionReaderAnnotator(camera_config=cr_storage_config),
+                ImagePreprocessorAnnotator(name="ImagePreprocessor"),
                 PointcloudCropAnnotator(),
                 PlaneAnnotator(),
                 PointCloudClusterExtractor(),

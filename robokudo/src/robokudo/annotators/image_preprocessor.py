@@ -1,4 +1,5 @@
-"""Image preprocessing and point cloud generation.
+"""
+Image preprocessing and point cloud generation.
 
 This module provides an annotator for:
 
@@ -13,9 +14,10 @@ This module provides an annotator for:
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
+
 import copy
-from enum import StrEnum
-from timeit import default_timer
+from enum import IntEnum
 
 import cv2
 import numpy
@@ -30,11 +32,29 @@ from robokudo.utils.annotator_helper import scale_camera_intrinsics
 from robokudo.utils.cv_helper import get_scaled_color_image_for_depth_image
 
 if TYPE_CHECKING:
-    import numpy.typing as npt
+    pass
 
 
+# %% display modes
+
+
+class PreprocessorDisplayMode(IntEnum):
+    """
+    Which image the visualization of the preprocessor shows; the key with the member's
+    value selects it.
+    """
+
+    COLOR = 1
+    DEPTH = 2
+
+
+# %% annotator
+
+
+@dataclass(kw_only=True)
 class ImagePreprocessorAnnotator(BaseAnnotator):
-    """RGB-D image preprocessor and point cloud generator.
+    """
+    RGB-D image preprocessor and point cloud generator.
 
     This annotator:
 
@@ -47,49 +67,28 @@ class ImagePreprocessorAnnotator(BaseAnnotator):
        Requires properly configured camera intrinsics and color-to-depth ratio.
     """
 
-    class ViewMode(StrEnum):
-        """Visualization mode enumeration."""
+    maximum_depth: float = 9.0
+    """
+    Distance in meters beyond which depth measurements are left out of the cloud.
+    """
 
-        COLOR = "color"
-        DEPTH = "depth"
+    camera_intrinsics: o3d.camera.PinholeCameraIntrinsic | None = field(
+        default=None, init=False, repr=False
+    )
+    """
+    Intrinsics of the camera at the resolution of the depth image.
+    """
 
-    class Descriptor(BaseAnnotator.Descriptor):
-        """Configuration descriptor for image preprocessing."""
+    display_mode: PreprocessorDisplayMode = field(
+        default=PreprocessorDisplayMode.COLOR, init=False
+    )
+    """
+    Which image the visualization currently shows.
+    """
 
-        class Parameters:
-            """Parameters for configuring preprocessing."""
-
-            def __init__(self) -> None:
-                self.depth_trunc: float = 9.0
-                """Maximum depth distance in meters, points beyond are discarded from cloud creation"""
-
-        # Overwrite the parameters explicitly to enable auto-completion
-        parameters = Parameters()
-
-    def __init__(
-        self,
-        name: str = "ImagePreprocessor",
-        descriptor: ImagePreprocessorAnnotator.Descriptor | None = None,
-    ) -> None:
-        """Initialize the image preprocessor.
-
-        :param name: Name of this annotator instance
-        :param descriptor: Configuration descriptor
+    def compute(self) -> Status:
         """
-        super().__init__(name, descriptor)
-        self.rk_logger.debug("%s.__init__()" % self.__class__.__name__)
-
-        self.color: npt.NDArray | None = None
-        """Optional color image currently being worked with"""
-
-        self.depth: npt.NDArray | None = None
-        """Optional depth image currently being worked with"""
-
-        self.display_mode: ImagePreprocessorAnnotator.ViewMode = self.ViewMode.COLOR
-        """The display mode to use (color or depth)"""
-
-    def update(self) -> Status:
-        """Process RGB-D images and generate point cloud.
+        Process RGB-D images and generate point cloud.
 
         The method:
 
@@ -102,28 +101,26 @@ class ImagePreprocessorAnnotator(BaseAnnotator):
         :return: SUCCESS after processing
         :raises ColorToDepthRatioMissing: If color-to-depth ratio is not set
         """
-        start_timer = default_timer()
-
-        self.depth = self.get_cas().get(CASViews.DEPTH_IMAGE)
-        self.color = self.get_cas().get(CASViews.COLOR_IMAGE)
+        depth = self.get_cas().get(CASViews.DEPTH_IMAGE)
+        color = self.get_cas().get(CASViews.COLOR_IMAGE)
         self.camera_intrinsics = copy.deepcopy(
             self.get_cas().get(CASViews.CAMERA_INTRINSIC)
         )
 
-        if self.display_mode is self.ViewMode.DEPTH:
-            self.get_annotator_output_struct().set_image(self.depth)
+        if self.display_mode == PreprocessorDisplayMode.DEPTH:
+            self.get_annotator_output_struct().set_image(depth)
         else:
-            self.get_annotator_output_struct().set_image(self.color)
+            self.get_annotator_output_struct().set_image(color)
 
         scale_camera_intrinsics(self)
 
         resized_color = None
         try:
             resized_color = get_scaled_color_image_for_depth_image(
-                self.get_cas(), self.color
+                self.get_cas(), color
             )
         except ColorToDepthRatioMissing:
-            self.rk_logger.error(
+            self.robokudo_logger.error(
                 "No color to depth ratio set by your camera driver! Can't preprocess."
             )
             raise
@@ -134,17 +131,17 @@ class ImagePreprocessorAnnotator(BaseAnnotator):
         o3d_depth = None
         try:
             o3d_depth = o3d.geometry.Image(
-                self.depth
+                depth
             )  # Please note that depth values should be in mm
         except RuntimeError:
             # Even though you might have a uint16 already, it might be required to explicitly cast to uint16
             # (Note: the byteorder field might be different after the cast to make o3d happy)
-            o3d_depth = o3d.geometry.Image(self.depth.astype(numpy.uint16))
+            o3d_depth = o3d.geometry.Image(depth.astype(numpy.uint16))
         rgbd_image = o3d.geometry.RGBDImage.create_from_color_and_depth(
             o3d_color,
             o3d_depth,
             convert_rgb_to_intensity=False,
-            depth_trunc=self.descriptor.parameters.depth_trunc,
+            depth_trunc=self.maximum_depth,
         )
 
         cloud = o3d.geometry.PointCloud.create_from_rgbd_image(
@@ -158,12 +155,11 @@ class ImagePreprocessorAnnotator(BaseAnnotator):
             cloud
         )  # the visualizer can only show non-NaN pointclouds
 
-        end_timer = default_timer()
-        self.feedback_message = f"Processing took {(end_timer - start_timer):.4f}s"
         return Status.SUCCESS
 
     def key_callback(self, key: int) -> None:
-        """Handle keyboard input for view mode switching.
+        """
+        Handle keyboard input for view mode switching.
 
         :param key: ASCII value of pressed key
 
@@ -172,7 +168,6 @@ class ImagePreprocessorAnnotator(BaseAnnotator):
         * '1': Switch to color view mode
         * '2': Switch to depth view mode
         """
-        if key == ord("1"):
-            self.display_mode = self.ViewMode.COLOR
-        if key == ord("2"):
-            self.display_mode = self.ViewMode.DEPTH
+        for display_mode in PreprocessorDisplayMode:
+            if key == ord(str(display_mode.value)):
+                self.display_mode = display_mode

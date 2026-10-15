@@ -16,7 +16,7 @@ class, that carries the detected class as a classification. Optionally:
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import cv2
@@ -43,7 +43,6 @@ from robokudo.utils.annotator_helper import (
 )
 from robokudo.utils.comparators import RoiComparator
 from robokudo.utils.cv_helper import crop_image, get_scaled_color_image_for_depth_image
-from robokudo.utils.decorators import timer_decorator
 from robokudo.utils.file_loader import FileLoader
 from robokudo.utils.module_loader import ModuleLoader
 from robokudo.utils.o3d_helper import get_cloud_from_rgb_depth_and_mask
@@ -96,124 +95,105 @@ class AnnotatedDetection:
 # %% annotator
 
 
+@dataclass(kw_only=True)
 class YoloAnnotator(ThreadedAnnotator):
     """
     Detects objects with a YOLO model and annotates them as classified hypotheses.
     """
 
-    class Descriptor(ThreadedAnnotator.Descriptor):
-        """
-        Descriptor for the YoloAnnotator.
-        """
+    models_directory: Path = field(
+        default_factory=lambda: ModuleLoader.get_module_path(PACKAGE_NAME) / "models"
+    )
+    """
+    Directory the pretrained models are loaded from, and downloaded into on first use.
 
-        class Parameters:
-            """
-            Parameters for the YoloAnnotator.
-            """
+    Created during setup if it does not exist.
+    """
 
-            def __init__(self) -> None:
-                self.models_directory: Path = (
-                    ModuleLoader.get_module_path(PACKAGE_NAME) / "models"
-                )
-                """
-                Directory the pretrained models are loaded from, and downloaded into on
-                first use.
+    pretrained_model: str | None = None
+    """
+    Name of a model ultralytics provides, e.g. ``yolov8m.pt``, inside
+    :attr:`models_directory`.
 
-                Created during setup if it does not exist.
-                """
-                self.pretrained_model: str | None = None
-                """
-                Name of a model ultralytics provides, e.g. ``yolov8m.pt``, inside
-                :attr:`models_directory`.
+    Takes precedence over weights inside a ROS package.
+    """
 
-                Takes precedence over weights inside a ROS package.
-                """
-                self.ros_package_name: str | None = None
-                """
-                Name of the ROS package holding custom weights.
-                """
-                self.weights_path: str | None = None
-                """
-                Path of the custom weights, relative to the ROS package.
-                """
-                self.class_names_path: str = "data/json/id2name.json"
-                """
-                Path of a JSON file mapping class ids to class names, relative to the
-                ROS package.
+    ros_package_name: str | None = None
+    """
+    Name of the ROS package holding custom weights.
+    """
 
-                Only read for custom weights, since pretrained models carry their class
-                names.
-                """
-                self.threshold: float = 0.9
-                """
-                Minimum confidence of a detection to be annotated.
-                """
-                self.person_class_name: str = "person"
-                """
-                Class name of the detections that become human hypotheses.
-                """
-                self.ignored_class_names: list[str] = []
-                """
-                Classes whose detections are neither annotated nor visualized.
-                """
-                self.precision_mode: bool = False
-                """
-                Whether SAM segments each detection instead of its mask filling the
-                bounding box.
-                """
-                self.segmentation_model: str = "mobile_sam.pt"
-                """
-                Name of the SAM model ultralytics provides, inside
-                :attr:`models_directory`, loaded in precision mode.
-                """
-                self.precision_mode_apply_erosion: bool = False
-                """
-                Whether to erode the SAM masks in precision mode.
-                """
-                self.precision_mode_erosion_kernel_size: int = 2
-                """
-                Edge length in pixels of the square kernel the SAM masks are eroded
-                with.
-                """
-                self.depth_truncate: float = 3.5
-                """
-                Distance in meters beyond which depth measurements are left out of the
-                hypothesis point clouds.
-                """
-                self.classify_existing_hypotheses: bool = False
-                """
-                Whether a detection overlapping an existing object hypothesis classifies
-                that hypothesis instead of creating a new one.
-                """
-                self.minimum_hypothesis_overlap: float = 0.65
-                """
-                Intersection over union a detection must exceed with an existing object
-                hypothesis to classify it.
-                """
+    weights_path: str | None = None
+    """
+    Path of the custom weights, relative to the ROS package.
+    """
 
-            def model_location(self, annotator_name: str) -> str:
-                """
-                :param annotator_name: Name of the annotator loading the model, for the
-                    error.
-                :return: The path of the pretrained model inside
-                    :attr:`models_directory`, or else the path of the custom weights.
-                :raises DetectionModelNotConfigured: If neither is configured.
-                """
-                if self.pretrained_model is not None:
-                    return str(self.models_directory / self.pretrained_model)
-                if self.ros_package_name is None or self.weights_path is None:
-                    raise DetectionModelNotConfigured(annotator_name=annotator_name)
-                return str(self.file_in_ros_package(self.weights_path))
+    class_names_path: str = "data/json/id2name.json"
+    """
+    Path of a JSON file mapping class ids to class names, relative to the ROS package.
 
-            def file_in_ros_package(self, relative_path: str) -> Path:
-                """
-                :param relative_path: Path of a file, relative to the configured ROS
-                    package.
-                :return: The absolute path of the file.
-                """
-                return FileLoader.get_path_to_file_in_ros_package(
-                    ros_pkg_name=self.ros_package_name, relative_path=relative_path
-                )
+    Only read for custom weights, since pretrained models carry their class names.
+    """
+
+    threshold: float = 0.9
+    """
+    Minimum confidence of a detection to be annotated.
+    """
+
+    person_class_name: str = "person"
+    """
+    Class name of the detections that become human hypotheses.
+    """
+
+    ignored_class_names: list[str] = field(default_factory=list)
+    """
+    Classes whose detections are neither annotated nor visualized.
+    """
+
+    precision_mode: bool = False
+    """
+    Whether SAM segments each detection instead of its mask filling the bounding box.
+    """
+
+    segmentation_model: str = "mobile_sam.pt"
+    """
+    Name of the SAM model ultralytics provides, inside :attr:`models_directory`, loaded
+    in precision mode.
+    """
+
+    precision_mode_apply_erosion: bool = False
+    """
+    Whether to erode the SAM masks in precision mode.
+    """
+
+    precision_mode_erosion_kernel_size: int = 2
+    """
+    Edge length in pixels of the square kernel the SAM masks are eroded with.
+    """
+
+    use_depth: bool = True
+    """
+    Whether to build the hypothesis point clouds from the depth image, if the CAS has
+    one.
+    """
+
+    depth_truncate: float = 3.5
+    """
+    Distance in meters beyond which depth measurements are left out of the hypothesis
+    point clouds.
+    """
+
+    classify_existing_hypotheses: bool = False
+    """
+    Whether a detection overlapping an existing object hypothesis classifies that
+    hypothesis instead of creating a new one.
+    """
+
+    minimum_hypothesis_overlap: float = 0.65
+    """
+    Intersection over union a detection must exceed with an existing object hypothesis
+    to classify it.
+    """
 
     @classproperty
     def mask_foreground(cls) -> int:
@@ -222,78 +202,97 @@ class YoloAnnotator(ThreadedAnnotator):
         """
         return 255
 
-    def __init__(
-        self,
-        name: str = "YoloAnnotator",
-        descriptor: YoloAnnotator.Descriptor | None = None,
-    ) -> None:
-        super().__init__(name, descriptor)
+    model: YOLO = field(init=False, repr=False)
+    """
+    The YOLO detection model, loaded in :meth:`setup`.
+    """
+    class_names: dict[int, str] = field(default_factory=dict, init=False)
+    """
+    Name of each class the model detects, by class id, loaded in :meth:`setup`.
+    """
+    segmenter: SAM | None = field(default=None, init=False, repr=False)
+    """
+    The SAM model refining the hypothesis masks in precision mode, loaded in
+    :meth:`setup`.
+    """
+    camera_intrinsics: o3d.camera.PinholeCameraIntrinsic | None = field(
+        default=None, init=False, repr=False
+    )
+    """
+    Intrinsics of the camera at the resolution of the depth image.
+    """
+    roi_comparator: RoiComparator = field(
+        default_factory=lambda: RoiComparator(weight=1.0), init=False, repr=False
+    )
+    """
+    Comparator measuring how much a detection overlaps an existing hypothesis.
+    """
 
-        self.model_location: str = self.descriptor.parameters.model_location(self.name)
+    def __post_init__(self) -> None:
+        super().__post_init__()
+        self.model_location()
+
+    @property
+    def depth_in_use(self) -> bool:
         """
-        Where the YOLO model is loaded from.
+        Whether the current CAS's depth image is used.
         """
-        self.model: YOLO | None = None
+        return self.use_depth and self.get_cas().has_depth
+
+    def model_location(self) -> str:
         """
-        The YOLO detection model, loaded during setup.
+        :return: The path of the pretrained model inside :attr:`models_directory`, or
+            else the path of the custom weights.
+        :raises DetectionModelNotConfigured: If neither is configured.
         """
-        self.class_names: dict[int, str] = {}
+        if self.pretrained_model is not None:
+            return str(self.models_directory / self.pretrained_model)
+        if self.ros_package_name is None or self.weights_path is None:
+            raise DetectionModelNotConfigured(annotator_name=self.name)
+        return str(self.file_in_ros_package(self.weights_path))
+
+    def file_in_ros_package(self, relative_path: str) -> Path:
         """
-        Name of each class the model detects, by class id, loaded during setup.
+        :param relative_path: Path of a file, relative to the configured ROS package.
+        :return: The absolute path of the file.
         """
-        self.segmentation_model: SAM | None = None
-        """
-        The SAM model refining the hypothesis masks in precision mode, loaded during
-        setup.
-        """
-        self.camera_intrinsics: o3d.camera.PinholeCameraIntrinsic | None = None
-        """
-        Intrinsics of the camera at the resolution of the depth image.
-        """
-        self.roi_comparator = RoiComparator(weight=1.0)
-        """
-        Comparator measuring how much a detection overlaps an existing hypothesis.
-        """
+        return FileLoader.get_path_to_file_in_ros_package(
+            ros_pkg_name=self.ros_package_name, relative_path=relative_path
+        )
 
     def setup(self, **kwargs: Any) -> bool:
         """
         Load the models, so that building a pipeline does not download them.
         """
-        parameters: YoloAnnotator.Descriptor.Parameters = self.descriptor.parameters
-        parameters.models_directory.mkdir(parents=True, exist_ok=True)
-        self.model = YOLO(self.model_location)
+        self.models_directory.mkdir(parents=True, exist_ok=True)
+        self.model = YOLO(self.model_location())
         self.class_names = self._load_class_names()
-        if parameters.precision_mode:
-            self.segmentation_model = SAM(
-                str(parameters.models_directory / parameters.segmentation_model)
-            )
+        if self.precision_mode:
+            self.segmenter = SAM(str(self.models_directory / self.segmentation_model))
         return super().setup(**kwargs)
 
     def _load_class_names(self) -> dict[int, str]:
         """
         :return: Name of each class the model detects, by class id.
         """
-        parameters: YoloAnnotator.Descriptor.Parameters = self.descriptor.parameters
-        if parameters.pretrained_model is not None:
+        if self.pretrained_model is not None:
             return dict(self.model.names)
-        class_names_file = parameters.file_in_ros_package(parameters.class_names_path)
+        class_names_file = self.file_in_ros_package(self.class_names_path)
         with open(class_names_file, "r", encoding="utf-8") as file:
             return {int(class_id): name for class_id, name in json.load(file).items()}
 
-    @timer_decorator
     def compute(self) -> Status:
         """
         Detect objects and annotate them as classified object hypotheses.
         """
-        parameters: YoloAnnotator.Descriptor.Parameters = self.descriptor.parameters
-        if parameters.global_with_depth:
+        if self.depth_in_use:
             self.camera_intrinsics = self.get_cas().get_copy(CASViews.CAMERA_INTRINSIC)
             scale_camera_intrinsics(self)
 
         detection_image = self._detection_image()
         existing_hypotheses = (
             self.get_cas().filter_annotations_by_type(ObjectHypothesis)
-            if parameters.classify_existing_hypotheses
+            if self.classify_existing_hypotheses
             else []
         )
 
@@ -309,7 +308,7 @@ class YoloAnnotator(ThreadedAnnotator):
             if annotated.is_new
         )
 
-        if parameters.global_with_visualization:
+        if self.visualize:
             self._visualize(annotated_detections)
         return Status.SUCCESS
 
@@ -319,7 +318,7 @@ class YoloAnnotator(ThreadedAnnotator):
             used.
         """
         color_image = self.get_cas().get_copy(CASViews.COLOR_IMAGE)
-        if not self.descriptor.parameters.global_with_depth:
+        if not self.depth_in_use:
             return color_image
         return get_scaled_color_image_for_depth_image(self.get_cas(), color_image)
 
@@ -329,7 +328,7 @@ class YoloAnnotator(ThreadedAnnotator):
         """
         with torch.no_grad():
             results = self.model.predict(
-                detection_image, conf=self.descriptor.parameters.threshold, show=False
+                detection_image, conf=self.threshold, show=False
             )
         detections = []
         for result in results:
@@ -358,10 +357,7 @@ class YoloAnnotator(ThreadedAnnotator):
         """
         :return: The configured ignored class names, without surrounding whitespace.
         """
-        return {
-            str(class_name).strip()
-            for class_name in self.descriptor.parameters.ignored_class_names
-        }
+        return {str(class_name).strip() for class_name in self.ignored_class_names}
 
     def _classify(
         self,
@@ -391,7 +387,7 @@ class YoloAnnotator(ThreadedAnnotator):
         """
         :return: The bounding box of the detection, in color image pixels.
         """
-        if not self.descriptor.parameters.global_with_depth:
+        if not self.depth_in_use:
             return detection.bounding_box
         color_to_depth_ratio = self.get_cas().get(CASViews.COLOR_TO_DEPTH_RATIO)
         left, top, right, bottom = detection.bounding_box.get_corner_points()
@@ -420,7 +416,7 @@ class YoloAnnotator(ThreadedAnnotator):
         overlap = self.roi_comparator.compute_similarity(
             most_overlapped.roi.roi, region
         )
-        if overlap <= self.descriptor.parameters.minimum_hypothesis_overlap:
+        if overlap <= self.minimum_hypothesis_overlap:
             return None
         return most_overlapped
 
@@ -436,18 +432,19 @@ class YoloAnnotator(ThreadedAnnotator):
         """
         hypothesis = (
             HumanHypothesis()
-            if detection.classification.classname
-            == self.descriptor.parameters.person_class_name
+            if detection.classification.classname == self.person_class_name
             else ObjectHypothesis()
         )
         hypothesis.source = self.name
         hypothesis.roi.roi = region
 
         detection_mask = self._detection_mask(detection, detection_image)
-        if self.descriptor.parameters.global_with_depth:
+        if self.depth_in_use:
             hypothesis.points = self._point_cloud(detection_mask, detection_image)
+        if self.depth_in_use:
+            detection_mask = resize_mask(self.get_cas(), detection_mask)
         hypothesis.roi.mask = crop_image(
-            resize_mask(self, detection_mask),
+            detection_mask,
             (region.pos.x, region.pos.y),
             (region.width, region.height),
         )
@@ -459,14 +456,13 @@ class YoloAnnotator(ThreadedAnnotator):
         """
         :return: The mask of the detected object on the detection image.
         """
-        parameters: YoloAnnotator.Descriptor.Parameters = self.descriptor.parameters
-        if not parameters.precision_mode:
+        if not self.precision_mode:
             x1, y1, x2, y2 = detection.bounding_box.get_corner_points()
             mask = np.zeros(detection_image.shape[:2], dtype=np.uint8)
             mask[y1:y2, x1:x2] = self.mask_foreground
             return mask
 
-        segmentation = self.segmentation_model.predict(
+        segmentation = self.segmenter.predict(
             detection_image,
             bboxes=[list(detection.bounding_box.get_corner_points())],
         )[0]
@@ -475,9 +471,9 @@ class YoloAnnotator(ThreadedAnnotator):
             * self.mask_foreground
         )
         torch.cuda.empty_cache()
-        if not parameters.precision_mode_apply_erosion:
+        if not self.precision_mode_apply_erosion:
             return mask
-        kernel_size = parameters.precision_mode_erosion_kernel_size
+        kernel_size = self.precision_mode_erosion_kernel_size
         kernel = np.ones((kernel_size, kernel_size), np.uint8)
         return cv2.erode(mask, kernel, iterations=1)
 
@@ -494,7 +490,7 @@ class YoloAnnotator(ThreadedAnnotator):
             depth_image=self.get_cas().get(CASViews.DEPTH_IMAGE),
             mask=detection_mask,
             camera_intrinsics=self.camera_intrinsics,
-            depth_truncate=self.descriptor.parameters.depth_truncate,
+            depth_truncate=self.depth_truncate,
             mask_true_value=self.mask_foreground,
         )
 
@@ -503,10 +499,9 @@ class YoloAnnotator(ThreadedAnnotator):
         Draw the annotated hypotheses into the color image, together with their masks in
         precision mode, and output the point clouds of the new hypotheses.
         """
-        parameters: YoloAnnotator.Descriptor.Parameters = self.descriptor.parameters
         visualization_image = self.get_cas().get_copy(CASViews.COLOR_IMAGE)
         for index, annotated in enumerate(annotated_detections):
-            if parameters.precision_mode and annotated.is_new:
+            if self.precision_mode and annotated.is_new:
                 x1, y1, _, _ = annotated.hypothesis.roi.roi.get_corner_points()
                 mask = annotated.hypothesis.roi.mask
                 region = visualization_image[
@@ -520,7 +515,7 @@ class YoloAnnotator(ThreadedAnnotator):
                 lambda _: f"{classification.classname}, {classification.confidence:.2f}",
             )
         self.get_annotator_output_struct().set_image(visualization_image)
-        if parameters.global_with_depth:
+        if self.depth_in_use:
             self.get_annotator_output_struct().set_geometries(
                 [
                     annotated.hypothesis.points

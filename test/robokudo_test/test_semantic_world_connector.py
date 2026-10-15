@@ -187,7 +187,7 @@ class TestSemanticDigitalTwinConnector:
             [previous_hypothesis], [], semdt_cas
         )[0][1]
         hypothesis = _make_hypothesis(translation=(5.0, 0.0, 1.0))
-        connector.descriptor.parameters.confidence_threshold = 0.99
+        connector.confidence_threshold = 0.99
         _attach_connector_to_pipeline(connector, semdt_cas)
 
         associated_hypotheses = connector.associate_hypotheses_with_beliefs(

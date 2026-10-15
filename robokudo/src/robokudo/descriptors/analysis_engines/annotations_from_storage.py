@@ -21,12 +21,12 @@ from __future__ import annotations
 from robokudo.analysis_engine import AnalysisEngineInterface
 from robokudo.idioms import pipeline_init
 from robokudo.pipeline import Pipeline
+from robokudo.descriptors.camera_configs.config_mongodb_playback import (
+    MongoCameraConfig,
+)
 from robokudo.annotators.collection_reader import CollectionReaderAnnotator
 from robokudo.annotators.image_preprocessor import ImagePreprocessorAnnotator
 from robokudo.annotators.object_hypothesis_visualizer import ObjectHypothesisVisualizer
-from robokudo.descriptors.factories.cr_descriptor_factory import (
-    CollectionReaderDescriptorFactory,
-)
 
 
 class AnalysisEngine(AnalysisEngineInterface):
@@ -70,16 +70,14 @@ class AnalysisEngine(AnalysisEngineInterface):
             Make sure to store some annotated data in the MongoDB database
             before running this pipeline, or it will not display anything.
         """
-        cr_storage_config = CollectionReaderDescriptorFactory.create_descriptor(
-            "mongo", db_name="store_with_annotations"
-        )
+        cr_storage_config = MongoCameraConfig(db_name="store_with_annotations")
 
         seq = Pipeline("StoragePipeline")
         seq.add_children(
             [
                 pipeline_init(),
-                CollectionReaderAnnotator(descriptor=cr_storage_config),
-                ImagePreprocessorAnnotator("ImagePreprocessor"),
+                CollectionReaderAnnotator(camera_config=cr_storage_config),
+                ImagePreprocessorAnnotator(name="ImagePreprocessor"),
                 ObjectHypothesisVisualizer(),
             ]
         )

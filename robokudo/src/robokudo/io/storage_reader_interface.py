@@ -20,18 +20,19 @@ The module is primarily used for:
 
 from __future__ import annotations
 
-from robokudo.descriptors.camera_configs.config_mongodb_playback import (
-    MongoCameraConfig,
-)
-
 import open3d as o3d
-from robokudo.annotator_parameters import AnnotatorPredefinedParameters
 from robokudo.cas import CAS, CASViews
+from typing_extensions import TYPE_CHECKING
 from robokudo.exceptions import StoredCameraTransformFrameMetadataMissing
 from robokudo.io.camera_interface import CameraInterface
 from robokudo.io.storage import Storage
 import robokudo.world as world
 from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
+
+if TYPE_CHECKING:
+    from robokudo.descriptors.camera_configs.config_mongodb_playback import (
+        MongoCameraConfig,
+    )
 
 
 class StorageReaderInterface(CameraInterface):
@@ -111,10 +112,6 @@ class StorageReaderInterface(CameraInterface):
         # Restore annotations
         if self.camera_config.restore_annotations:
             self.storage.load_annotations_from_mongo_in_cas(cas_frame, cas)
-
-        if cas.depth_image is None:
-            # no depth image available
-            AnnotatorPredefinedParameters.global_with_depth = False
 
         # Compute the camera intrinsic from the camera info.
         # this is harder to serialize and put transparently into mongo as of today, so we'll do it here

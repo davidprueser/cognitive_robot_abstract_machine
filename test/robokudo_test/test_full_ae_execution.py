@@ -21,6 +21,12 @@ import robokudo.types.annotation
 import robokudo.types.scene
 import robokudo.utils.data_downloader
 import robokudo.utils.tree_execution
+from robokudo.descriptors.camera_configs.config_filereader_playback import (
+    FileReaderCameraConfig,
+)
+from robokudo.descriptors.camera_configs.config_semdt_raytracer import (
+    SemDTRayTracerCameraConfig,
+)
 from robokudo.annotators.cluster_color import ClusterColorAnnotator
 from robokudo.annotators.cluster_pose_bb import ClusterPoseBBAnnotator
 from robokudo.annotators.collection_reader import CollectionReaderAnnotator
@@ -30,9 +36,6 @@ from robokudo.annotators.pointcloud_cluster_extractor import PointCloudClusterEx
 from robokudo.annotators.pointcloud_crop import PointcloudCropAnnotator
 from robokudo.annotators.semantic_world_connector import SemanticDigitalTwinConnector
 from robokudo.annotators.shape_estimator import ShapeEstimatorAnnotator
-from robokudo.descriptors.factories.cr_descriptor_factory import (
-    CollectionReaderDescriptorFactory,
-)
 from robokudo.world_descriptor import PredefinedObject
 from semantic_digital_twin.world_description.geometry import Mesh
 from typing_extensions import TYPE_CHECKING
@@ -57,8 +60,7 @@ class TestFullAEExecution(object):
         # rclpy.init()
         # node = Node(robokudo.defs.TEST_ROS_NODE_NAME)
 
-        cr_fr_config = CollectionReaderDescriptorFactory.create_descriptor(
-            "file_reader",
+        cr_fr_config = FileReaderCameraConfig(
             loop=False,
             target_dir=robokudo.utils.data_downloader.test_data_path() / Path("data"),
             kinect_height_fix_mode=True,
@@ -69,19 +71,14 @@ class TestFullAEExecution(object):
         )
 
         # Restrict FOV of pointcloud to robustly get only one object
-        pc_crop_config = (
-            robokudo.annotators.pointcloud_crop.PointcloudCropAnnotator.Descriptor()
-        )
-        pc_crop_config.parameters.min_x = -0.3
-        pc_crop_config.parameters.max_x = 0.3
 
         seq = robokudo.pipeline.Pipeline("TestPipeline")
         seq.add_children(
             [
                 robokudo.behaviours.clear_annotator_outputs.ClearAnnotatorOutputs(),
-                CollectionReaderAnnotator(descriptor=cr_fr_config),
-                ImagePreprocessorAnnotator("ImagePreprocessor"),
-                PointcloudCropAnnotator(descriptor=pc_crop_config),
+                CollectionReaderAnnotator(camera_config=cr_fr_config),
+                ImagePreprocessorAnnotator(name="ImagePreprocessor"),
+                PointcloudCropAnnotator(minimum_x=-0.3, maximum_x=0.3),
                 PlaneAnnotator(),
                 PointCloudClusterExtractor(),
             ]
@@ -100,8 +97,7 @@ class TestFullAEExecution(object):
     def test_run_file_reader_ae_synchronizes_semantic_digital_twin_belief_state(
         self, node: Node, clean_semantic_world: None
     ) -> None:
-        cr_fr_config = CollectionReaderDescriptorFactory.create_descriptor(
-            "file_reader",
+        cr_fr_config = FileReaderCameraConfig(
             loop=False,
             target_dir=robokudo.utils.data_downloader.test_data_path() / Path("data"),
             kinect_height_fix_mode=True,
@@ -111,19 +107,13 @@ class TestFullAEExecution(object):
             static_camera_frame="camera",
         )
 
-        pc_crop_config = (
-            robokudo.annotators.pointcloud_crop.PointcloudCropAnnotator.Descriptor()
-        )
-        pc_crop_config.parameters.min_x = -0.3
-        pc_crop_config.parameters.max_x = 0.3
-
         seq = robokudo.pipeline.Pipeline("SemanticDigitalTwinFileReaderTestPipeline")
         seq.add_children(
             [
                 robokudo.behaviours.clear_annotator_outputs.ClearAnnotatorOutputs(),
-                CollectionReaderAnnotator(descriptor=cr_fr_config),
-                ImagePreprocessorAnnotator("ImagePreprocessor"),
-                PointcloudCropAnnotator(descriptor=pc_crop_config),
+                CollectionReaderAnnotator(camera_config=cr_fr_config),
+                ImagePreprocessorAnnotator(name="ImagePreprocessor"),
+                PointcloudCropAnnotator(minimum_x=-0.3, maximum_x=0.3),
                 PlaneAnnotator(),
                 PointCloudClusterExtractor(),
                 ClusterPoseBBAnnotator(),
@@ -253,42 +243,34 @@ class TestFullAEExecution(object):
         ), "The object belief body should contain one visual shape derived from the latest bounding box."
 
     def test_run_semdt_raytracer_ae_successfully(self, node: Node) -> None:
-        raytracer_config = CollectionReaderDescriptorFactory.create_descriptor(
-            "semdt_raytracer",
-            world_descriptor_name="world_semdt_raytracer_cylinders",
-            resolution=128,
+        raytracer_config = SemDTRayTracerCameraConfig(
+            world_descriptor_name="world_semdt_raytracer_cylinders", resolution=128
         )
-
-        plane_desc = PlaneAnnotator.Descriptor()
-        plane_desc.parameters.distance_threshold = 0.01
-        plane_desc.parameters.random_seed = 0
-
-        cluster_desc = PointCloudClusterExtractor.Descriptor()
-        cluster_desc.parameters.dbscan_min_cluster_count = 8
-        cluster_desc.parameters.min_cluster_count = 20
-        cluster_desc.parameters.min_on_plane_point_count = 10
-        cluster_desc.parameters.eps = 0.05
-
-        shape_desc = ShapeEstimatorAnnotator.Descriptor()
-        shape_desc.parameters.minimum_point_count = 20
-        shape_desc.parameters.distance_threshold = 0.015
-        shape_desc.parameters.cylinder_minimum_inlier_ratio = 0.5
-        shape_desc.parameters.cuboid_minimum_inlier_ratio = 0.3
-        shape_desc.parameters.log_candidate_metrics = False
-        shape_desc.parameters.log_rejection_reasons = False
 
         seq = robokudo.pipeline.Pipeline("SemDTRayTracerTestPipeline")
         seq.add_children(
             [
                 robokudo.behaviours.clear_annotator_outputs.ClearAnnotatorOutputs(),
-                CollectionReaderAnnotator(descriptor=raytracer_config),
-                ImagePreprocessorAnnotator("ImagePreprocessor"),
+                CollectionReaderAnnotator(camera_config=raytracer_config),
+                ImagePreprocessorAnnotator(name="ImagePreprocessor"),
                 PointcloudCropAnnotator(),
-                PlaneAnnotator(descriptor=plane_desc),
-                PointCloudClusterExtractor(descriptor=cluster_desc),
+                PlaneAnnotator(distance_threshold=0.01, random_seed=0),
+                PointCloudClusterExtractor(
+                    dbscan_min_cluster_count=8,
+                    min_cluster_count=20,
+                    min_on_plane_point_count=10,
+                    eps=0.05,
+                ),
                 ClusterColorAnnotator(),
                 ClusterPoseBBAnnotator(),
-                ShapeEstimatorAnnotator(descriptor=shape_desc),
+                ShapeEstimatorAnnotator(
+                    minimum_point_count=20,
+                    distance_threshold=0.015,
+                    cylinder_minimum_inlier_ratio=0.5,
+                    cuboid_minimum_inlier_ratio=0.3,
+                    log_candidate_metrics=False,
+                    log_rejection_reasons=False,
+                ),
             ]
         )
 
@@ -333,31 +315,24 @@ class TestFullAEExecution(object):
     def test_run_semdt_raytracer_tabletop_ae_loads_mesh_world_descriptor(
         self, node: Node
     ) -> None:
-        raytracer_config = CollectionReaderDescriptorFactory.create_descriptor(
-            "semdt_raytracer",
-            world_descriptor_name="world_semdt_raytracer_tabletop",
-            resolution=128,
+        raytracer_config = SemDTRayTracerCameraConfig(
+            world_descriptor_name="world_semdt_raytracer_tabletop", resolution=128
         )
-
-        plane_desc = PlaneAnnotator.Descriptor()
-        plane_desc.parameters.distance_threshold = 0.01
-        plane_desc.parameters.random_seed = 0
-
-        cluster_desc = PointCloudClusterExtractor.Descriptor()
-        cluster_desc.parameters.dbscan_min_cluster_count = 8
-        cluster_desc.parameters.min_cluster_count = 20
-        cluster_desc.parameters.min_on_plane_point_count = 10
-        cluster_desc.parameters.eps = 0.05
 
         seq = robokudo.pipeline.Pipeline("SemDTRayTracerTabletopTestPipeline")
         seq.add_children(
             [
                 robokudo.behaviours.clear_annotator_outputs.ClearAnnotatorOutputs(),
-                CollectionReaderAnnotator(descriptor=raytracer_config),
-                ImagePreprocessorAnnotator("ImagePreprocessor"),
+                CollectionReaderAnnotator(camera_config=raytracer_config),
+                ImagePreprocessorAnnotator(name="ImagePreprocessor"),
                 PointcloudCropAnnotator(),
-                PlaneAnnotator(descriptor=plane_desc),
-                PointCloudClusterExtractor(descriptor=cluster_desc),
+                PlaneAnnotator(distance_threshold=0.01, random_seed=0),
+                PointCloudClusterExtractor(
+                    dbscan_min_cluster_count=8,
+                    min_cluster_count=20,
+                    min_on_plane_point_count=10,
+                    eps=0.05,
+                ),
                 ClusterColorAnnotator(),
                 ClusterPoseBBAnnotator(),
             ]
