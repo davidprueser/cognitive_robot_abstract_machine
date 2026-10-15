@@ -24,6 +24,7 @@ from robokudo.types.core import Type
 from robokudo.types.tf import Pose
 
 if TYPE_CHECKING:
+    import numpy as np
     import numpy.typing as npt
 
 
@@ -99,6 +100,59 @@ class Rect(Type):
     def as_tuple(self) -> Tuple[int, int, int, int]:
         """Get the rectangle as a tuple of (x, y, w, h)."""
         return self.pos.x, self.pos.y, self.width, self.height
+
+
+@dataclass(kw_only=True)
+class ColorToDepthRatio:
+    """
+    Size of the depth image relative to the color image of the same camera.
+    """
+
+    horizontal: float = 1.0
+    """
+    Depth image width divided by color image width.
+    """
+
+    vertical: float = 1.0
+    """
+    Depth image height divided by color image height.
+    """
+
+    @property
+    def is_identity(self) -> bool:
+        """
+        Whether the depth image has the resolution of the color image.
+        """
+        return self.horizontal == 1.0 and self.vertical == 1.0
+
+    def depth_pixel(self, x: float, y: float) -> Point2D:
+        """
+        :param x: Horizontal position in color image pixels.
+        :param y: Vertical position in color image pixels.
+        :return: The depth image pixel at that position.
+        """
+        return Point2D(x=int(x * self.horizontal), y=int(y * self.vertical))
+
+    def depth_region(self, region: Rect) -> Rect:
+        """
+        :param region: A region in color image pixels.
+        :return: The depth image pixels covering the same region.
+        """
+        left, top, right, bottom = region.get_corner_points()
+        return Rect.from_corner_points(
+            x1=left * self.horizontal,
+            y1=top * self.vertical,
+            x2=right * self.horizontal,
+            y2=bottom * self.vertical,
+        )
+
+    def color_pixels(self, depth_pixels: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
+        """
+        :param depth_pixels: The (x, y) of depth image pixels, one pixel per row.
+        :return: The (x, y) of the color image pixel at each of those pixels, one pixel
+            per row.
+        """
+        return (depth_pixels * (1 / self.horizontal, 1 / self.vertical)).astype(int)
 
 
 @dataclass(kw_only=True)
