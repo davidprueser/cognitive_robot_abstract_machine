@@ -125,7 +125,7 @@ class VizMarkerPublisher(ModelChangeCallback, HasROS2Node):
 
         if self.tf_publisher is None:
             self.tf_publisher = self._tf_publisher_of_world()
-        self.publisher = self.node.create_publisher(
+        self._publisher = self.node.create_publisher(
             MarkerArray, self.topic_name, self.qos_profile
         )
         time.sleep(0.2)
@@ -199,7 +199,17 @@ class VizMarkerPublisher(ModelChangeCallback, HasROS2Node):
                 force_alpha=self.region_alpha,
             )
 
-        self.publisher.publish(self.markers)
+        self.publish_markers()
+
+    def publish_markers(self) -> None:
+        """
+        Publish :attr:`markers` on :attr:`topic_name`.
+
+        Every rebuild of the markers ends here, so a subclass that has to adapt the
+        markers for a particular viewer overrides this method; markers changed
+        anywhere else are rebuilt from the world on the next model change.
+        """
+        self._publisher.publish(self.markers)
 
     def _add_markers_for_shapes(
         self,

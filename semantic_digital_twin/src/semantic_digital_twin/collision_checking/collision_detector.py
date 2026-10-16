@@ -213,6 +213,18 @@ class CollisionDetector(WorldEntityWithClassBasedID, abc.ABC):
         self.world_model_updater.on_model_change()
         self.world_state_updater.on_state_change()
 
+    def stop(self) -> None:
+        """
+        Stop the world from notifying this detector of changes, so it and everything it
+        holds can be released.
+
+        .. note::
+            A detector built for a single check is otherwise kept alive by its world,
+            and every later change pays for keeping it up to date.
+        """
+        self.world_model_updater.stop()
+        self.world_state_updater.stop()
+
     def get_all_collision_fks(self) -> np.ndarray:
         return self.world_model_updater.compiled_collision_fks._out
 

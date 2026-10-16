@@ -731,7 +731,9 @@ class Mesh(Shape):
     ) -> trimesh.Trimesh:
         image = Image.open(texture_file_path)
         material_name = os.path.splitext(os.path.basename(texture_file_path))[0]
-        mesh.visual.material = SimpleMaterial(name=material_name, image=image)
+        mesh.visual.material = SimpleMaterial(
+            name=material_name, image=image, diffuse=[255, 255, 255, 255]
+        )
         return mesh
 
     def scale_mesh(self, scale: Scale) -> trimesh.Trimesh:
