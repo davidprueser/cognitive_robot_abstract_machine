@@ -56,7 +56,7 @@ from semantic_digital_twin.spatial_types.spatial_types import (
     Pose,
 )
 from semantic_digital_twin.utils import camel_case_split
-from semantic_digital_twin.world_description.geometry import Mesh
+from semantic_digital_twin.world_description.geometry import Color, Mesh
 from semantic_digital_twin.world_description.inertial_properties import Inertial
 from semantic_digital_twin.world_description.shape_collection import (
     ShapeCollection,
@@ -597,6 +597,15 @@ class Body(KinematicStructureEntity):
             shapes.transform_all_shapes_to_own_frame()
         self.visual = visual
         self.collision = collision
+
+    def dye(self, color: Color) -> None:
+        """
+        Give every visual and collision shape of this body the same color.
+
+        :param color: The color the shapes take.
+        """
+        self.visual.dye_shapes(color)
+        self.collision.dye_shapes(color)
 
     @property
     def combined_mesh(self) -> Optional[trimesh.Trimesh]:
