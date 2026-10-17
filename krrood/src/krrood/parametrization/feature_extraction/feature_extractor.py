@@ -323,7 +323,7 @@ class FeatureExtractor:
         for feature in self.features:
             if feature in aggregation_features:
                 result.append(
-                    feature.apply_mapping_on_external_root(aggregation_instance)
+                    aggregation_instance.value_of(aggregation_cls.statistic_of(feature))
                 )
             else:
                 result.append(

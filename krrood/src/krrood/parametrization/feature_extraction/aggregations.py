@@ -1,26 +1,38 @@
 from __future__ import annotations
 
 import inspect
-import logging
 from collections import defaultdict
-from copy import deepcopy
 from dataclasses import dataclass
 from functools import lru_cache
-from typing_extensions import Callable, Optional, Type, Any, ClassVar, TypeVar
+from typing_extensions import (
+    Callable,
+    Optional,
+    Type,
+    Any,
+    ClassVar,
+    TypeVar,
+    get_args,
+)
 
 from krrood.entity_query_language.core.mapped_variable import Attribute, MappedVariable
 from krrood.entity_query_language.core.variable import Variable as SymbolicVariable
+from krrood.entity_query_language.operators.aggregators import (
+    AggregationBounds,
+    Aggregator,
+)
+from krrood.entity_query_language.query.query import Entity
+from krrood.parametrization.feature_extraction.collection_aggregation import (
+    CollectionAggregation,
+)
 from krrood.parametrization.feature_extraction.exceptions import (
     InvalidAggregatedFieldError,
     MissingFieldNameError,
-    OutOfDomainValueError,
+    StatisticValueTypeNotDeclared,
 )
 from krrood.patterns.role import Role
-from random_events.variable import Variable, Symbolic
 from krrood.entity_query_language.factories import variable
+from krrood.symbol_graph.helpers import get_method_return_type
 from krrood.utils import recursive_subclasses, get_generic_type_parameters
-
-logger = logging.getLogger(__name__)
 
 TAggregatedObject = TypeVar("TAggregatedObject", bound=object)
 """
@@ -65,8 +77,13 @@ def aggregation_statistic(
     The containing class is discovered automatically via
     ``__set_name__`` — there is no need to pass it explicitly.
 
+    The method returns the query computing the statistic, written over the role
+    taker, and is annotated with the type of the statistic's value, e.g.
+    ``-> Query[int]``.
+
     Example: ``@aggregation_statistic(variable(Shelf).layers)`` marks a statistic over
-    the ``layers`` of a ``Shelf``.
+    the ``layers`` of a ``Shelf``, such as one returning
+    ``entity(count(flat_variable(self.layers)))``.
 
     :param aggregated_field: A symbolic attribute of a variable, naming the field this
         statistic aggregates for.
@@ -120,7 +137,8 @@ class AggregationStatistic(Role[TAggregatedObject]):
     identity, and the object's own attributes are readable through it.
 
     Subclasses bind ``TAggregatedObject`` to the type of the role taker and declare one
-    or more methods, each annotated with :func:`aggregation_statistic`.  Discovery
+    or more methods, each annotated with :func:`aggregation_statistic` and returning the
+    query that computes the statistic over the role taker.  Discovery
     happens automatically via :func:`get_aggregation_class` — no explicit registration
     is required.
 
@@ -206,11 +224,128 @@ class AggregationStatistic(Role[TAggregatedObject]):
         :return: One :class:`~krrood.entity_query_language.core.mapped_variable.MappedVariable`
             per matching statistic method, in alphabetical order.
         """
-        aggregation_variable = variable(cls, [])
         return [
-            getattr(aggregation_variable, func.__name__)()
-            for func in cls.aggregation_features_of_field(field_name)
+            cls.symbolic_feature_of(statistic)
+            for statistic in cls.aggregation_features_of_field(field_name)
         ]
+
+    @classmethod
+    def symbolic_feature_of(cls, statistic: Callable) -> MappedVariable:
+        """
+        :param statistic: One of this class's statistics.
+        :return: The symbolic variable standing for the statistic's value, named the
+            way the variable of a fitted model is.
+        """
+        feature = getattr(variable(cls, []), statistic.__name__)()
+        feature._type_ = cls.value_type_of(statistic.__name__)
+        return feature
+
+    @classmethod
+    def value_type_of(cls, statistic_name: str) -> type:
+        """
+        :param statistic_name: The name of one of this class's statistics.
+        :return: The type of the statistic's value.
+        :raises StatisticValueTypeNotDeclared: If the statistic is not annotated to
+            return a query of one value type.
+        """
+        return_type = get_method_return_type(cls, statistic_name)
+        value_types = get_args(return_type)
+        if len(value_types) != 1:
+            raise StatisticValueTypeNotDeclared(cls, statistic_name)
+        return value_types[0]
+
+    @classmethod
+    def statistics(cls) -> list[Callable]:
+        """
+        :return: The methods on this class marked with :func:`aggregation_statistic`,
+            for every field.
+        """
+        field_names = {
+            field_name
+            for ancestor in cls.__mro__
+            if issubclass(ancestor, AggregationStatistic)
+            for field_name in ancestor.aggregation_registry
+        }
+        return [
+            statistic
+            for field_name in sorted(field_names)
+            for statistic in cls.aggregation_features_of_field(field_name)
+        ]
+
+    @classmethod
+    @lru_cache
+    def collection_aggregation_of(cls, statistic: Callable) -> CollectionAggregation:
+        """
+        :param statistic: One of this class's statistics.
+        :return: The aggregation the statistic computes.
+        :raises AggregationIsNotOverACollection: If the statistic's query aggregates
+            something other than the elements of one collection.
+        """
+        symbolic_role = cls(role_taker=variable(cls.get_role_taker_type(), []))
+        return CollectionAggregation.from_query(statistic(symbolic_role))
+
+    @classmethod
+    def statistic_defining(cls, aggregation: Entity | Aggregator) -> Callable | None:
+        """
+        :param aggregation: An aggregation over the elements of a collection of the
+            role taker, or a query selecting one.
+        :return: The statistic computing the same aggregation, or ``None`` if none does.
+        :raises AggregationIsNotOverACollection: If the aggregation is not over the
+            elements of one collection.
+        """
+        collection_aggregation = CollectionAggregation.from_query(aggregation)
+        for statistic in cls.statistics():
+            if cls.collection_aggregation_of(statistic) == collection_aggregation:
+                return statistic
+        return None
+
+    @classmethod
+    def bounds_stated_by(
+        cls, subject: Any, field_name: str
+    ) -> dict[str, AggregationBounds]:
+        """
+        :param subject: The role taker, or a pattern describing it.
+        :param field_name: The exchangeable-part field whose statistics are bounded.
+        :return: The closed range each statistic of the field lies in, as far as the
+            subject states the aggregated values, by the name of the statistic's
+            symbolic feature.
+        """
+        return {
+            feature._name_: cls.collection_aggregation_of(statistic).bounds_stated_by(
+                subject
+            )
+            for statistic, feature in zip(
+                cls.aggregation_features_of_field(field_name),
+                cls.symbolic_features_of_field(field_name),
+            )
+        }
+
+    @classmethod
+    def statistic_of(cls, feature: MappedVariable) -> Callable:
+        """
+        :param feature: The symbolic feature of one of this class's statistics.
+        :return: The statistic the feature stands for.
+        """
+        return cls._statistics_by_feature_name_()[feature._name_]
+
+    @classmethod
+    @lru_cache
+    def _statistics_by_feature_name_(cls) -> dict[str, Callable]:
+        """
+        :return: This class's statistics, by the name of their symbolic feature.
+        """
+        return {
+            cls.symbolic_feature_of(statistic)._name_: statistic
+            for statistic in cls.statistics()
+        }
+
+    def value_of(self, statistic: Callable) -> Any:
+        """
+        :param statistic: One of this class's statistics.
+        :return: The value the statistic takes for the role taker.
+        """
+        [value] = statistic(self).tolist()
+        return value
 
     @property
     def aggregation_features(self) -> list[Callable]:
@@ -246,48 +381,6 @@ class AggregationStatistic(Role[TAggregatedObject]):
         :return: A mapping from each statistic method name to its computed value.
         """
         return {
-            func.__name__: feature.apply_mapping_on_external_root(self)
-            for func, feature in zip(
-                self.aggregation_features, self.symbolic_aggregation_features()
-            )
+            statistic.__name__: self.value_of(statistic)
+            for statistic in self.aggregation_features
         }
-
-
-def compute_aggregation_statistics(
-    domain_object,
-    field_name: str,
-    latent_variables: list[Variable],
-) -> dict[Variable, Any]:
-    """
-    Evaluate the aggregation statistics of one exchangeable-part field against a domain
-    object and map the results to latent variables.
-
-    Each statistic is evaluated only if its name matches a latent variable.
-
-    :param domain_object: The domain object whose aggregation statistics are computed.
-    :param field_name: The exchangeable-part field whose statistics are evaluated.
-    :param latent_variables: Latent variables that define which statistics are relevant.
-    :return: A mapping from matched latent variables to their observed values.
-    """
-    latent_variable_by_name = {
-        latent_variable.name: latent_variable for latent_variable in latent_variables
-    }
-    aggregation_class = get_aggregation_class(type(domain_object))
-    if aggregation_class is None:
-        return {}
-    aggregation_instance = aggregation_class(role_taker=domain_object)
-    statistics = {}
-    for feature_function in aggregation_class.symbolic_features_of_field(field_name):
-        feature_name = feature_function._name_
-        if feature_name not in latent_variable_by_name:
-            continue
-        value = feature_function.apply_mapping_on_external_root(aggregation_instance)
-        latent_variable = latent_variable_by_name[feature_name]
-        try:
-            latent_variable.make_value(value)
-        except (ValueError, TypeError):
-            logger.info(
-                "Could not determine value for the aggregation statistic. Falling back to Monte-Carlo integration",
-            )
-        statistics[latent_variable] = value
-    return statistics

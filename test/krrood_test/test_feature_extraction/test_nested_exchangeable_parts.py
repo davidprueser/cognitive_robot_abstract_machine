@@ -176,7 +176,7 @@ def three_level_relational_probabilistic_circuit():
                             orientation=KRROODOrientation(x=0.0, y=0.0, z=0.0, w=1.0),
                             objects=[
                                 SceneObject(type=SceneObjectType.CHAIR)
-                                for _ in range(2 + floor)
+                                for _ in range(1 + room + floor)
                             ],
                         )
                         for room in range(2)

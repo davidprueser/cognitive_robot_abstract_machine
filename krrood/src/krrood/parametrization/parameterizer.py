@@ -48,7 +48,6 @@ from krrood.parametrization.random_events_translator import (
 )
 from krrood.parametrization.feature_extraction.aggregations import get_aggregation_class
 from krrood.parametrization.feature_extraction.feature_extractor import FeatureExtractor
-from krrood.symbol_graph.helpers import get_method_return_type
 from random_events.interval import singleton
 from random_events.product_algebra import Event, SimpleEvent
 from random_events.set import Set
@@ -436,7 +435,7 @@ class UnderspecifiedParameters(ModelQueryParameters):
         names an aggregation statistic (e.g. ``chlorine_count`` on a class whose
         :class:`~krrood.parametrization.feature_extraction.aggregations.AggregationStatistic`
         subclass declares it) has no field of its own on the owner class: its type
-        falls back to that statistic's own return annotation, and its name is built
+        falls back to the value type of that statistic's query, and its name is built
         the same way EQL's own ``variable(AggregationClass).method()`` attribute
         access names it (``"{AggregationClass}.{method}()"``), matching how grounding
         actually names that variable on the circuit -- the owner class's own dotted
@@ -456,13 +455,12 @@ class UnderspecifiedParameters(ModelQueryParameters):
         if owner_class is None:
             return attribute_match.name_from_variable_access_path, None
         aggregation_class = get_aggregation_class(owner_class)
-        if aggregation_class is None:
+        if aggregation_class is None or attribute_match.attribute_name not in {
+            statistic.__name__ for statistic in aggregation_class.statistics()
+        }:
             return attribute_match.name_from_variable_access_path, None
         name = f"{aggregation_class.__name__}.{attribute_match.attribute_name}()"
-        type_ = get_method_return_type(
-            aggregation_class, attribute_match.attribute_name
-        )
-        return name, type_
+        return name, aggregation_class.value_type_of(attribute_match.attribute_name)
 
     def _handle_literal_attribute_match(
         self, attribute_match: AttributeMatch
