@@ -1,13 +1,16 @@
+from __future__ import annotations
+
 import enum
 from abc import abstractmethod, ABC
 from dataclasses import dataclass, field
 from types import NoneType
 from typing import Iterable, TypeVar
 
+import numpy as np
 import random_events.variable
 from random_events.product_algebra import Event
 from sqlalchemy.orm import sessionmaker
-from typing_extensions import ClassVar, Dict, List, Optional
+from typing_extensions import TYPE_CHECKING, Any, ClassVar, Dict, List, Optional
 
 from krrood import logger
 from krrood.entity_query_language.verbalization.vocabulary.english import Directive
@@ -66,6 +69,9 @@ except ImportError as e:
     FullyFactorizedRegistry = NoneType
     SelectedAttributesParameters = NoneType
     UnderspecifiedParameters = NoneType
+
+if TYPE_CHECKING:
+    from probabilistic_model.probabilistic_model import ProbabilisticModel
 
 T = TypeVar("T")
 
@@ -422,12 +428,80 @@ class ProbabilisticBackend(GenerativeBackend):
         log_likelihoods = truncated.log_likelihood(samples)
         samples = samples[log_likelihoods.argsort()[::-1]]
 
+        sampled_variables = truncated.variables
+        if parameters.search_cause_variables:
+            sampled_variables, samples = self._completed_samples_(
+                model.probabilistic_circuit, truncated, samples, expression
+            )
+
         # create new objects with the values from the samples, and reject those
         # contradicting a value the model does not cover, such as a property's
         instances = parameters.construct_instances_from_model_samples(
-            truncated.variables, samples
+            sampled_variables, samples
         )
         yield from expression._select_satisfying_(instances)._evaluate_natively_()
+
+    @classmethod
+    def _completed_samples_(
+        cls,
+        model: ProbabilisticModel,
+        sampled: ProbabilisticModel,
+        samples: np.ndarray,
+        expression: Match[T],
+    ) -> tuple[list[random_events.variable.Variable], np.ndarray]:
+        """
+        Complete samples drawn from a model over some of the variables of another, by
+        sampling every missing variable from the other model conditioned on the values
+        drawn.
+
+        :param model: The model with every variable.
+        :param sampled: The model the samples were drawn from.
+        :param samples: Samples of *sampled*.
+        :param expression: The match being evaluated, for error reporting.
+        :return: The variables of the completed samples, in column order, and the
+            completed samples.
+        :raises NoSolutionFound: If *model* assigns the values of a sample no
+            probability.
+        """
+        missing_variables = [
+            variable
+            for variable in model.variables
+            if variable not in sampled.variables
+        ]
+        if not missing_variables:
+            return list(sampled.variables), samples
+        completed_samples = []
+        for sample in samples:
+            point = {
+                variable: cls._value_of_sample_(variable, value)
+                for variable, value in zip(sampled.variables, sample)
+                if variable in model.variables
+            }
+            conditioned, _ = model.conditional(point)
+            if conditioned is None:
+                raise NoSolutionFound(expression._get_expression_())
+            [drawn] = conditioned.sample(1)
+            drawn_by_variable = dict(zip(conditioned.variables, drawn))
+            completed_samples.append(
+                [
+                    *sample,
+                    *(drawn_by_variable[variable] for variable in missing_variables),
+                ]
+            )
+        return [*sampled.variables, *missing_variables], np.array(completed_samples)
+
+    @staticmethod
+    def _value_of_sample_(variable: random_events.variable.Variable, value: Any) -> Any:
+        """
+        :param variable: A variable of a model.
+        :param value: The variable's value as a sample of the model holds it.
+        :return: The value as an element of the variable's domain.
+        """
+        if variable.is_numeric:
+            return value
+        return {
+            float(hash_): element for hash_, element in variable.domain.hash_map.items()
+        }[float(value)]
 
     @staticmethod
     def _resolve_cause_and_effect_variables(

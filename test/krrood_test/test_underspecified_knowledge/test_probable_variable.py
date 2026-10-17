@@ -12,26 +12,26 @@ from ..dataset.ormatic_interface import *  # type: ignore
 
 def test_query_writing_with_match_and_copy():
     var = a(KRROODPose)(
-        position=a(KRROODPosition)(x=0.1, y=..., z=...), orientation=None
+        position=a(KRROODPosition)(x=0.1, y=0.2, z=0.3), orientation=None
     )
 
     obj = var.construct_instance()
     assert obj.position.x == 0.1
-    assert obj.position.y == ...
-    assert obj.position.z == ...
+    assert obj.position.y == 0.2
+    assert obj.position.z == 0.3
     assert obj.orientation is None
 
 
 def test_probable_variable_with_concrete_kwarg():
     prob_q = a(KRROODPose)(
-        position=a(KRROODPosition)(x=..., y=..., z=...),
+        position=a(KRROODPosition)(x=0.6, y=0.7, z=0.8),
         orientation=KRROODOrientation(x=0.0, y=0.0, z=0.0, w=1.0),
     )
     prob_q.where(prob_q.position.x > 0.5)
     instance = prob_q.construct_instance()
 
     correct_instance = KRROODPose(
-        KRROODPosition(..., ..., ...), KRROODOrientation(0.0, 0.0, 0.0, 1.0)
+        KRROODPosition(0.6, 0.7, 0.8), KRROODOrientation(0.0, 0.0, 0.0, 1.0)
     )
 
     assert instance == correct_instance
@@ -42,7 +42,7 @@ def test_new_underspecified_with_factory():
 
     prob_q = a(KRROODPose)(
         position=a(KRROODPosition.from_abc, target_type=KRROODPosition)(
-            a=..., b=..., c=...
+            a=0.6, b=0.7, c=0.8
         ),
         orientation=KRROODOrientation(x=0.0, y=0.0, z=0.0, w=1.0),
     )
@@ -50,7 +50,7 @@ def test_new_underspecified_with_factory():
     prob_q._get_expression_().build()
     r = prob_q.construct_instance()
     assert r == KRROODPose(
-        KRROODPosition(..., ..., ...), KRROODOrientation(0.0, 0.0, 0.0, 1.0)
+        KRROODPosition(0.6, 0.7, 0.8), KRROODOrientation(0.0, 0.0, 0.0, 1.0)
     )
 
 
