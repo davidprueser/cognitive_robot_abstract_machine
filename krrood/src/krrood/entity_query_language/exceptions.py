@@ -439,6 +439,31 @@ class ReadOnlyMapping(UsageError):
 
 
 @dataclass
+class AggregatorHasNoBounds(DataclassException):
+    """
+    Raised when the range of an aggregation's result is asked for, but the aggregation
+    has no ordered result or counts each value only once.
+    """
+
+    aggregator: Aggregator
+    """
+    The aggregator whose bounds were asked for.
+    """
+
+    def error_message(self) -> str:
+        return (
+            f"The result of {type(self.aggregator).__name__} cannot be bounded from "
+            f"the values it ranges over."
+        )
+
+    def suggest_correction(self) -> str:
+        return (
+            "Bound a count, sum, average, maximum or minimum that is not distinct "
+            "instead."
+        )
+
+
+@dataclass
 class NestedAggregationError(UsageError):
     """
     Raised when an aggregation is nested within another aggregation.

@@ -7,6 +7,7 @@ from typing_extensions import TYPE_CHECKING, Any, List, Type
 from krrood.exceptions import DataclassException
 
 if TYPE_CHECKING:
+    from random_events.product_algebra import Event
     from random_events.variable import Variable
 
 
@@ -322,8 +323,8 @@ class AmbiguousVariablePathError(DataclassException):
 @dataclass
 class NoCommonSuperclassError(DataclassException):
     """
-    Raised when the instances a relational circuit is fitted on share no superclass
-    but ``object``.
+    Raised when the instances a relational circuit is fitted on share no superclass but
+    ``object``.
     """
 
     classes: List[Type]
@@ -366,3 +367,54 @@ class InstanceNotOfClassError(DataclassException):
 
     def suggest_correction(self) -> str:
         return "Pass a class that every instance is an instance of."
+
+
+@dataclass
+class ImpossibleStatisticsError(DataclassException):
+    """
+    Raised when the aggregation statistics a grounding query states, through the values
+    it gives and its having conditions, are impossible under the class circuit.
+    """
+
+    region: Event
+    """
+    The region the query restricts the aggregation statistics to.
+    """
+
+    def error_message(self) -> str:
+        return (
+            f"The aggregation statistics the query states lie in {self.region}, which "
+            f"the class circuit assigns no probability."
+        )
+
+    def suggest_correction(self) -> str:
+        return (
+            "Relax the having conditions of the query, or state parts whose "
+            "aggregation statistics the circuit was fitted on."
+        )
+
+
+@dataclass
+class HavingConstrainsUnmodeledStatisticsError(DataclassException):
+    """
+    Raised when the having conditions of a grounding query constrain aggregation
+    statistics the relational circuit does not model.
+    """
+
+    unmodeled_statistics: list[Variable]
+    """
+    The constrained statistics the circuit does not model.
+    """
+
+    def error_message(self) -> str:
+        names = ", ".join(statistic.name for statistic in self.unmodeled_statistics)
+        return (
+            f"The having conditions constrain the aggregation statistics [{names}], "
+            f"which the relational circuit does not model."
+        )
+
+    def suggest_correction(self) -> str:
+        return (
+            "Constrain only statistics the circuit was fitted with, or fit the circuit "
+            "on instances whose aggregation statistics include them."
+        )

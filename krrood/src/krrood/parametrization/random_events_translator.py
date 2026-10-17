@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import itertools
 import operator
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from functools import cached_property
-from typing import assert_never, Dict, TYPE_CHECKING
+from typing_extensions import TYPE_CHECKING, assert_never
 
 import numpy as np
 
@@ -17,14 +18,20 @@ from krrood.entity_query_language.core.base_expressions import (
 from krrood.entity_query_language.operators.causal import CausesEffect
 from krrood.entity_query_language.core.mapped_variable import MappedVariable
 from krrood.entity_query_language.core.variable import Literal
+from krrood.entity_query_language.operators.aggregators import Aggregator
 from krrood.entity_query_language.operators.comparator import Comparator
 from krrood.entity_query_language.operators.core_logical_operators import OR, AND, Not
 from krrood.entity_query_language.operators.logical_quantifiers import (
     QuantifiedConditional,
 )
+from krrood.entity_query_language.query.query import Entity
 from krrood.parametrization.exceptions import (
+    HavingConditionHasNoRandomEventRepresentation,
     WhereExpressionHasNoRandomEventRepresentation,
     WhereExpressionIsFirstOrder,
+)
+from krrood.parametrization.feature_extraction.aggregations import (
+    AggregationStatistic,
 )
 from random_events.interval import closed_open, closed, open
 from random_events.product_algebra import Event, SimpleEvent
@@ -32,50 +39,58 @@ from random_events.product_algebra import Event, SimpleEvent
 if TYPE_CHECKING:
     from krrood.entity_query_language.factories import ConditionType
 
-# %% translating a where expression into a random event
+# %% translating conditions into a random event
 
 
 @dataclass
-class WhereExpressionToRandomEventTranslator:
+class ConditionsToRandomEventTranslator(ABC):
     """
-    Class that translates a query into a random event.
+    Translates conditions comparing expressions to literals into a random event.
 
     Conjunction, disjunction and negation are translated into the corresponding
-    operations of the product algebra, which normalizes the result itself, so the query
-    may have any propositional shape. Quantified conditions are refused, since a product
-    algebra constrains a fixed set of variables and states nothing about the objects a
-    quantifier ranges over.
+    operations of the product algebra, which normalizes the result itself, so the
+    conditions may have any propositional shape.
     """
 
     conditions_root: ConditionType
     """
-    The query to translate.
+    The conditions to translate.
     """
 
     @cached_property
-    def variables(self) -> Dict[MappedVariable, random_events.variable.Variable]:
+    def variables(
+        self,
+    ) -> dict[SymbolicExpression, random_events.variable.Variable]:
+        """
+        :return: The random event variable standing for each compared expression.
+        """
         result = {}
         if self.conditions_root is None:
             return result
-        for comparator in itertools.chain(
+        for expression in itertools.chain(
             [self.conditions_root], self.conditions_root._descendants_
         ):
-            if (
-                not isinstance(comparator, BinaryExpression)
-                or not comparator._is_literal_comparator_()
-            ):
-                continue
-            # A random-events variable is identified by its name, so the two spellings
-            # of one field have to arrive here as one: a chain taken from a query is
-            # read in the variable-rooted form the same chain taken from the variable
-            # already has.
-            subject = comparator.left._variable_rooted_
-            result[comparator.left] = (
-                random_events.variable.variable_from_name_and_type(
-                    subject._name_, subject._type_
-                )
-            )
+            variable = self._random_event_variable_compared_by_(expression)
+            if variable is not None:
+                result[expression.left] = variable
         return result
+
+    @abstractmethod
+    def _random_event_variable_compared_by_(
+        self, expression: SymbolicExpression
+    ) -> random_events.variable.Variable | None:
+        """
+        :param expression: An expression within the conditions.
+        :return: The random event variable the expression compares to a literal, or
+            ``None`` if it is not such a comparison.
+        """
+
+    @abstractmethod
+    def _translate_condition_(self, expression: SymbolicExpression) -> Event:
+        """
+        :param expression: A condition that is neither a logical operator nor a literal.
+        :return: The random event that holds exactly where the condition holds.
+        """
 
     def _get_variable_from_comparator(
         self, expression: Comparator
@@ -88,27 +103,17 @@ class WhereExpressionToRandomEventTranslator:
 
     def translate(self) -> Event:
         """
-        :return: The random event that corresponds to the query.
-        :raises WhereExpressionIsFirstOrder: When the query quantifies over a variable.
-        :raises WhereExpressionHasNoRandomEventRepresentation: When a part of the query
-            constrains nothing that a random event variable stands for.
+        :return: The random event that corresponds to the conditions.
         """
         return self._translate_expression(self.conditions_root).simplify()
 
     def _translate_expression(self, expression: SymbolicExpression) -> Event:
         """
-        Translate a where expression of any propositional shape into a random event.
+        Translate conditions of any propositional shape into a random event.
 
         :param expression: The expression to translate.
         :return: The random event that holds exactly where the expression holds.
-        :raises WhereExpressionIsFirstOrder: When the expression quantifies over a
-            variable.
-        :raises WhereExpressionHasNoRandomEventRepresentation: When the expression
-            constrains nothing that a random event variable stands for.
         """
-        if isinstance(expression, QuantifiedConditional):
-            raise WhereExpressionIsFirstOrder(expression)
-
         if isinstance(expression, AND):
             return self._translate_expression(
                 expression.left
@@ -132,13 +137,7 @@ class WhereExpressionToRandomEventTranslator:
                 else self.impossible_event()
             )
 
-        if (
-            not isinstance(expression, BinaryExpression)
-            or not expression._is_literal_comparator_()
-        ):
-            raise WhereExpressionHasNoRandomEventRepresentation(expression)
-
-        return self._translate_comparator(expression)
+        return self._translate_condition_(expression)
 
     def _translate_comparator(self, comparator: Comparator) -> Event:
         """
@@ -257,3 +256,95 @@ class WhereExpressionToRandomEventTranslator:
             comparator.right._value_,
             np.inf,
         )
+
+
+# %% translating a where expression
+
+
+@dataclass
+class WhereExpressionToRandomEventTranslator(ConditionsToRandomEventTranslator):
+    """
+    Translates the where conditions of a query into a random event over the attributes
+    they compare.
+
+    Quantified conditions are refused, since a product algebra constrains a fixed set of
+    variables and states nothing about the objects a quantifier ranges over.
+    """
+
+    def _random_event_variable_compared_by_(
+        self, expression: SymbolicExpression
+    ) -> random_events.variable.Variable | None:
+        if (
+            not isinstance(expression, BinaryExpression)
+            or not expression._is_literal_comparator_()
+        ):
+            return None
+        # A random-events variable is identified by its name, so the two spellings
+        # of one field have to arrive here as one: a chain taken from a query is
+        # read in the variable-rooted form the same chain taken from the variable
+        # already has.
+        subject = expression.left._variable_rooted_
+        return random_events.variable.variable_from_name_and_type(
+            subject._name_, subject._type_
+        )
+
+    def _translate_condition_(self, expression: SymbolicExpression) -> Event:
+        """
+        :raises WhereExpressionIsFirstOrder: When the expression quantifies over a
+            variable.
+        :raises WhereExpressionHasNoRandomEventRepresentation: When the expression
+            constrains nothing that a random event variable stands for.
+        """
+        if isinstance(expression, QuantifiedConditional):
+            raise WhereExpressionIsFirstOrder(expression)
+        if self._random_event_variable_compared_by_(expression) is None:
+            raise WhereExpressionHasNoRandomEventRepresentation(expression)
+        return self._translate_comparator(expression)
+
+
+# %% translating a having expression
+
+
+@dataclass
+class HavingExpressionToRandomEventTranslator(ConditionsToRandomEventTranslator):
+    """
+    Translates the having conditions of a query into a random event over the aggregation
+    statistics that compute the aggregations they compare.
+    """
+
+    aggregation_class: type[AggregationStatistic]
+    """
+    The aggregation statistics of the queried class.
+    """
+
+    def _random_event_variable_compared_by_(
+        self, expression: SymbolicExpression
+    ) -> random_events.variable.Variable | None:
+        """
+        :raises AggregationIsNotOverACollection: If the expression compares an
+            aggregation that is not over the elements of one collection.
+        :raises HavingConditionHasNoRandomEventRepresentation: If no statistic of
+            :attr:`aggregation_class` computes a compared aggregation.
+        """
+        if not (
+            isinstance(expression, Comparator)
+            and isinstance(expression.left, (Aggregator, Entity))
+            and isinstance(expression.right, Literal)
+        ):
+            return None
+        statistic = self.aggregation_class.statistic_defining(expression.left)
+        if statistic is None:
+            raise HavingConditionHasNoRandomEventRepresentation(expression)
+        return random_events.variable.variable_from_name_and_type(
+            self.aggregation_class.symbolic_feature_of(statistic)._name_,
+            self.aggregation_class.value_type_of(statistic.__name__),
+        )
+
+    def _translate_condition_(self, expression: SymbolicExpression) -> Event:
+        """
+        :raises HavingConditionHasNoRandomEventRepresentation: When the expression is
+            not a comparison between an aggregation statistic and a literal.
+        """
+        if self._random_event_variable_compared_by_(expression) is None:
+            raise HavingConditionHasNoRandomEventRepresentation(expression)
+        return self._translate_comparator(expression)

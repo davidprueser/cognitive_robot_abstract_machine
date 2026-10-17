@@ -12,7 +12,14 @@ from dataclasses import dataclass
 from enum import IntEnum, StrEnum
 from typing_extensions import List
 
-from krrood.entity_query_language.factories import entity, count_range, or_, variable
+from krrood.entity_query_language.factories import (
+    count,
+    entity,
+    flat_variable,
+    or_,
+    variable,
+)
+from krrood.entity_query_language.query.query import Query
 from krrood.parametrization.feature_extraction.aggregations import (
     AggregationStatistic,
     aggregation_statistic,
@@ -154,67 +161,44 @@ class MutagenesisMoleculeAggregations(AggregationStatistic[MutagenesisMolecule])
     """
 
     @aggregation_statistic(variable(MutagenesisMolecule).atoms)
-    def atom_count(self) -> int:
+    def atom_count(self) -> Query[int]:
         """
         Count of atoms, whatever their element: the size of the molecule.
 
         A larger molecule holds more of every kind of atom and bond and is more often
         mutagenic, so its size confounds every question about one of the other counts.
         """
-        [result] = entity(
-            count_range(variable(MutagenesisAtom, self.atoms).element)
-        ).tolist()
-        return result
+        return entity(count(flat_variable(self.atoms)))
 
     @aggregation_statistic(variable(MutagenesisMolecule).atoms)
-    def chlorine_count(self) -> int:
+    def chlorine_count(self) -> Query[int]:
         """
         Count of chlorine atoms.
         """
-        element_variable = variable(MutagenesisAtom, self.atoms).element
-        [result] = (
-            entity(count_range(element_variable))
-            .where(element_variable == MutagenesisElement.CHLORINE)
-            .tolist()
-        )
-        return result
+        element = flat_variable(self.atoms).element
+        return entity(count(element)).where(element == MutagenesisElement.CHLORINE)
 
     @aggregation_statistic(variable(MutagenesisMolecule).atoms)
-    def branching_atom_count(self) -> int:
+    def branching_atom_count(self) -> Query[int]:
         """
         Count of atoms with three or four bonds: ring-fusion and branch points in the
         molecular graph.
         """
-        bond_count_variable = variable(MutagenesisAtom, self.atoms).bond_count
-        [result] = (
-            entity(count_range(bond_count_variable))
-            .where(or_(bond_count_variable == 3, bond_count_variable == 4))
-            .tolist()
-        )
-        return result
+        bond_count = flat_variable(self.atoms).bond_count
+        return entity(count(bond_count)).where(or_(bond_count == 3, bond_count == 4))
 
     @aggregation_statistic(variable(MutagenesisMolecule).bonds)
-    def double_bond_count(self) -> int:
+    def double_bond_count(self) -> Query[int]:
         """
         Count of double bonds.
         """
-        bond_type_variable = variable(MutagenesisBond, self.bonds).bond_type
-        [result] = (
-            entity(count_range(bond_type_variable))
-            .where(bond_type_variable == MutagenesisBondType.DOUBLE)
-            .tolist()
-        )
-        return result
+        bond_type = flat_variable(self.bonds).bond_type
+        return entity(count(bond_type)).where(bond_type == MutagenesisBondType.DOUBLE)
 
     @aggregation_statistic(variable(MutagenesisMolecule).bonds)
-    def aromatic_bond_count(self) -> int:
+    def aromatic_bond_count(self) -> Query[int]:
         """
         Count of aromatic bonds.
         """
-        bond_type_variable = variable(MutagenesisBond, self.bonds).bond_type
-        [result] = (
-            entity(count_range(bond_type_variable))
-            .where(bond_type_variable == MutagenesisBondType.AROMATIC)
-            .tolist()
-        )
-        return result
+        bond_type = flat_variable(self.bonds).bond_type
+        return entity(count(bond_type)).where(bond_type == MutagenesisBondType.AROMATIC)

@@ -22,18 +22,23 @@ class RoboKudoError(DataclassException, ABC):
 @dataclass
 class ColorToDepthRatioMissing(RoboKudoError, RuntimeError):
     """
-    Raised when COLOR2DEPTH_RATIO is required but missing.
+    Raised when an operation needs the color-to-depth ratio, but the CAS holds none.
     """
 
     operation: str = "continue"
+    """
+    The operation that needs the color-to-depth ratio.
+    """
 
     def error_message(self) -> str:
-        return f"COLOR2DEPTH_RATIO is missing from the CAS. Can't {self.operation}."
+        return (
+            f"The color-to-depth ratio is missing from the CAS. Can't {self.operation}."
+        )
 
     def suggest_correction(self) -> str:
         return (
-            "make sure the camera driver or reader stores COLOR2DEPTH_RATIO in the CAS "
-            "before this operation."
+            "make sure the camera driver or reader stores the color-to-depth ratio in "
+            "the CAS before this operation."
         )
 
 

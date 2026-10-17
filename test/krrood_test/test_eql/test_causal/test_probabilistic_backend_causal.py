@@ -681,3 +681,34 @@ def test_evaluate_with_confounder_samples_from_the_deconfounded_region():
 
     assert len(results) == 10
     assert all(result.treatment == Treatment.HIGH for result in results)
+
+
+# %% fields outside the chosen intervention
+
+
+def test_evaluate_samples_a_cause_outside_the_chosen_intervention():
+    circuit = _build_pick_attempt_ranking_circuit()
+    match = a(PickAttempt)(arm=cause, grip=cause, outcome=...)
+    match.causes_effect(match.outcome == Outcome.SUCCESS)
+    backend = ProbabilisticBackend(
+        model_registry=CausalCircuitRegistry({PickAttempt: circuit.causal_circuit}),
+        number_of_samples=10,
+    )
+
+    results = list(match.evaluate(backend=backend))
+
+    assert all(0.0 <= result.grip <= 2.0 for result in results)
+
+
+def test_evaluate_samples_a_confounder_consistent_with_the_effect():
+    causal_circuit = _build_confounded_trial_circuit()
+    match = a(Trial)(treatment=cause, season=confounder, outcome=...)
+    match.causes_effect(match.outcome == Outcome.SUCCESS)
+    backend = ProbabilisticBackend(
+        model_registry=CausalCircuitRegistry({Trial: causal_circuit}),
+        number_of_samples=10,
+    )
+
+    results = list(match.evaluate(backend=backend))
+
+    assert all(result.season == Season.WARM for result in results)

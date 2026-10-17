@@ -45,9 +45,9 @@ def test_a_layer_counts_the_objects_it_holds(object_count: int) -> None:
     layer = _layer(object_count)
 
     assert (
-        RelationalCircuitExperimentShelfLayerAggregations(
-            role_taker=layer
-        ).total_count()
+        RelationalCircuitExperimentShelfLayerAggregations(role_taker=layer).value_of(
+            RelationalCircuitExperimentShelfLayerAggregations.total_count
+        )
         == object_count
     )
 
@@ -65,6 +65,8 @@ def test_a_shelf_counts_the_layers_it_holds(layer_count: int) -> None:
     )
 
     assert (
-        RelationalCircuitExperimentShelfAggregations(role_taker=shelf).layer_count()
+        RelationalCircuitExperimentShelfAggregations(role_taker=shelf).value_of(
+            RelationalCircuitExperimentShelfAggregations.layer_count
+        )
         == layer_count
     )

@@ -172,3 +172,33 @@ class AmbiguousRuleError(DataclassException):
             "Make the colliding guards mutually exclusive, or have one rule subclass the other "
             "to declare it the more-specific special case."
         )
+
+
+@dataclass
+class UnderspecifiedArgumentError(DataclassException):
+    """
+    Raised when an instance is constructed while one of its arguments is still ``...``,
+    an underspecified value that has to be sampled before it can be constructed with.
+    """
+
+    factory: Callable[..., Any]
+    """
+    The factory the underspecified argument was given to.
+    """
+
+    keyword: str
+    """
+    The keyword argument that is still underspecified.
+    """
+
+    def error_message(self) -> str:
+        return (
+            f"{self.factory.__qualname__} cannot be constructed while its argument "
+            f"{self.keyword!r} is still underspecified (...)."
+        )
+
+    def suggest_correction(self) -> str:
+        return (
+            f"Sample a value for {self.keyword!r} first, for example with a generative "
+            f"backend, or state it."
+        )

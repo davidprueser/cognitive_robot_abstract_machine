@@ -110,3 +110,60 @@ class UnsupportedFeatureTypeError(DataclassException):
             "Only bool, enum, and random_events compatible types are supported. "
             "Ensure the feature column maps to one of those types."
         )
+
+
+@dataclass
+class AggregationIsNotOverACollection(InputError):
+    """
+    Raised when a query is read as an aggregation over the elements of one collection,
+    but aggregates something else.
+    """
+
+    query: Any
+    """
+    The query that was read.
+    """
+
+    def error_message(self) -> str:
+        return (
+            f"{self.query!r} does not aggregate attributes of the elements of one "
+            f"collection."
+        )
+
+    def suggest_correction(self) -> str:
+        return (
+            "Aggregate a chain through one flattened collection, e.g. "
+            "entity(count(object_type)).where(object_type == ObjectType.CHAIR) with "
+            "object_type = flat_variable(self.objects).type, filtering only by "
+            "comparisons of the elements' attributes to literals."
+        )
+
+
+@dataclass
+class StatisticValueTypeNotDeclared(InputError):
+    """
+    Raised when an aggregation statistic is not annotated to return a query of one value
+    type.
+    """
+
+    aggregation_class: Type
+    """
+    The class declaring the statistic.
+    """
+
+    statistic_name: str
+    """
+    The name of the statistic.
+    """
+
+    def error_message(self) -> str:
+        return (
+            f"{self.aggregation_class.__name__}.{self.statistic_name} does not declare "
+            f"the type of its value."
+        )
+
+    def suggest_correction(self) -> str:
+        return (
+            "Annotate the statistic with the query it returns and the type of its "
+            "value, e.g. -> Query[int]."
+        )

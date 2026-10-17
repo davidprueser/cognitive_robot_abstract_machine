@@ -393,10 +393,13 @@ class YoloAnnotator(ThreadedAnnotator):
         """
         if not self.descriptor.parameters.global_with_depth:
             return detection.bounding_box
-        ratio_x, ratio_y = self.get_cas().get(CASViews.COLOR2DEPTH_RATIO)
-        x1, y1, x2, y2 = detection.bounding_box.get_corner_points()
+        color_to_depth_ratio = self.get_cas().get(CASViews.COLOR_TO_DEPTH_RATIO)
+        left, top, right, bottom = detection.bounding_box.get_corner_points()
         return Rect.from_corner_points(
-            x1=x1 / ratio_x, y1=y1 / ratio_y, x2=x2 / ratio_x, y2=y2 / ratio_y
+            x1=left / color_to_depth_ratio.horizontal,
+            y1=top / color_to_depth_ratio.vertical,
+            x2=right / color_to_depth_ratio.horizontal,
+            y2=bottom / color_to_depth_ratio.vertical,
         )
 
     def _most_overlapped_hypothesis(
@@ -492,7 +495,7 @@ class YoloAnnotator(ThreadedAnnotator):
             mask=detection_mask,
             camera_intrinsics=self.camera_intrinsics,
             depth_truncate=self.descriptor.parameters.depth_truncate,
-            mask_true_val=self.mask_foreground,
+            mask_true_value=self.mask_foreground,
         )
 
     def _visualize(self, annotated_detections: List[AnnotatedDetection]) -> None:
