@@ -10,7 +10,7 @@ import pytest
 
 from robokudo.annotators.outputs import AnnotatorOutputPerPipelineMap
 from robokudo.annotators.static_object_detector import StaticObjectDetectorAnnotator
-from robokudo.cas import CASViews
+from robokudo.common_analysis_structure import CommonAnalysisStructureViews
 from robokudo.pipeline import Pipeline
 from robokudo.types.cv import ColorToDepthRatio
 
@@ -29,8 +29,9 @@ def detector_on_half_resolution_depth(
     pipeline.setup()
 
     depth_height, depth_width = 20, 40
-    detector.get_cas().set(
-        CASViews.COLOR_TO_DEPTH_RATIO, ColorToDepthRatio(horizontal=0.5, vertical=0.5)
+    detector.get_common_analysis_structure().set(
+        CommonAnalysisStructureViews.COLOR_TO_DEPTH_RATIO,
+        ColorToDepthRatio(horizontal=0.5, vertical=0.5),
     )
     detector.depth = np.full((depth_height, depth_width), 1000, dtype=np.uint16)
     detector.camera_intrinsics = o3d.camera.PinholeCameraIntrinsic(

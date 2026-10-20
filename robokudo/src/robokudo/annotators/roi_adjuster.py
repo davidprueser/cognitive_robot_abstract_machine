@@ -13,7 +13,7 @@ from py_trees.common import Status
 from typing_extensions import Type
 
 from robokudo.annotators.core import BaseAnnotator
-from robokudo.cas import CASViews
+from robokudo.common_analysis_structure import CommonAnalysisStructureViews
 from robokudo.types.scene import ObjectHypothesis
 from robokudo.utils.cv_helper import adjust_image_roi, adjust_mask
 from robokudo.utils.error_handling import catch_and_raise_to_blackboard
@@ -69,10 +69,14 @@ class ROIAdjusterAnnotator(BaseAnnotator):
         :return: SUCCESS after adjusting all ROIs
         """
         start_timer = default_timer()
-        color = self.get_cas().get(CASViews.COLOR_IMAGE)
+        color = self.get_common_analysis_structure().get(
+            CommonAnalysisStructureViews.COLOR_IMAGE
+        )
 
-        object_hypotheses = self.get_cas().filter_annotations_by_type(
-            self.descriptor.parameters.analysis_scope
+        object_hypotheses = (
+            self.get_common_analysis_structure().filter_annotations_by_type(
+                self.descriptor.parameters.analysis_scope
+            )
         )
         for object_hypothesis in object_hypotheses:
             adjust_image_roi(

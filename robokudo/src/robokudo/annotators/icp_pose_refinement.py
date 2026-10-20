@@ -32,7 +32,7 @@ from py_trees.common import Status
 from typing_extensions import Optional
 
 from robokudo.annotators.core import BaseAnnotator, ThreadedAnnotator
-from robokudo.cas import CASViews
+from robokudo.common_analysis_structure import CommonAnalysisStructureViews
 from robokudo.types.annotation import PoseAnnotation
 from robokudo.types.scene import ObjectHypothesis
 from robokudo.utils.file_loader import FileLoader
@@ -172,8 +172,10 @@ class ICPPoseRefinementAnnotator(ThreadedAnnotator):
             self.feedback_message = error_message
             return Status.SUCCESS  # Don't fail the whole pipeline
 
-        cloud = self.get_cas().get(CASViews.CLOUD)
-        annotations = self.get_cas().annotations
+        cloud = self.get_common_analysis_structure().get(
+            CommonAnalysisStructureViews.CLOUD
+        )
+        annotations = self.get_common_analysis_structure().annotations
         geometries_to_visualize = []
 
         # ICP Parameters

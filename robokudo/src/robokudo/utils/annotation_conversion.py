@@ -18,7 +18,7 @@ from typing_extensions import TYPE_CHECKING, Type, Optional, TypeVar, Generic
 from robokudo_msgs.msg import ShapeSize
 from robokudo.utils.annotator_helper import transform_pose_from_camera_to_world
 from robokudo.defs import PACKAGE_NAME
-from robokudo.cas import CASViews
+from robokudo.common_analysis_structure import CommonAnalysisStructureViews
 from robokudo.types.annotation import (
     PoseAnnotation,
     StampedPoseAnnotation,
@@ -37,7 +37,7 @@ from robokudo.types.core import Annotation
 
 if TYPE_CHECKING:
     from robokudo_msgs.msg import ObjectDesignator
-    from robokudo.cas import CAS
+    from robokudo.common_analysis_structure import CommonAnalysisStructure
 
 T = TypeVar("T", bound=Annotation)
 S = TypeVar("S", bound=Shape)
@@ -63,7 +63,11 @@ class Annotation2AnnotationConverter(ABC, Generic[T]):
         pass
 
     @abstractmethod
-    def convert(self, annotation: T, cas: Optional[CAS] = None) -> Annotation:
+    def convert(
+        self,
+        annotation: T,
+        common_analysis_structure: Optional[CommonAnalysisStructure] = None,
+    ) -> Annotation:
         """
         Converts the given annotation to the given target annotation type.
 
@@ -71,7 +75,7 @@ class Annotation2AnnotationConverter(ABC, Generic[T]):
         given annotation to the desired type.
 
         :param annotation: The annotation to convert.
-        :param cas: The CAS to use for conversion.
+        :param common_analysis_structure: The common analysis structure to use for conversion.
         :returns: The converted annotation.
         """
         pass
@@ -95,7 +99,10 @@ class Annotation2ODConverter(ABC, Generic[T]):
 
     @abstractmethod
     def convert(
-        self, annotation: T, cas: CAS, object_designator: ObjectDesignator
+        self,
+        annotation: T,
+        common_analysis_structure: CommonAnalysisStructure,
+        object_designator: ObjectDesignator,
     ) -> None:
         """
         Converts the data of the given annotation to data in the given object
@@ -106,7 +113,7 @@ class Annotation2ODConverter(ABC, Generic[T]):
         designator.
 
         :param annotation: The annotation to convert.
-        :param cas: The CAS to use for conversion.
+        :param common_analysis_structure: The common analysis structure to use for conversion.
         :param object_designator: The object designator to fill with the data of
             `annotation`
         """
@@ -131,7 +138,9 @@ class PoseAnnotationToStampedPoseAnnotationConverter(
         )
 
     def convert(
-        self, annotation: PoseAnnotation, cas: Optional[CAS] = None
+        self,
+        annotation: PoseAnnotation,
+        common_analysis_structure: Optional[CommonAnalysisStructure] = None,
     ) -> StampedPoseAnnotation:
         spa = StampedPoseAnnotation()
         spa.source = annotation.source
@@ -156,7 +165,9 @@ class PositionAnnotationToStampedPoseAnnotationConverter(
         )
 
     def convert(
-        self, annotation: PositionAnnotation, cas: Optional[CAS] = None
+        self,
+        annotation: PositionAnnotation,
+        common_analysis_structure: Optional[CommonAnalysisStructure] = None,
     ) -> StampedPoseAnnotation:
         spa = StampedPoseAnnotation()
         spa.source = annotation.source
@@ -178,7 +189,10 @@ class SemanticColor2ODConverter(Annotation2ODConverter[SemanticColor]):
         return isinstance(annotation, SemanticColor)
 
     def convert(
-        self, annotation: SemanticColor, cas: CAS, object_designator: ObjectDesignator
+        self,
+        annotation: SemanticColor,
+        common_analysis_structure: CommonAnalysisStructure,
+        object_designator: ObjectDesignator,
     ) -> None:
         object_designator.color.append(annotation.color)
 
@@ -193,14 +207,17 @@ class Classification2ODConverter(Annotation2ODConverter[Classification]):
         return isinstance(annotation, Classification)
 
     def convert(
-        self, annotation: Classification, cas: CAS, object_designator: ObjectDesignator
+        self,
+        annotation: Classification,
+        common_analysis_structure: CommonAnalysisStructure,
+        object_designator: ObjectDesignator,
     ) -> None:
         object_designator.type = annotation.classname
 
 
 # class PoseBase2ODConverter(Annotation2ODConverter):
-#    def transform_camera_pose_to_world_pose(self, annotation: Annotation, cas: CAS) -> PoseAnnotation:
-#        return transform_pose_from_camera_to_world(cas, annotation)
+#    def transform_camera_pose_to_world_pose(self, annotation: Annotation, common_analysis_structure: common analysis structure) -> PoseAnnotation:
+#        return transform_pose_from_camera_to_world(common_analysis_structure, annotation)
 #
 #    def pose_stamped_from_pose_annotation(self, pose_annotation: PoseAnnotation) -> PoseStamped:
 #        """
@@ -236,7 +253,7 @@ class StampedPose2ODConverter(Annotation2ODConverter[StampedPoseAnnotation]):
     def convert(
         self,
         annotation: StampedPoseAnnotation,
-        cas: CAS,
+        common_analysis_structure: CommonAnalysisStructure,
         object_designator: ObjectDesignator,
     ) -> None:
         ps = PoseStamped()
@@ -270,7 +287,10 @@ class Pose2ODConverter(Annotation2ODConverter[PoseAnnotation]):
         return isinstance(annotation, PoseAnnotation)
 
     def convert(
-        self, annotation: PoseAnnotation, cas: CAS, object_designator: ObjectDesignator
+        self,
+        annotation: PoseAnnotation,
+        common_analysis_structure: CommonAnalysisStructure,
+        object_designator: ObjectDesignator,
     ) -> None:
         """
         Converts the data of the given annotation to data in the given object
@@ -278,32 +298,40 @@ class Pose2ODConverter(Annotation2ODConverter[PoseAnnotation]):
 
         Use `self.can_convert` to check whether the converter is able to convert the
         given annotation to an object designator. Conversion requires a valid camera to
-        world transform in the given CAS.
+        world transform in the given common analysis structure.
 
         :param annotation: The annotation to convert.
-        :param cas: The CAS to use for conversion.
+        :param common_analysis_structure: The common analysis structure to use for conversion.
         :param object_designator: The object designator to fill with the data of
             `annotation`
         """
-        use_camera_coords = cas.camera_to_world_transform is None
+        use_camera_coords = common_analysis_structure.camera_to_world_transform is None
         if use_camera_coords:
             pose_annotation = annotation
         else:
-            pose_annotation = transform_pose_from_camera_to_world(cas, annotation)
+            pose_annotation = transform_pose_from_camera_to_world(
+                common_analysis_structure, annotation
+            )
 
         # First, convert the PoseAnnotation to a StampedPose
         spa = self.pose_converter.convert(pose_annotation)
         # Fill the missing header information
-        spa.timestamp = cas.get(CASViews.CAMERA_INFO).header.stamp.sec
+        spa.timestamp = common_analysis_structure.get(
+            CommonAnalysisStructureViews.CAMERA_INFO
+        ).header.stamp.sec
 
         # For the frame, check if we should return camera or world coordinates based on the previous check
         if use_camera_coords:
-            spa.frame = cas.get(CASViews.CAMERA_INFO).header.frame_id
+            spa.frame = common_analysis_structure.get(
+                CommonAnalysisStructureViews.CAMERA_INFO
+            ).header.frame_id
         else:
             spa.frame = "map"
 
         # Second, do the actual conversion and place info in ObjectDesignator
-        self.stamped_pose_converter.convert(spa, cas, object_designator)
+        self.stamped_pose_converter.convert(
+            spa, common_analysis_structure, object_designator
+        )
 
 
 class Position2ODConverter(Annotation2ODConverter[PositionAnnotation]):
@@ -318,7 +346,7 @@ class Position2ODConverter(Annotation2ODConverter[PositionAnnotation]):
     def convert(
         self,
         annotation: PositionAnnotation,
-        cas: CAS,
+        common_analysis_structure: CommonAnalysisStructure,
         object_designator: ObjectDesignator,
     ) -> None:
         """
@@ -327,10 +355,10 @@ class Position2ODConverter(Annotation2ODConverter[PositionAnnotation]):
 
         Use `self.can_convert` to check whether the converter is able to convert the
         given annotation to an object designator. Conversion requires a valid camera to
-        world transform in the given CAS.
+        world transform in the given common analysis structure.
 
         :param annotation: The annotation to convert.
-        :param cas: The CAS to use for conversion.
+        :param common_analysis_structure: The common analysis structure to use for conversion.
         :param object_designator: The object designator to fill with the data of
             `annotation`
         """
@@ -345,7 +373,7 @@ class Position2ODConverter(Annotation2ODConverter[PositionAnnotation]):
         pos.rotation.insert(2, 0)
         pos.rotation.insert(3, 1)
 
-        pose_map = transform_pose_from_camera_to_world(cas, pos)
+        pose_map = transform_pose_from_camera_to_world(common_analysis_structure, pos)
 
         # Must be a PoseStamped due to type specification in ros message
         ps = PoseStamped()
@@ -359,7 +387,11 @@ class Position2ODConverter(Annotation2ODConverter[PositionAnnotation]):
         ps.pose.orientation.w = pose_map.rotation[3]
 
         # We assume that the pose annotation is in CAMERA coordinates
-        ps.header = copy.deepcopy(cas.get(CASViews.CAMERA_INFO).header)
+        ps.header = copy.deepcopy(
+            common_analysis_structure.get(
+                CommonAnalysisStructureViews.CAMERA_INFO
+            ).header
+        )
         ps.header.frame_id = "map"
         object_designator.pose.append(ps)
 
@@ -378,7 +410,7 @@ class StampedPosition2ODConverter(Annotation2ODConverter[StampedPositionAnnotati
     def convert(
         self,
         annotation: StampedPositionAnnotation,
-        cas: CAS,
+        common_analysis_structure: CommonAnalysisStructure,
         object_designator: ObjectDesignator,
     ) -> None:
         """
@@ -387,10 +419,10 @@ class StampedPosition2ODConverter(Annotation2ODConverter[StampedPositionAnnotati
 
         Use `self.can_convert` to check whether the converter is able to convert the
         given annotation to an object designator. Conversion requires a valid camera to
-        world transform in the given CAS.
+        world transform in the given common analysis structure.
 
         :param annotation: The annotation to convert.
-        :param cas: The CAS to use for conversion.
+        :param common_analysis_structure: The common analysis structure to use for conversion.
         :param object_designator: The object designator to fill with the data of
             `annotation`
         """
@@ -406,7 +438,7 @@ class StampedPosition2ODConverter(Annotation2ODConverter[StampedPositionAnnotati
         pos.rotation.insert(2, 0)
         pos.rotation.insert(3, 1)
 
-        pose_map = transform_pose_from_camera_to_world(cas, pos)
+        pose_map = transform_pose_from_camera_to_world(common_analysis_structure, pos)
 
         # Must be a PoseStamped due to type specification in ros message
         ps = PoseStamped()
@@ -437,7 +469,10 @@ class BoundingBox3DForShapeSizeConverter(Annotation2ODConverter[BoundingBox3D]):
         return isinstance(annotation, BoundingBox3D)
 
     def convert(
-        self, annotation: BoundingBox3D, cas: CAS, object_designator: ObjectDesignator
+        self,
+        annotation: BoundingBox3D,
+        common_analysis_structure: CommonAnalysisStructure,
+        object_designator: ObjectDesignator,
     ) -> None:
         # TODO A (new!) Annotator should infer semantic size.
         #  Find a good decision criteria for size. This should be a semantic label! (small, large etc.)
@@ -462,7 +497,10 @@ class Shape2ODConverter(Annotation2ODConverter[Shape]):
         return isinstance(annotation, Shape)
 
     def convert(
-        self, annotation: Shape, cas: CAS, object_designator: ObjectDesignator
+        self,
+        annotation: Shape,
+        common_analysis_structure: CommonAnalysisStructure,
+        object_designator: ObjectDesignator,
     ) -> None:
         object_designator.shape.append(annotation.shape_name)
 
@@ -480,9 +518,14 @@ class Cuboid2ODConverter(Annotation2ODConverter[Cuboid]):
         return isinstance(annotation, Cuboid)
 
     def convert(
-        self, annotation: Cuboid, cas: CAS, object_designator: ObjectDesignator
+        self,
+        annotation: Cuboid,
+        common_analysis_structure: CommonAnalysisStructure,
+        object_designator: ObjectDesignator,
     ) -> None:
-        self.shape_converter.convert(annotation, cas, object_designator)
+        self.shape_converter.convert(
+            annotation, common_analysis_structure, object_designator
+        )
 
 
 class Cylinder2ODConverter(Annotation2ODConverter[Cylinder]):
@@ -498,9 +541,14 @@ class Cylinder2ODConverter(Annotation2ODConverter[Cylinder]):
         return isinstance(annotation, Cylinder)
 
     def convert(
-        self, annotation: Cylinder, cas: CAS, object_designator: ObjectDesignator
+        self,
+        annotation: Cylinder,
+        common_analysis_structure: CommonAnalysisStructure,
+        object_designator: ObjectDesignator,
     ) -> None:
-        self.shape_converter.convert(annotation, cas, object_designator)
+        self.shape_converter.convert(
+            annotation, common_analysis_structure, object_designator
+        )
 
 
 class Sphere2ODConverter(Annotation2ODConverter[Sphere]):
@@ -516,7 +564,10 @@ class Sphere2ODConverter(Annotation2ODConverter[Sphere]):
         return isinstance(annotation, Sphere)
 
     def convert(
-        self, annotation: Sphere, cas: CAS, object_designator: ObjectDesignator
+        self,
+        annotation: Sphere,
+        common_analysis_structure: CommonAnalysisStructure,
+        object_designator: ObjectDesignator,
     ) -> None:
         size = ShapeSize(radius=annotation.geometry.radius)
 
@@ -526,7 +577,9 @@ class Sphere2ODConverter(Annotation2ODConverter[Sphere]):
         )
 
         object_designator.shape_size.append(size)
-        self.shape_converter.convert(annotation, cas, object_designator)
+        self.shape_converter.convert(
+            annotation, common_analysis_structure, object_designator
+        )
 
 
 class Location2ODConverter(Annotation2ODConverter[LocationAnnotation]):
@@ -541,7 +594,7 @@ class Location2ODConverter(Annotation2ODConverter[LocationAnnotation]):
     def convert(
         self,
         annotation: LocationAnnotation,
-        cas: CAS,
+        common_analysis_structure: CommonAnalysisStructure,
         object_designator: ObjectDesignator,
     ) -> None:
         if annotation.region is not None:

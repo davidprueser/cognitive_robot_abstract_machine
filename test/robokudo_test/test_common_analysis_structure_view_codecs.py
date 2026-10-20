@@ -2,14 +2,16 @@ from __future__ import annotations
 import pytest
 from std_msgs.msg import String
 
-from robokudo.cas import CASViews
-from robokudo.io.cas_view_codecs import CASViewCodecRegistry
+from robokudo.common_analysis_structure import CommonAnalysisStructureViews
+from robokudo.io.common_analysis_structure_view_codecs import (
+    CommonAnalysisStructureViewCodecRegistry,
+)
 from robokudo.types.cv import ColorToDepthRatio
 from robokudo.types.tf import StampedTransform
 
 
 def test_bytes_codec_roundtrip() -> None:
-    registry = CASViewCodecRegistry()
+    registry = CommonAnalysisStructureViewCodecRegistry()
     input_payload = b"\x00\x01\x02\x03"
 
     encoded = registry.encode_view("blob", input_payload)
@@ -22,7 +24,7 @@ def test_bytes_codec_roundtrip() -> None:
 
 
 def test_ros_message_codec_roundtrip() -> None:
-    registry = CASViewCodecRegistry()
+    registry = CommonAnalysisStructureViewCodecRegistry()
     msg = String(data="hello")
 
     encoded = registry.encode_view("msg", msg)
@@ -36,7 +38,7 @@ def test_ros_message_codec_roundtrip() -> None:
 
 
 def test_stamped_transform_codec_roundtrip() -> None:
-    registry = CASViewCodecRegistry()
+    registry = CommonAnalysisStructureViewCodecRegistry()
     transform = StampedTransform()
     transform.rotation = [0.0, 0.0, 0.0, 1.0]
     transform.translation = [1.0, 2.0, 3.0]
@@ -61,16 +63,21 @@ def test_stamped_transform_codec_roundtrip() -> None:
 
 
 def test_color_to_depth_ratio_roundtrip() -> None:
-    registry = CASViewCodecRegistry()
+    registry = CommonAnalysisStructureViewCodecRegistry()
     ratio = ColorToDepthRatio(horizontal=0.5, vertical=0.25)
 
-    encoded = registry.encode_view(CASViews.COLOR_TO_DEPTH_RATIO, ratio)
+    encoded = registry.encode_view(
+        CommonAnalysisStructureViews.COLOR_TO_DEPTH_RATIO, ratio
+    )
 
-    assert registry.decode_view(encoded) == (CASViews.COLOR_TO_DEPTH_RATIO, ratio)
+    assert registry.decode_view(encoded) == (
+        CommonAnalysisStructureViews.COLOR_TO_DEPTH_RATIO,
+        ratio,
+    )
 
 
 def test_decode_view_unknown_serializer_raises() -> None:
-    registry = CASViewCodecRegistry()
+    registry = CommonAnalysisStructureViewCodecRegistry()
     with pytest.raises(ValueError):
         registry.decode_view(
             {
@@ -84,7 +91,7 @@ def test_decode_view_unknown_serializer_raises() -> None:
 
 
 def test_decode_view_missing_required_field_raises() -> None:
-    registry = CASViewCodecRegistry()
+    registry = CommonAnalysisStructureViewCodecRegistry()
     with pytest.raises(KeyError):
         registry.decode_view(
             {

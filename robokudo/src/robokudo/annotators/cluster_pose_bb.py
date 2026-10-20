@@ -31,7 +31,7 @@ from py_trees.common import Status
 from typing_extensions import TYPE_CHECKING, List, Tuple
 
 from robokudo.annotators.core import BaseAnnotator
-from robokudo.cas import CASViews
+from robokudo.common_analysis_structure import CommonAnalysisStructureViews
 from robokudo.types.annotation import BoundingBox3DAnnotation, PoseAnnotation
 from robokudo.types.scene import ObjectHypothesis
 from robokudo.utils.annotator_helper import (
@@ -139,7 +139,7 @@ class ClusterPoseBBAnnotator(BaseAnnotator):
 
         The method:
 
-        * Loads point cloud from CAS
+        * Loads point cloud from common analysis structure
         * For each object hypothesis:
           * Transforms points to world frame
           * Projects to 2D for orientation estimation
@@ -152,11 +152,17 @@ class ClusterPoseBBAnnotator(BaseAnnotator):
         """
         start_timer = default_timer()
 
-        cloud = self.get_cas().get(CASViews.CLOUD)
+        cloud = self.get_common_analysis_structure().get(
+            CommonAnalysisStructureViews.CLOUD
+        )
         geometries_to_visualize = []
 
         # Iterate over everything that is an Object hypothesis and calculate the centroid
-        object_hypotheses = self.get_cas().filter_annotations_by_type(ObjectHypothesis)
+        object_hypotheses = (
+            self.get_common_analysis_structure().filter_annotations_by_type(
+                ObjectHypothesis
+            )
+        )
         for object_hypothesis in object_hypotheses:
             if (
                 object_hypothesis.points is None
@@ -165,16 +171,18 @@ class ClusterPoseBBAnnotator(BaseAnnotator):
                 continue
 
             # Since we need to do some transformations on the data, we'll deepcopy them first to
-            # avoid altering the points in the CAS
+            # avoid altering the points in the common analysis structure
             cluster_cloud = copy.deepcopy(object_hypothesis.points)
 
             try:
                 cluster_cloud_in_world = transform_cloud_from_camera_to_world(
-                    self.get_cas(), cluster_cloud, transform_inplace=True
+                    self.get_common_analysis_structure(),
+                    cluster_cloud,
+                    transform_inplace=True,
                 )
             except Exception as e:
                 self.rk_logger.warning(
-                    f"Couldn't find camera viewpoint in the CAS.Fail. Error: {e}"
+                    f"Couldn't find camera viewpoint in the CommonAnalysisStructure.Fail. Error: {e}"
                 )
                 return Status.FAILURE
 
@@ -220,7 +228,7 @@ class ClusterPoseBBAnnotator(BaseAnnotator):
             )
 
             world_to_camera_transform = get_world_to_camera_transform_matrix(
-                self.get_cas()
+                self.get_common_analysis_structure()
             )
 
             cluster_transform_in_camera = numpy.matmul(

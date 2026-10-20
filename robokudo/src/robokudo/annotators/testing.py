@@ -31,7 +31,10 @@ from py_trees.common import Status
 from py_trees.composites import Sequence
 
 from robokudo.annotators.core import BaseAnnotator, ThreadedAnnotator
-from robokudo.cas import CAS, CASViews
+from robokudo.common_analysis_structure import (
+    CommonAnalysisStructure,
+    CommonAnalysisStructureViews,
+)
 from robokudo.types.scene import ObjectHypothesis
 from robokudo.utils.error_handling import catch_and_raise_to_blackboard
 
@@ -66,7 +69,7 @@ class SlowAnnotator(ThreadedAnnotator):
 
         This method:
 
-        * Retrieves the color image from CAS
+        * Retrieves the color image from common analysis structure
         * Adds timestamp and visual markers
         * Sleeps for configured duration
         * Sets feedback message
@@ -77,7 +80,9 @@ class SlowAnnotator(ThreadedAnnotator):
             "%s.compute(): Start doing the heavy stuff" % self.__class__.__name__
         )
 
-        self.color = self.get_cas().get(CASViews.COLOR_IMAGE)
+        self.color = self.get_common_analysis_structure().get(
+            CommonAnalysisStructureViews.COLOR_IMAGE
+        )
         vis = copy.deepcopy(self.color)
 
         vis = cv2.putText(
@@ -191,7 +196,7 @@ class FakeCollectionReaderAnnotator(BaseAnnotator):
     This annotator simulates a collection reader by:
 
     * Waiting for a configurable number of iterations
-    * Creating synthetic CAS data
+    * Creating synthetic common analysis structure data
     * Managing feedback messages
     * Testing pipeline flow control
 
@@ -200,7 +205,7 @@ class FakeCollectionReaderAnnotator(BaseAnnotator):
     * Pipeline integration testing
     * Flow control verification
     * Feedback message handling
-    * CAS creation testing
+    * common analysis structure creation testing
     """
 
     def __init__(self, name: str = "FakeCollectionReader") -> None:
@@ -248,7 +253,7 @@ class FakeCollectionReaderAnnotator(BaseAnnotator):
         This method:
 
         * Increments internal counter
-        * Creates new CAS data after 3 iterations
+        * Creates new common analysis structure data after 3 iterations
         * Sets appropriate feedback messages
         * Updates processing status
 
@@ -258,11 +263,11 @@ class FakeCollectionReaderAnnotator(BaseAnnotator):
         new_status = Status.SUCCESS if self.counter == 3 else Status.RUNNING
         if new_status == Status.SUCCESS:
             self.feedback_message = "Got sensor data!"
-            # Create a new CAS
+            # Create a new common analysis structure
             blackboard = Blackboard()
-            cas = CAS()
-            cas.percepts = [time.time()]
-            blackboard.set("CAS", cas)
+            common_analysis_structure = CommonAnalysisStructure()
+            common_analysis_structure.percepts = [time.time()]
+            blackboard.set("common_analysis_structure", common_analysis_structure)
 
         else:
             self.feedback_message = "Waiting for incoming sensor data ..."
@@ -312,7 +317,10 @@ class ScopedAnnotator(BaseAnnotator):
 
             def __init__(self) -> None:
                 """Initialize parameters with default analysis scope."""
-                self.analysis_scope = [CASViews.COLOR_IMAGE, CASViews.CLOUD]
+                self.analysis_scope = [
+                    CommonAnalysisStructureViews.COLOR_IMAGE,
+                    CommonAnalysisStructureViews.CLOUD,
+                ]
                 """ List of data types to analyze """
 
         # Overwrite the parameters explicitly to enable auto-completion
@@ -347,7 +355,7 @@ class ScopedAnnotator(BaseAnnotator):
         :raises: Any exceptions are caught and raised to the blackboard
         """
         # self.descriptor.parameters.analysis_scope = [ObjectHypothesis]  # test overwrite
-        # self.descriptor.parameters.analysis_scope = [CASViews.COLOR_IMAGE, CASViews.CLOUD]  # test overwrite
+        # self.descriptor.parameters.analysis_scope = [CommonAnalysisStructureViews.COLOR_IMAGE, CommonAnalysisStructureViews.CLOUD]  # test overwrite
         self.descriptor.parameters.analysis_scope = []  # test overwrite => error case
 
         data_to_analyze = self.get_data_from_analysis_scope(
@@ -363,7 +371,7 @@ class ScopedAnnotator(BaseAnnotator):
                 print(f"OH ID: {object_hypothesis.id}")
         else:
             print(f"Annotator is in Scene-Analysis mode")
-            cloud = data_to_analyze[CASViews.CLOUD]
+            cloud = data_to_analyze[CommonAnalysisStructureViews.CLOUD]
             print(f"Cloud points: {len(cloud.points)}")
 
         return Status.SUCCESS

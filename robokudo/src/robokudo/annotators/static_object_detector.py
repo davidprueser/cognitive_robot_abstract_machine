@@ -24,7 +24,7 @@ from typing_extensions import TYPE_CHECKING, Dict, List, Optional
 
 import robokudo.world as rk_world
 from robokudo.annotators.core import BaseAnnotator
-from robokudo.cas import CASViews
+from robokudo.common_analysis_structure import CommonAnalysisStructureViews
 from robokudo.exceptions import ColorToDepthRatioMissing, UnknownMode
 from robokudo.types.annotation import (
     BoundingBox3DAnnotation,
@@ -239,7 +239,7 @@ class StaticObjectDetectorAnnotator(BaseAnnotator):
 
         if world_to_camera_transform_matrix is None:
             world_to_camera_transform_matrix = get_world_to_camera_transform_matrix(
-                self.get_cas()
+                self.get_common_analysis_structure()
             )
 
         body_bb = self._get_body_bb_size_and_center(body)
@@ -255,10 +255,20 @@ class StaticObjectDetectorAnnotator(BaseAnnotator):
         # Calculate Bounding Box and resulting 2D Image Corner points based on pose in camera coordinates
 
         obb = get_obb_from_size_and_transform(bb_size, bb_transform_in_camera)
-        corner_points = get_2d_bounding_rect_from_3d_bb(self.get_cas(), obb)
+        corner_points = get_2d_bounding_rect_from_3d_bb(
+            self.get_common_analysis_structure(), obb
+        )
 
-        image_height = self.get_cas().get(CASViews.COLOR_IMAGE).shape[0]
-        image_width = self.get_cas().get(CASViews.COLOR_IMAGE).shape[1]
+        image_height = (
+            self.get_common_analysis_structure()
+            .get(CommonAnalysisStructureViews.COLOR_IMAGE)
+            .shape[0]
+        )
+        image_width = (
+            self.get_common_analysis_structure()
+            .get(CommonAnalysisStructureViews.COLOR_IMAGE)
+            .shape[1]
+        )
 
         if rect_outside_image(corner_points, image_width, image_height):
             self.rk_logger.info(
@@ -355,11 +365,19 @@ class StaticObjectDetectorAnnotator(BaseAnnotator):
         """
         start_timer = default_timer()
 
-        self.color = self.get_cas().get(CASViews.COLOR_IMAGE)
-        self.depth = self.get_cas().get(CASViews.DEPTH_IMAGE)
-        self.cloud = self.get_cas().get(CASViews.CLOUD)
+        self.color = self.get_common_analysis_structure().get(
+            CommonAnalysisStructureViews.COLOR_IMAGE
+        )
+        self.depth = self.get_common_analysis_structure().get(
+            CommonAnalysisStructureViews.DEPTH_IMAGE
+        )
+        self.cloud = self.get_common_analysis_structure().get(
+            CommonAnalysisStructureViews.CLOUD
+        )
         self.camera_intrinsics = copy.deepcopy(
-            self.get_cas().get(CASViews.CAMERA_INTRINSIC)
+            self.get_common_analysis_structure().get(
+                CommonAnalysisStructureViews.CAMERA_INTRINSIC
+            )
         )
 
         world_frame_required = False
@@ -396,18 +414,18 @@ class StaticObjectDetectorAnnotator(BaseAnnotator):
         if world_frame_required:
             try:
                 world_to_camera_transform_matrix = get_world_to_camera_transform_matrix(
-                    self.get_cas()
+                    self.get_common_analysis_structure()
                 )
             except:
                 self.rk_logger.warning(
-                    "Couldn't find world-to-camera transform in the CAS"
+                    "Couldn't find world-to-camera transform in the common analysis structure"
                 )
                 return Status.FAILURE
 
         # Scale the image down so that it matches the depth image size
         try:
             resized_color = get_scaled_color_image_for_depth_image(
-                self.get_cas(), self.color
+                self.get_common_analysis_structure(), self.color
             )
             scale_camera_intrinsics(self)
         except ColorToDepthRatioMissing:
@@ -438,7 +456,7 @@ class StaticObjectDetectorAnnotator(BaseAnnotator):
                 context="StaticObjectDetectorAnnotator",
             )
 
-        self.get_cas().annotations.extend(object_hypotheses)
+        self.get_common_analysis_structure().annotations.extend(object_hypotheses)
 
         #
         # Create visualization Output
@@ -532,8 +550,8 @@ class StaticObjectDetectorAnnotator(BaseAnnotator):
             height=parameters.bounding_box_height,
         )
         left, top, right, bottom = (
-            self.get_cas()
-            .get(CASViews.COLOR_TO_DEPTH_RATIO)
+            self.get_common_analysis_structure()
+            .get(CommonAnalysisStructureViews.COLOR_TO_DEPTH_RATIO)
             .depth_region(box)
             .get_corner_points()
         )

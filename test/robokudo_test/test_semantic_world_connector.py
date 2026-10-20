@@ -8,7 +8,10 @@ from py_trees.blackboard import Blackboard
 from robokudo.annotators.semantic_world_connector import (
     SemanticDigitalTwinConnector,
 )
-from robokudo.cas import CAS, CASViews
+from robokudo.common_analysis_structure import (
+    CommonAnalysisStructure,
+    CommonAnalysisStructureViews,
+)
 from robokudo.pipeline import Pipeline
 from robokudo.annotators.outputs import AnnotatorOutputPerPipelineMap
 from robokudo.types.annotation import (
@@ -55,34 +58,37 @@ def _make_hypothesis(
 
 
 def _attach_connector_to_pipeline(
-    connector: SemanticDigitalTwinConnector, cas: CAS
+    connector: SemanticDigitalTwinConnector,
+    common_analysis_structure: CommonAnalysisStructure,
 ) -> Pipeline:
     pipeline = Pipeline("SemanticWorldConnectorTestPipeline")
     pipeline.add_child(connector)
-    pipeline.cas = cas
+    pipeline.common_analysis_structure = common_analysis_structure
     return pipeline
 
 
 def _set_camera_to_world_transform(
-    cas: CAS,
+    common_analysis_structure: CommonAnalysisStructure,
     *,
     pos_x: float = 0.0,
     pos_y: float = 0.0,
     pos_z: float = 0.0,
 ) -> None:
     sem_world = rk_world.world_instance()
-    world_body = sem_world.get_body_by_name(cas.world_frame)
-    camera_body = sem_world.get_body_by_name(cas.camera_frame)
-    cas.camera_to_world_transform = HomogeneousTransformationMatrix.from_xyz_quaternion(
-        pos_x=pos_x,
-        pos_y=pos_y,
-        pos_z=pos_z,
-        quat_x=0.0,
-        quat_y=0.0,
-        quat_z=0.0,
-        quat_w=1.0,
-        reference_frame=world_body,
-        child_frame=camera_body,
+    world_body = sem_world.get_body_by_name(common_analysis_structure.world_frame)
+    camera_body = sem_world.get_body_by_name(common_analysis_structure.camera_frame)
+    common_analysis_structure.camera_to_world_transform = (
+        HomogeneousTransformationMatrix.from_xyz_quaternion(
+            pos_x=pos_x,
+            pos_y=pos_y,
+            pos_z=pos_z,
+            quat_x=0.0,
+            quat_y=0.0,
+            quat_z=0.0,
+            quat_w=1.0,
+            reference_frame=world_body,
+            child_frame=camera_body,
+        )
     )
 
 
@@ -103,17 +109,17 @@ def connector() -> SemanticDigitalTwinConnector:
 
 
 @pytest.fixture
-def semdt_cas() -> CAS:
+def semdt_common_analysis_structure() -> CommonAnalysisStructure:
     rk_world.get_object_belief_states().clear()
     rk_world.init_world_with_entity_tracker()
     rk_world.setup_world_for_camera_frame(world_frame="map", camera_frame="camera")
 
-    cas = CAS()
-    cas.world_frame = "map"
-    cas.camera_frame = "camera"
-    _set_camera_to_world_transform(cas)
+    common_analysis_structure = CommonAnalysisStructure()
+    common_analysis_structure.world_frame = "map"
+    common_analysis_structure.camera_frame = "camera"
+    _set_camera_to_world_transform(common_analysis_structure)
 
-    yield cas
+    yield common_analysis_structure
 
     rk_world.get_object_belief_states().clear()
     rk_world.init_world_with_entity_tracker()
@@ -123,7 +129,7 @@ class TestSemanticDigitalTwinConnector:
     def test_no_existing_beliefs_creates_belief_for_each_hypothesis(
         self,
         connector: SemanticDigitalTwinConnector,
-        semdt_cas: CAS,
+        semdt_common_analysis_structure: CommonAnalysisStructure,
     ) -> None:
         hypotheses = [
             _make_hypothesis(roi=(5, 5, 10, 10)),
@@ -131,7 +137,7 @@ class TestSemanticDigitalTwinConnector:
         ]
 
         associated_hypotheses = connector.associate_hypotheses_with_beliefs(
-            hypotheses, [], semdt_cas
+            hypotheses, [], semdt_common_analysis_structure
         )
 
         assert [hypothesis for hypothesis, _ in associated_hypotheses] == hypotheses
@@ -147,15 +153,15 @@ class TestSemanticDigitalTwinConnector:
     def test_high_similarity_updates_match_and_creates_beliefs_for_unmatched_hypotheses(
         self,
         connector: SemanticDigitalTwinConnector,
-        semdt_cas: CAS,
+        semdt_common_analysis_structure: CommonAnalysisStructure,
     ) -> None:
         previous_hypothesis = _make_hypothesis(translation=(0.0, 0.0, 1.0))
         existing_belief = connector.associate_hypotheses_with_beliefs(
-            [previous_hypothesis], [], semdt_cas
+            [previous_hypothesis], [], semdt_common_analysis_structure
         )[0][1]
         assert len(_stamped_world_poses(previous_hypothesis)) == 1
 
-        _set_camera_to_world_transform(semdt_cas, pos_x=1.0)
+        _set_camera_to_world_transform(semdt_common_analysis_structure, pos_x=1.0)
         # Same world pose as the previous hypothesis, seen from a translated camera.
         matched_hypothesis = _make_hypothesis(
             roi=(10, 10, 12, 12), translation=(-1.0, 0.0, 1.0)
@@ -163,12 +169,12 @@ class TestSemanticDigitalTwinConnector:
         unmatched_hypothesis = _make_hypothesis(
             roi=(80, 80, 12, 12), translation=(2.0, 0.0, 1.0)
         )
-        _attach_connector_to_pipeline(connector, semdt_cas)
+        _attach_connector_to_pipeline(connector, semdt_common_analysis_structure)
 
         associated_hypotheses = connector.associate_hypotheses_with_beliefs(
             [matched_hypothesis, unmatched_hypothesis],
             [existing_belief],
-            semdt_cas,
+            semdt_common_analysis_structure,
         )
 
         assert len(rk_world.get_object_belief_states()) == 2
@@ -180,18 +186,18 @@ class TestSemanticDigitalTwinConnector:
     def test_low_similarity_assignment_creates_new_belief_instead_of_updating(
         self,
         connector: SemanticDigitalTwinConnector,
-        semdt_cas: CAS,
+        semdt_common_analysis_structure: CommonAnalysisStructure,
     ) -> None:
         previous_hypothesis = _make_hypothesis()
         existing_belief = connector.associate_hypotheses_with_beliefs(
-            [previous_hypothesis], [], semdt_cas
+            [previous_hypothesis], [], semdt_common_analysis_structure
         )[0][1]
         hypothesis = _make_hypothesis(translation=(5.0, 0.0, 1.0))
         connector.descriptor.parameters.confidence_threshold = 0.99
-        _attach_connector_to_pipeline(connector, semdt_cas)
+        _attach_connector_to_pipeline(connector, semdt_common_analysis_structure)
 
         associated_hypotheses = connector.associate_hypotheses_with_beliefs(
-            [hypothesis], [existing_belief], semdt_cas
+            [hypothesis], [existing_belief], semdt_common_analysis_structure
         )
 
         assert len(rk_world.get_object_belief_states()) == 2
@@ -204,17 +210,17 @@ class TestSemanticDigitalTwinConnector:
         self,
         connector: SemanticDigitalTwinConnector,
     ) -> None:
-        cas = CAS()
+        common_analysis_structure = CommonAnalysisStructure()
         hypothesis = _make_hypothesis()
 
-        connector.add_world_pose_annotations([hypothesis], cas)
+        connector.add_world_pose_annotations([hypothesis], common_analysis_structure)
 
         assert _stamped_world_poses(hypothesis) == []
 
-    def test_update_reads_cas_associates_beliefs_and_publishes_visualization(
+    def test_update_reads_common_analysis_structure_associates_beliefs_and_publishes_visualization(
         self,
         connector: SemanticDigitalTwinConnector,
-        semdt_cas: CAS,
+        semdt_common_analysis_structure: CommonAnalysisStructure,
     ) -> None:
         blackboard = Blackboard()
         blackboard.set(
@@ -224,12 +230,14 @@ class TestSemanticDigitalTwinConnector:
         pipeline = Pipeline("SemanticWorldConnectorTestPipeline")
         pipeline.add_child(connector)
         pipeline.setup()
-        pipeline.cas = semdt_cas
+        pipeline.common_analysis_structure = semdt_common_analysis_structure
 
         color_image = np.zeros((80, 100, 3), dtype=np.uint8)
         hypothesis = _make_hypothesis(roi=(20, 25, 30, 20))
-        pipeline.cas.set(CASViews.COLOR_IMAGE, color_image)
-        pipeline.cas.annotations.append(hypothesis)
+        pipeline.common_analysis_structure.set(
+            CommonAnalysisStructureViews.COLOR_IMAGE, color_image
+        )
+        pipeline.common_analysis_structure.annotations.append(hypothesis)
 
         status = connector.compute()
 
@@ -238,4 +246,9 @@ class TestSemanticDigitalTwinConnector:
         assert len(rk_world.get_object_belief_states()) == 1
         assert len(_stamped_world_poses(hypothesis)) == 1
         assert not np.array_equal(output_image, color_image)
-        assert np.array_equal(pipeline.cas.get(CASViews.COLOR_IMAGE), color_image)
+        assert np.array_equal(
+            pipeline.common_analysis_structure.get(
+                CommonAnalysisStructureViews.COLOR_IMAGE
+            ),
+            color_image,
+        )

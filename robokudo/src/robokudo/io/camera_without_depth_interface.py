@@ -22,13 +22,13 @@ from __future__ import annotations
 from typing_extensions import Optional, TYPE_CHECKING, Any
 
 from robokudo.io.camera_interface import CameraInterface
-from robokudo.cas import CASViews
+from robokudo.common_analysis_structure import CommonAnalysisStructureViews
 from robokudo.annotator_parameters import AnnotatorPredefinedParameters
 
 import cv2
 
 if TYPE_CHECKING:
-    from robokudo.cas import CAS
+    from robokudo.common_analysis_structure import CommonAnalysisStructure
     import numpy.typing as npt
 
 
@@ -123,7 +123,7 @@ class OpenCVCameraWithoutDepthInterface(CameraInterface):
 
         return self._has_new_data
 
-    def set_data(self, cas: CAS) -> None:
+    def set_data(self, common_analysis_structure: CommonAnalysisStructure) -> None:
         """
         Update the Common Analysis Structure with latest frame data.
 
@@ -131,9 +131,9 @@ class OpenCVCameraWithoutDepthInterface(CameraInterface):
         * Retrieves the next frame from video/camera or backup
         * Handles looping behavior for videos and images
         * Applies optional contrast/brightness normalization
-        * Updates the CAS with frame and camera data
+        * Updates the common analysis structure with frame and camera data
 
-        :param cas: Common Analysis Structure to update
+        :param common_analysis_structure: Common Analysis Structure to update
         """
         if not self.has_new_data():
             # no new frame available
@@ -199,8 +199,14 @@ class OpenCVCameraWithoutDepthInterface(CameraInterface):
         if self.camera_config.update_global_with_depth_parameter:
             AnnotatorPredefinedParameters.global_with_depth = depth is not None
 
-        cas.set(CASViews.COLOR_IMAGE, color)
-        cas.set(CASViews.DEPTH_IMAGE, depth)
-        cas.set(CASViews.CAMERA_INFO, camera_info)
-        cas.set(CASViews.CAMERA_INTRINSIC, camera_intrinsic)
-        cas.set(CASViews.COLOR_TO_DEPTH_RATIO, color_to_depth_ratio)
+        common_analysis_structure.set(CommonAnalysisStructureViews.COLOR_IMAGE, color)
+        common_analysis_structure.set(CommonAnalysisStructureViews.DEPTH_IMAGE, depth)
+        common_analysis_structure.set(
+            CommonAnalysisStructureViews.CAMERA_INFO, camera_info
+        )
+        common_analysis_structure.set(
+            CommonAnalysisStructureViews.CAMERA_INTRINSIC, camera_intrinsic
+        )
+        common_analysis_structure.set(
+            CommonAnalysisStructureViews.COLOR_TO_DEPTH_RATIO, color_to_depth_ratio
+        )

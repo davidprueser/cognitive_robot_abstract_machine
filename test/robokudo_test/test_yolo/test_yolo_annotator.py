@@ -94,7 +94,7 @@ class CupScene(BlackWallScene):
         """
         :param color_to_depth_ratio: Size of the depth image relative to the color
             image.
-        :return: An annotator whose CAS holds a color image and a matching depth image.
+        :return: An annotator whose common analysis structure holds a color image and a matching depth image.
         """
         annotator = YoloAnnotator(descriptor=descriptor)
         self.place_in_pipeline(annotator, color_to_depth_ratio)
@@ -147,7 +147,9 @@ def _depth_descriptor(scene: CupScene) -> YoloAnnotator.Descriptor:
 
 
 def _hypotheses(annotator: YoloAnnotator) -> list[ObjectHypothesis]:
-    return annotator.get_cas().filter_annotations_by_type(ObjectHypothesis)
+    return annotator.get_common_analysis_structure().filter_annotations_by_type(
+        ObjectHypothesis
+    )
 
 
 def _only_hypothesis(annotator: YoloAnnotator) -> ObjectHypothesis:
@@ -495,7 +497,7 @@ def _annotator_with_existing_hypothesis(
     scene: CupScene, descriptor: YoloAnnotator.Descriptor, existing: ObjectHypothesis
 ) -> YoloAnnotator:
     annotator = scene.annotator_in_pipeline(descriptor)
-    annotator.get_cas().annotations.append(existing)
+    annotator.get_common_analysis_structure().annotations.append(existing)
     return annotator
 
 

@@ -33,7 +33,7 @@ from matplotlib import pyplot as plt
 from typing_extensions import List, Optional, Tuple, TYPE_CHECKING
 
 from robokudo.annotators.cluster_color import Color
-from robokudo.cas import CASViews
+from robokudo.common_analysis_structure import CommonAnalysisStructureViews
 from robokudo.types.cv import Rect
 
 if TYPE_CHECKING:
@@ -91,7 +91,7 @@ class ClusterColorHistogramAnnotator(BaseAnnotator):
 
         The method:
 
-        * Loads point cloud and color image from CAS
+        * Loads point cloud and color image from common analysis structure
         * Creates color histogram annotations
         * Updates visualization if enabled
 
@@ -99,8 +99,12 @@ class ClusterColorHistogramAnnotator(BaseAnnotator):
         """
         start_timer = default_timer()
 
-        cloud = self.get_cas().get(CASViews.CLOUD)
-        color = self.get_cas().get(CASViews.COLOR_IMAGE)
+        cloud = self.get_common_analysis_structure().get(
+            CommonAnalysisStructureViews.CLOUD
+        )
+        color = self.get_common_analysis_structure().get(
+            CommonAnalysisStructureViews.COLOR_IMAGE
+        )
 
         visualization_img = self.create_color_histogram_annotations(color)
 
@@ -139,7 +143,11 @@ class ClusterColorHistogramAnnotator(BaseAnnotator):
         # Iterate over everything that is a Object hypothesis and calculate the colors
         cluster_index = 0
 
-        object_hypotheses = self.get_cas().filter_annotations_by_type(ObjectHypothesis)
+        object_hypotheses = (
+            self.get_common_analysis_structure().filter_annotations_by_type(
+                ObjectHypothesis
+            )
+        )
 
         if self.descriptor.parameters.generate_plot_output:
             plot_columns = 3

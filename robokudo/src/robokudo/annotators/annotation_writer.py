@@ -16,14 +16,16 @@ from std_msgs.msg import String
 from typing_extensions import Optional
 
 from robokudo.annotators.core import BaseAnnotator
-from robokudo.io.cas_annotation_codecs import serialize_annotations
+from robokudo.io.common_analysis_structure_annotation_codecs import (
+    serialize_annotations,
+)
 from semantic_digital_twin.adapters.ros.node_registry import ROSNodeRegistry
 
 
 class AnnotationStorageWriter(BaseAnnotator):
     """Annotator for writing annotations to storage in JSON format.
 
-    This annotator writes the current CAS annotations to files in a specified
+    This annotator writes the current common analysis structure annotations to files in a specified
     directory, using JSON serialization.
     """
 
@@ -60,7 +62,7 @@ class AnnotationStorageWriter(BaseAnnotator):
         """Counter for generating sequential filenames"""
 
     def update(self) -> Status:
-        """Write current CAS annotations to storage.
+        """Write current common analysis structure annotations to storage.
 
         Serializes the current annotations to JSON and writes them to a file
         in the configured directory. Files are numbered sequentially.
@@ -70,7 +72,9 @@ class AnnotationStorageWriter(BaseAnnotator):
         start_timer = default_timer()
 
         # Encode annotations via KRROOD serializer and dump to JSON.
-        json_data_string = json.dumps(serialize_annotations(self.get_cas().annotations))
+        json_data_string = json.dumps(
+            serialize_annotations(self.get_common_analysis_structure().annotations)
+        )
 
         dir_path = os.path.join(self.descriptor.parameters.basic_path, self.name)
 
@@ -96,7 +100,7 @@ class AnnotationStorageWriter(BaseAnnotator):
 class AnnotationPublisherWriter(BaseAnnotator):
     """Annotator for publishing annotations via ROS topics.
 
-    This annotator publishes the current CAS annotations as JSON-encoded
+    This annotator publishes the current common analysis structure annotations as JSON-encoded
     strings over a ROS topic.
     """
 
@@ -142,7 +146,7 @@ class AnnotationPublisherWriter(BaseAnnotator):
         )
 
     def update(self) -> Status:
-        """Publish current CAS annotations.
+        """Publish current common analysis structure annotations.
 
         Serializes the current annotations to JSON and publishes them
         on the configured ROS topic.
@@ -152,7 +156,9 @@ class AnnotationPublisherWriter(BaseAnnotator):
         start_timer = default_timer()
 
         # Encode annotations via KRROOD serializer and dump to JSON.
-        json_data_string = json.dumps(serialize_annotations(self.get_cas().annotations))
+        json_data_string = json.dumps(
+            serialize_annotations(self.get_common_analysis_structure().annotations)
+        )
 
         # publish encoded data
         if self.pub is None:

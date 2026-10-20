@@ -7,7 +7,7 @@ import pytest
 from py_trees.blackboard import Blackboard
 from py_trees.composites import Sequence
 
-from robokudo.cas import CASViews
+from robokudo.common_analysis_structure import CommonAnalysisStructureViews
 from robokudo.identifier import BBIdentifier
 from robokudo.pipeline import Pipeline
 from robokudo.tree_components.query_based_task_scheduler import QueryBasedScheduler
@@ -97,7 +97,9 @@ class TestTreeComponents:
         assert all([leaf_behaviour1._setup, leaf_behaviour2._setup])
 
         query_goal = {"query": "detect"}
-        scheduler.get_cas().set(CASViews.QUERY, query_goal)
+        scheduler.get_common_analysis_structure().set(
+            CommonAnalysisStructureViews.QUERY, query_goal
+        )
 
         status = scheduler.update()
         assert status == py_trees.common.Status.SUCCESS
@@ -105,7 +107,9 @@ class TestTreeComponents:
         assert task.children[0].name == par1.name
 
         query_goal = {"query": "track"}
-        scheduler.get_cas().set(CASViews.QUERY, query_goal)
+        scheduler.get_common_analysis_structure().set(
+            CommonAnalysisStructureViews.QUERY, query_goal
+        )
 
         status = scheduler.update()
         assert status == py_trees.common.Status.SUCCESS
@@ -113,7 +117,9 @@ class TestTreeComponents:
         assert task.children[0].name == par2.name
 
         query_goal = {"query": "non-existent-query-goal"}
-        scheduler.get_cas().set(CASViews.QUERY, query_goal)
+        scheduler.get_common_analysis_structure().set(
+            CommonAnalysisStructureViews.QUERY, query_goal
+        )
 
         status = scheduler.update()
         assert status == py_trees.common.Status.FAILURE

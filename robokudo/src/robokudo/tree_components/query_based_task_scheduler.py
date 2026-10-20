@@ -1,8 +1,7 @@
 """
 Query-based task scheduling for behavior trees.
 
-This module provides a task scheduler that uses queries in the CAS (Common Analysis
-Structure) to determine which perception subtree to execute. It allows dynamic selection
+This module provides a task scheduler that uses queries in the common analysis structure to determine which perception subtree to execute. It allows dynamic selection
 of perception pipelines based on the current query state.
 
 Original implementation by Malte Huerkamp.
@@ -13,7 +12,7 @@ from robokudo_msgs.action import Query
 from typing_extensions import Any, Callable, Dict, Optional
 
 from robokudo.annotators.core import BaseAnnotator
-from robokudo.cas import CASViews
+from robokudo.common_analysis_structure import CommonAnalysisStructureViews
 from robokudo.tree_components.task_scheduler import TaskSchedulerBase
 from robokudo.utils.tree import add_child_to_parent, setup_with_descendants_on_behavior
 
@@ -23,7 +22,7 @@ class QueryBasedScheduler(
     BaseAnnotator,
 ):
     """
-    A Task Scheduler that checks the active Query in the CAS to infer which perception
+    A Task Scheduler that checks the active Query in the common analysis structure to infer which perception
     subtree to execute. You can apply a function to infer per use-case which perception
     tree you want to incorporate.
 
@@ -50,7 +49,7 @@ class QueryBasedScheduler(
         :param name: Name of the scheduler node
         :param tasks: Dictionary mapping task IDs to behavior trees
         :param: filter_fn a callable/function which returns a string with the identifier
-            of the subtree to include. This function will receive the CASViews.QUERY and
+            of the subtree to include. This function will receive the CommonAnalysisStructureViews.QUERY and
             can then decide which subtree identifier is the desired one.
         """
         super().__init__(name)
@@ -72,7 +71,7 @@ class QueryBasedScheduler(
         Plan the next job based on the current query.
 
         This method:
-        * Gets the current query from CAS
+        * Gets the current query from common analysis structure
         * Uses filter_fn to determine which task to run
         * Creates a new sequence with the selected task
 
@@ -83,7 +82,9 @@ class QueryBasedScheduler(
 
         new_job = Sequence("Task", memory=True)
 
-        query = self.get_cas().get(CASViews.QUERY)
+        query = self.get_common_analysis_structure().get(
+            CommonAnalysisStructureViews.QUERY
+        )
 
         task_key = self.filter_fn(query)
         self.rk_logger.info(f"Running perception task: {task_key}")

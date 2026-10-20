@@ -10,7 +10,7 @@ from py_trees.common import Status
 
 import robokudo.utils.annotator_helper
 from robokudo.annotators.core import BaseAnnotator
-from robokudo.cas import CASViews
+from robokudo.common_analysis_structure import CommonAnalysisStructureViews
 
 
 class CameraViewpointVisualizer(BaseAnnotator):
@@ -22,7 +22,7 @@ class CameraViewpointVisualizer(BaseAnnotator):
     coordinate frame and the point cloud in the same space.
 
     The annotator will fail if the required viewpoint transform cannot be found in the
-    CAS.
+    common analysis structure.
     """
 
     def __init__(self, name: str = "CameraViewpointVisualizer") -> None:
@@ -49,14 +49,18 @@ class CameraViewpointVisualizer(BaseAnnotator):
         try:
             world_to_camera_transform = (
                 robokudo.utils.annotator_helper.get_world_to_camera_transform_matrix(
-                    self.get_cas()
+                    self.get_common_analysis_structure()
                 )
             )
         except KeyError as err:
-            self.rk_logger.warning(f"Couldn't find viewpoint in the CAS: {err}")
+            self.rk_logger.warning(
+                f"Couldn't find viewpoint in the common analysis structure: {err}"
+            )
             return Status.FAILURE
 
-        cloud = self.get_cas().get(CASViews.CLOUD)
+        cloud = self.get_common_analysis_structure().get(
+            CommonAnalysisStructureViews.CLOUD
+        )
         world_frame = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.2)
         world_frame.transform(world_to_camera_transform)
 

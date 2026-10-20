@@ -18,7 +18,7 @@ COLOR_BY_WORD = {
     "red": np.array([0, 0, 255], dtype=np.uint8),
 }
 """
-The color each vocabulary word names, in the channel order of the CAS color image.
+The color each vocabulary word names, in the channel order of the common analysis structure color image.
 """
 
 COLOR_VOCABULARY = list(COLOR_BY_WORD)
@@ -29,7 +29,7 @@ A vocabulary in which every word names one color channel.
 
 def rgb(color: np.ndarray) -> np.ndarray:
     """
-    :return: The given color of the CAS color image in RGB channel order.
+    :return: The given color of the common analysis structure color image in RGB channel order.
     """
     return color[::-1]
 

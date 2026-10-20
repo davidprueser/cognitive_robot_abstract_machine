@@ -1,5 +1,5 @@
 """
-KRROOD-backed codecs for CAS annotation serialization.
+KRROOD-backed codecs for common analysis structure annotation serialization.
 """
 
 from __future__ import annotations

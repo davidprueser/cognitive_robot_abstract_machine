@@ -232,7 +232,11 @@ class ShapeEstimatorAnnotator(ThreadedAnnotator):
 
     def compute(self) -> Status:
         """Estimate shapes and publish annotations and 3D visualizations."""
-        object_hypotheses = self.get_cas().filter_annotations_by_type(ObjectHypothesis)
+        object_hypotheses = (
+            self.get_common_analysis_structure().filter_annotations_by_type(
+                ObjectHypothesis
+            )
+        )
 
         total_object_hypotheses = 0
         updated_object_hypotheses = 0

@@ -29,7 +29,10 @@ from rclpy.parameter import Parameter
 from typing_extensions import Dict, List, Type
 
 from robokudo.annotators.core import BaseAnnotator
-from robokudo.cas import CAS, CASViews
+from robokudo.common_analysis_structure import (
+    CommonAnalysisStructure,
+    CommonAnalysisStructureViews,
+)
 from robokudo.types.annotation import Classification
 from robokudo.types.scene import ObjectHypothesis
 from robokudo.utils.error_handling import catch_and_raise_to_blackboard
@@ -151,7 +154,9 @@ class OutlierRemovalOnObjectHypothesisAnnotator(BaseAnnotator):
 
         :return: True, if at least one of the object hypotheses could be optimized. False otherwise.
         """
-        annotations = self.get_cas().filter_annotations_by_type(ObjectHypothesis)
+        annotations = self.get_common_analysis_structure().filter_annotations_by_type(
+            ObjectHypothesis
+        )
         vis_geometries = []
 
         optimized_one_cluster = False
@@ -161,7 +166,7 @@ class OutlierRemovalOnObjectHypothesisAnnotator(BaseAnnotator):
                 continue
 
             if len(self.descriptor.parameters.skip_removal_on_classes) > 0:
-                classes: List[Classification] = CAS.filter_by_type(
+                classes: List[Classification] = CommonAnalysisStructure.filter_by_type(
                     Classification, annotation.annotations
                 )
 
@@ -221,7 +226,9 @@ class OutlierRemovalOnObjectHypothesisAnnotator(BaseAnnotator):
         if not optimized_one_cluster:
             return False
 
-        visualization_img = self.get_cas().get(CASViews.COLOR_IMAGE)
+        visualization_img = self.get_common_analysis_structure().get(
+            CommonAnalysisStructureViews.COLOR_IMAGE
+        )
         self.get_annotator_output_struct().set_image(visualization_img)
         self.get_annotator_output_struct().set_geometries(vis_geometries)
 

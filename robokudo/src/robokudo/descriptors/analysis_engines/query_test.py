@@ -25,7 +25,7 @@ from robokudo.analysis_engine import AnalysisEngineInterface
 from robokudo.annotators.core import BaseAnnotator
 from robokudo.annotators.query import QueryAnnotator
 from robokudo.behaviours.action_server_checks import ActionServerNoPreemptRequest
-from robokudo.cas import CASViews
+from robokudo.common_analysis_structure import CommonAnalysisStructureViews
 from robokudo.identifier import BBIdentifier
 from robokudo.idioms import pipeline_init
 from robokudo.pipeline import Pipeline
@@ -73,15 +73,17 @@ class PrintNumbers(BaseAnnotator):
 
 class CheckQueryType(BaseAnnotator):
     """
-    Checks if the query type on the CAS is 'numbers'.
+    Checks if the query type on the common analysis structure is 'numbers'.
     """
 
     def __init__(self, name: str = "CheckQueryType") -> None:
         super().__init__(name)
 
     def update(self) -> Status:
-        # Retrieve the query from the CAS
-        query = self.get_cas().get(CASViews.QUERY)
+        # Retrieve the query from the common analysis structure
+        query = self.get_common_analysis_structure().get(
+            CommonAnalysisStructureViews.QUERY
+        )
 
         # Check if the query type is 'numbers'
         if query and getattr(query.obj, "type", None) == "numbers":

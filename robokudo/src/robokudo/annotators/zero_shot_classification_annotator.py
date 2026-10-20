@@ -11,7 +11,7 @@ from py_trees.common import Status
 from typing_extensions import TYPE_CHECKING, Callable
 
 from robokudo.annotators.core import ThreadedAnnotator
-from robokudo.cas import CASViews
+from robokudo.common_analysis_structure import CommonAnalysisStructureViews
 from robokudo.types.annotation import Classification
 from robokudo.types.scene import ObjectHypothesis
 
@@ -47,13 +47,13 @@ class ZeroShotClassificationAnnotator(ThreadedAnnotator, ABC):
                 """
                 The vocabulary used for object classification.
                 """
-                self.analysis_scope = CASViews.COLOR_IMAGE
+                self.analysis_scope = CommonAnalysisStructureViews.COLOR_IMAGE
                 """
                 The analysis scope of the annotator.
 
                 Possible values:
 
-                * CASViews.COLOR_IMAGE: Analyze the entire color image at once.
+                * CommonAnalysisStructureViews.COLOR_IMAGE: Analyze the entire color image at once.
                 * ObjectHypothesis: Analyze each object hypothesis individually.
                 """
                 self.filter_fn: Callable[[ObjectHypothesis], bool] | None = None
@@ -86,7 +86,7 @@ class ZeroShotClassificationAnnotator(ThreadedAnnotator, ABC):
     @staticmethod
     def _rgb_image(color_image: npt.NDArray[np.uint8]) -> Image.Image:
         """
-        :param color_image: A color image in the BGR channel order of the CAS.
+        :param color_image: A color image in the BGR channel order of the common analysis structure.
         :return: The color image in the RGB channel order :meth:`classify` expects.
         """
         return Image.fromarray(cv2.cvtColor(color_image, cv2.COLOR_BGR2RGB))
@@ -99,7 +99,7 @@ class ZeroShotClassificationAnnotator(ThreadedAnnotator, ABC):
         :return: The py_trees status.
         """
         classifications = self.classify([self._rgb_image(color_image)])[0]
-        self.get_cas().annotations.extend(classifications)
+        self.get_common_analysis_structure().annotations.extend(classifications)
 
         visualization_img = color_image.copy()
 
@@ -133,7 +133,9 @@ class ZeroShotClassificationAnnotator(ThreadedAnnotator, ABC):
         :param color_image: The color image to use for analyzation.
         :return: The py_trees status.
         """
-        ohs: list[ObjectHypothesis] = self.get_cas().filter_annotations_by_type(
+        ohs: list[
+            ObjectHypothesis
+        ] = self.get_common_analysis_structure().filter_annotations_by_type(
             ObjectHypothesis
         )
         if len(ohs) == 0:
@@ -200,9 +202,13 @@ class ZeroShotClassificationAnnotator(ThreadedAnnotator, ABC):
         start_time = time.perf_counter()
         analysis_scope = self.descriptor.parameters.analysis_scope
 
-        color_image = self.get_cas().get(CASViews.COLOR_IMAGE).copy()
+        color_image = (
+            self.get_common_analysis_structure()
+            .get(CommonAnalysisStructureViews.COLOR_IMAGE)
+            .copy()
+        )
 
-        if analysis_scope == CASViews.COLOR_IMAGE:
+        if analysis_scope == CommonAnalysisStructureViews.COLOR_IMAGE:
             status = self._analyze_scene(color_image)
         elif analysis_scope == ObjectHypothesis:
             status = self._analyze_object_hypotheses(color_image)

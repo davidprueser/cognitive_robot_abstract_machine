@@ -7,7 +7,7 @@ import open3d as o3d
 from py_trees.common import Status
 
 from robokudo.annotators.core import BaseAnnotator
-from robokudo.cas import CASViews
+from robokudo.common_analysis_structure import CommonAnalysisStructureViews
 from robokudo.types.cv import BoundingBox3D
 from robokudo.types.scene import ObjectHypothesis
 from robokudo.utils.annotator_helper import (
@@ -67,12 +67,22 @@ class SizeBBAnnotator(BaseAnnotator):
         * Updates visualization
 
         :return: SUCCESS if processing completed, FAILURE if camera viewpoint not found
-        :raises Exception: If camera viewpoint transform cannot be found in CAS
+        :raises Exception: If camera viewpoint transform cannot be found in common analysis structure
         """
         start_timer = default_timer()
-        vis_geometries = [self.get_cas().get_copy(CASViews.CLOUD)]
-        object_hypotheses = self.get_cas().filter_annotations_by_type(ObjectHypothesis)
-        visualization_img = self.get_cas().get_copy(CASViews.COLOR_IMAGE)
+        vis_geometries = [
+            self.get_common_analysis_structure().get_copy(
+                CommonAnalysisStructureViews.CLOUD
+            )
+        ]
+        object_hypotheses = (
+            self.get_common_analysis_structure().filter_annotations_by_type(
+                ObjectHypothesis
+            )
+        )
+        visualization_img = self.get_common_analysis_structure().get_copy(
+            CommonAnalysisStructureViews.COLOR_IMAGE
+        )
         for oh in object_hypotheses:
             if not isinstance(oh, ObjectHypothesis):
                 continue
@@ -83,11 +93,14 @@ class SizeBBAnnotator(BaseAnnotator):
             cluster_cloud = copy.deepcopy(pcd)
             try:
                 cluster_cloud_in_world = transform_cloud_from_camera_to_world(
-                    self.get_cas(), cluster_cloud, transform_inplace=True
+                    self.get_common_analysis_structure(),
+                    cluster_cloud,
+                    transform_inplace=True,
                 )
             except Exception as e:
                 self.rk_logger.warning(
-                    f"Couldn't find camera viewpoint in the CAS." f"Fail. Error: {e}"
+                    f"Couldn't find camera viewpoint in the common analysis structure."
+                    f"Fail. Error: {e}"
                 )
                 return Status.FAILURE
 
@@ -131,7 +144,7 @@ class SizeBBAnnotator(BaseAnnotator):
             )
 
             world_to_camera_transform = get_world_to_camera_transform_matrix(
-                self.get_cas()
+                self.get_common_analysis_structure()
             )
 
             cluster_transform_in_camera = np.matmul(

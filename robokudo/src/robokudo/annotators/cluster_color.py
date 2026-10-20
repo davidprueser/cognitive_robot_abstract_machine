@@ -23,7 +23,7 @@ from py_trees.common import Status
 from typing_extensions import TYPE_CHECKING, Dict, List, Tuple, Type
 
 from robokudo.annotators.core import BaseAnnotator
-from robokudo.cas import CASViews
+from robokudo.common_analysis_structure import CommonAnalysisStructureViews
 from robokudo.types.annotation import SemanticColor
 from robokudo.types.cv import Rect
 from robokudo.types.scene import AnalyzableAnnotation
@@ -369,8 +369,12 @@ class ClusterColorAnnotator(BaseAnnotator):
         """
         start_timer = default_timer()
 
-        cloud = self.get_cas().get(CASViews.CLOUD)
-        color = self.get_cas().get(CASViews.COLOR_IMAGE)
+        cloud = self.get_common_analysis_structure().get(
+            CommonAnalysisStructureViews.CLOUD
+        )
+        color = self.get_common_analysis_structure().get(
+            CommonAnalysisStructureViews.COLOR_IMAGE
+        )
 
         # List for visualization purposes
         self.cluster_color_info = []
@@ -409,8 +413,10 @@ class ClusterColorAnnotator(BaseAnnotator):
         :param color: Input color image
         """
         # Iterate over everything that is an Object hypothesis and calculate the colors
-        object_hypotheses = self.get_cas().filter_annotations_by_type(
-            self.descriptor.parameters.analysis_scope
+        object_hypotheses = (
+            self.get_common_analysis_structure().filter_annotations_by_type(
+                self.descriptor.parameters.analysis_scope
+            )
         )
 
         for object_hypothesis in object_hypotheses:

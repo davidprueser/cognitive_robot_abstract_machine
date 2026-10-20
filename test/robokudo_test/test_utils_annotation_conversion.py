@@ -7,7 +7,10 @@ import sensor_msgs.msg
 from geometry_msgs.msg import PoseStamped
 from scipy.spatial.transform import Rotation as R
 
-from robokudo.cas import CAS, CASViews
+from robokudo.common_analysis_structure import (
+    CommonAnalysisStructure,
+    CommonAnalysisStructureViews,
+)
 from robokudo.types.annotation import (
     PoseAnnotation,
     StampedPoseAnnotation,
@@ -55,14 +58,14 @@ from . import _assertions
 
 class TestUtilsAnnotationConversion(object):
     @pytest.fixture
-    def cas_with_tf(self) -> CAS:
-        cas = CAS()
+    def common_analysis_structure_with_tf(self) -> CommonAnalysisStructure:
+        common_analysis_structure = CommonAnalysisStructure()
 
         # tf = StampedTransform()
         # tf.rotation = (-0.5, 0.5, -0.5, 0.5)
         # tf.translation = (0.5, 0.5, 0.5)
-        # cas.set(CASViews.VIEWPOINT_CAMERA_TO_WORLD, tf)
-        cas.camera_to_world_transform = (
+        # common_analysis_structure.set(CommonAnalysisStructureViews.VIEWPOINT_CAMERA_TO_WORLD, tf)
+        common_analysis_structure.camera_to_world_transform = (
             HomogeneousTransformationMatrix.from_xyz_quaternion(
                 pos_x=0.5,
                 pos_y=0.5,
@@ -84,8 +87,10 @@ class TestUtilsAnnotationConversion(object):
         kinect_camera_info.k[2] = 1050.0
         kinect_camera_info.k[4] = 639.5
         kinect_camera_info.k[5] = 479.5
-        cas.set(CASViews.CAMERA_INFO, kinect_camera_info)
-        return cas
+        common_analysis_structure.set(
+            CommonAnalysisStructureViews.CAMERA_INFO, kinect_camera_info
+        )
+        return common_analysis_structure
 
     def test_pose_annotation_to_stamped_pose_annotation_can_convert(self) -> None:
         converter = PoseAnnotationToStampedPoseAnnotationConverter()
@@ -147,7 +152,7 @@ class TestUtilsAnnotationConversion(object):
         assert converter.can_convert(Annotation()) == False
 
     def test_semantic_color_2_od_converter_convert(self) -> None:
-        cas = CAS()
+        common_analysis_structure = CommonAnalysisStructure()
         od = ObjectDesignator()
 
         converter = SemanticColor2ODConverter()
@@ -155,7 +160,7 @@ class TestUtilsAnnotationConversion(object):
         semantic_color = SemanticColor()
         semantic_color.color = "some_weird_non_default_color"
 
-        converter.convert(semantic_color, cas, od)
+        converter.convert(semantic_color, common_analysis_structure, od)
 
         assert len(od.color) == 1
         assert od.color[0] == semantic_color.color
@@ -166,7 +171,7 @@ class TestUtilsAnnotationConversion(object):
         assert converter.can_convert(Annotation()) == False
 
     def test_classification_2_od_converter_convert(self) -> None:
-        cas = CAS()
+        common_analysis_structure = CommonAnalysisStructure()
         od = ObjectDesignator()
 
         converter = Classification2ODConverter()
@@ -174,7 +179,7 @@ class TestUtilsAnnotationConversion(object):
         classification = Classification()
         classification.classname = "some_weird_non_default_classname"
 
-        converter.convert(classification, cas, od)
+        converter.convert(classification, common_analysis_structure, od)
 
         assert od.type == classification.classname
 
@@ -184,7 +189,7 @@ class TestUtilsAnnotationConversion(object):
         assert converter.can_convert(Annotation()) == False
 
     def test_stamped_pose_2_od_converter_convert(self) -> None:
-        cas = CAS()
+        common_analysis_structure = CommonAnalysisStructure()
         od = ObjectDesignator()
 
         converter = StampedPose2ODConverter()
@@ -196,7 +201,7 @@ class TestUtilsAnnotationConversion(object):
         stamped_pose_annotation.frame = "some_weird_non_default_frame_id"
         stamped_pose_annotation.timestamp = np.random.randint(sys.maxsize)
 
-        converter.convert(stamped_pose_annotation, cas, od)
+        converter.convert(stamped_pose_annotation, common_analysis_structure, od)
 
         assert len(od.pose) == 1
         pose: PoseStamped = od.pose[0]
@@ -215,10 +220,14 @@ class TestUtilsAnnotationConversion(object):
         assert converter.can_convert(PoseAnnotation()) == True
         assert converter.can_convert(Annotation()) == False
 
-    def test_pose_2_od_converter_convert_in_camera(self, cas_with_tf: CAS) -> None:
-        # cas_with_tf.set(CASViews.VIEWPOINT_CAMERA_TO_WORLD, None)
-        cas_with_tf.camera_to_world_transform = None
-        kinect_camera_info = cas_with_tf.get(CASViews.CAMERA_INFO)
+    def test_pose_2_od_converter_convert_in_camera(
+        self, common_analysis_structure_with_tf: CommonAnalysisStructure
+    ) -> None:
+        # common_analysis_structure_with_tf.set(CommonAnalysisStructureViews.VIEWPOINT_CAMERA_TO_WORLD, None)
+        common_analysis_structure_with_tf.camera_to_world_transform = None
+        kinect_camera_info = common_analysis_structure_with_tf.get(
+            CommonAnalysisStructureViews.CAMERA_INFO
+        )
 
         od = ObjectDesignator()
 
@@ -229,7 +238,7 @@ class TestUtilsAnnotationConversion(object):
         pose_annotation.translation = np.random.rand(3)
         pose_annotation.rotation = np.random.rand(4)
 
-        converter.convert(pose_annotation, cas_with_tf, od)
+        converter.convert(pose_annotation, common_analysis_structure_with_tf, od)
 
         assert len(od.pose) == 1
         pose: PoseStamped = od.pose[0]
@@ -246,11 +255,15 @@ class TestUtilsAnnotationConversion(object):
         assert pose.pose.orientation.z == pose_annotation.rotation[2]
         assert pose.pose.orientation.w == pose_annotation.rotation[3]
 
-    def test_pose_2_od_converter_convert_in_world(self, cas_with_tf: CAS) -> None:
+    def test_pose_2_od_converter_convert_in_world(
+        self, common_analysis_structure_with_tf: CommonAnalysisStructure
+    ) -> None:
         camera_to_world_quat = (
-            cas_with_tf.camera_to_world_transform.quaternion.to_list()
+            common_analysis_structure_with_tf.camera_to_world_transform.quaternion.to_list()
         )
-        kinect_camera_info = cas_with_tf.get(CASViews.CAMERA_INFO)
+        kinect_camera_info = common_analysis_structure_with_tf.get(
+            CommonAnalysisStructureViews.CAMERA_INFO
+        )
 
         od = ObjectDesignator()
 
@@ -261,7 +274,7 @@ class TestUtilsAnnotationConversion(object):
         pose_annotation.translation = np.random.rand(3)
         pose_annotation.rotation = np.random.rand(4)
 
-        converter.convert(pose_annotation, cas_with_tf, od)
+        converter.convert(pose_annotation, common_analysis_structure_with_tf, od)
 
         new_rotation = (
             R.from_quat(camera_to_world_quat) * R.from_quat(pose_annotation.rotation)
@@ -291,9 +304,11 @@ class TestUtilsAnnotationConversion(object):
         assert converter.can_convert(position_annotation) == True
         assert converter.can_convert(other_ann) == False
 
-    def test_position_2_od_converter_convert(self, cas_with_tf: CAS) -> None:
+    def test_position_2_od_converter_convert(
+        self, common_analysis_structure_with_tf: CommonAnalysisStructure
+    ) -> None:
         camera_to_world_quat = (
-            cas_with_tf.camera_to_world_transform.quaternion.to_list()
+            common_analysis_structure_with_tf.camera_to_world_transform.quaternion.to_list()
         )
 
         od = ObjectDesignator()
@@ -304,7 +319,7 @@ class TestUtilsAnnotationConversion(object):
         position_annotation.source = "some_weird_non_default_source"
         position_annotation.translation = np.random.rand(3)
 
-        converter.convert(position_annotation, cas_with_tf, od)
+        converter.convert(position_annotation, common_analysis_structure_with_tf, od)
 
         assert len(od.pose) == 1
         pose: PoseStamped = od.pose[0]
@@ -326,9 +341,11 @@ class TestUtilsAnnotationConversion(object):
         assert converter.can_convert(StampedPositionAnnotation()) == True
         assert converter.can_convert(Annotation()) == False
 
-    def test_stamped_position_2_od_converter_convert(self, cas_with_tf: CAS) -> None:
+    def test_stamped_position_2_od_converter_convert(
+        self, common_analysis_structure_with_tf: CommonAnalysisStructure
+    ) -> None:
         camera_to_world_quat = (
-            cas_with_tf.camera_to_world_transform.quaternion.to_list()
+            common_analysis_structure_with_tf.camera_to_world_transform.quaternion.to_list()
         )
         od = ObjectDesignator()
 
@@ -341,7 +358,9 @@ class TestUtilsAnnotationConversion(object):
         stamped_pose_annotation.frame = "some_weird_non_default_frame_id"
         stamped_pose_annotation.timestamp = np.random.randint(sys.maxsize)
 
-        converter.convert(stamped_pose_annotation, cas_with_tf, od)
+        converter.convert(
+            stamped_pose_annotation, common_analysis_structure_with_tf, od
+        )
 
         assert len(od.pose) == 1
         pose: PoseStamped = od.pose[0]
@@ -367,7 +386,7 @@ class TestUtilsAnnotationConversion(object):
 
     def test_bounding_box_3d_for_shape_size_converter_convert(self) -> None:
         od = ObjectDesignator()
-        cas = CAS()
+        common_analysis_structure = CommonAnalysisStructure()
 
         converter = BoundingBox3DForShapeSizeConverter()
 
@@ -376,7 +395,7 @@ class TestUtilsAnnotationConversion(object):
         bbox3d.y_length = np.random.randint(sys.maxsize)
         bbox3d.z_length = np.random.randint(sys.maxsize)
 
-        converter.convert(bbox3d, cas, od)
+        converter.convert(bbox3d, common_analysis_structure, od)
 
         assert (
             od.size == ""
@@ -401,7 +420,7 @@ class TestUtilsAnnotationConversion(object):
         shape = Shape()
         shape.geometry = SemDTSphere(radius=0.17)
 
-        converter.convert(shape, CAS(), od)
+        converter.convert(shape, CommonAnalysisStructure(), od)
 
         assert len(od.shape) == 1
         assert od.shape[0] == shape.shape_name
@@ -419,7 +438,7 @@ class TestUtilsAnnotationConversion(object):
         shape = Cuboid()
         shape.geometry = SemDTBox()
 
-        converter.convert(shape, CAS(), od)
+        converter.convert(shape, CommonAnalysisStructure(), od)
 
         assert len(od.shape) == 1
         assert od.shape[0] == shape.shape_name
@@ -442,7 +461,7 @@ class TestUtilsAnnotationConversion(object):
         shape = Cylinder()
         shape.geometry = SemDTCylinder(width=0.22, height=0.41)
 
-        converter.convert(shape, CAS(), od)
+        converter.convert(shape, CommonAnalysisStructure(), od)
 
         assert len(od.shape) == 1
         assert od.shape[0] == shape.shape_name
@@ -455,7 +474,7 @@ class TestUtilsAnnotationConversion(object):
         shape = Sphere()
         shape.geometry = SemDTSphere(radius=np.random.random())
 
-        converter.convert(shape, CAS(), od)
+        converter.convert(shape, CommonAnalysisStructure(), od)
 
         assert len(od.shape) == 1
         assert od.shape[0] == shape.shape_name
@@ -476,7 +495,7 @@ class TestUtilsAnnotationConversion(object):
         loc = LocationAnnotation()
         loc.region = Region(name=PrefixedName(name="some_weird_non_default_name"))
 
-        converter.convert(loc, CAS(), od)
+        converter.convert(loc, CommonAnalysisStructure(), od)
 
         assert od.location == str(loc.region.name)
 
@@ -488,6 +507,6 @@ class TestUtilsAnnotationConversion(object):
         loc = LocationAnnotation()
         loc.name = "legacy_location_name"
 
-        converter.convert(loc, CAS(), od)
+        converter.convert(loc, CommonAnalysisStructure(), od)
 
         assert od.location == loc.name

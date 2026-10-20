@@ -1,5 +1,5 @@
 """
-Shared Open3D serialization helpers for CAS codecs.
+Shared Open3D serialization helpers for common analysis structure codecs.
 """
 
 from __future__ import annotations

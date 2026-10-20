@@ -22,7 +22,7 @@ import robokudo.types.annotation
 import robokudo.types.scene
 import robokudo.utils.annotator_helper
 import robokudo.utils.cv_helper
-from robokudo.cas import CASViews
+from robokudo.common_analysis_structure import CommonAnalysisStructureViews
 from robokudo.types.scene import ObjectHypothesis
 from robokudo.utils.error_handling import catch_and_raise_to_blackboard
 from semantic_digital_twin.world_description.geometry import Color
@@ -200,10 +200,12 @@ class OpenVocabularyObjectDetectionAnnotator(
         :return: ``py_trees.common.Status.SUCCESS`` after processing the color image.
         """
         start_timer = default_timer()
-        image = self.get_cas().get(CASViews.COLOR_IMAGE)
+        image = self.get_common_analysis_structure().get(
+            CommonAnalysisStructureViews.COLOR_IMAGE
+        )
         object_hypotheses = self.detect_objects(image)
         visualization = self.visualize_objects(image, object_hypotheses)
-        self.get_cas().annotations.extend(object_hypotheses)
+        self.get_common_analysis_structure().annotations.extend(object_hypotheses)
         self.get_annotator_output_struct().set_image(visualization)
         self.feedback_message = f"Processing took {default_timer() - start_timer:.4f}s"
         return py_trees.common.Status.SUCCESS

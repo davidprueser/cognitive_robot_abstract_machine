@@ -55,7 +55,7 @@ class StaticCameraTransformComponent:
     """Camera component with configuration for a fixed camera transform."""
 
     static_camera_transform_enabled: bool = False
-    """Whether to write a configured static camera transform into each CAS."""
+    """Whether to write a configured static camera transform into each common analysis structure."""
 
     static_world_frame: str = "map"
     """World frame ID for the configured static camera transform."""

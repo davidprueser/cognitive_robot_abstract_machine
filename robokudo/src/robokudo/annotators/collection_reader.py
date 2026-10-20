@@ -1,16 +1,16 @@
-"""Sensor data collection and CAS initialization.
+"""Sensor data collection and common analysis structure initialization.
 
 This module provides an annotator for:
 
 * Reading sensor data from multiple interfaces
-* Initializing the CAS with sensor data
+* Initializing the common analysis structure with sensor data
 * Managing multiple collection readers
 * Handling data synchronization
 
 The module uses:
 
 * Camera interface abstraction
-* Pipeline CAS management
+* Pipeline common analysis structure management
 * Data availability monitoring
 * Query preservation
 
@@ -36,12 +36,12 @@ if TYPE_CHECKING:
 
 
 class CollectionReaderAnnotator(BaseAnnotator):
-    """Sensor data collection and CAS initialization.
+    """Sensor data collection and common analysis structure initialization.
 
     This annotator:
 
     * Reads sensor data from camera interfaces
-    * Initializes new CAS instances
+    * Initializes new common analysis structure instances
     * Manages multiple collection readers
     * Monitors data availability
     * Preserves existing queries
@@ -127,12 +127,12 @@ class CollectionReaderAnnotator(BaseAnnotator):
         )
 
     def update(self) -> Status:
-        """Process sensor data and update CAS.
+        """Process sensor data and update common analysis structure.
 
         The method:
 
         * Checks for new data from all readers
-        * Creates new CAS when data available
+        * Creates new common analysis structure when data available
         * Preserves existing queries
         * Updates feedback messages
         * Monitors data availability
@@ -152,7 +152,7 @@ class CollectionReaderAnnotator(BaseAnnotator):
         if all_crs_have_data:
             self.iterations_since_last_data = 0
             self.rk_logger.debug(
-                "%s.update(): All CRs have new data! Creating a new CAS."
+                "%s.update(): All CRs have new data! Creating a new common analysis structure."
                 % self.__class__.__name__
             )
             end_timer = timer()
@@ -164,28 +164,30 @@ class CollectionReaderAnnotator(BaseAnnotator):
                 self.feedback_message = "Pipeline is not set!"
                 return Status.FAILURE
 
-            # Special case: If there is already a query present in this CAS, we need to temporarily save it and set
-            # it in the new CAS
-            query = pipeline.cas.query
+            # Special case: If there is already a query present in this common analysis structure, we need to temporarily save it and set
+            # it in the new common analysis structure
+            query = pipeline.common_analysis_structure.query
 
-            # Create a fresh CAS for the pipeline
-            pipeline.create_new_cas()
+            # Create a fresh common analysis structure for the pipeline
+            pipeline.create_new_common_analysis_structure()
             self.rk_logger.debug(
-                f"{self.__class__.__name__}.update(): New CAS id={pipeline.cas.cas_id}"
+                f"{self.__class__.__name__}.update(): New common analysis structure id={pipeline.common_analysis_structure.common_analysis_structure_id}"
             )
 
             camera_config = self.descriptor.parameters.camera_config
             if issubclass(type(camera_config), TfComponent):
-                cas = self.get_cas()
-                cas.world_frame = camera_config.tf_to
-                cas.camera_frame = camera_config.tf_from
+                common_analysis_structure = self.get_common_analysis_structure()
+                common_analysis_structure.world_frame = camera_config.tf_to
+                common_analysis_structure.camera_frame = camera_config.tf_from
 
             # Restore any existing queries
             if query:
-                pipeline.cas.query = query
+                pipeline.common_analysis_structure.query = query
 
             for collection_reader in self.collection_readers:
-                collection_reader.parameters.camera_interface.set_data(self.get_cas())
+                collection_reader.parameters.camera_interface.set_data(
+                    self.get_common_analysis_structure()
+                )
 
             self.feedback_message = (
                 f"Got sensor data... Waited for {time_difference} seconds"

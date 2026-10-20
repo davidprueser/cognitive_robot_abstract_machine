@@ -30,7 +30,7 @@ import open3d as o3d
 from py_trees.common import Status
 
 from robokudo.annotators.core import BaseAnnotator, ThreadedAnnotator
-from robokudo.cas import CASViews
+from robokudo.common_analysis_structure import CommonAnalysisStructureViews
 from robokudo.types.annotation import Plane
 from robokudo.utils.transform import get_transform_from_plane_equation
 
@@ -115,7 +115,7 @@ class PlaneAnnotator(ThreadedAnnotator):
 
         The method:
 
-        * Loads point cloud from CAS
+        * Loads point cloud from common analysis structure
         * Detects plane using RANSAC:
           * Distance threshold: 0.02
           * Sample size: 3 points
@@ -131,14 +131,18 @@ class PlaneAnnotator(ThreadedAnnotator):
         """
         self.rk_logger.info("Plane compute start")
         start_timer = default_timer()
-        cloud = self.get_cas().get(CASViews.CLOUD)
-        color_image = self.get_cas().get(
-            CASViews.COLOR_IMAGE
+        cloud = self.get_common_analysis_structure().get(
+            CommonAnalysisStructureViews.CLOUD
+        )
+        color_image = self.get_common_analysis_structure().get(
+            CommonAnalysisStructureViews.COLOR_IMAGE
         )  # shape [H, W, 3], usually RGB
-        depth_image = self.get_cas().get(
-            CASViews.DEPTH_IMAGE
+        depth_image = self.get_common_analysis_structure().get(
+            CommonAnalysisStructureViews.DEPTH_IMAGE
         )  # shape [H, W], float or uint16
-        camera_intrinsics = self.get_cas().get(CASViews.CAMERA_INTRINSIC)
+        camera_intrinsics = self.get_common_analysis_structure().get(
+            CommonAnalysisStructureViews.CAMERA_INTRINSIC
+        )
         # print(f"Loaded cloud with {len(cloud.points)} points")
 
         random_seed = self.descriptor.parameters.random_seed
@@ -160,7 +164,7 @@ class PlaneAnnotator(ThreadedAnnotator):
         plane_annotation = Plane()
         plane_annotation.model = plane_model
         plane_annotation.inliers = inliers
-        self.get_cas().annotations.append(plane_annotation)
+        self.get_common_analysis_structure().annotations.append(plane_annotation)
 
         # Visualization
 

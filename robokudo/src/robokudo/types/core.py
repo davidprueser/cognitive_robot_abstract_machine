@@ -1,7 +1,7 @@
 """Core type definitions for Robokudo.
 
 This module provides the base type hierarchy for Robokudo's type system.
-It is comparable to uima.cas.TOP in uimacpp and provides the foundation
+It is comparable to uima.common_analysis_structure.TOP in uimacpp and provides the foundation
 for all other types in the system.
 
 The module defines:
@@ -18,7 +18,7 @@ from dataclasses import dataclass
 class Type:
     """Base class for all Robokudo types.
 
-    This is the root of the type hierarchy, comparable to uima.cas.TOP in uimacpp.
+    This is the root of the type hierarchy, comparable to uima.common_analysis_structure.TOP in uimacpp.
     All other types in the system should inherit from this class.
     """
 

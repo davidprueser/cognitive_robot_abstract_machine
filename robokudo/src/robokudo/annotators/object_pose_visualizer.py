@@ -14,7 +14,7 @@ import open3d as o3d
 from py_trees.common import Status
 
 from robokudo.annotators.core import BaseAnnotator
-from robokudo.cas import CASViews
+from robokudo.common_analysis_structure import CommonAnalysisStructureViews
 from robokudo.types.annotation import PoseAnnotation
 from robokudo.types.scene import ObjectHypothesis
 from robokudo.utils.error_handling import catch_and_raise_to_blackboard
@@ -23,7 +23,7 @@ from robokudo.utils.transform import get_transform_matrix_from_q
 
 class ObjectPoseVisualizer(BaseAnnotator):
     """
-    Annotator for visualizing object poses in the CAS.
+    Annotator for visualizing object poses in the common analysis structure.
 
     This annotator creates visualizations of object poses by:
 
@@ -56,10 +56,18 @@ class ObjectPoseVisualizer(BaseAnnotator):
         """
         start_timer = default_timer()
 
-        visualization_img = self.get_cas().get_copy(CASViews.COLOR_IMAGE)
-        cloud = self.get_cas().get(CASViews.CLOUD)
+        visualization_img = self.get_common_analysis_structure().get_copy(
+            CommonAnalysisStructureViews.COLOR_IMAGE
+        )
+        cloud = self.get_common_analysis_structure().get(
+            CommonAnalysisStructureViews.CLOUD
+        )
 
-        object_hypotheses = self.get_cas().filter_annotations_by_type(ObjectHypothesis)
+        object_hypotheses = (
+            self.get_common_analysis_structure().filter_annotations_by_type(
+                ObjectHypothesis
+            )
+        )
 
         geometries_to_visualize = []
         object_id = 0

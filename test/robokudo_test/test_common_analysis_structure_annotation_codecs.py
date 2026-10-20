@@ -1,7 +1,7 @@
 from __future__ import annotations
 import numpy as np
 
-from robokudo.io import cas_annotation_codecs
+from robokudo.io import common_analysis_structure_annotation_codecs
 from robokudo.types.annotation import CloudAnnotation, Shape, Sphere, Cylinder
 from robokudo.types.human import (
     BodyKeypoint,
@@ -22,7 +22,9 @@ if TYPE_CHECKING:
 
 
 def test_deserialize_annotations_none_returns_empty_list() -> None:
-    assert cas_annotation_codecs.deserialize_annotations(None) == []
+    assert (
+        common_analysis_structure_annotation_codecs.deserialize_annotations(None) == []
+    )
 
 
 def test_deserialize_annotations_forwards_kwargs_for_lists(
@@ -34,10 +36,14 @@ def test_deserialize_annotations_forwards_kwargs_for_lists(
         calls.append((item, kwargs))
         return {"item": item, "kwargs": kwargs}
 
-    monkeypatch.setattr(cas_annotation_codecs, "from_json", fake_from_json)
+    monkeypatch.setattr(
+        common_analysis_structure_annotation_codecs, "from_json", fake_from_json
+    )
 
     payload = [{"id": 1}, {"id": 2}]
-    result = cas_annotation_codecs.deserialize_annotations(payload, tracker="active")
+    result = common_analysis_structure_annotation_codecs.deserialize_annotations(
+        payload, tracker="active"
+    )
 
     assert len(result) == 2
     assert [call[0] for call in calls] == payload
@@ -53,10 +59,14 @@ def test_deserialize_annotations_forwards_kwargs_for_single_item(
         calls.append((item, kwargs))
         return {"item": item, "kwargs": kwargs}
 
-    monkeypatch.setattr(cas_annotation_codecs, "from_json", fake_from_json)
+    monkeypatch.setattr(
+        common_analysis_structure_annotation_codecs, "from_json", fake_from_json
+    )
 
     payload = {"id": 3}
-    result = cas_annotation_codecs.deserialize_annotations(payload, tracker="active")
+    result = common_analysis_structure_annotation_codecs.deserialize_annotations(
+        payload, tracker="active"
+    )
 
     assert len(result) == 1
     assert calls == [(payload, {"tracker": "active"})]
@@ -65,9 +75,15 @@ def test_deserialize_annotations_forwards_kwargs_for_single_item(
 
 def test_numpy_scalar_json_serializer_roundtrip() -> None:
     scalar = np.int16(42)
-    encoded = cas_annotation_codecs.NumpyScalarJSONSerializer.to_json(scalar)
-    restored = cas_annotation_codecs.NumpyScalarJSONSerializer.from_json(
-        encoded, np.generic
+    encoded = (
+        common_analysis_structure_annotation_codecs.NumpyScalarJSONSerializer.to_json(
+            scalar
+        )
+    )
+    restored = (
+        common_analysis_structure_annotation_codecs.NumpyScalarJSONSerializer.from_json(
+            encoded, np.generic
+        )
     )
 
     assert encoded["dtype"] == "int16"
@@ -83,12 +99,18 @@ def test_cloud_annotation_serialization_roundtrip_preserves_point_cloud() -> Non
         ],
         dtype=np.float64,
     )
-    point_cloud = cas_annotation_codecs.o3d.geometry.PointCloud()
-    point_cloud.points = cas_annotation_codecs.o3d.utility.Vector3dVector(points)
+    point_cloud = common_analysis_structure_annotation_codecs.o3d.geometry.PointCloud()
+    point_cloud.points = (
+        common_analysis_structure_annotation_codecs.o3d.utility.Vector3dVector(points)
+    )
     cloud_annotation = CloudAnnotation(source="cloud_annotator", points=point_cloud)
 
-    serialized = cas_annotation_codecs.serialize_annotations([cloud_annotation])
-    restored = cas_annotation_codecs.deserialize_annotations(serialized)
+    serialized = common_analysis_structure_annotation_codecs.serialize_annotations(
+        [cloud_annotation]
+    )
+    restored = common_analysis_structure_annotation_codecs.deserialize_annotations(
+        serialized
+    )
 
     assert len(restored) == 1
     restored_cloud = restored[0]
@@ -101,8 +123,12 @@ def test_shape_annotation_serialization_roundtrip_preserves_metadata() -> None:
     shape = Shape(source="shape_annotator", inliers=[1, 2, 3], geometry=SemDTBox())
     shape.geometry.scale.x = 0.31
 
-    serialized = cas_annotation_codecs.serialize_annotations([shape])
-    restored = cas_annotation_codecs.deserialize_annotations(serialized)
+    serialized = common_analysis_structure_annotation_codecs.serialize_annotations(
+        [shape]
+    )
+    restored = common_analysis_structure_annotation_codecs.deserialize_annotations(
+        serialized
+    )
 
     assert len(restored) == 1
     restored_shape = restored[0]
@@ -120,8 +146,12 @@ def test_sphere_annotation_serialization_roundtrip_preserves_radius() -> None:
         geometry=SemDTSphere(radius=0.27),
     )
 
-    serialized = cas_annotation_codecs.serialize_annotations([sphere])
-    restored = cas_annotation_codecs.deserialize_annotations(serialized)
+    serialized = common_analysis_structure_annotation_codecs.serialize_annotations(
+        [sphere]
+    )
+    restored = common_analysis_structure_annotation_codecs.deserialize_annotations(
+        serialized
+    )
 
     assert len(restored) == 1
     restored_sphere = restored[0]
@@ -139,8 +169,12 @@ def test_cylinder_annotation_serialization_roundtrip_preserves_dimensions() -> N
         geometry=SemDTCylinder(width=0.2, height=0.6),
     )
 
-    serialized = cas_annotation_codecs.serialize_annotations([cylinder])
-    restored = cas_annotation_codecs.deserialize_annotations(serialized)
+    serialized = common_analysis_structure_annotation_codecs.serialize_annotations(
+        [cylinder]
+    )
+    restored = common_analysis_structure_annotation_codecs.deserialize_annotations(
+        serialized
+    )
 
     assert len(restored) == 1
     restored_cylinder = restored[0]
@@ -161,8 +195,12 @@ def test_body_keypoint_annotation_serialization_roundtrip_preserves_keypoints_an
         kind=KeypointKind.IMAGE_POSITION,
     )
 
-    serialized = cas_annotation_codecs.serialize_annotations([keypoint_annotation])
-    (restored,) = cas_annotation_codecs.deserialize_annotations(serialized)
+    serialized = common_analysis_structure_annotation_codecs.serialize_annotations(
+        [keypoint_annotation]
+    )
+    (restored,) = common_analysis_structure_annotation_codecs.deserialize_annotations(
+        serialized
+    )
 
     assert restored == keypoint_annotation
 
@@ -171,8 +209,10 @@ def test_body_keypoint_cloud_serialization_roundtrip_preserves_keypoint_and_poin
     None
 ):
     points = np.array([[0.0, 0.0, 1.0], [0.1, 0.0, 1.0]], dtype=np.float64)
-    point_cloud = cas_annotation_codecs.o3d.geometry.PointCloud()
-    point_cloud.points = cas_annotation_codecs.o3d.utility.Vector3dVector(points)
+    point_cloud = common_analysis_structure_annotation_codecs.o3d.geometry.PointCloud()
+    point_cloud.points = (
+        common_analysis_structure_annotation_codecs.o3d.utility.Vector3dVector(points)
+    )
     keypoint = BodyKeypoint(x=12.5, y=30.0, confidence=0.9)
     keypoint_annotation = KeypointAnnotation(
         source="pose_annotator",
@@ -180,8 +220,12 @@ def test_body_keypoint_cloud_serialization_roundtrip_preserves_keypoint_and_poin
         kind=KeypointKind.POINT_CLOUD,
     )
 
-    serialized = cas_annotation_codecs.serialize_annotations([keypoint_annotation])
-    (restored,) = cas_annotation_codecs.deserialize_annotations(serialized)
+    serialized = common_analysis_structure_annotation_codecs.serialize_annotations(
+        [keypoint_annotation]
+    )
+    (restored,) = common_analysis_structure_annotation_codecs.deserialize_annotations(
+        serialized
+    )
 
     (restored_keypoint_cloud,) = restored.keypoints
     assert restored_keypoint_cloud.keypoint == keypoint

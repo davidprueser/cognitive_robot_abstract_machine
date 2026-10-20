@@ -1,4 +1,4 @@
-"""Annotator for writing a configured static camera transform into the CAS.
+"""Annotator for writing a configured static camera transform into the common analysis structure.
 Use this in scenarios where you do not have a world to camera transform published
 or when you develop the perception system in isolation."""
 
@@ -14,7 +14,7 @@ from robokudo.io.camera_interface import CameraInterface
 
 
 class StaticCameraTransformAnnotator(BaseAnnotator):
-    """Write a fixed camera-to-world transform to the current CAS."""
+    """Write a fixed camera-to-world transform to the current common analysis structure."""
 
     class Descriptor(BaseAnnotator.Descriptor):
         class Parameters:
@@ -42,11 +42,11 @@ class StaticCameraTransformAnnotator(BaseAnnotator):
     def update(self) -> Status:
         start_timer = default_timer()
 
-        cas = self.get_cas()
+        common_analysis_structure = self.get_common_analysis_structure()
         params = self.descriptor.parameters
 
-        CameraInterface.store_camera_to_world_transform_in_cas(
-            cas=cas,
+        CameraInterface.store_camera_to_world_transform_in_common_analysis_structure(
+            common_analysis_structure=common_analysis_structure,
             world_frame=params.world_frame,
             camera_frame=params.camera_frame,
             world_T_camera=params.world_T_camera,

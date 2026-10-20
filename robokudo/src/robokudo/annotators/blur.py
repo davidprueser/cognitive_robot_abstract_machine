@@ -21,7 +21,7 @@ from py_trees.common import Status
 from typing_extensions import TYPE_CHECKING
 
 from robokudo.annotators.core import BaseAnnotator
-from robokudo.cas import CASViews
+from robokudo.common_analysis_structure import CommonAnalysisStructureViews
 
 if TYPE_CHECKING:
     import numpy.typing as npt
@@ -97,8 +97,12 @@ class BlurAnnotator(BaseAnnotator):
         """
         start_timer = default_timer()
 
-        cloud = self.get_cas().get(CASViews.CLOUD)
-        color = self.get_cas().get(CASViews.COLOR_IMAGE)
+        cloud = self.get_common_analysis_structure().get(
+            CommonAnalysisStructureViews.CLOUD
+        )
+        color = self.get_common_analysis_structure().get(
+            CommonAnalysisStructureViews.COLOR_IMAGE
+        )
 
         bluriness = self.compute_bluriness(color)
 

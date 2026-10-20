@@ -1,7 +1,7 @@
 """
-CAS condition checking utilities.
+Common analysis structure condition checking utilities.
 
-This module provides annotators for checking conditions in the Common Analysis System (CAS).
+This module provides annotators for checking conditions in the common analysis structure.
 The annotators follow these principles:
 
 * Return SUCCESS if condition is true
@@ -9,7 +9,7 @@ The annotators follow these principles:
 * Never return RUNNING status
 
 .. note::
-   For RUNNING status checks, use CASCondition from cas_condition.py instead.
+   For RUNNING status checks, use CommonAnalysisStructureCondition from common_analysis_structure_condition.py instead.
 """
 
 import functools
@@ -18,16 +18,19 @@ from py_trees.common import Status
 from typing_extensions import Callable, Type, Optional
 
 from robokudo.annotators.core import BaseAnnotator
-from robokudo.cas import CAS
-from robokudo.exceptions import CASCheckConfigurationError, CASCheckFailed
+from robokudo.common_analysis_structure import CommonAnalysisStructure
+from robokudo.exceptions import (
+    CommonAnalysisStructureCheckConfigurationError,
+    CommonAnalysisStructureCheckFailed,
+)
 from robokudo.types.scene import ObjectHypothesis
 
 
-class CASCheckFunc(BaseAnnotator):
+class CommonAnalysisStructureCheckFunc(BaseAnnotator):
     """
-    Function-based CAS condition checker.
+    Function-based common analysis structure condition checker.
 
-    Evaluates a given function that checks conditions in the CAS and returns:
+    Evaluates a given function that checks conditions in the common analysis structure and returns:
 
     * SUCCESS if function returns True
     * FAILURE if function returns False
@@ -38,59 +41,63 @@ class CASCheckFunc(BaseAnnotator):
 
     def __init__(
         self,
-        name: str = "CASCheckFunc",
-        func: Optional[Callable[[CAS], bool]] = None,
+        name: str = "CommonAnalysisStructureCheckFunc",
+        func: Optional[Callable[[CommonAnalysisStructure], bool]] = None,
         raise_with_str: str = "",
     ) -> None:
         """
-        Initialize the CAS condition checker.
+        Initialize the common analysis structure condition checker.
 
         :param name: Name of this node in the behavior tree
-        :param func: Function that evaluates CAS conditions, must return bool
+        :param func: Function that evaluates common analysis structure conditions, must return bool
         :param raise_with_str: Error message to raise on failure, empty string disables
             raising
-        :raises CASCheckConfigurationError: If func is None
+        :raises CommonAnalysisStructureCheckConfigurationError: If func is None
         """
-        super(CASCheckFunc, self).__init__(name=name)
+        super(CommonAnalysisStructureCheckFunc, self).__init__(name=name)
         if func is None:
-            raise CASCheckConfigurationError(component_name=name)
+            raise CommonAnalysisStructureCheckConfigurationError(component_name=name)
         self.func = func
         self.raise_with_str = raise_with_str
 
     def update(self) -> Status:
         """
-        Check the CAS condition.
+        Check the common analysis structure condition.
 
         :return: SUCCESS if condition is True, FAILURE if False
-        :raises CASCheckFailed: If raise_with_str is set and condition is False
+        :raises CommonAnalysisStructureCheckFailed: If raise_with_str is set and condition is False
         """
-        cas = self.get_cas()
-        if self.func(cas):
+        common_analysis_structure = self.get_common_analysis_structure()
+        if self.func(common_analysis_structure):
             return Status.SUCCESS
         else:
             if self.raise_with_str != "":
-                raise CASCheckFailed(reason=self.raise_with_str)
+                raise CommonAnalysisStructureCheckFailed(reason=self.raise_with_str)
             else:
                 return Status.FAILURE
 
 
-def any_of_type_present(annotation_type: Type, cas: CAS) -> bool:
+def any_of_type_present(
+    annotation_type: Type, common_analysis_structure: CommonAnalysisStructure
+) -> bool:
     """
-    Check if any annotations of a specific type exist in the CAS.
+    Check if any annotations of a specific type exist in the common analysis structure.
 
     :param annotation_type: Type of annotation to check for
-    :param cas: Common Analysis System instance
+    :param common_analysis_structure: Common Analysis System instance
     :return: True if at least one annotation exists, False otherwise
     """
-    annotations = cas.filter_annotations_by_type(annotation_type)
+    annotations = common_analysis_structure.filter_annotations_by_type(annotation_type)
     return len(annotations) > 0
 
 
-class CASCheckAnnotationTypeExists(CASCheckFunc):
+class CommonAnalysisStructureCheckAnnotationTypeExists(
+    CommonAnalysisStructureCheckFunc
+):
     """
     Check for existence of specific annotation types.
 
-    Specialized CASCheckFunc that:
+    Specialized CommonAnalysisStructureCheckFunc that:
 
     * Checks for presence of specific annotation types
     * Returns SUCCESS if at least one annotation exists
@@ -99,7 +106,7 @@ class CASCheckAnnotationTypeExists(CASCheckFunc):
 
     def __init__(
         self,
-        name: str = "CASCheckAnnotationTypeExists",
+        name: str = "CommonAnalysisStructureCheckAnnotationTypeExists",
         annotation_type: Optional[Type] = None,
         raise_with_str: str = "",
     ) -> None:
@@ -113,16 +120,18 @@ class CASCheckAnnotationTypeExists(CASCheckFunc):
             will be sent via the Query Interface to the caller.
         """
         func = functools.partial(any_of_type_present, annotation_type)
-        super(CASCheckAnnotationTypeExists, self).__init__(
+        super(CommonAnalysisStructureCheckAnnotationTypeExists, self).__init__(
             name=name, func=func, raise_with_str=raise_with_str
         )
 
 
-class CASCheckOHExists(CASCheckAnnotationTypeExists):
+class CommonAnalysisStructureCheckOHExists(
+    CommonAnalysisStructureCheckAnnotationTypeExists
+):
     """
     Check for existence of ObjectHypothesis annotations.
 
-    Specialized CASCheckAnnotationTypeExists that:
+    Specialized CommonAnalysisStructureCheckAnnotationTypeExists that:
 
     * Specifically checks for ObjectHypothesis annotations
     * Returns SUCCESS if any ObjectHypothesis exists
@@ -130,7 +139,9 @@ class CASCheckOHExists(CASCheckAnnotationTypeExists):
     """
 
     def __init__(
-        self, name: str = "CASCheckOHExists", raise_with_str: str = ""
+        self,
+        name: str = "CommonAnalysisStructureCheckOHExists",
+        raise_with_str: str = "",
     ) -> None:
         """
         Initialize ObjectHypothesis checker.
@@ -139,6 +150,6 @@ class CASCheckOHExists(CASCheckAnnotationTypeExists):
         :param raise_with_str: Error message to raise on failure, empty string disables
             raising
         """
-        super(CASCheckOHExists, self).__init__(
+        super(CommonAnalysisStructureCheckOHExists, self).__init__(
             name=name, annotation_type=ObjectHypothesis, raise_with_str=raise_with_str
         )

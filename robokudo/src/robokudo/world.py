@@ -6,7 +6,7 @@ Reasoning about alternate world states is done in the corresponding Annotators.
 
 import numpy as np
 
-from robokudo.cas import CAS
+from robokudo.common_analysis_structure import CommonAnalysisStructure
 from robokudo.types.scene import ObjectHypothesis
 from robokudo.utils.annotator_helper import get_camera_to_world_transform_matrix
 from robokudo.utils.transform import (
@@ -257,11 +257,13 @@ def get_object_belief_states() -> Dict[UUID, ObjectBeliefState]:
     return _tracked_objects
 
 
-def _get_world_body_from_cas(cas: CAS, rk_world: World) -> Body | None:
+def _get_world_body_from_common_analysis_structure(
+    common_analysis_structure: CommonAnalysisStructure, rk_world: World
+) -> Body | None:
     """
-    Return the world-frame body referenced by the CAS, if available.
+    Return the world-frame body referenced by the common analysis structure, if available.
     """
-    world_frame = cas.world_frame
+    world_frame = common_analysis_structure.world_frame
     if world_frame is None:
         return None
     return rk_world.get_body_by_name(PrefixedName(name=world_frame))
@@ -269,7 +271,7 @@ def _get_world_body_from_cas(cas: CAS, rk_world: World) -> Body | None:
 
 def _create_world_origin_and_scale_from_latest_bbox(
     object_belief: ObjectBeliefState,
-    cas: CAS,
+    common_analysis_structure: CommonAnalysisStructure,
     world_body: Body,
 ) -> tuple[HomogeneousTransformationMatrix, Scale] | None:
     """
@@ -281,7 +283,9 @@ def _create_world_origin_and_scale_from_latest_bbox(
 
     pose_mat = get_transform_matrix_from_q(bb.pose.rotation, bb.pose.translation)
 
-    camera_to_world_transform = get_camera_to_world_transform_matrix(cas)
+    camera_to_world_transform = get_camera_to_world_transform_matrix(
+        common_analysis_structure
+    )
     pose_in_world_mat = np.matmul(camera_to_world_transform, pose_mat)
 
     rotation = list(get_quaternion_from_transform_matrix(pose_in_world_mat))
@@ -306,7 +310,7 @@ def _create_world_origin_and_scale_from_latest_bbox(
 
 def _update_belief_body_from_latest_bbox(
     object_belief: ObjectBeliefState,
-    cas: CAS,
+    common_analysis_structure: CommonAnalysisStructure,
     rk_world: World,
     world_body: Body,
     world_T_object_belief: Connection6DoF,
@@ -317,7 +321,7 @@ def _update_belief_body_from_latest_bbox(
     """
     origin_and_scale = _create_world_origin_and_scale_from_latest_bbox(
         object_belief=object_belief,
-        cas=cas,
+        common_analysis_structure=common_analysis_structure,
         world_body=world_body,
     )
     if origin_and_scale is None:
@@ -334,7 +338,8 @@ def _update_belief_body_from_latest_bbox(
 
 
 def add_object_hypothesis_as_belief_state(
-    object_hypothesis: ObjectHypothesis, cas: CAS
+    object_hypothesis: ObjectHypothesis,
+    common_analysis_structure: CommonAnalysisStructure,
 ) -> ObjectBeliefState:
     """
     Create a new object belief from the given hypothesis and add it to the world.
@@ -343,7 +348,7 @@ def add_object_hypothesis_as_belief_state(
         This currently assumes that all object hypotheses are rooted in the camera space.
 
     :param object_hypothesis: The object hypothesis to create a belief from.
-    :param cas: The CAS to use for transform lookups.
+    :param common_analysis_structure: The common analysis structure to use for transform lookups.
     :return: The new object belief.
     """
     rk_world = world_instance()
@@ -354,7 +359,9 @@ def add_object_hypothesis_as_belief_state(
     object_belief_body = object_belief.body
     _tracked_objects[object_belief.uuid] = object_belief
 
-    world_body = _get_world_body_from_cas(cas, rk_world)
+    world_body = _get_world_body_from_common_analysis_structure(
+        common_analysis_structure, rk_world
+    )
     if world_body is None:
         return object_belief
 
@@ -368,7 +375,7 @@ def add_object_hypothesis_as_belief_state(
 
     _update_belief_body_from_latest_bbox(
         object_belief=object_belief,
-        cas=cas,
+        common_analysis_structure=common_analysis_structure,
         rk_world=rk_world,
         world_body=world_body,
         world_T_object_belief=world_T_object_belief,
@@ -378,7 +385,9 @@ def add_object_hypothesis_as_belief_state(
 
 
 def update_belief_state_with_object_hypothesis(
-    object_belief: ObjectBeliefState, object_hypothesis: ObjectHypothesis, cas: CAS
+    object_belief: ObjectBeliefState,
+    object_hypothesis: ObjectHypothesis,
+    common_analysis_structure: CommonAnalysisStructure,
 ) -> None:
     """
     Update the given object belief state with the object hypothesis.
@@ -388,20 +397,22 @@ def update_belief_state_with_object_hypothesis(
 
     :param object_belief: Object belief state to update.
     :param object_hypothesis: Object hypothesis state to update the belief state with.
-    :param cas: The CAS to use for transform lookups.
+    :param common_analysis_structure: The common analysis structure to use for transform lookups.
     """
     rk_world = world_instance()
 
     object_belief.add_hypothesis(object_hypothesis)
     object_belief_body = object_belief.body
 
-    world_body = _get_world_body_from_cas(cas, rk_world)
+    world_body = _get_world_body_from_common_analysis_structure(
+        common_analysis_structure, rk_world
+    )
     if world_body is None:
         return
 
     _update_belief_body_from_latest_bbox(
         object_belief=object_belief,
-        cas=cas,
+        common_analysis_structure=common_analysis_structure,
         rk_world=rk_world,
         world_body=world_body,
         world_T_object_belief=object_belief_body.get_first_parent_connection_of_type(

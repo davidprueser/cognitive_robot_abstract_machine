@@ -19,7 +19,7 @@ import robokudo
 import robokudo.annotators.human_and_pose
 from robokudo.annotators.exceptions import NotAPoseModelException
 from robokudo.annotators.human_and_pose import HumanAndPoseAnnotator, PoseKeypoint
-from robokudo.cas import CASViews
+from robokudo.common_analysis_structure import CommonAnalysisStructureViews
 from robokudo.types.annotation import Classification, CloudAnnotation
 from robokudo.types.core import Annotation
 from robokudo.types.cv import Rect
@@ -157,7 +157,7 @@ class PersonScene(BlackWallScene):
         """
         :param color_to_depth_ratio: Size of the depth image relative to the color
             image.
-        :return: An annotator whose CAS holds a color image and a matching depth image.
+        :return: An annotator whose common analysis structure holds a color image and a matching depth image.
         """
         annotator = HumanAndPoseAnnotator(descriptor=descriptor)
         self.place_in_pipeline(annotator, color_to_depth_ratio)
@@ -192,7 +192,11 @@ def model_loader(
 
 
 def _only_hypothesis(annotator: HumanAndPoseAnnotator) -> HumanHypothesis:
-    (hypothesis,) = annotator.get_cas().filter_annotations_by_type(HumanHypothesis)
+    (
+        hypothesis,
+    ) = annotator.get_common_analysis_structure().filter_annotations_by_type(
+        HumanHypothesis
+    )
     return hypothesis
 
 
@@ -320,7 +324,9 @@ def test_each_person_is_identified_by_its_detection_index(
 
     annotator.compute()
 
-    hypotheses = annotator.get_cas().filter_annotations_by_type(HumanHypothesis)
+    hypotheses = annotator.get_common_analysis_structure().filter_annotations_by_type(
+        HumanHypothesis
+    )
     assert [hypothesis.id for hypothesis in hypotheses] == [0, 1]
 
 
@@ -443,7 +449,9 @@ def test_point_cloud_is_built_on_smaller_depth_resolution(
 
     annotator.compute()
 
-    depth_image = annotator.get_cas().get(CASViews.DEPTH_IMAGE)
+    depth_image = annotator.get_common_analysis_structure().get(
+        CommonAnalysisStructureViews.DEPTH_IMAGE
+    )
     points = np.asarray(_only_hypothesis(annotator).points.points)
     assert len(points) == _area(scene.person_box_in(depth_image))
 

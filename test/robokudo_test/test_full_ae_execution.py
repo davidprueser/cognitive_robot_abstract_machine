@@ -7,7 +7,7 @@ import pytest
 
 from robokudo.types.cv import ColorToDepthRatio
 from robokudo import world as rk_world
-import robokudo.cas
+import robokudo.common_analysis_structure
 import robokudo.defs
 import robokudo.descriptors.camera_configs.config_filereader_playback
 import robokudo.descriptors.camera_configs.config_mongodb_playback
@@ -38,7 +38,7 @@ from semantic_digital_twin.world_description.geometry import Mesh
 from typing_extensions import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from robokudo.cas import CAS
+    from robokudo.common_analysis_structure import CommonAnalysisStructure
     from typing_extensions import Iterator
     from rclpy.node import Node
 
@@ -91,8 +91,10 @@ class TestFullAEExecution(object):
         assert tree_result is py_trees.common.Status.SUCCESS
 
         # We should have found a plane and an object
-        assert len(seq.cas.annotations) > 0
-        types_of_annotations = list(map(type, seq.cas.annotations))
+        assert len(seq.common_analysis_structure.annotations) > 0
+        types_of_annotations = list(
+            map(type, seq.common_analysis_structure.annotations)
+        )
 
         assert types_of_annotations.count(robokudo.types.annotation.Plane) == 1
         assert types_of_annotations.count(robokudo.types.scene.ObjectHypothesis) == 1
@@ -131,15 +133,17 @@ class TestFullAEExecution(object):
             ]
         )
 
-        belief_uuids_after_each_successful_cas = []
+        belief_uuids_after_each_successful_common_analysis_structure = []
 
-        def assert_current_cas_updates_single_belief(cas: CAS) -> None:
-            object_hypotheses = cas.filter_annotations_by_type(
+        def assert_current_common_analysis_structure_updates_single_belief(
+            common_analysis_structure: CommonAnalysisStructure,
+        ) -> None:
+            object_hypotheses = common_analysis_structure.filter_annotations_by_type(
                 robokudo.types.scene.ObjectHypothesis
             )
             assert (
                 len(object_hypotheses) == 1
-            ), "Each successful CAS should already contain the object hypothesis to be synchronized."
+            ), "Each successful common analysis structure should already contain the object hypothesis to be synchronized."
 
             object_beliefs = list(rk_world.get_object_belief_states().values())
             assert (
@@ -149,52 +153,67 @@ class TestFullAEExecution(object):
             object_belief = object_beliefs[0]
             assert (
                 object_belief.latest_hypothesis is object_hypotheses[0]
-            ), "The belief observed at CAS success should point to that CAS's object hypothesis."
-            belief_uuids_after_each_successful_cas.append(object_belief.uuid)
-
-        successful_cas_instances = (
-            robokudo.utils.tree_execution.run_tree_until_successful_cas_count(
-                seq,
-                node,
-                expected_cas_count=2,
-                max_iterations=120,
-                tick_rate=20,
-                on_successful_cas=assert_current_cas_updates_single_belief,
+            ), "The belief observed at common analysis structure success should point to that common analysis structure's object hypothesis."
+            belief_uuids_after_each_successful_common_analysis_structure.append(
+                object_belief.uuid
             )
+
+        successful_common_analysis_structure_instances = robokudo.utils.tree_execution.run_tree_until_successful_common_analysis_structure_count(
+            seq,
+            node,
+            expected_common_analysis_structure_count=2,
+            max_iterations=120,
+            tick_rate=20,
+            on_successful_common_analysis_structure=assert_current_common_analysis_structure_updates_single_belief,
         )
 
         assert (
-            len(successful_cas_instances) == 2
-        ), "The file-reader integration fixture should yield the two available successful CAS instances."
+            len(successful_common_analysis_structure_instances) == 2
+        ), "The file-reader integration fixture should yield the two available successful common analysis structure instances."
         assert (
-            len(belief_uuids_after_each_successful_cas) == 2
-        ), "The integration test should inspect the belief state immediately after both successful CAS instances."
+            len(belief_uuids_after_each_successful_common_analysis_structure) == 2
+        ), "The integration test should inspect the belief state immediately after both successful common analysis structure instances."
         assert (
-            belief_uuids_after_each_successful_cas[0]
-            == belief_uuids_after_each_successful_cas[1]
+            belief_uuids_after_each_successful_common_analysis_structure[0]
+            == belief_uuids_after_each_successful_common_analysis_structure[1]
         ), "The second percept should update the same ObjectBeliefState created from the first percept."
 
-        cas_ids = [cas.cas_id for cas in successful_cas_instances]
-        assert len(set(cas_ids)) == len(
-            cas_ids
-        ), "The repeated runner should count distinct CAS ids, not repeated ticks of the same CAS."
+        common_analysis_structure_ids = [
+            common_analysis_structure.common_analysis_structure_id
+            for common_analysis_structure in successful_common_analysis_structure_instances
+        ]
+        assert len(set(common_analysis_structure_ids)) == len(
+            common_analysis_structure_ids
+        ), "The repeated runner should count distinct common analysis structure ids, not repeated ticks of the same common analysis structure."
 
-        first_cas, second_cas = successful_cas_instances
+        first_common_analysis_structure, second_common_analysis_structure = (
+            successful_common_analysis_structure_instances
+        )
         same_color_image = np.array_equal(
-            first_cas.get(robokudo.cas.CASViews.COLOR_IMAGE),
-            second_cas.get(robokudo.cas.CASViews.COLOR_IMAGE),
+            first_common_analysis_structure.get(
+                robokudo.common_analysis_structure.CommonAnalysisStructureViews.COLOR_IMAGE
+            ),
+            second_common_analysis_structure.get(
+                robokudo.common_analysis_structure.CommonAnalysisStructureViews.COLOR_IMAGE
+            ),
         )
         same_depth_image = np.array_equal(
-            first_cas.get(robokudo.cas.CASViews.DEPTH_IMAGE),
-            second_cas.get(robokudo.cas.CASViews.DEPTH_IMAGE),
+            first_common_analysis_structure.get(
+                robokudo.common_analysis_structure.CommonAnalysisStructureViews.DEPTH_IMAGE
+            ),
+            second_common_analysis_structure.get(
+                robokudo.common_analysis_structure.CommonAnalysisStructureViews.DEPTH_IMAGE
+            ),
         )
         assert not (
             same_color_image and same_depth_image
-        ), "The two successful CAS instances should come from distinct RGB-D percepts."
+        ), "The two successful common analysis structure instances should come from distinct RGB-D percepts."
 
         all_hypotheses = []
-        for cas in successful_cas_instances:
-            types_of_annotations = list(map(type, cas.annotations))
+        for common_analysis_structure in successful_common_analysis_structure_instances:
+            types_of_annotations = list(
+                map(type, common_analysis_structure.annotations)
+            )
             assert (
                 types_of_annotations.count(robokudo.types.annotation.Plane) == 1
             ), "The file-reader baseline should detect one support plane per percept."
@@ -202,21 +221,21 @@ class TestFullAEExecution(object):
                 types_of_annotations.count(robokudo.types.scene.ObjectHypothesis) == 1
             ), "The cropped file-reader baseline should produce one object hypothesis per percept."
 
-            object_hypotheses = cas.filter_annotations_by_type(
+            object_hypotheses = common_analysis_structure.filter_annotations_by_type(
                 robokudo.types.scene.ObjectHypothesis
             )
             object_hypothesis = object_hypotheses[0]
             all_hypotheses.append(object_hypothesis)
 
-            pose_annotations = cas.filter_by_type(
+            pose_annotations = common_analysis_structure.filter_by_type(
                 robokudo.types.annotation.PoseAnnotation,
                 object_hypothesis.annotations,
             )
-            bbox_annotations = cas.filter_by_type(
+            bbox_annotations = common_analysis_structure.filter_by_type(
                 robokudo.types.annotation.BoundingBox3DAnnotation,
                 object_hypothesis.annotations,
             )
-            stamped_pose_annotations = cas.filter_by_type(
+            stamped_pose_annotations = common_analysis_structure.filter_by_type(
                 robokudo.types.annotation.StampedPoseAnnotation,
                 object_hypothesis.annotations,
             )
@@ -297,18 +316,20 @@ class TestFullAEExecution(object):
         )
         assert tree_result is py_trees.common.Status.SUCCESS
 
-        types_of_annotations = list(map(type, seq.cas.annotations))
+        types_of_annotations = list(
+            map(type, seq.common_analysis_structure.annotations)
+        )
         assert types_of_annotations.count(robokudo.types.annotation.Plane) == 1
         assert types_of_annotations.count(robokudo.types.scene.ObjectHypothesis) == 2
 
-        object_hypotheses = seq.cas.filter_annotations_by_type(
+        object_hypotheses = seq.common_analysis_structure.filter_annotations_by_type(
             robokudo.types.scene.ObjectHypothesis
         )
         dominant_colors = {
             colors[0].color
             for object_hypothesis in object_hypotheses
             if (
-                colors := seq.cas.filter_by_type(
+                colors := seq.common_analysis_structure.filter_by_type(
                     robokudo.types.annotation.SemanticColor,
                     object_hypothesis.annotations,
                 )
@@ -317,7 +338,7 @@ class TestFullAEExecution(object):
         assert dominant_colors == {"red", "blue"}
 
         object_shapes = [
-            seq.cas.filter_by_type(
+            seq.common_analysis_structure.filter_by_type(
                 robokudo.types.annotation.Shape,
                 object_hypothesis.annotations,
             )
@@ -368,6 +389,8 @@ class TestFullAEExecution(object):
         )
         assert tree_result is py_trees.common.Status.SUCCESS
 
-        types_of_annotations = list(map(type, seq.cas.annotations))
+        types_of_annotations = list(
+            map(type, seq.common_analysis_structure.annotations)
+        )
         assert types_of_annotations.count(robokudo.types.annotation.Plane) == 1
         assert types_of_annotations.count(robokudo.types.scene.ObjectHypothesis) == 4

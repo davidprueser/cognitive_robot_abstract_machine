@@ -12,7 +12,7 @@ import pytest
 
 from action_msgs.msg import GoalStatus
 
-import robokudo.cas
+import robokudo.common_analysis_structure
 import robokudo.defs
 import robokudo.descriptors.camera_configs.config_filereader_playback
 import robokudo.descriptors.camera_configs.config_mongodb_playback

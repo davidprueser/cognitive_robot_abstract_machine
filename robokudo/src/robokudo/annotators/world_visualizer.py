@@ -18,7 +18,7 @@ import robokudo.utils.annotator_helper
 import robokudo.utils.error_handling
 import robokudo.utils.o3d_helper
 import robokudo.world as rk_world
-from robokudo.cas import CASViews
+from robokudo.common_analysis_structure import CommonAnalysisStructureViews
 from robokudo.utils.region import region_obb_in_camera_coordinates
 from robokudo.world_descriptor import PredefinedObject
 
@@ -58,17 +58,21 @@ class WorldVisualizer(robokudo.annotators.core.ThreadedAnnotator):
     @robokudo.utils.error_handling.catch_and_raise_to_blackboard
     def compute(self) -> py_trees.common.Status:
         start_timer = default_timer()
-        cloud = self.get_cas().get(CASViews.CLOUD)
+        cloud = self.get_common_analysis_structure().get(
+            CommonAnalysisStructureViews.CLOUD
+        )
         runtime_world = rk_world.world_instance()
 
         try:
             world_to_camera_transform = (
                 robokudo.utils.annotator_helper.get_world_to_camera_transform_matrix(
-                    self.get_cas()
+                    self.get_common_analysis_structure()
                 )
             )
         except KeyError as err:
-            self.rk_logger.warning(f"Couldn't find viewpoint in the CAS: {err}")
+            self.rk_logger.warning(
+                f"Couldn't find viewpoint in the common analysis structure: {err}"
+            )
             return py_trees.common.Status.FAILURE
 
         visualized_geometries = []

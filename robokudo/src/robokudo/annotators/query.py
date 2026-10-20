@@ -8,7 +8,7 @@ It supports:
 * Type-agnostic query processing
 * Asynchronous query response
 * Integration with ROS action system
-* CAS annotation with query data
+* common analysis structure annotation with query data
 
 The module is used for:
 
@@ -37,7 +37,7 @@ from robokudo_msgs.msg import ObjectDesignator
 from typing_extensions import Any, Optional, Type
 
 from robokudo.annotators.core import BaseAnnotator
-from robokudo.cas import CASViews
+from robokudo.common_analysis_structure import CommonAnalysisStructureViews
 from robokudo.defs import LOGGING_IDENTIFIER_QUERY, PACKAGE_NAME
 from robokudo.identifier import BBIdentifier
 from robokudo.types.annotation import (
@@ -83,7 +83,7 @@ class QueryAnnotator(BaseAnnotator):
     Handle external queries through ROS action server.
 
     This Annotator spawns an Action Server that listens for Queries from external ROS
-    nodes. It will then annotate the CAS and put the Query into CASViews.QUERY. The
+    nodes. It will then annotate the common analysis structure and put the Query into CommonAnalysisStructureViews.QUERY. The
     Annotator and the Actionserver are type-agnostic, which means that you are not bound
     to a specific type of query. You can pass these from your AE to this QueryAnnotator.
     """
@@ -129,9 +129,9 @@ class QueryAnnotator(BaseAnnotator):
 
     def update(self) -> Status:
         """
-        Process new queries and update CAS.
+        Process new queries and update common analysis structure.
 
-        Checks for new queries from action server and updates CAS if found. Provides
+        Checks for new queries from action server and updates common analysis structure if found. Provides
         feedback about query status.
 
         :return: SUCCESS if query processed, RUNNING if waiting
@@ -146,7 +146,9 @@ class QueryAnnotator(BaseAnnotator):
 
         if query:
             self.feedback_message = f"Query: {query}"
-            self.get_cas().set(CASViews.QUERY, query)
+            self.get_common_analysis_structure().set(
+                CommonAnalysisStructureViews.QUERY, query
+            )
             self.action_server.start_processing()
             # self.publish_feedback()
 
@@ -343,9 +345,9 @@ class GenerateQueryResult(BaseAnnotator):
 
     def update(self) -> Status:
         """
-        Generate query result from current CAS annotations.
+        Generate query result from current common analysis structure annotations.
 
-        For each ObjectHypothesis in CAS:
+        For each ObjectHypothesis in common analysis structure:
         * Creates ObjectDesignator
         * Adds color information if available
         * Adds classification if available
@@ -359,15 +361,18 @@ class GenerateQueryResult(BaseAnnotator):
             self.rk_logger.warning("Acknowledge preempt")
             return Status.FAILURE
 
-        cas = self.get_cas()
-        annotations = cas.annotations
+        common_analysis_structure = self.get_common_analysis_structure()
+        annotations = common_analysis_structure.annotations
         object_hypotheses_count = 0
         skipped_object_hypotheses_count = 0
         query_result = []
         result = Query.Result()
         requested_object = None
-        if self.descriptor.parameters.filter_by_query and cas.contains(CASViews.QUERY):
-            query = cas.get(CASViews.QUERY)
+        if (
+            self.descriptor.parameters.filter_by_query
+            and common_analysis_structure.contains(CommonAnalysisStructureViews.QUERY)
+        ):
+            query = common_analysis_structure.get(CommonAnalysisStructureViews.QUERY)
             requested_object = query.obj
 
         for annotation in annotations:
@@ -395,7 +400,9 @@ class GenerateQueryResult(BaseAnnotator):
                     )
                     continue
 
-                converter.convert(oh_annotation, cas, object_designator)
+                converter.convert(
+                    oh_annotation, common_analysis_structure, object_designator
+                )
                 self.rk_logger.info(
                     f"converted {type(oh_annotation)} on OH {object_hypotheses_count}"
                 )

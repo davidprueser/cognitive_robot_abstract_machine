@@ -11,7 +11,7 @@ from trackers import ByteTrackTracker
 from typing_extensions import TYPE_CHECKING, List
 
 from robokudo.annotators.core import BaseAnnotator
-from robokudo.cas import CASViews
+from robokudo.common_analysis_structure import CommonAnalysisStructureViews
 from robokudo.types.annotation import Classification
 from robokudo.types.scene import ObjectHypothesis
 
@@ -49,16 +49,20 @@ class ByteTrackAnnotator(BaseAnnotator):
         """A list of simple supervision annotators to use for visualization. They will be applied in order."""
 
     def update(self) -> Status:
-        cas = self.get_cas()
+        common_analysis_structure = self.get_common_analysis_structure()
 
-        data_ts = cas.get(CASViews.DATA_TIMESTAMP)
+        data_ts = common_analysis_structure.get(
+            CommonAnalysisStructureViews.DATA_TIMESTAMP
+        )
         if data_ts < self.last_ts:
             # This is expected when looping data
             self.rk_logger.debug("Time moved backward, resetting tracker.")
             self.tracker.reset()
         self.last_ts = data_ts
 
-        ohs: List[ObjectHypothesis] = cas.filter_annotations_by_type(ObjectHypothesis)
+        ohs: List[ObjectHypothesis] = (
+            common_analysis_structure.filter_annotations_by_type(ObjectHypothesis)
+        )
         if len(ohs) == 0:
             self.rk_logger.debug(f"{len(ohs)} object hypothesis found, nothing to do.")
             return Status.SUCCESS
@@ -76,8 +80,10 @@ class ByteTrackAnnotator(BaseAnnotator):
         masks = [oh.roi.mask for oh in ohs]
         masks = list(filter(lambda m: m is not None, masks))
         if len(masks) == len(rois_xyxy):
-            camera_intrinsic: o3d.cuda.pybind.camera.PinholeCameraIntrinsic = cas.get(
-                CASViews.CAMERA_INTRINSIC
+            camera_intrinsic: o3d.cuda.pybind.camera.PinholeCameraIntrinsic = (
+                common_analysis_structure.get(
+                    CommonAnalysisStructureViews.CAMERA_INTRINSIC
+                )
             )
 
             # Masks must be restored to full color image size
@@ -96,7 +102,9 @@ class ByteTrackAnnotator(BaseAnnotator):
 
         classifications: List[Classification] = []
         for oh in ohs:
-            classification = cas.filter_by_type(Classification, oh.annotations)
+            classification = common_analysis_structure.filter_by_type(
+                Classification, oh.annotations
+            )
             if len(classification) == 0:
                 break
             classifications.append(classification[0])
@@ -127,7 +135,9 @@ class ByteTrackAnnotator(BaseAnnotator):
         :param tracked_detections: The tracked detections to visualize.
         """
         vis_image: npt.NDArray[np.uint8] = copy.deepcopy(
-            self.get_cas().get(CASViews.COLOR_IMAGE)
+            self.get_common_analysis_structure().get(
+                CommonAnalysisStructureViews.COLOR_IMAGE
+            )
         )
 
         if (

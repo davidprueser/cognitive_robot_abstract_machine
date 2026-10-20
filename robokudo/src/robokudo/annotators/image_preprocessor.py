@@ -24,7 +24,7 @@ from py_trees.common import Status
 from typing_extensions import TYPE_CHECKING, Optional
 
 from robokudo.annotators.core import BaseAnnotator
-from robokudo.cas import CASViews
+from robokudo.common_analysis_structure import CommonAnalysisStructureViews
 from robokudo.exceptions import ColorToDepthRatioMissing
 from robokudo.utils.annotator_helper import scale_camera_intrinsics
 from robokudo.utils.cv_helper import get_scaled_color_image_for_depth_image
@@ -93,7 +93,7 @@ class ImagePreprocessorAnnotator(BaseAnnotator):
 
         The method:
 
-        * Loads color and depth images from CAS
+        * Loads color and depth images from common analysis structure
         * Synchronizes and scales images
         * Converts to Open3D format
         * Generates point cloud
@@ -104,10 +104,16 @@ class ImagePreprocessorAnnotator(BaseAnnotator):
         """
         start_timer = default_timer()
 
-        self.depth = self.get_cas().get(CASViews.DEPTH_IMAGE)
-        self.color = self.get_cas().get(CASViews.COLOR_IMAGE)
+        self.depth = self.get_common_analysis_structure().get(
+            CommonAnalysisStructureViews.DEPTH_IMAGE
+        )
+        self.color = self.get_common_analysis_structure().get(
+            CommonAnalysisStructureViews.COLOR_IMAGE
+        )
         self.camera_intrinsics = copy.deepcopy(
-            self.get_cas().get(CASViews.CAMERA_INTRINSIC)
+            self.get_common_analysis_structure().get(
+                CommonAnalysisStructureViews.CAMERA_INTRINSIC
+            )
         )
 
         if self.display_mode is self.ViewMode.DEPTH:
@@ -120,7 +126,7 @@ class ImagePreprocessorAnnotator(BaseAnnotator):
         resized_color = None
         try:
             resized_color = get_scaled_color_image_for_depth_image(
-                self.get_cas(), self.color
+                self.get_common_analysis_structure(), self.color
             )
         except ColorToDepthRatioMissing:
             self.rk_logger.error(
@@ -151,9 +157,14 @@ class ImagePreprocessorAnnotator(BaseAnnotator):
             rgbd_image, self.camera_intrinsics
         )
 
-        self.get_cas().set(CASViews.POINTCLOUD_CAMERA_INTRINSIC, self.camera_intrinsics)
+        self.get_common_analysis_structure().set(
+            CommonAnalysisStructureViews.POINTCLOUD_CAMERA_INTRINSIC,
+            self.camera_intrinsics,
+        )
 
-        self.get_cas().set_ref(CASViews.CLOUD, cloud)
+        self.get_common_analysis_structure().set_ref(
+            CommonAnalysisStructureViews.CLOUD, cloud
+        )
         self.get_annotator_output_struct().set_geometries(
             cloud
         )  # the visualizer can only show non-NaN pointclouds

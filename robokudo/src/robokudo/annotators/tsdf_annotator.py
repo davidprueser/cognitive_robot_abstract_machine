@@ -10,7 +10,7 @@ from py_trees.common import Status
 from typing_extensions import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 from robokudo.annotators.core import BaseAnnotator, ThreadedAnnotator
-from robokudo.cas import CASViews
+from robokudo.common_analysis_structure import CommonAnalysisStructureViews
 from robokudo.types.annotation import PoseAnnotation, TSDFAnnotation
 from robokudo.types.scene import ObjectHypothesis
 from robokudo.utils.comparators import TranslationComparator
@@ -108,22 +108,28 @@ class TSDFAnnotator(ThreadedAnnotator):
 
         :return: Whether the TSDF integration was successful or not.
         """
-        cas = self.get_cas()
-        if cas is None:
+        common_analysis_structure = self.get_common_analysis_structure()
+        if common_analysis_structure is None:
             return Status.FAILURE
 
-        ohs: List[ObjectHypothesis] = cas.filter_annotations_by_type(ObjectHypothesis)
+        ohs: List[ObjectHypothesis] = (
+            common_analysis_structure.filter_annotations_by_type(ObjectHypothesis)
+        )
         if len(ohs) == 0:
             return Status.FAILURE
 
-        color_to_depth_ratio: ColorToDepthRatio = cas.get(CASViews.COLOR_TO_DEPTH_RATIO)
+        color_to_depth_ratio: ColorToDepthRatio = common_analysis_structure.get(
+            CommonAnalysisStructureViews.COLOR_TO_DEPTH_RATIO
+        )
 
         # Only process ohs with pose
         oh_data: List[
             Tuple[ObjectHypothesis, PoseAnnotation, Tuple[int, int, int, int]]
         ] = []
         for oh in ohs:
-            poses = cas.filter_by_type(PoseAnnotation, oh.annotations)
+            poses = common_analysis_structure.filter_by_type(
+                PoseAnnotation, oh.annotations
+            )
             if len(poses) > 0:
                 roi: Tuple[int, int, int, int] = color_to_depth_ratio.depth_region(
                     oh.roi.roi
@@ -137,16 +143,25 @@ class TSDFAnnotator(ThreadedAnnotator):
 
         camera_intrinsic: o3d.camera.PinholeCameraIntrinsic = (
             scale_o3d_camera_intrinsics(
-                cas.get(CASViews.CAMERA_INTRINSIC),
+                common_analysis_structure.get(
+                    CommonAnalysisStructureViews.CAMERA_INTRINSIC
+                ),
                 color_to_depth_ratio.horizontal,
                 color_to_depth_ratio.vertical,
             )
         )
         color_image: npt.NDArray[np.uint8] = get_scaled_color_image_for_depth_image(
-            cas, copy.deepcopy(self.get_cas().get(CASViews.COLOR_IMAGE))
+            common_analysis_structure,
+            copy.deepcopy(
+                self.get_common_analysis_structure().get(
+                    CommonAnalysisStructureViews.COLOR_IMAGE
+                )
+            ),
         )
         depth_image: npt.NDArray[np.float32] = copy.deepcopy(
-            self.get_cas().get(CASViews.DEPTH_IMAGE)
+            self.get_common_analysis_structure().get(
+                CommonAnalysisStructureViews.DEPTH_IMAGE
+            )
         )
 
         geometries: List[o3d.geometry.Geometry] = []
@@ -161,7 +176,9 @@ class TSDFAnnotator(ThreadedAnnotator):
             if mask.max() == 255:
                 mask = np.clip(mask, 0, 1)
 
-            mask = get_scaled_color_image_for_depth_image(cas, mask)
+            mask = get_scaled_color_image_for_depth_image(
+                common_analysis_structure, mask
+            )
 
             if mask.shape[:2] == depth_image.shape[:2]:
                 masked_depth = depth_image * mask

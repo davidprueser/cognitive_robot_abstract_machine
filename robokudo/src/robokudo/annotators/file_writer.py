@@ -28,7 +28,7 @@ import cv2
 from py_trees.common import Status
 
 from robokudo.annotators.core import BaseAnnotator
-from robokudo.cas import CASViews
+from robokudo.common_analysis_structure import CommonAnalysisStructureViews
 from robokudo.utils.type_conversion import ros_camera_info_to_dict
 
 
@@ -89,25 +89,27 @@ class FileWriter(BaseAnnotator):
                 f"{self.descriptor.parameters.target_dir} is not existing or not a directory"
             )
 
-    def generate_full_file_path_(self, cas_view: str, file_extension: str) -> str:
+    def generate_full_file_path_(
+        self, common_analysis_structure_view: str, file_extension: str
+    ) -> str:
         """Generate the full filename and path where data should be stored.
 
         Creates a filepath using:
 
         * Configured prefix
         * Current timestamp
-        * CAS view name
+        * common analysis structure view name
         * File extension
 
-        :param cas_view: One of the definitions from CASView.X
+        :param common_analysis_structure_view: One of the definitions from CommonAnalysisStructureView.X
         :param file_extension: File extension without dot (e.g. "jpg")
         :return: A string with the full path according to our naming scheme.
         """
         fn_prefix = self.descriptor.parameters.filename_prefix
-        timestamp = self.get_cas().timestamp
+        timestamp = self.get_common_analysis_structure().timestamp
         return str(
             self.target_dir_path.joinpath(
-                f"{fn_prefix}{str(timestamp)}_{cas_view}.{file_extension}"
+                f"{fn_prefix}{str(timestamp)}_{common_analysis_structure_view}.{file_extension}"
             )
         )
 
@@ -132,19 +134,27 @@ class FileWriter(BaseAnnotator):
             )
             return Status.FAILURE
 
-        color = self.get_cas().get(CASViews.COLOR_IMAGE)
-        depth = self.get_cas().get(CASViews.DEPTH_IMAGE)
-        camera_info = self.get_cas().get(CASViews.CAMERA_INFO)
+        color = self.get_common_analysis_structure().get(
+            CommonAnalysisStructureViews.COLOR_IMAGE
+        )
+        depth = self.get_common_analysis_structure().get(
+            CommonAnalysisStructureViews.DEPTH_IMAGE
+        )
+        camera_info = self.get_common_analysis_structure().get(
+            CommonAnalysisStructureViews.CAMERA_INFO
+        )
 
         cv2.imwrite(
             self.generate_full_file_path_(
-                cas_view=CASViews.COLOR_IMAGE, file_extension="jpg"
+                common_analysis_structure_view=CommonAnalysisStructureViews.COLOR_IMAGE,
+                file_extension="jpg",
             ),
             color,
         )
         cv2.imwrite(
             self.generate_full_file_path_(
-                cas_view=CASViews.DEPTH_IMAGE, file_extension="png"
+                common_analysis_structure_view=CommonAnalysisStructureViews.DEPTH_IMAGE,
+                file_extension="png",
             ),
             depth,
         )
@@ -153,7 +163,8 @@ class FileWriter(BaseAnnotator):
         with open(
             str(
                 self.generate_full_file_path_(
-                    cas_view=CASViews.CAMERA_INFO, file_extension="json"
+                    common_analysis_structure_view=CommonAnalysisStructureViews.CAMERA_INFO,
+                    file_extension="json",
                 )
             ),
             "w",

@@ -29,16 +29,18 @@ def create_test_tree() -> Sequence:
 
 
 class TestPipeline(object):
-    def test_find_cas_direct(self) -> None:
+    def test_find_common_analysis_structure_direct(self) -> None:
         root = Pipeline("Sequence")
         annotator1 = BaseAnnotator("1")
         annotator2 = BaseAnnotator("2")
         root.add_child(annotator1)
         root.add_child(annotator2)
 
-        assert root.cas == annotator1.get_cas()
+        assert (
+            root.common_analysis_structure == annotator1.get_common_analysis_structure()
+        )
 
-    def test_find_cas_from_deeper_leaf(self) -> None:
+    def test_find_common_analysis_structure_from_deeper_leaf(self) -> None:
         root = Pipeline("Sequence")
         annotator1 = BaseAnnotator("1")
         annotator2 = BaseAnnotator("2")
@@ -55,7 +57,10 @@ class TestPipeline(object):
         root.add_child(annotator2)
         root.add_child(selector)
 
-        assert root.cas == annotatorInSelector.get_cas()
+        assert (
+            root.common_analysis_structure
+            == annotatorInSelector.get_common_analysis_structure()
+        )
 
     def test_get_annotators_nested(self) -> None:
         root = Pipeline("Sequence")

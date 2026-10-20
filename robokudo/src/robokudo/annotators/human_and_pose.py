@@ -26,7 +26,7 @@ from ultralytics import YOLO
 
 from robokudo.annotators.core import ThreadedAnnotator
 from robokudo.annotators.exceptions import NotAPoseModelException
-from robokudo.cas import CASViews
+from robokudo.common_analysis_structure import CommonAnalysisStructureViews
 from robokudo.defs import PACKAGE_NAME
 from robokudo.types.annotation import Classification, CloudAnnotation
 from robokudo.types.cv import Rect
@@ -325,8 +325,8 @@ class HumanAndPoseAnnotator(ThreadedAnnotator):
     @record_time
     def compute(self) -> Status:
         """
-        Detect humans in the color image of the CAS and add one human hypothesis with
-        its keypoints per detection to the CAS.
+        Detect humans in the color image of the common analysis structure and add one human hypothesis with
+        its keypoints per detection to the common analysis structure.
 
         :return: :attr:`Status.SUCCESS` once the hypotheses are added.
         :raises NotAPoseModelException: If the model reports no keypoints for a
@@ -336,13 +336,17 @@ class HumanAndPoseAnnotator(ThreadedAnnotator):
             self.descriptor.parameters
         )
         depth_frame = self._depth_frame() if parameters.global_with_depth else None
-        result = self._predict(self.get_cas().get(CASViews.COLOR_IMAGE))
+        result = self._predict(
+            self.get_common_analysis_structure().get(
+                CommonAnalysisStructureViews.COLOR_IMAGE
+            )
+        )
 
         hypotheses = [
             self._hypothesis(result, index, depth_frame)
             for index in range(len(result.boxes))
         ]
-        self.get_cas().annotations.extend(hypotheses)
+        self.get_common_analysis_structure().annotations.extend(hypotheses)
 
         if parameters.global_with_visualization:
             self._visualize(result, hypotheses)
@@ -350,22 +354,29 @@ class HumanAndPoseAnnotator(ThreadedAnnotator):
 
     def _depth_frame(self) -> DepthFrame:
         """
-        Collect the depth measurements of the CAS and scale the color image and the
+        Collect the depth measurements of the common analysis structure and scale the color image and the
         camera intrinsics to the depth image resolution.
 
-        :return: The depth measurements of the CAS with the matching color image.
+        :return: The depth measurements of the common analysis structure with the matching color image.
         """
-        cas = self.get_cas()
-        color_to_depth_ratio = cas.get(CASViews.COLOR_TO_DEPTH_RATIO)
+        common_analysis_structure = self.get_common_analysis_structure()
+        color_to_depth_ratio = common_analysis_structure.get(
+            CommonAnalysisStructureViews.COLOR_TO_DEPTH_RATIO
+        )
         scaled_color = get_scaled_color_image_for_depth_image(
-            cas, cas.get(CASViews.COLOR_IMAGE)
+            common_analysis_structure,
+            common_analysis_structure.get(CommonAnalysisStructureViews.COLOR_IMAGE),
         )
         return DepthFrame(
-            depth_image=cas.get(CASViews.DEPTH_IMAGE),
+            depth_image=common_analysis_structure.get(
+                CommonAnalysisStructureViews.DEPTH_IMAGE
+            ),
             rgb_image=cv2.cvtColor(scaled_color, cv2.COLOR_BGR2RGB),
             color_to_depth_ratio=color_to_depth_ratio,
             camera_intrinsics=scale_o3d_camera_intrinsics(
-                cas.get(CASViews.CAMERA_INTRINSIC),
+                common_analysis_structure.get(
+                    CommonAnalysisStructureViews.CAMERA_INTRINSIC
+                ),
                 color_to_depth_ratio.horizontal,
                 color_to_depth_ratio.vertical,
             ),

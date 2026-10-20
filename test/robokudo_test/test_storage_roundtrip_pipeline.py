@@ -18,7 +18,7 @@ import robokudo.utils.data_downloader
 import robokudo.utils.tree_execution
 from robokudo.annotators.collection_reader import CollectionReaderAnnotator
 from robokudo.annotators.storage import StorageWriter
-from robokudo.cas import CASViews
+from robokudo.common_analysis_structure import CommonAnalysisStructureViews
 from robokudo.descriptors.factories.cr_descriptor_factory import (
     CollectionReaderDescriptorFactory,
 )
@@ -124,25 +124,41 @@ class TestStorageRoundtripPipeline:
             assert reader_status is py_trees.common.Status.SUCCESS
 
             np.testing.assert_array_equal(
-                writer_pipeline.cas.get(CASViews.COLOR_IMAGE),
-                reader_pipeline.cas.get(CASViews.COLOR_IMAGE),
+                writer_pipeline.common_analysis_structure.get(
+                    CommonAnalysisStructureViews.COLOR_IMAGE
+                ),
+                reader_pipeline.common_analysis_structure.get(
+                    CommonAnalysisStructureViews.COLOR_IMAGE
+                ),
             )
             np.testing.assert_allclose(
-                writer_pipeline.cas.get(CASViews.DEPTH_IMAGE),
-                reader_pipeline.cas.get(CASViews.DEPTH_IMAGE),
+                writer_pipeline.common_analysis_structure.get(
+                    CommonAnalysisStructureViews.DEPTH_IMAGE
+                ),
+                reader_pipeline.common_analysis_structure.get(
+                    CommonAnalysisStructureViews.DEPTH_IMAGE
+                ),
                 equal_nan=True,
             )
 
-            writer_camera_info = writer_pipeline.cas.get(CASViews.CAMERA_INFO)
-            reader_camera_info = reader_pipeline.cas.get(CASViews.CAMERA_INFO)
+            writer_camera_info = writer_pipeline.common_analysis_structure.get(
+                CommonAnalysisStructureViews.CAMERA_INFO
+            )
+            reader_camera_info = reader_pipeline.common_analysis_structure.get(
+                CommonAnalysisStructureViews.CAMERA_INFO
+            )
             assert writer_camera_info.width == reader_camera_info.width
             assert writer_camera_info.height == reader_camera_info.height
             assert _camera_info_k_values(writer_camera_info) == _camera_info_k_values(
                 reader_camera_info
             )
 
-            writer_camera_intrinsic = writer_pipeline.cas.get(CASViews.CAMERA_INTRINSIC)
-            reader_camera_intrinsic = reader_pipeline.cas.get(CASViews.CAMERA_INTRINSIC)
+            writer_camera_intrinsic = writer_pipeline.common_analysis_structure.get(
+                CommonAnalysisStructureViews.CAMERA_INTRINSIC
+            )
+            reader_camera_intrinsic = reader_pipeline.common_analysis_structure.get(
+                CommonAnalysisStructureViews.CAMERA_INTRINSIC
+            )
             assert writer_camera_intrinsic.width == reader_camera_intrinsic.width
             assert writer_camera_intrinsic.height == reader_camera_intrinsic.height
             np.testing.assert_allclose(
@@ -150,8 +166,12 @@ class TestStorageRoundtripPipeline:
                 reader_camera_intrinsic.intrinsic_matrix,
             )
 
-            assert writer_pipeline.cas.get(CASViews.COLOR_TO_DEPTH_RATIO) == (
-                reader_pipeline.cas.get(CASViews.COLOR_TO_DEPTH_RATIO)
+            assert writer_pipeline.common_analysis_structure.get(
+                CommonAnalysisStructureViews.COLOR_TO_DEPTH_RATIO
+            ) == (
+                reader_pipeline.common_analysis_structure.get(
+                    CommonAnalysisStructureViews.COLOR_TO_DEPTH_RATIO
+                )
             )
         finally:
             writer_node.destroy_node()

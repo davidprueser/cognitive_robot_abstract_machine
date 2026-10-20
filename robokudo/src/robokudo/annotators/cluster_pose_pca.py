@@ -28,7 +28,7 @@ import open3d as o3d
 from py_trees.common import Status
 
 from robokudo.annotators.core import BaseAnnotator
-from robokudo.cas import CASViews
+from robokudo.common_analysis_structure import CommonAnalysisStructureViews
 from robokudo.types.annotation import PoseAnnotation
 from robokudo.types.scene import ObjectHypothesis
 from robokudo.utils.transform import (
@@ -68,7 +68,7 @@ class ClusterPosePCAAnnotator(BaseAnnotator):
 
         The method:
 
-        * Loads point cloud from CAS
+        * Loads point cloud from common analysis structure
         * For each object hypothesis:
           * Computes centroid and covariance
           * Performs eigenvalue decomposition
@@ -80,8 +80,10 @@ class ClusterPosePCAAnnotator(BaseAnnotator):
         """
         start_timer = default_timer()
 
-        cloud = self.get_cas().get(CASViews.CLOUD)
-        annotations = self.get_cas().annotations
+        cloud = self.get_common_analysis_structure().get(
+            CommonAnalysisStructureViews.CLOUD
+        )
+        annotations = self.get_common_analysis_structure().annotations
         geometries_to_visualize = []
 
         # Iterate over everything that is a Object hypothesis and calculate the centroid

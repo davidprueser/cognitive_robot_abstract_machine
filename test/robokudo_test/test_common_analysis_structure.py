@@ -1,14 +1,14 @@
 from __future__ import annotations
-import robokudo.cas
+import robokudo.common_analysis_structure
 import robokudo.types.annotation
 import robokudo.types.scene
 
 
-class TestCASObject(object):
-    cls = robokudo.cas.CAS
+class TestCommonAnalysisStructureObject(object):
+    cls = robokudo.common_analysis_structure.CommonAnalysisStructure
 
     def test_annotations(self) -> None:
-        cas = self.cls()
+        common_analysis_structure = self.cls()
 
         classification = robokudo.types.annotation.Classification()
         classification.source = "classifier"
@@ -22,10 +22,10 @@ class TestCASObject(object):
         rs_obj.annotations.append(color1)
         rs_obj.annotations.append(color2)
 
-        classification_list = cas.filter_by_type(
+        classification_list = common_analysis_structure.filter_by_type(
             robokudo.types.annotation.Classification, rs_obj.annotations
         )
-        color_list = cas.filter_by_type(
+        color_list = common_analysis_structure.filter_by_type(
             robokudo.types.annotation.SemanticColor, rs_obj.annotations
         )
 
@@ -35,7 +35,7 @@ class TestCASObject(object):
         assert color_list[1] == color2
 
     def test_ohs_with_criteria(self) -> None:
-        cas = self.cls()
+        common_analysis_structure = self.cls()
 
         classification = robokudo.types.annotation.Classification()
         classification.source = "classifier"
@@ -51,7 +51,7 @@ class TestCASObject(object):
         rs_obj.annotations.append(color2)
         rs_obj2 = robokudo.types.scene.ObjectHypothesis()
 
-        cl = cas.filter_by_type_and_criteria(
+        cl = common_analysis_structure.filter_by_type_and_criteria(
             robokudo.types.annotation.Classification,
             rs_obj.annotations,
             {"classname": ("==", "Spoon")},
@@ -59,7 +59,7 @@ class TestCASObject(object):
         assert len(cl) == 1
 
         # Attribute checking is case-sensitive!
-        cl = cas.filter_by_type_and_criteria(
+        cl = common_analysis_structure.filter_by_type_and_criteria(
             robokudo.types.annotation.Classification,
             rs_obj2.annotations,
             {"classname": ("==", "spoon")},
@@ -67,14 +67,14 @@ class TestCASObject(object):
         assert len(cl) == 0
 
         # Other Object without annotations
-        cl = cas.filter_by_type_and_criteria(
+        cl = common_analysis_structure.filter_by_type_and_criteria(
             robokudo.types.annotation.Classification,
             rs_obj2.annotations,
             {"classname": ("==", "Spoon")},
         )
         assert len(cl) == 0
 
-        cl = cas.filter_by_type_and_criteria(
+        cl = common_analysis_structure.filter_by_type_and_criteria(
             robokudo.types.annotation.SemanticColor,
             rs_obj.annotations,
             {"color": ("==", "red")},

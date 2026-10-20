@@ -4,11 +4,11 @@ Core annotator classes for RoboKudo.
 This module provides base classes for implementing annotators in RoboKudo.
 
 :Classes:
-    * BaseAnnotator - Core functionality for CAS access, tree structure, and GUI result handling
+    * BaseAnnotator - Core functionality for common analysis structure access, tree structure, and GUI result handling
     * ThreadedAnnotator - Extends BaseAnnotator for long-running operations that should not block the main thread
 
 :Features:
-    * Common Analysis Structure (CAS) access
+    * Common analysis structure access
     * Tree structure navigation
     * GUI result handling
     * Thread-safe operation
@@ -46,14 +46,17 @@ from robokudo.annotators.outputs import (
     AnnotatorOutputs,
     AnnotatorOutputStruct,
 )
-from robokudo.cas import CAS, CASViews
+from robokudo.common_analysis_structure import (
+    CommonAnalysisStructure,
+    CommonAnalysisStructureViews,
+)
 from robokudo.defs import PACKAGE_NAME
 from robokudo.types.core import Annotation
 from robokudo.utils.tree import find_parent_of_type
 
 """
 This module contains superclasses for annotators.  the two main superclasses are Base- and ThreadedAnnotator.
-The first superclass provides convenience methods to access the CAS, 
+The first superclass provides convenience methods to access the common analysis structure, 
 the tree structure as well as GUI result related functionality.
 The threaded annotator provides functionality to call long-running annotators without blocking the main thread.
 """
@@ -63,7 +66,7 @@ class BaseAnnotator(Behaviour):
     """
     Base class for all RoboKudo annotators.
 
-    This class provides core functionality for CAS access, tree structure navigation,
+    This class provides core functionality for common analysis structure access, tree structure navigation,
     and GUI result handling. It serves as the foundation for implementing annotators in
     the RoboKudo framework.
 
@@ -234,13 +237,13 @@ class BaseAnnotator(Behaviour):
             % (self.__class__.__name__, event, x, y)
         )
 
-    def get_cas(self) -> CAS:
+    def get_common_analysis_structure(self) -> CommonAnalysisStructure:
         """
-        Get the CAS from the parent RoboKudo pipeline.
+        Get the common analysis structure from the parent RoboKudo pipeline.
 
-        :return: The Common Analysis Structure (CAS) instance or None if not found
+        :return: The common analysis structure instance or None if not found
         """
-        return self.get_parent_pipeline().cas
+        return self.get_parent_pipeline().common_analysis_structure
 
     def get_parent_pipeline(self) -> Optional[robokudo.pipeline.Pipeline]:
         """
@@ -322,16 +325,16 @@ class BaseAnnotator(Behaviour):
         """
         Look up data to analyze based on a list of Types or String constants.
 
-        Retrieves data from the CAS based on specified types or CASView constants.
+        Retrieves data from the common analysis structure based on specified types or CommonAnalysisStructureView constants.
         Can be used to analyze data at different levels (Scene, ObjectHypothesis, etc.)
         based on the current perception task context.
 
         Example::
 
-            get_data_from_analysis_scope([CASViews.COLOR_IMAGE])
+            get_data_from_analysis_scope([CommonAnalysisStructureViews.COLOR_IMAGE])
             =>
             {
-                CASViews.COLOR_IMAGE : numpy.array([.. image data...])
+                CommonAnalysisStructureViews.COLOR_IMAGE : numpy.array([.. image data...])
             }
 
             get_data_from_analysis_scope([robokudo.types.scene.ObjectHypothesis])
@@ -340,24 +343,28 @@ class BaseAnnotator(Behaviour):
                 robokudo.types.scene.ObjectHypothesis : [ObjectHypothesis1, ... ObjectHypothesisN]
             }
 
-        :param analysis_scope: List of data types to target (CASView attributes or Annotation subclasses)
+        :param analysis_scope: List of data types to target (CommonAnalysisStructureView attributes or Annotation subclasses)
         :return: Dict mapping requested types to corresponding data
         :raises ValueError: If result would be empty
         """
         result: Dict[Union[str, Type], Any] = {}
 
         for content in analysis_scope:
-            # CASViews are string values
+            # CommonAnalysisStructureViews are string values
             if isinstance(content, str):
-                if content not in CASViews:
+                if content not in CommonAnalysisStructureViews:
                     self.rk_logger.warning(
-                        "You have passed a string that is not defining a valid CASView from robokudo.cas.CASViews"
+                        "You have passed a string that is not defining a valid CommonAnalysisStructureView from robokudo.common_analysis_structure.CommonAnalysisStructureViews"
                     )
-                result[content] = self.get_cas().get(content)
+                result[content] = self.get_common_analysis_structure().get(content)
             elif issubclass(content, Annotation):
                 # We assume that typically only few annotations are requested here
                 # Otherwise we should iterate over all annotations and filter once to save resources
-                result[content] = self.get_cas().filter_annotations_by_type(content)
+                result[
+                    content
+                ] = self.get_common_analysis_structure().filter_annotations_by_type(
+                    content
+                )
             else:
                 self.rk_logger.error(
                     f"Couldn't lookup data {content} - Unsupported type"
@@ -454,10 +461,12 @@ class BaseAnnotator(Behaviour):
             # Create a joint state message to have a common data structure for all values
             msg = JointState()
             msg.header.stamp = (
-                self.get_cas().get(CASViews.CAMERA_INFO).header.stamp
+                self.get_common_analysis_structure()
+                .get(CommonAnalysisStructureViews.CAMERA_INFO)
+                .header.stamp
             )  # This is always the time of recording the data.
 
-            # msg.header.stamp = rospy.Time(self.get_cas().timestamp) # This might be the current time!
+            # msg.header.stamp = rospy.Time(self.get_common_analysis_structure().timestamp) # This might be the current time!
             for key, value in self.published_variables.items():
                 msg.name.append(key)
                 msg.position.append(value)

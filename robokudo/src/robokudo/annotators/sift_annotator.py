@@ -10,7 +10,7 @@ from py_trees.common import Status
 from typing_extensions import TYPE_CHECKING, List, Sequence
 
 from robokudo.annotators.core import ThreadedAnnotator
-from robokudo.cas import CASViews
+from robokudo.common_analysis_structure import CommonAnalysisStructureViews
 from robokudo.types.annotation import SIFTAnnotation
 from robokudo.types.scene import ObjectHypothesis
 
@@ -42,22 +42,28 @@ class SIFTAnnotator(ThreadedAnnotator):
 
         :return: The status of the computation.
         """
-        cas = self.get_cas()
+        common_analysis_structure = self.get_common_analysis_structure()
 
-        ohs: List[ObjectHypothesis] = cas.filter_annotations_by_type(ObjectHypothesis)
+        ohs: List[ObjectHypothesis] = (
+            common_analysis_structure.filter_annotations_by_type(ObjectHypothesis)
+        )
         if len(ohs) == 0:
             return Status.FAILURE
 
-        intrinsic = cas.camera_intrinsic
+        intrinsic = common_analysis_structure.camera_intrinsic
         if intrinsic is None:
             return Status.FAILURE
 
-        color_to_depth_ratio = cas.color_to_depth_ratio
+        color_to_depth_ratio = common_analysis_structure.color_to_depth_ratio
         if color_to_depth_ratio is None:
             return Status.FAILURE
 
-        color_image = cas.get_copy(CASViews.COLOR_IMAGE)
-        depth_image = cas.get_copy(CASViews.DEPTH_IMAGE)
+        color_image = common_analysis_structure.get_copy(
+            CommonAnalysisStructureViews.COLOR_IMAGE
+        )
+        depth_image = common_analysis_structure.get_copy(
+            CommonAnalysisStructureViews.DEPTH_IMAGE
+        )
         grey_image = cv2.cvtColor(color_image, cv2.COLOR_BGR2GRAY)
 
         vis_image = color_image.copy()

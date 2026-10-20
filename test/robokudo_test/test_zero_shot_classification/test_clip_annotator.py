@@ -228,7 +228,7 @@ def _classify_solid_image(
     annotator: CLIPAnnotator, color: np.ndarray
 ) -> list[Classification]:
     """
-    :return: The classifications of an image filled with the given CAS color.
+    :return: The classifications of an image filled with the given common analysis structure color.
     """
     return annotator.classify([Image.fromarray(solid_image(rgb(color)))])[0]
 

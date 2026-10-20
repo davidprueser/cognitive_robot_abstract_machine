@@ -38,9 +38,9 @@ class MongoStorageSnapshot:
     Whether RoboKudo's default storage database exists.
     """
 
-    cas_document_count: int | None
+    common_analysis_structure_document_count: int | None
     """
-    Number of persisted CAS documents when the database exists.
+    Number of persisted common analysis structure documents when the database exists.
     """
 
 
@@ -70,18 +70,20 @@ class MongoStoragePreservationCheck:
                 return MongoStorageSnapshot(
                     is_available=True,
                     database_exists=False,
-                    cas_document_count=None,
+                    common_analysis_structure_document_count=None,
                 )
             return MongoStorageSnapshot(
                 is_available=True,
                 database_exists=True,
-                cas_document_count=mongo_client[database_name].cas.count_documents({}),
+                common_analysis_structure_document_count=mongo_client[
+                    database_name
+                ].common_analysis_structure.count_documents({}),
             )
         except ServerSelectionTimeoutError:
             return MongoStorageSnapshot(
                 is_available=False,
                 database_exists=False,
-                cas_document_count=None,
+                common_analysis_structure_document_count=None,
             )
         finally:
             mongo_client.close()
@@ -104,7 +106,10 @@ def preserve_initial_robokudo_storage_database() -> Iterator[None]:
         return
 
     assert final_snapshot.database_exists
-    assert final_snapshot.cas_document_count == initial_snapshot.cas_document_count
+    assert (
+        final_snapshot.common_analysis_structure_document_count
+        == initial_snapshot.common_analysis_structure_document_count
+    )
 
 
 @pytest.fixture(scope="session", autouse=True)

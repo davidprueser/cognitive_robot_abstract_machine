@@ -27,7 +27,7 @@ from py_trees.common import Status
 from typing_extensions import TYPE_CHECKING, Dict, Optional, Tuple
 
 from robokudo.annotators.core import BaseAnnotator
-from robokudo.cas import CASViews
+from robokudo.common_analysis_structure import CommonAnalysisStructureViews
 from robokudo.exceptions import ColorToDepthRatioMissing, ImageContourMissing
 from robokudo.types.scene import ObjectHypothesis
 from robokudo.utils.annotator_helper import scale_camera_intrinsics
@@ -183,11 +183,13 @@ class ImageClusterExtractor(BaseAnnotator):
         """
         Adjust HSV thresholds based on color query.
 
-        Checks for a color query in the CAS and updates the HSV thresholding parameters
+        Checks for a color query in the common analysis structure and updates the HSV thresholding parameters
         if a matching color is found in the color_name_to_hsv_range mapping.
         """
         try:
-            self.query = self.get_cas().get(CASViews.QUERY)
+            self.query = self.get_common_analysis_structure().get(
+                CommonAnalysisStructureViews.QUERY
+            )
         except KeyError:
             return
 
@@ -261,17 +263,23 @@ class ImageClusterExtractor(BaseAnnotator):
         """
         start_timer = default_timer()
 
-        self.color = self.get_cas().get(CASViews.COLOR_IMAGE)
-        self.depth = self.get_cas().get(CASViews.DEPTH_IMAGE)
+        self.color = self.get_common_analysis_structure().get(
+            CommonAnalysisStructureViews.COLOR_IMAGE
+        )
+        self.depth = self.get_common_analysis_structure().get(
+            CommonAnalysisStructureViews.DEPTH_IMAGE
+        )
         self.camera_intrinsics = copy.deepcopy(
-            self.get_cas().get(CASViews.CAMERA_INTRINSIC)
+            self.get_common_analysis_structure().get(
+                CommonAnalysisStructureViews.CAMERA_INTRINSIC
+            )
         )
 
         # Scale the image down so that it matches the depth image size
         resized_color = None
         try:
             resized_color = get_scaled_color_image_for_depth_image(
-                self.get_cas(), self.color
+                self.get_common_analysis_structure(), self.color
             )
             scale_camera_intrinsics(self)
         except ColorToDepthRatioMissing:
@@ -399,7 +407,9 @@ class ImageClusterExtractor(BaseAnnotator):
                 # TODO Allow multiple objects to be detected
 
                 object_hypotheses.append(object_hypothesis)
-                self.get_cas().annotations.append(object_hypothesis)
+                self.get_common_analysis_structure().annotations.append(
+                    object_hypothesis
+                )
 
         #
         # Create visualization Output

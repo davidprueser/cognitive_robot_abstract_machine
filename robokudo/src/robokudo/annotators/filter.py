@@ -85,12 +85,12 @@ class FilterAnnotator(BaseAnnotator):
             func_args = self.descriptor.parameters.func_args or []
             func_kwargs = self.descriptor.parameters.func_kwargs or {}
 
-            temporary_annotations = self.get_cas().annotations
+            temporary_annotations = self.get_common_analysis_structure().annotations
             temporary_annotations = [
                 annotation
                 for annotation in temporary_annotations
                 if func(annotation, *func_args, **func_kwargs)
             ]
-            self.get_cas().annotations = temporary_annotations
+            self.get_common_analysis_structure().annotations = temporary_annotations
 
         return Status.SUCCESS

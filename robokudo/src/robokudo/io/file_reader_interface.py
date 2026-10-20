@@ -25,7 +25,10 @@ import ament_index_python.packages
 import cv2
 from typing_extensions import Any, Dict, List, Optional, TypeVar
 
-from robokudo.cas import CAS, CASViews
+from robokudo.common_analysis_structure import (
+    CommonAnalysisStructure,
+    CommonAnalysisStructureViews,
+)
 from robokudo.io.camera_interface import CameraInterface
 from robokudo.utils.type_conversion import (
     o3d_camera_intrinsics_from_ros_camera_info,
@@ -46,7 +49,7 @@ class FileReaderInterface(CameraInterface):
     * rk_TIMESTAMP_cam_info.json - Camera calibration data
 
     The 'rk_' prefix is configurable. Data types in filenames must match
-    CASViews definitions.
+    CommonAnalysisStructureViews definitions.
 
     .. note::
         This interface is primarily for testing and demos. For production,
@@ -132,7 +135,7 @@ class FileReaderInterface(CameraInterface):
             warnings.warn(
                 "FileReaderInterface does not support live TF transform lookup. "
                 "lookup_viewpoint=True will be ignored; configure "
-                "static_camera_transform_enabled=True to write a transform into the CAS.",
+                "static_camera_transform_enabled=True to write a transform into the common analysis structure.",
                 UserWarning,
                 stacklevel=2,
             )
@@ -212,18 +215,18 @@ class FileReaderInterface(CameraInterface):
             self.loaded_paths[matched_timestamp][matched_data_type] = file_path
 
             # Load the actual content
-            # data is named by the CASViews during recording time. So mathc against these
-            if matched_data_type == CASViews.COLOR_IMAGE:
+            # data is named by the CommonAnalysisStructureViews during recording time. So mathc against these
+            if matched_data_type == CommonAnalysisStructureViews.COLOR_IMAGE:
                 data = cv2.imread(str(file_path))
                 if data is None:
                     raise Exception(f"OpenCV couldn't read {str(file_path)}")
                 self.loaded_data[matched_timestamp][matched_data_type] = data
-            elif matched_data_type == CASViews.DEPTH_IMAGE:
+            elif matched_data_type == CommonAnalysisStructureViews.DEPTH_IMAGE:
                 data = cv2.imread(str(file_path), cv2.IMREAD_ANYDEPTH)
                 if data is None:
                     raise Exception(f"OpenCV couldn't read {str(file_path)}")
                 self.loaded_data[matched_timestamp][matched_data_type] = data
-            elif matched_data_type == CASViews.CAMERA_INFO:
+            elif matched_data_type == CommonAnalysisStructureViews.CAMERA_INFO:
                 with open(str(file_path)) as fp:
                     camera_info_json = json.load(fp)
                     self.loaded_data[matched_timestamp][matched_data_type] = (
@@ -267,30 +270,43 @@ class RGBDFileReaderInterface(FileReaderInterface):
     Inherits all instance variables from FileReaderInterface.
     """
 
-    def set_data(self, cas: CAS) -> None:
-        """Set the next RGB-D data frame into the CAS.
+    def set_data(self, common_analysis_structure: CommonAnalysisStructure) -> None:
+        """Set the next RGB-D data frame into the common analysis structure.
 
         This method:
         * Reads the next color and depth images
         * Applies any necessary fixes (e.g., Kinect height fix)
         * Sets camera calibration and transformation data
-        * Updates the CAS with all loaded data
+        * Updates the common analysis structure with all loaded data
 
-        :param cas: Common Analysis Structure to update
+        :param common_analysis_structure: Common Analysis Structure to update
         """
         data = self.data_reader.get_next_data()
 
-        cas.set(CASViews.COLOR_IMAGE, data[CASViews.COLOR_IMAGE])
-        cas.set(CASViews.DEPTH_IMAGE, data[CASViews.DEPTH_IMAGE])
+        common_analysis_structure.set(
+            CommonAnalysisStructureViews.COLOR_IMAGE,
+            data[CommonAnalysisStructureViews.COLOR_IMAGE],
+        )
+        common_analysis_structure.set(
+            CommonAnalysisStructureViews.DEPTH_IMAGE,
+            data[CommonAnalysisStructureViews.DEPTH_IMAGE],
+        )
 
-        camera_info = data[CASViews.CAMERA_INFO]
+        camera_info = data[CommonAnalysisStructureViews.CAMERA_INFO]
         if self.camera_config.kinect_height_fix_mode:
             camera_info.height = 960  # Kinect hack ...
-        cas.set(CASViews.CAMERA_INFO, camera_info)
-
-        cas.set(
-            CASViews.CAMERA_INTRINSIC,
-            o3d_camera_intrinsics_from_ros_camera_info(data[CASViews.CAMERA_INFO]),
+        common_analysis_structure.set(
+            CommonAnalysisStructureViews.CAMERA_INFO, camera_info
         )
-        cas.set(CASViews.COLOR_TO_DEPTH_RATIO, self.camera_config.color_to_depth_ratio)
-        self.store_static_camera_transform_if_configured(cas)
+
+        common_analysis_structure.set(
+            CommonAnalysisStructureViews.CAMERA_INTRINSIC,
+            o3d_camera_intrinsics_from_ros_camera_info(
+                data[CommonAnalysisStructureViews.CAMERA_INFO]
+            ),
+        )
+        common_analysis_structure.set(
+            CommonAnalysisStructureViews.COLOR_TO_DEPTH_RATIO,
+            self.camera_config.color_to_depth_ratio,
+        )
+        self.store_static_camera_transform_if_configured(common_analysis_structure)

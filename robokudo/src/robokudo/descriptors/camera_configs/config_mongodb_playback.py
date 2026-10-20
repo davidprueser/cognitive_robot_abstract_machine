@@ -36,5 +36,5 @@ class MongoCameraConfig(BaseCameraConfig, WorldDescriptorComponent):
 
     restore_annotations: bool = False
     """
-    Whether to restore stored CAS annotations during playback.
+    Whether to restore stored common analysis structure annotations during playback.
     """

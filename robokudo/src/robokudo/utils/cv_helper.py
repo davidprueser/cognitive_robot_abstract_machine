@@ -18,14 +18,14 @@ import cv2
 import numpy as np
 from typing_extensions import TYPE_CHECKING, Tuple
 
-from robokudo.cas import CASViews
+from robokudo.common_analysis_structure import CommonAnalysisStructureViews
 from robokudo.exceptions import ColorToDepthRatioMissing
 from robokudo.types.cv import ImageROI
 
 if TYPE_CHECKING:
     import cv2.typing as cv2t
     import numpy.typing as npt
-    from robokudo.cas import CAS
+    from robokudo.common_analysis_structure import CommonAnalysisStructure
 
 
 def crop_image(image: npt.NDArray, xy: tuple, wh: tuple) -> npt.NDArray:
@@ -63,7 +63,7 @@ def crop_image_roi(image: npt.NDArray, roi: ImageROI) -> npt.NDArray:
 
 
 def get_scaled_color_image_for_depth_image(
-    cas: CAS, color_image: npt.NDArray
+    common_analysis_structure: CommonAnalysisStructure, color_image: npt.NDArray
 ) -> npt.NDArray:
     """
     Scale color image to match depth image resolution.
@@ -74,13 +74,15 @@ def get_scaled_color_image_for_depth_image(
     o3d.geometry.RGBDImage.create_from_color_and_depth is called, so that depth and
     color image match.
 
-    :param cas: The CAS holding the color-to-depth ratio.
+    :param common_analysis_structure: The common analysis structure holding the color-to-depth ratio.
     :param color_image: The color image to be adjusted
     :return: A resized copy of the color image if a resize necessary. Otherwise, the
         unchanged color_image is returned.
-    :raises ColorToDepthRatioMissing: If color-to-depth ratio not set in CAS
+    :raises ColorToDepthRatioMissing: If color-to-depth ratio not set in common analysis structure
     """
-    color_to_depth_ratio = cas.get(CASViews.COLOR_TO_DEPTH_RATIO)
+    color_to_depth_ratio = common_analysis_structure.get(
+        CommonAnalysisStructureViews.COLOR_TO_DEPTH_RATIO
+    )
 
     if color_to_depth_ratio is None:
         raise ColorToDepthRatioMissing(

@@ -26,7 +26,7 @@ class ObjectAssociator(BaseAnnotator):
         self.tracked_objects: List[ObjectHypothesis] = []
 
         self.obj_comparator = (
-            ObjectHypothesisComparator(self.get_cas)
+            ObjectHypothesisComparator(self.get_common_analysis_structure)
             .with_comparator_for(PoseAnnotation, 0.3, max_distance=0.5)
             .with_comparator_for(Classification, 0.3)
             .with_comparator_for(BoundingBox3DAnnotation, 0.1)
@@ -35,7 +35,9 @@ class ObjectAssociator(BaseAnnotator):
         )
 
     def update(self) -> Status:
-        new_ohs: List[ObjectHypothesis] = self.get_cas().filter_annotations_by_type(
+        new_ohs: List[
+            ObjectHypothesis
+        ] = self.get_common_analysis_structure().filter_annotations_by_type(
             ObjectHypothesis
         )
 

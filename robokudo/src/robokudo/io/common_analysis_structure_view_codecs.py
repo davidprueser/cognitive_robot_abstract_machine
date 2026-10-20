@@ -1,5 +1,5 @@
 """
-Codec registry and serializers for CAS view persistence.
+Codec registry and serializers for common analysis structure view persistence.
 """
 
 from __future__ import annotations
@@ -13,7 +13,10 @@ from dataclasses import dataclass, field
 import numpy as np
 from typing_extensions import Any, Dict, Iterable, List, Optional
 from robokudo import world
-from robokudo.io.cas_annotation_codecs import krrood_to_json, krrood_from_json
+from robokudo.io.common_analysis_structure_annotation_codecs import (
+    krrood_to_json,
+    krrood_from_json,
+)
 from robokudo.io.open3d_codec_utils import (
     o3d,
     is_open3d_point_cloud,
@@ -128,7 +131,7 @@ def _is_open3d_pinhole_camera_intrinsic(value: Any) -> bool:
 @dataclass
 class ViewPayload:
     """
-    Persistence envelope for a single CAS view.
+    Persistence envelope for a single common analysis structure view.
     """
 
     serializer_id: str
@@ -163,7 +166,7 @@ class ViewPayload:
 
 class ViewCodec:
     """
-    Interface for encoding and decoding CAS view values.
+    Interface for encoding and decoding common analysis structure view values.
     """
 
     serializer_id: str
@@ -563,9 +566,9 @@ class KrroodCodec(ViewCodec):
 
 
 @dataclass
-class CASViewCodecRegistry:
+class CommonAnalysisStructureViewCodecRegistry:
     """
-    Registry that routes CAS views to matching codecs.
+    Registry that routes common analysis structure views to matching codecs.
     """
 
     codecs: List[ViewCodec] = field(default_factory=list)
@@ -607,26 +610,28 @@ class CASViewCodecRegistry:
         for codec in self.codecs:
             if codec.serializer_id == serializer_id:
                 return codec
-        raise ValueError(f"Unknown CAS view serializer '{serializer_id}'.")
+        raise ValueError(
+            f"Unknown common analysis structure view serializer '{serializer_id}'."
+        )
 
     def encode_view(
         self, view_name: str, value: Any, strict: bool = True
     ) -> Optional[Dict[str, Any]]:
         """
-        Encode a single CAS view into a storage document.
+        Encode a single common analysis structure view into a storage document.
         """
         codec = self._find_encoder(value)
         if codec is None:
             if strict:
                 raise TypeError(
-                    f"No codec registered for CAS view '{view_name}' with type '{type(value)}'."
+                    f"No codec registered for common analysis structure view '{view_name}' with type '{type(value)}'."
                 )
             return None
         return codec.encode(value).to_document(view_name=view_name)
 
     def decode_view(self, document: Dict[str, Any]) -> tuple[str, Any]:
         """
-        Decode a single storage document into one CAS view.
+        Decode a single storage document into one common analysis structure view.
         """
         view_name = document["view_name"]
         payload = ViewPayload.from_document(document)
@@ -637,7 +642,7 @@ class CASViewCodecRegistry:
         self, views: Dict[str, Any], strict: bool = True
     ) -> List[Dict[str, Any]]:
         """
-        Encode multiple CAS views into storage documents.
+        Encode multiple common analysis structure views into storage documents.
         """
         documents: List[Dict[str, Any]] = []
         for view_name, value in views.items():
@@ -648,7 +653,7 @@ class CASViewCodecRegistry:
 
     def decode_views(self, documents: Iterable[Dict[str, Any]]) -> Dict[str, Any]:
         """
-        Decode storage documents into CAS view values.
+        Decode storage documents into common analysis structure view values.
         """
         result: Dict[str, Any] = {}
         for document in documents:

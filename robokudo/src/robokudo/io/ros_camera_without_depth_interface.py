@@ -29,7 +29,10 @@ from message_filters import Subscriber
 from sensor_msgs.msg import CameraInfo, Image
 from typing_extensions import Any, Tuple, TYPE_CHECKING, Optional, List
 
-from robokudo.cas import CAS, CASViews
+from robokudo.common_analysis_structure import (
+    CommonAnalysisStructure,
+    CommonAnalysisStructureViews,
+)
 from robokudo.io.camera_interface import ROSCameraInterface
 from robokudo.types.cv import ColorToDepthRatio
 from robokudo.utils.cv_bridge_workaround import CVBridgeWorkaround
@@ -212,24 +215,24 @@ class ROSCameraWithoutDepthInterface(ROSCameraInterface):
         self._has_new_data = True
         self.lock.release()
 
-    def set_data(self, cas: CAS) -> None:
+    def set_data(self, common_analysis_structure: CommonAnalysisStructure) -> None:
         """
         Update the Common Analysis Structure with latest camera data.
 
         This method:
         * Applies any configured image rotation
         * Updates camera intrinsics accordingly
-        * Sets RGB image, camera info, and transform data in the CAS
+        * Sets RGB image, camera info, and transform data in the common analysis structure
         * Handles thread synchronization
 
-        :param cas: Common Analysis Structure to update
+        :param common_analysis_structure: Common Analysis Structure to update
         """
         if not self.has_new_data():
             return
 
         self.lock.acquire()
 
-        # Construct o3d camera intrinsics from camera info in CAS
+        # Construct o3d camera intrinsics from camera info in common analysis structure
         self.camera_intrinsic = o3d.camera.PinholeCameraIntrinsic()
         width = self.camera_info.width
         height = self.camera_info.height
@@ -259,12 +262,22 @@ class ROSCameraWithoutDepthInterface(ROSCameraInterface):
             self.camera_info.K = (fx, 0, cx, 0, fy, cy, 0, 0, 1)
             self.camera_intrinsic.set_intrinsics(width, height, fx, fy, cx, cy)
 
-        cas.set(CASViews.COLOR_IMAGE, self.color)
-        cas.set(CASViews.DEPTH_IMAGE, None)
-        cas.set(CASViews.CAMERA_INFO, self.camera_info)
-        cas.set(CASViews.CAMERA_INTRINSIC, self.camera_intrinsic)
-        cas.set(CASViews.COLOR_TO_DEPTH_RATIO, self.color_to_depth_ratio)
-        self.store_camera_to_world_transform_from_tf(cas, self.timestamp)
+        common_analysis_structure.set(
+            CommonAnalysisStructureViews.COLOR_IMAGE, self.color
+        )
+        common_analysis_structure.set(CommonAnalysisStructureViews.DEPTH_IMAGE, None)
+        common_analysis_structure.set(
+            CommonAnalysisStructureViews.CAMERA_INFO, self.camera_info
+        )
+        common_analysis_structure.set(
+            CommonAnalysisStructureViews.CAMERA_INTRINSIC, self.camera_intrinsic
+        )
+        common_analysis_structure.set(
+            CommonAnalysisStructureViews.COLOR_TO_DEPTH_RATIO, self.color_to_depth_ratio
+        )
+        self.store_camera_to_world_transform_from_tf(
+            common_analysis_structure, self.timestamp
+        )
 
         self._has_new_data = False
         self.lock.release()

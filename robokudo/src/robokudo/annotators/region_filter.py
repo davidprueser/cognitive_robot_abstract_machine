@@ -20,7 +20,7 @@ from semantic_digital_twin.world_description.world_entity import Region
 
 import robokudo.world as rk_world
 from robokudo.annotators.core import BaseAnnotator, ThreadedAnnotator
-from robokudo.cas import CASViews
+from robokudo.common_analysis_structure import CommonAnalysisStructureViews
 from robokudo.types.scene import RegionHypothesis
 from robokudo.utils.annotator_helper import get_world_to_camera_transform_matrix
 from robokudo.utils.error_handling import catch_and_raise_to_blackboard
@@ -77,24 +77,30 @@ class RegionFilter(ThreadedAnnotator):
 
         The method:
 
-        * Loads point cloud and query from CAS
+        * Loads point cloud and query from common analysis structure
         * Loads world descriptor and active regions
         * For each active region:
           * Transforms region to camera frame
           * Creates oriented bounding box
           * Filters points within box
           * Creates region hypothesis with pose
-        * Updates CAS with filtered cloud
+        * Updates common analysis structure with filtered cloud
 
         :return: SUCCESS after processing
         :raises Exception: If queried region not found in map
         """
         start_timer = default_timer()
-        cloud = self.get_cas().get(CASViews.CLOUD)
+        cloud = self.get_common_analysis_structure().get(
+            CommonAnalysisStructureViews.CLOUD
+        )
 
         query = None
-        if self.get_cas().contains(CASViews.QUERY):
-            query = self.get_cas().get(CASViews.QUERY)
+        if self.get_common_analysis_structure().contains(
+            CommonAnalysisStructureViews.QUERY
+        ):
+            query = self.get_common_analysis_structure().get(
+                CommonAnalysisStructureViews.QUERY
+            )
 
         runtime_world = rk_world.world_instance()
 
@@ -124,10 +130,12 @@ class RegionFilter(ThreadedAnnotator):
 
         try:
             world_to_camera_transform = get_world_to_camera_transform_matrix(
-                self.get_cas()
+                self.get_common_analysis_structure()
             )
         except KeyError as err:
-            self.rk_logger.warning(f"Couldn't find viewpoint in the CAS: {err}")
+            self.rk_logger.warning(
+                f"Couldn't find viewpoint in the common analysis structure: {err}"
+            )
             return Status.FAILURE
 
         for key, region in active_regions.items():
@@ -154,13 +162,15 @@ class RegionFilter(ThreadedAnnotator):
             )
             region_hypothesis.points = filtered_cloud_for_this_region
             region_hypothesis.name = str(region.name)
-            self.get_cas().annotations.append(region_hypothesis)
+            self.get_common_analysis_structure().annotations.append(region_hypothesis)
 
             visualized_geometries.append({"name": str(region.name), "geometry": obb})
 
-        # Place the filtered PointCloud into the CAS, overwriting the previous one
+        # Place the filtered PointCloud into the common analysis structure, overwriting the previous one
         filtered_cloud = cloud.select_by_index(list(filtered_indices))
-        self.get_cas().set(CASViews.CLOUD, filtered_cloud)
+        self.get_common_analysis_structure().set(
+            CommonAnalysisStructureViews.CLOUD, filtered_cloud
+        )
 
         visualized_geometries.append(
             {"name": "filtered cloud", "geometry": filtered_cloud}

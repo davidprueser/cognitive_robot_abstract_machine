@@ -9,7 +9,10 @@ from robokudo.types.cv import ColorToDepthRatio
 import robokudo.types.tf
 from robokudo.annotators.core import BaseAnnotator
 from robokudo.annotators.image_preprocessor import ImagePreprocessorAnnotator
-from robokudo.cas import CAS, CASViews
+from robokudo.common_analysis_structure import (
+    CommonAnalysisStructure,
+    CommonAnalysisStructureViews,
+)
 from robokudo.pipeline import Pipeline
 from robokudo.types.annotation import PoseAnnotation
 from robokudo.types.scene import ObjectHypothesis
@@ -46,11 +49,13 @@ class TestUtilsAnnotatorHelper(object):
         return camera_intrinsics
 
     @pytest.fixture()
-    def identity_cas(self) -> CAS:
+    def identity_common_analysis_structure(self) -> CommonAnalysisStructure:
         """
-        Creates a CAS containing an identify camera to world transform.
+        Creates a common analysis structure containing an identify camera to world transform.
         """
-        cas = robokudo.cas.CAS()
+        common_analysis_structure = (
+            robokudo.common_analysis_structure.CommonAnalysisStructure()
+        )
 
         # camera_to_world = robokudo.types.tf.StampedTransform()
         # camera_to_world.child_frame = 'map'
@@ -60,7 +65,7 @@ class TestUtilsAnnotatorHelper(object):
         # camera_to_world.timestamp = None  # rospy.Time[1741809308248347990] would be an example value if needed
 
         # TODO Set frame names?
-        cas.camera_to_world_transform = (
+        common_analysis_structure.camera_to_world_transform = (
             HomogeneousTransformationMatrix.from_xyz_quaternion(
                 pos_x=0.0,
                 pos_y=0.0,
@@ -71,15 +76,15 @@ class TestUtilsAnnotatorHelper(object):
                 quat_w=1.0,
             )
         )
-        # cas.set(CASViews.VIEWPOINT_CAMERA_TO_WORLD, camera_to_world)
-        return cas
+        # common_analysis_structure.set(CommonAnalysisStructureViews.VIEWPOINT_CAMERA_TO_WORLD, camera_to_world)
+        return common_analysis_structure
 
     @pytest.fixture()
-    def camera_to_world_cas(self) -> CAS:
+    def camera_to_world_common_analysis_structure(self) -> CommonAnalysisStructure:
         """
-        Creates a CAS containing a valid non-identity camera to world transform.
+        Creates a common analysis structure containing a valid non-identity camera to world transform.
         """
-        cas = CAS()
+        common_analysis_structure = CommonAnalysisStructure()
 
         # Create a fake camera to world transform
         # camera_to_world = robokudo.types.tf.StampedTransform()
@@ -89,9 +94,9 @@ class TestUtilsAnnotatorHelper(object):
         # camera_to_world.translation = [2.6818742474793744, 1.9778799779168073, 0.9607137539544703]
         # camera_to_world.timestamp = None  # rospy.Time[1741809308248347990] would be an example value if needed
         #
-        # cas.set(CASViews.VIEWPOINT_CAMERA_TO_WORLD, camera_to_world)
+        # common_analysis_structure.set(CommonAnalysisStructureViews.VIEWPOINT_CAMERA_TO_WORLD, camera_to_world)
 
-        cas.camera_to_world_transform = (
+        common_analysis_structure.camera_to_world_transform = (
             HomogeneousTransformationMatrix.from_xyz_quaternion(
                 pos_x=2.6818742474793744,
                 pos_y=1.9778799779168073,
@@ -102,11 +107,13 @@ class TestUtilsAnnotatorHelper(object):
                 quat_w=-0.7523594241593126,
             )
         )
-        return cas
+        return common_analysis_structure
 
     # %% pose transforms
 
-    def test_pose_transform_helper(self, camera_to_world_cas: CAS) -> None:
+    def test_pose_transform_helper(
+        self, camera_to_world_common_analysis_structure: CommonAnalysisStructure
+    ) -> None:
         """
         Test pose transform round trip.
         """
@@ -121,15 +128,19 @@ class TestUtilsAnnotatorHelper(object):
         pos.rotation.insert(2, 0)
         pos.rotation.insert(3, 1)
 
-        pose_in_world = transform_pose_from_camera_to_world(camera_to_world_cas, pos)
+        pose_in_world = transform_pose_from_camera_to_world(
+            camera_to_world_common_analysis_structure, pos
+        )
         pose_back = transform_pose_from_world_to_camera(
-            camera_to_world_cas, pose_in_world
+            camera_to_world_common_analysis_structure, pose_in_world
         )
 
         np.testing.assert_array_almost_equal(pos.translation, pose_back.translation)
         np.testing.assert_array_almost_equal(pos.rotation, pose_back.rotation)
 
-    def test_pose_transform_helper_identy_tf(self, identity_cas: CAS) -> None:
+    def test_pose_transform_helper_identy_tf(
+        self, identity_common_analysis_structure: CommonAnalysisStructure
+    ) -> None:
         """
         Test pose transform with identity transform.
         """
@@ -144,7 +155,9 @@ class TestUtilsAnnotatorHelper(object):
         pos.rotation.insert(2, 0)
         pos.rotation.insert(3, 1)
 
-        pose_in_world = transform_pose_from_camera_to_world(identity_cas, pos)
+        pose_in_world = transform_pose_from_camera_to_world(
+            identity_common_analysis_structure, pos
+        )
 
         np.testing.assert_array_almost_equal(
             pos.translation,
@@ -157,7 +170,9 @@ class TestUtilsAnnotatorHelper(object):
             err_msg="pose rotation was modified during identity transform",
         )
 
-        pose_in_camera = transform_pose_from_world_to_camera(identity_cas, pos)
+        pose_in_camera = transform_pose_from_world_to_camera(
+            identity_common_analysis_structure, pos
+        )
 
         np.testing.assert_array_almost_equal(
             pos.translation,
@@ -172,7 +187,9 @@ class TestUtilsAnnotatorHelper(object):
 
     # %% cloud transforms
 
-    def test_cloud_transform_helper(self, camera_to_world_cas: CAS) -> None:
+    def test_cloud_transform_helper(
+        self, camera_to_world_common_analysis_structure: CommonAnalysisStructure
+    ) -> None:
         """
         Test cloud transform round trip.
         """
@@ -186,16 +203,18 @@ class TestUtilsAnnotatorHelper(object):
         cloud.points = o3d.utility.Vector3dVector(points)
 
         cloud_in_world = transform_cloud_from_camera_to_world(
-            camera_to_world_cas, cloud
+            camera_to_world_common_analysis_structure, cloud
         )
         cloud_back = transform_cloud_from_world_to_camera(
-            camera_to_world_cas, cloud_in_world
+            camera_to_world_common_analysis_structure, cloud_in_world
         )
 
         dists = cloud.compute_point_cloud_distance(cloud_back)
         assert np.all(np.asarray(dists) < 1.0e-6)
 
-    def test_cloud_transform_helper_in_place(self, camera_to_world_cas: CAS) -> None:
+    def test_cloud_transform_helper_in_place(
+        self, camera_to_world_common_analysis_structure: CommonAnalysisStructure
+    ) -> None:
         """
         Test cloud transform round trip.
         """
@@ -209,14 +228,16 @@ class TestUtilsAnnotatorHelper(object):
         cloud.points = o3d.utility.Vector3dVector(points)
 
         cloud_in_world = transform_cloud_from_camera_to_world(
-            camera_to_world_cas, cloud, transform_inplace=True
+            camera_to_world_common_analysis_structure, cloud, transform_inplace=True
         )
         assert (
             cloud_in_world == cloud
         ), f"different object instance was returned on in-place transform"
 
         cloud_back = transform_cloud_from_world_to_camera(
-            camera_to_world_cas, cloud_in_world, transform_inplace=True
+            camera_to_world_common_analysis_structure,
+            cloud_in_world,
+            transform_inplace=True,
         )
 
         assert (
@@ -226,7 +247,9 @@ class TestUtilsAnnotatorHelper(object):
         dists = cloud.compute_point_cloud_distance(cloud_back)
         assert np.all(np.asarray(dists) < 1.0e-6)
 
-    def test_cloud_transform_helper_identy_tf(self, identity_cas: CAS) -> None:
+    def test_cloud_transform_helper_identy_tf(
+        self, identity_common_analysis_structure: CommonAnalysisStructure
+    ) -> None:
         """
         Test cloud transform with identity transform.
         """
@@ -234,14 +257,18 @@ class TestUtilsAnnotatorHelper(object):
         cloud = o3d.geometry.PointCloud()
         cloud.points = o3d.utility.Vector3dVector(points)
 
-        cloud_in_world = transform_cloud_from_camera_to_world(identity_cas, cloud)
+        cloud_in_world = transform_cloud_from_camera_to_world(
+            identity_common_analysis_structure, cloud
+        )
 
         dists_in_world = cloud.compute_point_cloud_distance(cloud_in_world)
         assert np.all(
             np.asarray(dists_in_world) < 1.0e-6
         ), "transform_cloud_from_camera_to_world changed points in identify transform"
 
-        cloud_in_camera = transform_cloud_from_world_to_camera(identity_cas, cloud)
+        cloud_in_camera = transform_cloud_from_world_to_camera(
+            identity_common_analysis_structure, cloud
+        )
 
         dists_in_camera = cloud.compute_point_cloud_distance(cloud_in_camera)
         assert np.all(
@@ -251,9 +278,11 @@ class TestUtilsAnnotatorHelper(object):
     # %% transform matrices
 
     def test_get_camera_to_world_transform_matrix(
-        self, camera_to_world_cas: CAS
+        self, camera_to_world_common_analysis_structure: CommonAnalysisStructure
     ) -> None:
-        tf_matrix = get_camera_to_world_transform_matrix(camera_to_world_cas)
+        tf_matrix = get_camera_to_world_transform_matrix(
+            camera_to_world_common_analysis_structure
+        )
         np.testing.assert_allclose(
             tf_matrix,
             np.array(
@@ -282,15 +311,19 @@ class TestUtilsAnnotatorHelper(object):
         )
 
     def test_get_camera_to_world_transform_matrix_identity_tf(
-        self, identity_cas: CAS
+        self, identity_common_analysis_structure: CommonAnalysisStructure
     ) -> None:
-        tf_matrix = get_camera_to_world_transform_matrix(identity_cas)
+        tf_matrix = get_camera_to_world_transform_matrix(
+            identity_common_analysis_structure
+        )
         np.testing.assert_allclose(tf_matrix, np.eye(4))
 
     def test_get_world_to_camera_transform_matrix(
-        self, camera_to_world_cas: CAS
+        self, camera_to_world_common_analysis_structure: CommonAnalysisStructure
     ) -> None:
-        tf_matrix = get_world_to_camera_transform_matrix(camera_to_world_cas)
+        tf_matrix = get_world_to_camera_transform_matrix(
+            camera_to_world_common_analysis_structure
+        )
         np.testing.assert_allclose(
             tf_matrix,
             np.linalg.inv(
@@ -321,9 +354,11 @@ class TestUtilsAnnotatorHelper(object):
         )
 
     def test_get_world_to_camera_transform_matrix_identity_tf(
-        self, identity_cas: CAS
+        self, identity_common_analysis_structure: CommonAnalysisStructure
     ) -> None:
-        tf_matrix = get_world_to_camera_transform_matrix(identity_cas)
+        tf_matrix = get_world_to_camera_transform_matrix(
+            identity_common_analysis_structure
+        )
         np.testing.assert_allclose(tf_matrix, np.eye(4))
 
     def test_draw_bounding_boxes(self) -> None:
@@ -380,9 +415,11 @@ class TestUtilsAnnotatorHelper(object):
         width, height = kinect_intrinsics.width, kinect_intrinsics.height
         scalex, scaley = scale_factor
 
-        cas = annotator_in_pipeline.get_cas()
-        cas.set(
-            robokudo.cas.CASViews.COLOR_TO_DEPTH_RATIO,
+        common_analysis_structure = (
+            annotator_in_pipeline.get_common_analysis_structure()
+        )
+        common_analysis_structure.set(
+            robokudo.common_analysis_structure.CommonAnalysisStructureViews.COLOR_TO_DEPTH_RATIO,
             ColorToDepthRatio(horizontal=scalex, vertical=scaley),
         )
         annotator_in_pipeline.camera_intrinsics = copy.deepcopy(kinect_intrinsics)
@@ -419,16 +456,18 @@ class TestUtilsAnnotatorHelper(object):
         kinect_intrinsics: o3d.camera.PinholeCameraIntrinsic,
     ) -> None:
         annotator_in_pipeline.descriptor.parameters.global_with_depth = True
-        cas = annotator_in_pipeline.get_cas()
+        common_analysis_structure = (
+            annotator_in_pipeline.get_common_analysis_structure()
+        )
         width, height = kinect_intrinsics.width, kinect_intrinsics.height
         scalex, scaley = scale_factor
 
-        cas.set(
-            robokudo.cas.CASViews.COLOR_IMAGE,
+        common_analysis_structure.set(
+            robokudo.common_analysis_structure.CommonAnalysisStructureViews.COLOR_IMAGE,
             np.zeros((height, width, 3), dtype=np.uint8),
         )
-        cas.set(
-            robokudo.cas.CASViews.COLOR_TO_DEPTH_RATIO,
+        common_analysis_structure.set(
+            robokudo.common_analysis_structure.CommonAnalysisStructureViews.COLOR_TO_DEPTH_RATIO,
             ColorToDepthRatio(horizontal=scalex, vertical=scaley),
         )
 
@@ -446,11 +485,16 @@ class TestUtilsAnnotatorHelper(object):
         kinect_intrinsics: o3d.camera.PinholeCameraIntrinsic,
     ) -> None:
         annotator_in_pipeline.descriptor.parameters.global_with_depth = False
-        cas = annotator_in_pipeline.get_cas()
+        common_analysis_structure = (
+            annotator_in_pipeline.get_common_analysis_structure()
+        )
         width, height = kinect_intrinsics.width, kinect_intrinsics.height
         image = np.zeros((height, width, 3), dtype=np.uint8)
 
-        cas.set(robokudo.cas.CASViews.COLOR_IMAGE, image)
+        common_analysis_structure.set(
+            robokudo.common_analysis_structure.CommonAnalysisStructureViews.COLOR_IMAGE,
+            image,
+        )
 
         resized_image = get_color_image(annotator_in_pipeline)
 
@@ -462,12 +506,20 @@ class TestUtilsAnnotatorHelper(object):
         kinect_intrinsics: o3d.camera.PinholeCameraIntrinsic,
     ) -> None:
         annotator_in_pipeline.descriptor.parameters.global_with_depth = True
-        cas = annotator_in_pipeline.get_cas()
+        common_analysis_structure = (
+            annotator_in_pipeline.get_common_analysis_structure()
+        )
         width, height = kinect_intrinsics.width, kinect_intrinsics.height
         image = np.zeros((height, width, 3), dtype=np.uint8)
 
-        cas.set(robokudo.cas.CASViews.COLOR_IMAGE, image)
-        cas.set(robokudo.cas.CASViews.COLOR_TO_DEPTH_RATIO, None)
+        common_analysis_structure.set(
+            robokudo.common_analysis_structure.CommonAnalysisStructureViews.COLOR_IMAGE,
+            image,
+        )
+        common_analysis_structure.set(
+            robokudo.common_analysis_structure.CommonAnalysisStructureViews.COLOR_TO_DEPTH_RATIO,
+            None,
+        )
 
         assert get_color_image(annotator_in_pipeline) == None
 
@@ -488,12 +540,14 @@ class TestUtilsAnnotatorHelper(object):
         kinect_intrinsics: o3d.camera.PinholeCameraIntrinsic,
     ) -> None:
         annotator_in_pipeline.descriptor.parameters.global_with_depth = True
-        cas = annotator_in_pipeline.get_cas()
+        common_analysis_structure = (
+            annotator_in_pipeline.get_common_analysis_structure()
+        )
         width, height = kinect_intrinsics.width, kinect_intrinsics.height
         scalex, scaley = scale_factor
 
-        cas.set(
-            robokudo.cas.CASViews.COLOR_TO_DEPTH_RATIO,
+        common_analysis_structure.set(
+            robokudo.common_analysis_structure.CommonAnalysisStructureViews.COLOR_TO_DEPTH_RATIO,
             ColorToDepthRatio(horizontal=scalex, vertical=scaley),
         )
         mask = np.zeros((int(height * scaley), int(width * scalex), 3), dtype=np.uint8)
@@ -508,8 +562,13 @@ class TestUtilsAnnotatorHelper(object):
     ) -> None:
         annotator_in_pipeline.descriptor.parameters.global_with_depth = True
 
-        cas = annotator_in_pipeline.get_cas()
-        cas.set(robokudo.cas.CASViews.COLOR_TO_DEPTH_RATIO, None)
+        common_analysis_structure = (
+            annotator_in_pipeline.get_common_analysis_structure()
+        )
+        common_analysis_structure.set(
+            robokudo.common_analysis_structure.CommonAnalysisStructureViews.COLOR_TO_DEPTH_RATIO,
+            None,
+        )
 
         mask = np.zeros((640, 480, 3), dtype=np.uint8)
         assert pytest.raises(RuntimeError, resize_mask, annotator_in_pipeline, mask)

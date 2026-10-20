@@ -21,19 +21,22 @@ def test_filter_annotator_keeps_annotations_when_no_function_is_configured() -> 
     annotator = _filter_annotator_in_pipeline()
     classification = Classification(classname="cup")
     color = SemanticColor(color="red")
-    annotator.get_cas().annotations = [classification, color]
+    annotator.get_common_analysis_structure().annotations = [classification, color]
 
     status = annotator.update()
 
     assert status == Status.SUCCESS
-    assert annotator.get_cas().annotations == [classification, color]
+    assert annotator.get_common_analysis_structure().annotations == [
+        classification,
+        color,
+    ]
 
 
 def test_filter_annotator_keeps_only_annotations_matching_configured_function() -> None:
     annotator = _filter_annotator_in_pipeline()
     classification = Classification(classname="cup")
     color = SemanticColor(color="red")
-    annotator.get_cas().annotations = [classification, color]
+    annotator.get_common_analysis_structure().annotations = [classification, color]
     annotator.descriptor.parameters.func = lambda annotation: isinstance(
         annotation, Classification
     )
@@ -41,7 +44,7 @@ def test_filter_annotator_keeps_only_annotations_matching_configured_function() 
     status = annotator.update()
 
     assert status == Status.SUCCESS
-    assert annotator.get_cas().annotations == [classification]
+    assert annotator.get_common_analysis_structure().annotations == [classification]
 
 
 def test_filter_annotator_passes_configured_function_args_and_kwargs() -> None:
@@ -49,7 +52,11 @@ def test_filter_annotator_passes_configured_function_args_and_kwargs() -> None:
     cup = Classification(classname="cup", confidence=0.8)
     low_confidence_cup = Classification(classname="cup", confidence=0.2)
     bowl = Classification(classname="bowl", confidence=0.9)
-    annotator.get_cas().annotations = [cup, low_confidence_cup, bowl]
+    annotator.get_common_analysis_structure().annotations = [
+        cup,
+        low_confidence_cup,
+        bowl,
+    ]
 
     def matches_class_with_minimum_confidence(
         annotation: Annotation, classname: str, *, minimum_confidence: float
@@ -67,4 +74,4 @@ def test_filter_annotator_passes_configured_function_args_and_kwargs() -> None:
     status = annotator.update()
 
     assert status == Status.SUCCESS
-    assert annotator.get_cas().annotations == [cup]
+    assert annotator.get_common_analysis_structure().annotations == [cup]

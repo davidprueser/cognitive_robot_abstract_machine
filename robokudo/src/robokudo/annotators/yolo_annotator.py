@@ -30,7 +30,7 @@ from ultralytics import SAM, YOLO
 from ultralytics.utils.plotting import colors
 
 from robokudo.annotators.core import ThreadedAnnotator
-from robokudo.cas import CASViews
+from robokudo.common_analysis_structure import CommonAnalysisStructureViews
 from robokudo.defs import PACKAGE_NAME
 from robokudo.exceptions import DetectionModelNotConfigured
 from robokudo.types.annotation import Classification
@@ -287,12 +287,16 @@ class YoloAnnotator(ThreadedAnnotator):
         """
         parameters: YoloAnnotator.Descriptor.Parameters = self.descriptor.parameters
         if parameters.global_with_depth:
-            self.camera_intrinsics = self.get_cas().get_copy(CASViews.CAMERA_INTRINSIC)
+            self.camera_intrinsics = self.get_common_analysis_structure().get_copy(
+                CommonAnalysisStructureViews.CAMERA_INTRINSIC
+            )
             scale_camera_intrinsics(self)
 
         detection_image = self._detection_image()
         existing_hypotheses = (
-            self.get_cas().filter_annotations_by_type(ObjectHypothesis)
+            self.get_common_analysis_structure().filter_annotations_by_type(
+                ObjectHypothesis
+            )
             if parameters.classify_existing_hypotheses
             else []
         )
@@ -303,7 +307,7 @@ class YoloAnnotator(ThreadedAnnotator):
             if detection.classification.classname.strip()
             not in self._ignored_class_names()
         ]
-        self.get_cas().annotations.extend(
+        self.get_common_analysis_structure().annotations.extend(
             annotated.hypothesis
             for annotated in annotated_detections
             if annotated.is_new
@@ -318,10 +322,14 @@ class YoloAnnotator(ThreadedAnnotator):
         :return: The color image, scaled to the depth image resolution when depth is
             used.
         """
-        color_image = self.get_cas().get_copy(CASViews.COLOR_IMAGE)
+        color_image = self.get_common_analysis_structure().get_copy(
+            CommonAnalysisStructureViews.COLOR_IMAGE
+        )
         if not self.descriptor.parameters.global_with_depth:
             return color_image
-        return get_scaled_color_image_for_depth_image(self.get_cas(), color_image)
+        return get_scaled_color_image_for_depth_image(
+            self.get_common_analysis_structure(), color_image
+        )
 
     def _detect(self, detection_image: npt.NDArray[np.uint8]) -> List[YoloDetection]:
         """
@@ -393,7 +401,9 @@ class YoloAnnotator(ThreadedAnnotator):
         """
         if not self.descriptor.parameters.global_with_depth:
             return detection.bounding_box
-        color_to_depth_ratio = self.get_cas().get(CASViews.COLOR_TO_DEPTH_RATIO)
+        color_to_depth_ratio = self.get_common_analysis_structure().get(
+            CommonAnalysisStructureViews.COLOR_TO_DEPTH_RATIO
+        )
         left, top, right, bottom = detection.bounding_box.get_corner_points()
         return Rect.from_corner_points(
             x1=left / color_to_depth_ratio.horizontal,
@@ -491,7 +501,9 @@ class YoloAnnotator(ThreadedAnnotator):
         """
         return get_cloud_from_rgb_depth_and_mask(
             rgb_image=cv2.cvtColor(detection_image, cv2.COLOR_BGR2RGB),
-            depth_image=self.get_cas().get(CASViews.DEPTH_IMAGE),
+            depth_image=self.get_common_analysis_structure().get(
+                CommonAnalysisStructureViews.DEPTH_IMAGE
+            ),
             mask=detection_mask,
             camera_intrinsics=self.camera_intrinsics,
             depth_truncate=self.descriptor.parameters.depth_truncate,
@@ -504,7 +516,9 @@ class YoloAnnotator(ThreadedAnnotator):
         precision mode, and output the point clouds of the new hypotheses.
         """
         parameters: YoloAnnotator.Descriptor.Parameters = self.descriptor.parameters
-        visualization_image = self.get_cas().get_copy(CASViews.COLOR_IMAGE)
+        visualization_image = self.get_common_analysis_structure().get_copy(
+            CommonAnalysisStructureViews.COLOR_IMAGE
+        )
         for index, annotated in enumerate(annotated_detections):
             if parameters.precision_mode and annotated.is_new:
                 x1, y1, _, _ = annotated.hypothesis.roi.roi.get_corner_points()

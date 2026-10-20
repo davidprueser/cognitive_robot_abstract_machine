@@ -9,7 +9,7 @@ This module provides annotators for:
 The module uses DBSCAN clustering and oriented bounding boxes (OBB) for object detection.
 
 .. note::
-   The clustering process requires a plane annotation in the CAS to function.
+   The clustering process requires a plane annotation in the common analysis structure to function.
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ from scipy.spatial.transform import Rotation as R
 from typing_extensions import TYPE_CHECKING, List, Tuple
 
 from robokudo.annotators.core import BaseAnnotator, ThreadedAnnotator
-from robokudo.cas import CASViews
+from robokudo.common_analysis_structure import CommonAnalysisStructureViews
 from robokudo.exceptions import (
     EmptyPointCloud,
     PlaneModelMissing,
@@ -143,13 +143,13 @@ def cluster_points(
 class PointCloudClusterExtractor(ThreadedAnnotator):
     """Annotator for object detection.
 
-    The main idea is to look for the Plane annotation in the CAS extract the points that belong to the plane,
+    The main idea is to look for the Plane annotation in the common analysis structure extract the points that belong to the plane,
     constructs an oriented bounding box around it, pull it up to create volume above the plane and
     then extract all the inlier points. After that, a clustering process is executed
-    and each cluster is annotated in the CAS.
+    and each cluster is annotated in the common analysis structure.
 
     .. warning::
-       Requires a Plane annotation in the CAS to function.
+       Requires a Plane annotation in the common analysis structure to function.
     """
 
     class Descriptor(BaseAnnotator.Descriptor):
@@ -293,26 +293,36 @@ class PointCloudClusterExtractor(ThreadedAnnotator):
         * Visualizes clusters with unique colors
 
         :return: SUCCESS if clusters are found, FAILURE if no clusters or errors
-        :raises PlaneModelMissing: If no plane model exists in CAS
+        :raises PlaneModelMissing: If no plane model exists in common analysis structure
         :raises PointCloudTooSmallForClustering: If insufficient points are found above the plane
         """
         start_timer = default_timer()
         self.rk_logger.info("PCE Start")
-        cloud = self.get_cas().get(CASViews.CLOUD)
-        color_to_depth_ratio = self.get_cas().get(CASViews.COLOR_TO_DEPTH_RATIO)
-        pointcloud_camera_intrinsics = self.get_cas().get(
-            CASViews.POINTCLOUD_CAMERA_INTRINSIC
+        cloud = self.get_common_analysis_structure().get(
+            CommonAnalysisStructureViews.CLOUD
+        )
+        color_to_depth_ratio = self.get_common_analysis_structure().get(
+            CommonAnalysisStructureViews.COLOR_TO_DEPTH_RATIO
+        )
+        pointcloud_camera_intrinsics = self.get_common_analysis_structure().get(
+            CommonAnalysisStructureViews.POINTCLOUD_CAMERA_INTRINSIC
         )
         assert isinstance(
             pointcloud_camera_intrinsics, o3d.camera.PinholeCameraIntrinsic
         )
 
-        color = self.get_cas().get(CASViews.COLOR_IMAGE)
+        color = self.get_common_analysis_structure().get(
+            CommonAnalysisStructureViews.COLOR_IMAGE
+        )
         height, width, d = color.shape
         vis_mask = np.zeros((height, width), np.uint8)
-        plane_models = self.get_cas().filter_annotations_by_type(Plane)
+        plane_models = self.get_common_analysis_structure().filter_annotations_by_type(
+            Plane
+        )
         if plane_models is None or plane_models == []:
-            self.feedback_message = "No plane model in CAS. Aborting."
+            self.feedback_message = (
+                "No plane model in common analysis structure. Aborting."
+            )
             raise PlaneModelMissing(context="point cloud clustering")
 
         plane_model: Plane = plane_models[0]
@@ -347,7 +357,7 @@ class PointCloudClusterExtractor(ThreadedAnnotator):
                 continue
 
             # Work the indices back from our crop towards our original pointcloud
-            # This will allow us to reference the full Cloud in the CAS
+            # This will allow us to reference the full Cloud in the common analysis structure
             # directly, and we don't need to store partial point clouds
             cluster_indices_in_outlier_cloud = np.take(
                 on_plane_cloud_indices, cluster_indices
@@ -370,7 +380,7 @@ class PointCloudClusterExtractor(ThreadedAnnotator):
                 f"Extracted cluster {cluster_idx} with {len(cluster_cloud.points)} points"
             )
 
-            # Add each cluster to CAS
+            # Add each cluster to common analysis structure
             object_hypothesis = ObjectHypothesis()
             object_hypothesis.source = self.name
             object_hypothesis.points = cluster_cloud
@@ -389,7 +399,7 @@ class PointCloudClusterExtractor(ThreadedAnnotator):
             # Add the image pixel belonging to the cluster to the mask containing all found objects
             vis_mask[full_mask_cluster == 255] = 255
 
-            self.get_cas().annotations.append(object_hypothesis)
+            self.get_common_analysis_structure().annotations.append(object_hypothesis)
             object_hypotheses.append(object_hypothesis)
             cluster_idx += 1
 
@@ -493,16 +503,22 @@ class NaivePointCloudClusterExtractor(ThreadedAnnotator):
         :raises EmptyPointCloud: If the input cloud is empty
         """
         start_timer = default_timer()
-        cloud = self.get_cas().get(CASViews.CLOUD)
-        color_to_depth_ratio = self.get_cas().get(CASViews.COLOR_TO_DEPTH_RATIO)
-        pointcloud_camera_intrinsics = self.get_cas().get(
-            CASViews.POINTCLOUD_CAMERA_INTRINSIC
+        cloud = self.get_common_analysis_structure().get(
+            CommonAnalysisStructureViews.CLOUD
+        )
+        color_to_depth_ratio = self.get_common_analysis_structure().get(
+            CommonAnalysisStructureViews.COLOR_TO_DEPTH_RATIO
+        )
+        pointcloud_camera_intrinsics = self.get_common_analysis_structure().get(
+            CommonAnalysisStructureViews.POINTCLOUD_CAMERA_INTRINSIC
         )
         assert isinstance(
             pointcloud_camera_intrinsics, o3d.camera.PinholeCameraIntrinsic
         )
 
-        color = self.get_cas().get(CASViews.COLOR_IMAGE)
+        color = self.get_common_analysis_structure().get(
+            CommonAnalysisStructureViews.COLOR_IMAGE
+        )
         height, width, d = color.shape
         vis_mask = np.zeros((height, width), np.uint8)
 
@@ -546,7 +562,7 @@ class NaivePointCloudClusterExtractor(ThreadedAnnotator):
                 f"Extracted cluster {cluster_idx} with {len(cluster_cloud.points)} points"
             )
 
-            # Add each cluster to CAS
+            # Add each cluster to common analysis structure
             object_hypothesis = ObjectHypothesis()
             object_hypothesis.source = self.name
             object_hypothesis.points = cluster_cloud
@@ -565,7 +581,7 @@ class NaivePointCloudClusterExtractor(ThreadedAnnotator):
             # Add the image pixel belonging to the cluster to the mask containing all found objects
             vis_mask[full_mask_cluster == 255] = 255
 
-            self.get_cas().annotations.append(object_hypothesis)
+            self.get_common_analysis_structure().annotations.append(object_hypothesis)
             object_hypotheses.append(object_hypothesis)
             cluster_idx += 1
 

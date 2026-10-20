@@ -19,7 +19,7 @@ from semantic_digital_twin.world_description.world_entity import Body
 from typing_extensions import TYPE_CHECKING, Dict, List, Tuple
 
 from robokudo.annotators.core import BaseAnnotator
-from robokudo.cas import CASViews
+from robokudo.common_analysis_structure import CommonAnalysisStructureViews
 from robokudo.types.annotation import (
     BoundingBox3DAnnotation,
     Classification,
@@ -44,7 +44,7 @@ if TYPE_CHECKING:
 
 
 class ObjectHypothesisVisualizer(BaseAnnotator):
-    """Annotator for visualizing object hypotheses in the CAS.
+    """Annotator for visualizing object hypotheses in the common analysis structure.
 
     This annotator creates visualizations of detected objects by:
 
@@ -150,15 +150,25 @@ class ObjectHypothesisVisualizer(BaseAnnotator):
         """
         start_timer = default_timer()
 
-        visualization_img = self.get_cas().get_copy(CASViews.COLOR_IMAGE)
+        visualization_img = self.get_common_analysis_structure().get_copy(
+            CommonAnalysisStructureViews.COLOR_IMAGE
+        )
         visualized_geometries = []
 
         if self.descriptor.parameters.query_aware:
             query = None  # type: Query.Goal | None
-            if self.get_cas().contains(CASViews.QUERY):
-                query = self.get_cas().get(CASViews.QUERY)
+            if self.get_common_analysis_structure().contains(
+                CommonAnalysisStructureViews.QUERY
+            ):
+                query = self.get_common_analysis_structure().get(
+                    CommonAnalysisStructureViews.QUERY
+                )
 
-        object_hypotheses = self.get_cas().filter_annotations_by_type(ObjectHypothesis)
+        object_hypotheses = (
+            self.get_common_analysis_structure().filter_annotations_by_type(
+                ObjectHypothesis
+            )
+        )
         if len(object_hypotheses) == 0:
             self.draw_text_middle(visualization_img, "No Object Hypotheses")
         else:
@@ -185,7 +195,7 @@ class ObjectHypothesisVisualizer(BaseAnnotator):
             ):
                 matching_object_hypotheses = []
                 for oh in object_hypotheses:
-                    classifications = self.get_cas().filter_by_type_and_criteria(
+                    classifications = self.get_common_analysis_structure().filter_by_type_and_criteria(
                         Classification,
                         oh.annotations,
                         criteria={"classname": ("==", f"{query.obj.type}")},
@@ -206,16 +216,18 @@ class ObjectHypothesisVisualizer(BaseAnnotator):
         for object_hypothesis in object_hypotheses:
             visualized_geometries.append(object_hypothesis.points)
 
-            bb_annotations = self.get_cas().filter_by_type(
+            bb_annotations = self.get_common_analysis_structure().filter_by_type(
                 type_to_include=BoundingBox3DAnnotation,
                 input_list=object_hypothesis.annotations,
             )
             for bb_annotation in bb_annotations:
                 obb = get_o3d_obb_from_bounding_box_annotation(bb_annotation)
                 visualized_geometries.append(obb)
-                draw_wireframe_of_obb_into_image(self.get_cas(), visualization_img, obb)
+                draw_wireframe_of_obb_into_image(
+                    self.get_common_analysis_structure(), visualization_img, obb
+                )
 
-            pose_annotations = self.get_cas().filter_by_type(
+            pose_annotations = self.get_common_analysis_structure().filter_by_type(
                 type_to_include=PoseAnnotation,
                 input_list=object_hypothesis.annotations,
             )
@@ -235,11 +247,18 @@ class ObjectHypothesisVisualizer(BaseAnnotator):
                         mesh_instance.transform(transform)
                         visualized_geometries.append(mesh_instance)
                         draw_mesh_wireframe_on_image(
-                            visualization_img, mesh_shape, transform, self.get_cas()
+                            visualization_img,
+                            mesh_shape,
+                            transform,
+                            self.get_common_analysis_structure(),
                         )
 
         if self.descriptor.parameters.visualize_full_cloud:
-            visualized_geometries.append(self.get_cas().get(CASViews.CLOUD))
+            visualized_geometries.append(
+                self.get_common_analysis_structure().get(
+                    CommonAnalysisStructureViews.CLOUD
+                )
+            )
 
         self.get_annotator_output_struct().set_image(visualization_img)
         self.get_annotator_output_struct().set_geometries(visualized_geometries)

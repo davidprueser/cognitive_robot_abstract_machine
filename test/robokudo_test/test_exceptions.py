@@ -2,10 +2,10 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from robokudo.cas import CASViews
+from robokudo.common_analysis_structure import CommonAnalysisStructureViews
 from robokudo.exceptions import (
-    CASCheckConfigurationError,
-    CASCheckFailed,
+    CommonAnalysisStructureCheckConfigurationError,
+    CommonAnalysisStructureCheckFailed,
     CameraDataMissing,
     ColorToDepthRatioMissing,
     CVBridgeImageConversionError,
@@ -32,9 +32,9 @@ from robokudo.utils.cv_helper import (
 )
 
 
-class _FakeCAS:
+class _FakeCommonAnalysisStructure:
     def get(self, key: str) -> None:
-        if key == CASViews.COLOR_TO_DEPTH_RATIO:
+        if key == CommonAnalysisStructureViews.COLOR_TO_DEPTH_RATIO:
             return None
         raise KeyError(key)
 
@@ -43,7 +43,10 @@ class TestRoboKudoExceptions:
     def test_color_to_depth_ratio_missing_message(self) -> None:
         exception = ColorToDepthRatioMissing(operation="scale coordinates")
 
-        assert "The color-to-depth ratio is missing from the CAS" in str(exception)
+        assert (
+            "The color-to-depth ratio is missing from the common analysis structure"
+            in str(exception)
+        )
         assert "Can't scale coordinates" in str(exception)
         assert "Suggestion:" in str(exception)
 
@@ -130,15 +133,21 @@ class TestRoboKudoExceptions:
             exception
         )
 
-    def test_cas_check_configuration_error_message(self) -> None:
-        exception = CASCheckConfigurationError(component_name="CASCheckFunc")
+    def test_common_analysis_structure_check_configuration_error_message(self) -> None:
+        exception = CommonAnalysisStructureCheckConfigurationError(
+            component_name="CommonAnalysisStructureCheckFunc"
+        )
 
-        assert "CASCheckFunc needs a check function" in str(exception)
+        assert "CommonAnalysisStructureCheckFunc needs a check function" in str(
+            exception
+        )
 
-    def test_cas_check_failed_message(self) -> None:
-        exception = CASCheckFailed(reason="object hypothesis missing")
+    def test_common_analysis_structure_check_failed_message(self) -> None:
+        exception = CommonAnalysisStructureCheckFailed(
+            reason="object hypothesis missing"
+        )
 
-        assert "CAS check failed" in str(exception)
+        assert "Common analysis structure check failed" in str(exception)
         assert "object hypothesis missing" in str(exception)
 
     def test_point_cloud_threshold_error_message(self) -> None:
@@ -201,4 +210,6 @@ class TestRoboKudoExceptions:
         color_image = np.zeros((2, 2, 3), dtype=np.uint8)
 
         with pytest.raises(ColorToDepthRatioMissing):
-            get_scaled_color_image_for_depth_image(_FakeCAS(), color_image)
+            get_scaled_color_image_for_depth_image(
+                _FakeCommonAnalysisStructure(), color_image
+            )

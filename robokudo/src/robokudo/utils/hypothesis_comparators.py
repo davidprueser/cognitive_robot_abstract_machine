@@ -1,7 +1,7 @@
 from __future__ import annotations
 from typing_extensions import Dict, Type, Union, Callable, TypeVar, Generic, Any
 
-from robokudo.cas import CAS
+from robokudo.common_analysis_structure import CommonAnalysisStructure
 from robokudo.types.core import Annotation, Type as RkType
 from robokudo.types.cv import ImageROI
 from robokudo.types.scene import AnalyzableAnnotation, ObjectHypothesis
@@ -16,10 +16,12 @@ class HypothesisComparator(Generic[THyothesis]):
     A comparator that can compare two hypotheses.
     """
 
-    def __init__(self, cas_fn: Callable[[], CAS]) -> None:
-        self.cas_fn = cas_fn
+    def __init__(
+        self, common_analysis_structure_fn: Callable[[], CommonAnalysisStructure]
+    ) -> None:
+        self.common_analysis_structure_fn = common_analysis_structure_fn
         """
-        Function to get a CAS instance, to be used for annotation filtering.
+        Function to get a common analysis structure instance, to be used for annotation filtering.
         """
         self.annotation_comparators: Dict[Type[Annotation], FeatureComparator] = {}
         """
@@ -107,14 +109,18 @@ class ObjectHypothesisComparator(HypothesisComparator[ObjectHypothesis]):
             total_weight += image_roi_comparator.weight
             total_similarity += similarity * image_roi_comparator.weight
 
-        cas = self.cas_fn()
+        common_analysis_structure = self.common_analysis_structure_fn()
 
         # Compare annotations
         for annotation_type in self.annotation_comparators.keys():
             comparator = self.annotation_comparators[annotation_type]
 
-            annotations1 = cas.filter_by_type(annotation_type, hypothesis1.annotations)
-            annotations2 = cas.filter_by_type(annotation_type, hypothesis2.annotations)
+            annotations1 = common_analysis_structure.filter_by_type(
+                annotation_type, hypothesis1.annotations
+            )
+            annotations2 = common_analysis_structure.filter_by_type(
+                annotation_type, hypothesis2.annotations
+            )
 
             total_compared = 0
             for ann1 in annotations1:

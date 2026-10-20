@@ -139,8 +139,8 @@ class AnalysisEngine(AnalysisEngineInterface):
         cluster_descriptor.parameters.min_points_threshold = 11
         cluster_descriptor.parameters.outlier_removal = True
 
-        # ..note:: PointcloudCropAnnotator crops CASViews.CLOUD, but
-        #     ImageClusterExtractor reads CASViews.COLOR_IMAGE/DEPTH_IMAGE directly, so
+        # ..note:: PointcloudCropAnnotator crops CommonAnalysisStructureViews.CLOUD, but
+        #     ImageClusterExtractor reads CommonAnalysisStructureViews.COLOR_IMAGE/DEPTH_IMAGE directly, so
         #     the crop no longer bounds what ImageClusterExtractor searches. Left in
         #     place for now to see how color-based extraction behaves before deciding
         #     whether/how to re-bound its search area.

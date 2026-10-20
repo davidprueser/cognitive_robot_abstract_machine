@@ -36,7 +36,7 @@ if TYPE_CHECKING:
     from py_trees.behaviour import Behaviour
     from py_trees_ros.trees import BehaviourTree
     from robokudo.annotators.query import QueryActionServer
-    from robokudo.cas import CAS
+    from robokudo.common_analysis_structure import CommonAnalysisStructure
 
 _T = TypeVar("_T")
 
@@ -147,53 +147,69 @@ def run_tree_once(
     return _tick_tree_until(ae_root, node, stop_condition, tick_rate)
 
 
-def run_tree_until_successful_cas_count(
+def run_tree_until_successful_common_analysis_structure_count(
     tree: Behaviour,
     node: Node,
-    expected_cas_count: int,
+    expected_common_analysis_structure_count: int,
     include_gui: bool = False,
     max_iterations: int = 500,
     tick_rate: int = 20,
-    on_successful_cas: Optional[Callable[[CAS], None]] = None,
+    on_successful_common_analysis_structure: Optional[
+        Callable[[CommonAnalysisStructure], None]
+    ] = None,
 ) -> list:
     """
-    Execute a tree until a requested number of distinct successful CASes exist.
+    Execute a tree until a requested number of distinct successful common analysis structures exist.
 
     The tree is setup once without a ``OneShot`` wrapper so continuously running
     pipelines can process multiple percepts using the same ROS node.
-    ``on_successful_cas`` is called immediately after each new successful CAS is
+    ``on_successful_common_analysis_structure`` is called immediately after each new successful common analysis structure is
     observed.
     """
-    if expected_cas_count < 0:
-        raise ValueError("expected_cas_count must be non-negative")
-    if expected_cas_count == 0:
+    if expected_common_analysis_structure_count < 0:
+        raise ValueError(
+            "expected_common_analysis_structure_count must be non-negative"
+        )
+    if expected_common_analysis_structure_count == 0:
         return []
 
     ae_root = grow_tree(tree, node, include_gui=include_gui, run_once=False)
     setup_with_descendants_rk(ae_root)
 
-    seen_cas_ids = set()
-    successful_cas_instances = []
+    seen_common_analysis_structure_ids = set()
+    successful_common_analysis_structure_instances = []
 
     def stop_condition(tick_count: int) -> Optional[list]:
         if tree.status is Status.SUCCESS:
-            cas = tree.cas
-            if cas.cas_id not in seen_cas_ids:
-                seen_cas_ids.add(cas.cas_id)
-                successful_cas_instances.append(cas)
-                if on_successful_cas is not None:
-                    on_successful_cas(cas)
+            common_analysis_structure = tree.common_analysis_structure
+            if (
+                common_analysis_structure.common_analysis_structure_id
+                not in seen_common_analysis_structure_ids
+            ):
+                seen_common_analysis_structure_ids.add(
+                    common_analysis_structure.common_analysis_structure_id
+                )
+                successful_common_analysis_structure_instances.append(
+                    common_analysis_structure
+                )
+                if on_successful_common_analysis_structure is not None:
+                    on_successful_common_analysis_structure(common_analysis_structure)
 
-        if len(successful_cas_instances) >= expected_cas_count:
-            return successful_cas_instances
+        if (
+            len(successful_common_analysis_structure_instances)
+            >= expected_common_analysis_structure_count
+        ):
+            return successful_common_analysis_structure_instances
 
         if tick_count >= max_iterations:
             raise TimeoutError(
-                f"Expected {expected_cas_count} successful CASes, "
-                f"got {len(successful_cas_instances)} after {tick_count} ticks"
+                f"Expected {expected_common_analysis_structure_count} successful common analysis structures, "
+                f"got {len(successful_common_analysis_structure_instances)} after {tick_count} ticks"
             )
 
         return None
 
     result = _tick_tree_until(ae_root, node, stop_condition, tick_rate)
-    return result if result is not None else successful_cas_instances
+    return (
+        result if result is not None else successful_common_analysis_structure_instances
+    )

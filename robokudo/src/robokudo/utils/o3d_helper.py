@@ -24,7 +24,7 @@ import numpy as np
 import open3d as o3d
 import trimesh
 from typing_extensions import TYPE_CHECKING, Tuple, List
-from robokudo.cas import CASViews
+from robokudo.common_analysis_structure import CommonAnalysisStructureViews
 from robokudo.utils.transform import (
     get_transform_matrix,
     get_translation_from_transform_matrix,
@@ -34,7 +34,7 @@ from robokudo.utils.transform import (
 if TYPE_CHECKING:
     import cv2.typing as cv2t
     import numpy.typing as npt
-    from robokudo.cas import CAS
+    from robokudo.common_analysis_structure import CommonAnalysisStructure
     from semantic_digital_twin.world_description.geometry import Mesh
 
 
@@ -106,17 +106,20 @@ def get_obb_from_size_and_transform(
 
 
 def get_2d_corner_points_from_3d_bb(
-    cas: CAS, object_bb: o3d.geometry.OrientedBoundingBox
+    common_analysis_structure: CommonAnalysisStructure,
+    object_bb: o3d.geometry.OrientedBoundingBox,
 ) -> cv2t.Rect:
     """
     Project 3D bounding box corners to 2D image points.
 
-    :param cas: CAS containing camera parameters
+    :param common_analysis_structure: common analysis structure containing camera parameters
     :param object_bb: 3D bounding box to project
     :return: Array of 2D corner points
     """
     # Create the 2D Boundingbox/ROI based on the OBB
-    pointcloud_camera_intrinsics = cas.get(CASViews.POINTCLOUD_CAMERA_INTRINSIC)
+    pointcloud_camera_intrinsics = common_analysis_structure.get(
+        CommonAnalysisStructureViews.POINTCLOUD_CAMERA_INTRINSIC
+    )
     assert isinstance(pointcloud_camera_intrinsics, o3d.camera.PinholeCameraIntrinsic)
     k = pointcloud_camera_intrinsics.intrinsic_matrix
     corner_points = np.asarray(object_bb.get_box_points())
@@ -125,18 +128,20 @@ def get_2d_corner_points_from_3d_bb(
         raise ValueError("Division by zero: Bounding box has zero depth.")
     corner_points_in_2d_x = (uvd[:, 0] / uvd[:, 2]).astype(int)
     corner_points_in_2d_y = (uvd[:, 1] / uvd[:, 2]).astype(int)
-    return cas.get(CASViews.COLOR_TO_DEPTH_RATIO).color_pixels(
-        np.stack((corner_points_in_2d_x, corner_points_in_2d_y), axis=1)
-    )
+    return common_analysis_structure.get(
+        CommonAnalysisStructureViews.COLOR_TO_DEPTH_RATIO
+    ).color_pixels(np.stack((corner_points_in_2d_x, corner_points_in_2d_y), axis=1))
 
 
 def project_points_to_image(
-    cas: CAS, points_camera: npt.NDArray
+    common_analysis_structure: CommonAnalysisStructure, points_camera: npt.NDArray
 ) -> Tuple[npt.NDArray, npt.NDArray]:
     """
     Project 3D camera-frame points to 2D image pixels and validity mask.
     """
-    pointcloud_camera_intrinsics = cas.get(CASViews.POINTCLOUD_CAMERA_INTRINSIC)
+    pointcloud_camera_intrinsics = common_analysis_structure.get(
+        CommonAnalysisStructureViews.POINTCLOUD_CAMERA_INTRINSIC
+    )
     k = pointcloud_camera_intrinsics.intrinsic_matrix
     uvd = points_camera @ k.T
     z = uvd[:, 2]
@@ -144,7 +149,9 @@ def project_points_to_image(
     u = (uvd[valid, 0] / z[valid]).astype(int)
     v = (uvd[valid, 1] / z[valid]).astype(int)
 
-    color_to_depth_ratio = cas.get(CASViews.COLOR_TO_DEPTH_RATIO)
+    color_to_depth_ratio = common_analysis_structure.get(
+        CommonAnalysisStructureViews.COLOR_TO_DEPTH_RATIO
+    )
     return color_to_depth_ratio.color_pixels(np.stack([u, v], axis=1)), valid
 
 
@@ -152,7 +159,7 @@ def draw_mesh_wireframe_on_image(
     image: npt.NDArray,
     mesh_shape: Mesh,
     object_transform: npt.NDArray,
-    cas: CAS,
+    common_analysis_structure: CommonAnalysisStructure,
     color: Tuple[int, int, int] = (0, 255, 0),
     thickness: int = 1,
 ) -> None:
@@ -164,7 +171,7 @@ def draw_mesh_wireframe_on_image(
     tm.apply_transform(object_transform)
 
     vertices = np.asarray(tm.vertices)
-    points_2d, valid = project_points_to_image(cas, vertices)
+    points_2d, valid = project_points_to_image(common_analysis_structure, vertices)
 
     index_map = -np.ones(len(vertices), dtype=int)
     valid_idx = np.where(valid)[0]
@@ -182,34 +189,39 @@ def draw_mesh_wireframe_on_image(
 
 
 def get_2d_bounding_rect_from_3d_bb(
-    cas: CAS, object_bb: o3d.geometry.OrientedBoundingBox
+    common_analysis_structure: CommonAnalysisStructure,
+    object_bb: o3d.geometry.OrientedBoundingBox,
 ) -> cv2t.Rect:
     """
     Get a cv2.boundingRect which represents the space taken by a open3d boundingbox.
     Perspective projection and color-to-depth ratio are taken into account.
 
-    :param cas:
+    :param common_analysis_structure:
     :param object_bb:
     :return: cv2.boundingRect
     """
-    corner_points_in_2d_xy = get_2d_corner_points_from_3d_bb(cas, object_bb)
+    corner_points_in_2d_xy = get_2d_corner_points_from_3d_bb(
+        common_analysis_structure, object_bb
+    )
     # 0: x, 1: y, 2: w, 3: h
     return cv2.boundingRect(corner_points_in_2d_xy)
 
 
 def draw_wireframe_of_obb_into_image(
-    cas: CAS, image: npt.NDArray, obb: o3d.geometry.OrientedBoundingBox
+    common_analysis_structure: CommonAnalysisStructure,
+    image: npt.NDArray,
+    obb: o3d.geometry.OrientedBoundingBox,
 ) -> None:
     """
     Draw 3D bounding box wireframe on image.
 
     Projects 3D box edges to image plane and draws lines.
 
-    :param cas: CAS containing camera parameters
+    :param common_analysis_structure: common analysis structure containing camera parameters
     :param image: Image to draw on
     :param obb: 3D bounding box to visualize
     """
-    projected_corners = get_2d_corner_points_from_3d_bb(cas, obb)
+    projected_corners = get_2d_corner_points_from_3d_bb(common_analysis_structure, obb)
     edges = [
         (0, 1),
         (1, 7),

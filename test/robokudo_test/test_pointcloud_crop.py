@@ -23,7 +23,10 @@ from robokudo.types.cv import ColorToDepthRatio
 import robokudo.pipeline
 from robokudo.annotators.outputs import AnnotatorOutputPerPipelineMap, AnnotatorOutputs
 from robokudo.annotators.pointcloud_crop import PointcloudCropAnnotator
-from robokudo.cas import CAS, CASViews
+from robokudo.common_analysis_structure import (
+    CommonAnalysisStructure,
+    CommonAnalysisStructureViews,
+)
 from robokudo.pipeline import Pipeline
 from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
 
@@ -41,23 +44,25 @@ def camera_intrinsics() -> o3d.camera.PinholeCameraIntrinsic:
 
 
 @pytest.fixture()
-def cas_with_cloud_at_world_origin(
+def common_analysis_structure_with_cloud_at_world_origin(
     camera_intrinsics: o3d.camera.PinholeCameraIntrinsic,
-) -> CAS:
+) -> CommonAnalysisStructure:
     """
-    A CAS whose cloud sits at the world origin, one metre in front of the camera, with
+    A common analysis structure whose cloud sits at the world origin, one metre in front of the camera, with
     an identity camera-to-world transform (so world and camera coordinates coincide
     here, keeping the fixture's geometry simple).
     """
-    cas = CAS()
-    cas.camera_to_world_transform = HomogeneousTransformationMatrix.from_xyz_quaternion(
-        pos_x=0.0,
-        pos_y=0.0,
-        pos_z=0.0,
-        quat_x=0.0,
-        quat_y=0.0,
-        quat_z=0.0,
-        quat_w=1.0,
+    common_analysis_structure = CommonAnalysisStructure()
+    common_analysis_structure.camera_to_world_transform = (
+        HomogeneousTransformationMatrix.from_xyz_quaternion(
+            pos_x=0.0,
+            pos_y=0.0,
+            pos_z=0.0,
+            quat_x=0.0,
+            quat_y=0.0,
+            quat_z=0.0,
+            quat_w=1.0,
+        )
     )
 
     points_inside_the_crop = np.array([[0.0, 0.0, 1.0], [0.05, 0.05, 1.0]])
@@ -67,16 +72,23 @@ def cas_with_cloud_at_world_origin(
         np.vstack([points_inside_the_crop, points_outside_the_crop])
     )
 
-    cas.set_ref(CASViews.CLOUD, cloud)
-    cas.set(CASViews.COLOR_IMAGE, np.zeros((200, 200, 3), dtype=np.uint8))
-    cas.set(CASViews.POINTCLOUD_CAMERA_INTRINSIC, camera_intrinsics)
-    cas.set(CASViews.COLOR_TO_DEPTH_RATIO, ColorToDepthRatio())
-    return cas
+    common_analysis_structure.set_ref(CommonAnalysisStructureViews.CLOUD, cloud)
+    common_analysis_structure.set(
+        CommonAnalysisStructureViews.COLOR_IMAGE,
+        np.zeros((200, 200, 3), dtype=np.uint8),
+    )
+    common_analysis_structure.set(
+        CommonAnalysisStructureViews.POINTCLOUD_CAMERA_INTRINSIC, camera_intrinsics
+    )
+    common_analysis_structure.set(
+        CommonAnalysisStructureViews.COLOR_TO_DEPTH_RATIO, ColorToDepthRatio()
+    )
+    return common_analysis_structure
 
 
 @pytest.fixture()
 def crop_annotator_in_pipeline(
-    cas_with_cloud_at_world_origin: CAS,
+    common_analysis_structure_with_cloud_at_world_origin: CommonAnalysisStructure,
 ) -> PointcloudCropAnnotator:
     """
     A ``PointcloudCropAnnotator`` configured to crop relative to the world frame, wired
@@ -92,7 +104,9 @@ def crop_annotator_in_pipeline(
     descriptor.parameters.max_z = 2.0
 
     pipeline = Pipeline("TestPipeline")
-    pipeline.cas = cas_with_cloud_at_world_origin
+    pipeline.common_analysis_structure = (
+        common_analysis_structure_with_cloud_at_world_origin
+    )
     annotator = PointcloudCropAnnotator(descriptor=descriptor)
     pipeline.add_child(annotator)
 
@@ -116,7 +130,9 @@ def test_world_relative_crop_actually_crops_the_cloud(
 ) -> None:
     crop_annotator_in_pipeline.update()
 
-    cropped_cloud = crop_annotator_in_pipeline.get_cas().get(CASViews.CLOUD)
+    cropped_cloud = crop_annotator_in_pipeline.get_common_analysis_structure().get(
+        CommonAnalysisStructureViews.CLOUD
+    )
 
     assert len(cropped_cloud.points) == 2
 
@@ -124,7 +140,9 @@ def test_world_relative_crop_actually_crops_the_cloud(
 def test_world_relative_crop_fails_without_a_camera_to_world_transform(
     crop_annotator_in_pipeline: PointcloudCropAnnotator,
 ) -> None:
-    crop_annotator_in_pipeline.get_cas().camera_to_world_transform = None
+    crop_annotator_in_pipeline.get_common_analysis_structure().camera_to_world_transform = (
+        None
+    )
 
     status = crop_annotator_in_pipeline.update()
 

@@ -28,7 +28,10 @@ from py_trees.common import Status
 from typing_extensions import List, Type
 
 from robokudo.annotators.core import BaseAnnotator
-from robokudo.cas import CAS, CASViews
+from robokudo.common_analysis_structure import (
+    CommonAnalysisStructure,
+    CommonAnalysisStructureViews,
+)
 from robokudo.types import annotation, scene
 
 
@@ -89,7 +92,7 @@ class ClusterPositionAnnotator(BaseAnnotator):
 
         The method:
 
-        * Loads point cloud from CAS
+        * Loads point cloud from common analysis structure
         * For each object hypothesis:
           * Gets appropriate point cloud data
           * Computes centroid and covariance
@@ -100,11 +103,15 @@ class ClusterPositionAnnotator(BaseAnnotator):
         """
         start_timer = default_timer()
 
-        cloud = self.get_cas().get(CASViews.CLOUD)
+        cloud = self.get_common_analysis_structure().get(
+            CommonAnalysisStructureViews.CLOUD
+        )
         centroids_to_visualize: List[List[float]] = []
 
-        object_hypotheses = self.get_cas().filter_annotations_by_type(
-            scene.ObjectHypothesis
+        object_hypotheses = (
+            self.get_common_analysis_structure().filter_annotations_by_type(
+                scene.ObjectHypothesis
+            )
         )
 
         for object_hypothesis in object_hypotheses:
@@ -112,9 +119,11 @@ class ClusterPositionAnnotator(BaseAnnotator):
                 continue
 
             if self.descriptor.parameters.analysis_scope == annotation.CloudAnnotation:
-                o_clouds: List[annotation.CloudAnnotation] = CAS.filter_by_type(
-                    annotation.CloudAnnotation,
-                    object_hypothesis.annotations,
+                o_clouds: List[annotation.CloudAnnotation] = (
+                    CommonAnalysisStructure.filter_by_type(
+                        annotation.CloudAnnotation,
+                        object_hypothesis.annotations,
+                    )
                 )
                 if len(o_clouds) == 0:
                     self.rk_logger.warning(

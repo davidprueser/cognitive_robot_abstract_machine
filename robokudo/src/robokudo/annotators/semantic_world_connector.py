@@ -8,7 +8,10 @@ from scipy.optimize import linear_sum_assignment
 
 from robokudo import world
 from robokudo.annotators.core import BaseAnnotator, ThreadedAnnotator
-from robokudo.cas import CAS, CASViews
+from robokudo.common_analysis_structure import (
+    CommonAnalysisStructure,
+    CommonAnalysisStructureViews,
+)
 from robokudo.types.annotation import (
     BoundingBox3DAnnotation,
     PoseAnnotation,
@@ -48,7 +51,7 @@ class SemanticDigitalTwinConnector(ThreadedAnnotator):
         self.rk_logger.debug("%s.__init__()" % self.__class__.__name__)
 
         self.object_comparator = (
-            ObjectHypothesisComparator(self.get_cas)
+            ObjectHypothesisComparator(self.get_common_analysis_structure)
             .with_comparator_for(ImageROI, weight=0.2)
             .with_comparator_for(StampedPoseAnnotation, weight=0.4)
             .with_comparator_for(BoundingBox3DAnnotation, weight=0.4)
@@ -58,14 +61,14 @@ class SemanticDigitalTwinConnector(ThreadedAnnotator):
         """Synchronise the current RoboKudo state with the current semdt state."""
         start_timer = default_timer()
 
-        cas = self.get_cas()
-        object_hypotheses: list[ObjectHypothesis] = cas.filter_annotations_by_type(
-            ObjectHypothesis
+        common_analysis_structure = self.get_common_analysis_structure()
+        object_hypotheses: list[ObjectHypothesis] = (
+            common_analysis_structure.filter_annotations_by_type(ObjectHypothesis)
         )
         object_beliefs = list(world.get_object_belief_states().values())
 
         associated_hypotheses = self.associate_hypotheses_with_beliefs(
-            object_hypotheses, object_beliefs, cas
+            object_hypotheses, object_beliefs, common_analysis_structure
         )
         self.create_association_visualization(associated_hypotheses)
         self.log_world_state()
@@ -78,17 +81,19 @@ class SemanticDigitalTwinConnector(ThreadedAnnotator):
         self,
         object_hypotheses: list[ObjectHypothesis],
         object_beliefs: list[ObjectBeliefState],
-        cas: CAS,
+        common_analysis_structure: CommonAnalysisStructure,
     ) -> list[tuple[ObjectHypothesis, ObjectBeliefState]]:
         """Associate current object hypotheses with existing or new object beliefs."""
         if len(object_hypotheses) == 0:
             return []
 
         # Association uses the newest pose annotation from each hypothesis.
-        self.add_world_pose_annotations(object_hypotheses, cas)
+        self.add_world_pose_annotations(object_hypotheses, common_analysis_structure)
 
         if len(object_beliefs) == 0:
-            return self.create_new_beliefs_for_hypotheses(object_hypotheses, cas)
+            return self.create_new_beliefs_for_hypotheses(
+                object_hypotheses, common_analysis_structure
+            )
 
         cost_matrix = self.create_association_cost_matrix(
             object_hypotheses, object_beliefs
@@ -101,20 +106,22 @@ class SemanticDigitalTwinConnector(ThreadedAnnotator):
             cost_matrix,
             hypothesis_indices,
             belief_indices,
-            cas,
+            common_analysis_structure,
         )
         associated_hypotheses.extend(
             self.create_new_beliefs_for_unmatched_hypotheses(
-                object_hypotheses, set(hypothesis_indices), cas
+                object_hypotheses, set(hypothesis_indices), common_analysis_structure
             )
         )
         return associated_hypotheses
 
     def add_world_pose_annotations(
-        self, object_hypotheses: list[ObjectHypothesis], cas: CAS
+        self,
+        object_hypotheses: list[ObjectHypothesis],
+        common_analysis_structure: CommonAnalysisStructure,
     ) -> None:
         """Add world-frame stamped poses to hypotheses when a camera pose is available."""
-        if cas.camera_to_world_transform is None:
+        if common_analysis_structure.camera_to_world_transform is None:
             return
 
         for object_hypothesis in object_hypotheses:
@@ -122,15 +129,21 @@ class SemanticDigitalTwinConnector(ThreadedAnnotator):
             if pose_annotation is None:
                 continue
 
-            pose_in_world = transform_pose_from_camera_to_world(cas, pose_annotation)
+            pose_in_world = transform_pose_from_camera_to_world(
+                common_analysis_structure, pose_annotation
+            )
             stamped_pose = StampedPoseAnnotation()
             stamped_pose.source = self.get_class_name()
             stamped_pose.translation = pose_in_world.translation
             stamped_pose.rotation = pose_in_world.rotation
-            if cas.world_frame is not None:
-                stamped_pose.frame = cas.world_frame
-            if cas.contains(CASViews.CAMERA_INFO):
-                stamped_pose.timestamp = cas.get(CASViews.CAMERA_INFO).header.stamp
+            if common_analysis_structure.world_frame is not None:
+                stamped_pose.frame = common_analysis_structure.world_frame
+            if common_analysis_structure.contains(
+                CommonAnalysisStructureViews.CAMERA_INFO
+            ):
+                stamped_pose.timestamp = common_analysis_structure.get(
+                    CommonAnalysisStructureViews.CAMERA_INFO
+                ).header.stamp
 
             object_hypothesis.annotations.append(stamped_pose)
 
@@ -166,7 +179,7 @@ class SemanticDigitalTwinConnector(ThreadedAnnotator):
         cost_matrix: np.ndarray,
         hypothesis_indices: np.ndarray,
         belief_indices: np.ndarray,
-        cas: CAS,
+        common_analysis_structure: CommonAnalysisStructure,
     ) -> list[tuple[ObjectHypothesis, ObjectBeliefState]]:
         """Update matched beliefs or create new beliefs for low-confidence matches."""
         associated_hypotheses: list[tuple[ObjectHypothesis, ObjectBeliefState]] = []
@@ -179,24 +192,28 @@ class SemanticDigitalTwinConnector(ThreadedAnnotator):
 
             if similarity > threshold:
                 world.update_belief_state_with_object_hypothesis(
-                    object_belief, object_hypothesis, cas
+                    object_belief, object_hypothesis, common_analysis_structure
                 )
             else:
                 object_belief = world.add_object_hypothesis_as_belief_state(
-                    object_hypothesis, cas
+                    object_hypothesis, common_analysis_structure
                 )
             associated_hypotheses.append((object_hypothesis, object_belief))
 
         return associated_hypotheses
 
     def create_new_beliefs_for_hypotheses(
-        self, object_hypotheses: list[ObjectHypothesis], cas: CAS
+        self,
+        object_hypotheses: list[ObjectHypothesis],
+        common_analysis_structure: CommonAnalysisStructure,
     ) -> list[tuple[ObjectHypothesis, ObjectBeliefState]]:
         """Create object beliefs for all given hypotheses."""
         return [
             (
                 object_hypothesis,
-                world.add_object_hypothesis_as_belief_state(object_hypothesis, cas),
+                world.add_object_hypothesis_as_belief_state(
+                    object_hypothesis, common_analysis_structure
+                ),
             )
             for object_hypothesis in object_hypotheses
         ]
@@ -205,7 +222,7 @@ class SemanticDigitalTwinConnector(ThreadedAnnotator):
         self,
         object_hypotheses: list[ObjectHypothesis],
         matched_hypothesis_indices: set[int],
-        cas: CAS,
+        common_analysis_structure: CommonAnalysisStructure,
     ) -> list[tuple[ObjectHypothesis, ObjectBeliefState]]:
         """Create object beliefs for hypotheses not returned by Hungarian assignment."""
         unmatched_hypotheses = [
@@ -214,7 +231,9 @@ class SemanticDigitalTwinConnector(ThreadedAnnotator):
             if hypothesis_idx not in matched_hypothesis_indices
         ]
         # Hungarian assignment only pairs min(len(hypotheses), len(beliefs)); extras start new beliefs.
-        return self.create_new_beliefs_for_hypotheses(unmatched_hypotheses, cas)
+        return self.create_new_beliefs_for_hypotheses(
+            unmatched_hypotheses, common_analysis_structure
+        )
 
     def log_world_state(self) -> None:
         """Log a compact summary of the current SemDT world contents."""
@@ -228,11 +247,15 @@ class SemanticDigitalTwinConnector(ThreadedAnnotator):
         associated_hypotheses: list[tuple[ObjectHypothesis, ObjectBeliefState]],
     ) -> None:
         """Publish a 2D image showing which SemDT UUID each hypothesis maps to."""
-        cas = self.get_cas()
-        if not cas.contains(CASViews.COLOR_IMAGE):
+        common_analysis_structure = self.get_common_analysis_structure()
+        if not common_analysis_structure.contains(
+            CommonAnalysisStructureViews.COLOR_IMAGE
+        ):
             return
 
-        visualization_img = cas.get_copy(CASViews.COLOR_IMAGE)
+        visualization_img = common_analysis_structure.get_copy(
+            CommonAnalysisStructureViews.COLOR_IMAGE
+        )
         object_hypotheses = [oh for oh, _ in associated_hypotheses]
         labels_by_hypothesis_id = {
             id(oh): self.get_object_belief_label(object_belief)

@@ -4,7 +4,7 @@ MongoDB storage interface for RoboKudo.
 This module provides the core interface between RoboKudo and MongoDB for storing
 and retrieving sensor data and annotations. It supports:
 
-* Codec-driven serialization of CAS views
+* Codec-driven serialization of common analysis structure views
 * KRROOD-backed annotation serialization
 * Configurable view persistence boundaries
 * Thread-safe database operations
@@ -23,12 +23,14 @@ from pymongo import MongoClient
 from typing_extensions import Any, Dict, List, Optional, TYPE_CHECKING, Tuple
 from robokudo import world
 
-from robokudo.cas import CAS
-from robokudo.io.cas_annotation_codecs import (
+from robokudo.common_analysis_structure import CommonAnalysisStructure
+from robokudo.io.common_analysis_structure_annotation_codecs import (
     serialize_annotations,
     deserialize_annotations,
 )
-from robokudo.io.cas_view_codecs import CASViewCodecRegistry
+from robokudo.io.common_analysis_structure_view_codecs import (
+    CommonAnalysisStructureViewCodecRegistry,
+)
 
 if TYPE_CHECKING:
     from pymongo.results import InsertOneResult
@@ -40,13 +42,13 @@ class Storage:
     Main interface between RoboKudo and MongoDB.
 
     This class holds the main interface code between RoboKudo and the MongoDB database.
-    It stores sensor data and CAS views by converting specialized types (NumPy arrays,
+    It stores sensor data and common analysis structure views by converting specialized types (NumPy arrays,
     ROS messages, etc.) into a BSON‑encodable dictionary format.
     """
 
     BLACKLISTED_TYPES: Tuple[type, ...] = (type(lambda x: x),)
     VIEW_COLLECTION_NAME: str = "cas_views"
-    cas_view_codecs = CASViewCodecRegistry()
+    common_analysis_structure_view_codecs = CommonAnalysisStructureViewCodecRegistry()
 
     @staticmethod
     def is_blacklisted(obj: Any) -> bool:
@@ -165,9 +167,9 @@ class Storage:
     @staticmethod
     def encode_view_document(view_name: str, view_value: Any) -> Dict[str, Any]:
         """
-        Encode one CAS view value into a serializable view document.
+        Encode one common analysis structure view value into a serializable view document.
         """
-        document = Storage.cas_view_codecs.encode_view(
+        document = Storage.common_analysis_structure_view_codecs.encode_view(
             view_name=view_name,
             value=view_value,
             strict=True,
@@ -181,20 +183,22 @@ class Storage:
     @staticmethod
     def decode_view_document(view_document: Dict[str, Any]) -> tuple[str, Any]:
         """
-        Decode one serialized view document into a CAS view value.
+        Decode one serialized view document into a common analysis structure view value.
         """
-        return Storage.cas_view_codecs.decode_view(view_document)
+        return Storage.common_analysis_structure_view_codecs.decode_view(view_document)
 
-    def store_views_in_mongo(self, cas_dict: Dict[str, Any]) -> None:
+    def store_views_in_mongo(
+        self, common_analysis_structure_dict: Dict[str, Any]
+    ) -> None:
         """
-        Store CAS views in MongoDB.
+        Store common analysis structure views in MongoDB.
 
-        Persist CAS views in a dedicated view collection and store references to those
-        view records in ``cas_dict["view_ids"]``.
+        Persist common analysis structure views in a dedicated view collection and store references to those
+        view records in ``common_analysis_structure_dict["view_ids"]``.
 
-        :param cas_dict: CAS as a dictionary to persist
+        :param common_analysis_structure_dict: common analysis structure as a dictionary to persist
         """
-        for view_name, view_value in cas_dict["views"].items():
+        for view_name, view_value in common_analysis_structure_dict["views"].items():
             view_document = Storage.encode_view_document(
                 view_name=view_name,
                 view_value=view_value,
@@ -205,24 +209,26 @@ class Storage:
                     f'Mongo DB error when trying to store view "{view_name}".'
                 )
 
-            cas_dict["view_ids"][view_name] = result.inserted_id
+            common_analysis_structure_dict["view_ids"][view_name] = result.inserted_id
 
-    def load_views_from_mongo_in_cas(
+    def load_views_from_mongo_in_common_analysis_structure(
         self,
-        cas_document: Dict[str, Any],
+        common_analysis_structure_document: Dict[str, Any],
         excluded_view_names: Optional[set[str]] = None,
     ) -> None:
         """
-        Load views from MongoDB into a CAS document.
+        Load views from MongoDB into a common analysis structure document.
 
         Retrieve and decode each persisted view referenced in ``view_ids``.
 
-        :param cas_document: CAS document to update with loaded views
+        :param common_analysis_structure_document: common analysis structure document to update with loaded views
         :param excluded_view_names: View names to leave undecoded for caller-specific
             handling.
         """
         excluded_view_names = excluded_view_names or set()
-        for expected_view_name, view_id in cas_document["view_ids"].items():
+        for expected_view_name, view_id in common_analysis_structure_document[
+            "view_ids"
+        ].items():
             if expected_view_name in excluded_view_names:
                 continue
             view_document = self.db[Storage.VIEW_COLLECTION_NAME].find_one(
@@ -240,61 +246,70 @@ class Storage:
                     f"Decoded view name '{decoded_view_name}' does not match expected "
                     f"view name '{expected_view_name}' for id={view_id}."
                 )
-            cas_document["views"][decoded_view_name] = decoded_view_value
+            common_analysis_structure_document["views"][
+                decoded_view_name
+            ] = decoded_view_value
 
     @staticmethod
-    def load_annotations_from_mongo_in_cas(
-        cas_document: Dict[str, Any], cas: CAS
+    def load_annotations_from_mongo_in_common_analysis_structure(
+        common_analysis_structure_document: Dict[str, Any],
+        common_analysis_structure: CommonAnalysisStructure,
     ) -> None:
         """
-        Load annotations from MongoDB into a CAS.
+        Load annotations from MongoDB into a common analysis structure.
 
-        Restore the annotations from the database and insert them into the CAS. If no
-        (pickled) annotations are available, cas will be untouched.
+        Restore the annotations from the database and insert them into the common analysis structure. If no
+        (pickled) annotations are available, common_analysis_structure will be untouched.
 
-        :param cas_document: A dict representing a frame of a CAS in the database
-        :param cas: The 'robokudo.cas.CAS' instance where the annotations shall be
+        :param common_analysis_structure_document: A dict representing a frame of a common analysis structure in the database
+        :param common_analysis_structure: The 'robokudo.common_analysis_structure.CommonAnalysisStructure' instance where the annotations shall be
             inserted to
         """
-        if cas_document["annotations"]:
+        if common_analysis_structure_document["annotations"]:
             tracker = world.get_world_entity_tracker()
             kwargs = tracker.create_kwargs() if tracker is not None else {}
-            cas.annotations = deserialize_annotations(
-                cas_document["annotations"], **kwargs
+            common_analysis_structure.annotations = deserialize_annotations(
+                common_analysis_structure_document["annotations"], **kwargs
             )
 
     @staticmethod
-    def generate_dict_from_real_cas(cas: CAS) -> Dict[str, Any]:
+    def generate_dict_from_real_common_analysis_structure(
+        common_analysis_structure: CommonAnalysisStructure,
+    ) -> Dict[str, Any]:
         """
-        Convert a CAS instance to a MongoDB-compatible dictionary.
+        Convert a common analysis structure instance to a MongoDB-compatible dictionary.
 
-        Generate a dictionary representation from CAS that is ready for storage. All
+        Generate a dictionary representation from common analysis structure that is ready for storage. All
         views are validated through the active view codec registry.
 
-        :param cas: Input CAS that should be used to create a dict-representation of it.
-        :return: A dict with references to parts of the input CAS.
+        :param common_analysis_structure: Input common analysis structure that should be used to create a dict-representation of it.
+        :return: A dict with references to parts of the input common analysis structure.
         """
-        serialized_annotations = serialize_annotations(cas.annotations)
-        for view_name, view_value in cas.views.items():
+        serialized_annotations = serialize_annotations(
+            common_analysis_structure.annotations
+        )
+        for view_name, view_value in common_analysis_structure.views.items():
             Storage.encode_view_document(view_name=view_name, view_value=view_value)
 
         result = {
-            "timestamp": cas.timestamp,
-            "timestamp_readable": cas.timestamp_readable,
+            "timestamp": common_analysis_structure.timestamp,
+            "timestamp_readable": common_analysis_structure.timestamp_readable,
             "annotations": serialized_annotations,
             "annotations_format": "krrood_v1",
-            "views": dict(cas.views),
+            "views": dict(common_analysis_structure.views),
         }
 
         return result
 
-    def store_cas_dict(self, cas_dict: Dict[str, Any]) -> InsertOneResult:
+    def store_common_analysis_structure_dict(
+        self, common_analysis_structure_dict: Dict[str, Any]
+    ) -> InsertOneResult:
         """
-        Store a CAS dictionary in MongoDB.
+        Store a common analysis structure dictionary in MongoDB.
 
-        Stores the views and creates a CAS document in MongoDB that references them.
+        Stores the views and creates a common analysis structure document in MongoDB that references them.
 
-        :param cas_dict: Dictionary representation of a CAS
-        :return: MongoDB ObjectId of the stored CAS document
+        :param common_analysis_structure_dict: Dictionary representation of a common analysis structure
+        :return: MongoDB ObjectId of the stored common analysis structure document
         """
-        return self.db.cas.insert_one(cas_dict)
+        return self.db.cas.insert_one(common_analysis_structure_dict)

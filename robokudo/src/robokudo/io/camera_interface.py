@@ -41,7 +41,10 @@ from sensor_msgs.msg import CompressedImage, CameraInfo, Image
 from tf2_ros import Buffer
 from typing_extensions import Optional, List, Any, TYPE_CHECKING, Union
 
-from robokudo.cas import CASViews, CAS
+from robokudo.common_analysis_structure import (
+    CommonAnalysisStructureViews,
+    CommonAnalysisStructure,
+)
 from robokudo.defs import PACKAGE_NAME
 from robokudo.exceptions import CameraDataMissing
 from robokudo.io.tf_listener_proxy import TFListenerProxy
@@ -97,14 +100,14 @@ class CameraInterface(object):
         return self._has_new_data
 
     @staticmethod
-    def store_camera_to_world_transform_in_cas(
-        cas: CAS,
+    def store_camera_to_world_transform_in_common_analysis_structure(
+        common_analysis_structure: CommonAnalysisStructure,
         world_frame: str,
         camera_frame: str,
         world_T_camera: HomogeneousTransformationMatrix,
         timestamp_ns: Optional[int] = None,
     ) -> None:
-        """Write a camera-to-world transform to the CAS and runtime world."""
+        """Write a camera-to-world transform to the common analysis structure and runtime world."""
         setup_world_for_camera_frame(world_frame=world_frame, camera_frame=camera_frame)
 
         world = world_instance()
@@ -117,11 +120,11 @@ class CameraInterface(object):
             child_frame=camera_body,
         )
 
-        cas.world_frame = world_frame
-        cas.camera_frame = camera_frame
-        cas.camera_to_world_transform = runtime_world_T_camera
+        common_analysis_structure.world_frame = world_frame
+        common_analysis_structure.camera_frame = camera_frame
+        common_analysis_structure.camera_to_world_transform = runtime_world_T_camera
         if timestamp_ns is not None:
-            cas.data_timestamp = timestamp_ns
+            common_analysis_structure.data_timestamp = timestamp_ns
 
         update_connection_transform(
             to_name=world_body.name,
@@ -131,15 +134,15 @@ class CameraInterface(object):
 
     def store_camera_to_world_transform(
         self,
-        cas: CAS,
+        common_analysis_structure: CommonAnalysisStructure,
         world_frame: str,
         camera_frame: str,
         world_T_camera: HomogeneousTransformationMatrix,
         timestamp_ns: Optional[int] = None,
     ) -> None:
-        """Write a camera-to-world transform to the CAS and runtime world."""
-        self.store_camera_to_world_transform_in_cas(
-            cas=cas,
+        """Write a camera-to-world transform to the common analysis structure and runtime world."""
+        self.store_camera_to_world_transform_in_common_analysis_structure(
+            common_analysis_structure=common_analysis_structure,
             world_frame=world_frame,
             camera_frame=camera_frame,
             world_T_camera=world_T_camera,
@@ -147,14 +150,16 @@ class CameraInterface(object):
         )
 
     def store_static_camera_transform_if_configured(
-        self, cas: CAS, timestamp_ns: Optional[int] = None
+        self,
+        common_analysis_structure: CommonAnalysisStructure,
+        timestamp_ns: Optional[int] = None,
     ) -> bool:
         """Write the configured static camera transform, if enabled."""
         if not self.camera_config.static_camera_transform_enabled:
             return False
 
         self.store_camera_to_world_transform(
-            cas=cas,
+            common_analysis_structure=common_analysis_structure,
             world_frame=self.camera_config.static_world_frame,
             camera_frame=self.camera_config.static_camera_frame,
             world_T_camera=self.camera_config.static_world_T_camera,
@@ -162,14 +167,14 @@ class CameraInterface(object):
         )
         return True
 
-    def set_data(self, cas: CAS) -> None:
+    def set_data(self, common_analysis_structure: CommonAnalysisStructure) -> None:
         """
         This method is supposed to read in, convert (if needed) and put the data into
-        the CAS. If you are running a CameraInterface which is getting data via callback
+        the common analysis structure. If you are running a CameraInterface which is getting data via callback
         methods, please make sure to keep callbacks light and do the main conversion
         work here! Callbacks should be short.
 
-        :param cas: The CAS where the data should be placed in
+        :param common_analysis_structure: The common analysis structure where the data should be placed in
         """
         raise NotImplementedError
 
@@ -256,13 +261,15 @@ class ROSCameraInterface(CameraInterface):
         return True
 
     def store_camera_to_world_transform_from_tf(
-        self, cas: CAS, timestamp: builtin_interfaces.msg.Time
+        self,
+        common_analysis_structure: CommonAnalysisStructure,
+        timestamp: builtin_interfaces.msg.Time,
     ) -> None:
         """
         If the camera is configured to look up transforms, store the camera transform in
-        the CAS.
+        the common analysis structure.
 
-        :param cas: The CAS to store the transform in
+        :param common_analysis_structure: The common analysis structure to store the transform in
         :param timestamp: The timestamp of the transform
         """
         if self.lookup_viewpoint:
@@ -276,7 +283,7 @@ class ROSCameraInterface(CameraInterface):
                 quat_w=self.camera_quaternion[3],
             )
             super().store_camera_to_world_transform(
-                cas=cas,
+                common_analysis_structure=common_analysis_structure,
                 world_frame=self.tf_to,
                 camera_frame=self.tf_from,
                 world_T_camera=world_T_camera,
@@ -284,24 +291,28 @@ class ROSCameraInterface(CameraInterface):
             )
 
     @staticmethod
-    def store_legacy_camera_to_world_transform_from_cas(cas: CAS) -> None:
-        """Create legacy StampedTransform from CAS camera_to_world_transform and data_timestamp.
+    def store_legacy_camera_to_world_transform_from_common_analysis_structure(
+        common_analysis_structure: CommonAnalysisStructure,
+    ) -> None:
+        """Create legacy StampedTransform from common analysis structure camera_to_world_transform and data_timestamp.
 
-        :param cas: The CAS to store the transform in
+        :param common_analysis_structure: The common analysis structure to store the transform in
         """
         warnings.warn(
-            "store_legacy_camera_to_world_transform_from_cas() is deprecated. "
-            "Use CASViews.CAMERA_TO_WORLD_TRANSFORM instead.",
+            "store_legacy_camera_to_world_transform_from_common_analysis_structure() is deprecated. "
+            "Use CommonAnalysisStructureViews.CAMERA_TO_WORLD_TRANSFORM instead.",
             DeprecationWarning,
             stacklevel=2,
         )
-        camera_to_world_transform = cas.camera_to_world_transform
+        camera_to_world_transform = common_analysis_structure.camera_to_world_transform
         if camera_to_world_transform is None:
-            raise KeyError("camera_to_world_transform not set in CAS")
+            raise KeyError(
+                "camera_to_world_transform not set in common analysis structure"
+            )
 
-        timestamp_ns = cas.data_timestamp
+        timestamp_ns = common_analysis_structure.data_timestamp
         if timestamp_ns is None:
-            raise KeyError("timestamp_ns not set in CAS")
+            raise KeyError("timestamp_ns not set in common analysis structure")
 
         timestamp = builtin_interfaces.msg.Time(
             sec=int(timestamp_ns // 1_000_000_000),
@@ -329,7 +340,9 @@ class ROSCameraInterface(CameraInterface):
         if camera_to_world_transform.reference_frame is not None:
             st.child_frame = str(camera_to_world_transform.reference_frame.name)
         st.timestamp = timestamp
-        cas.views[CASViews.VIEWPOINT_CAMERA_TO_WORLD] = st
+        common_analysis_structure.views[
+            CommonAnalysisStructureViews.VIEWPOINT_CAMERA_TO_WORLD
+        ] = st
 
     def set_o3d_camera_intrinsics_from_ros_camera_info(self) -> None:
         """Convert ROS camera info to Open3D camera intrinsics.
@@ -337,7 +350,7 @@ class ROSCameraInterface(CameraInterface):
         Creates an Open3D camera intrinsics object from the ROS camera calibration
         parameters.
         """
-        # Construct o3d camera intrinsics from camera info in CAS
+        # Construct o3d camera intrinsics from camera info in common analysis structure
         self.camera_intrinsic = o3d.camera.PinholeCameraIntrinsic()
         width = self.camera_info.width
         height = self.camera_info.height
@@ -610,7 +623,7 @@ class KinectCameraInterface(ROSCameraInterface):
         self._has_new_data = True
         self.lock.release()
 
-    def set_data(self, cas: CAS) -> None:
+    def set_data(self, common_analysis_structure: CommonAnalysisStructure) -> None:
         if not self.has_new_data():
             return
 
@@ -632,13 +645,25 @@ class KinectCameraInterface(ROSCameraInterface):
 
         self.color_to_depth_ratio = self.camera_config.color_to_depth_ratio
 
-        cas.set(CASViews.COLOR_IMAGE, self.color)
-        cas.set(CASViews.DEPTH_IMAGE, self.depth)
-        cas.set(CASViews.CAMERA_INFO, self.camera_info)
-        cas.set(CASViews.CAMERA_INTRINSIC, self.camera_intrinsic)
-        cas.set(CASViews.COLOR_TO_DEPTH_RATIO, self.color_to_depth_ratio)
+        common_analysis_structure.set(
+            CommonAnalysisStructureViews.COLOR_IMAGE, self.color
+        )
+        common_analysis_structure.set(
+            CommonAnalysisStructureViews.DEPTH_IMAGE, self.depth
+        )
+        common_analysis_structure.set(
+            CommonAnalysisStructureViews.CAMERA_INFO, self.camera_info
+        )
+        common_analysis_structure.set(
+            CommonAnalysisStructureViews.CAMERA_INTRINSIC, self.camera_intrinsic
+        )
+        common_analysis_structure.set(
+            CommonAnalysisStructureViews.COLOR_TO_DEPTH_RATIO, self.color_to_depth_ratio
+        )
 
-        self.store_camera_to_world_transform_from_tf(cas, self.timestamp)
+        self.store_camera_to_world_transform_from_tf(
+            common_analysis_structure, self.timestamp
+        )
 
         self._has_new_data = False
 

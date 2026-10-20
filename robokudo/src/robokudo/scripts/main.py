@@ -58,7 +58,7 @@ def run_ae(
     logger.info(f"Running AE named '{ae_name}'...")
 
     blackboard = Blackboard()
-    blackboard.set("CAS", None)
+    blackboard.set("common_analysis_structure", None)
     tick_count = 0
 
     def tick_tree() -> bool:
@@ -245,7 +245,6 @@ def main() -> None:
 
     # If you have a custom version of `setup_with_descendants`, call it:
     setup_with_descendants_rk(ae_root)
-
 
     try:
         # 9. Start ticking the Behavior Tree

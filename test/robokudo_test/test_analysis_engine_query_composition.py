@@ -106,9 +106,9 @@ class FakeCameraInterface:
         """
         return False
 
-    def set_data(self, cas: Any) -> None:
+    def set_data(self, common_analysis_structure: Any) -> None:
         """
-        Leave the CAS unchanged.
+        Leave the common analysis structure unchanged.
         """
 
 

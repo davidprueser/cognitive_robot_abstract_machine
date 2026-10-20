@@ -16,7 +16,10 @@ from pyglet.canvas.xlib import NoSuchDisplayException
 from sensor_msgs.msg import CameraInfo
 
 import robokudo.world as rk_world
-from robokudo.cas import CASViews, CAS
+from robokudo.common_analysis_structure import (
+    CommonAnalysisStructureViews,
+    CommonAnalysisStructure,
+)
 from robokudo.io.camera_interface import CameraInterface, ROSCameraInterface
 from robokudo.utils.camera_model import (
     pinhole_camera_parameters_from_horizontal_field_of_view,
@@ -43,7 +46,7 @@ class SemDTRayTracerCameraInterface(CameraInterface):
 
     The interface loads a configured world descriptor, places a virtual camera in
     that world, and writes the rendered color image, depth image, segmentation,
-    camera model, and ground-truth world reference into the CAS.
+    camera model, and ground-truth world reference into the common analysis structure.
 
     .. note::
         The configured camera pose uses ROS optical-frame convention, while the
@@ -71,11 +74,11 @@ class SemDTRayTracerCameraInterface(CameraInterface):
         # Simulated camera can always render a fresh frame.
         return True
 
-    def set_data(self, cas: CAS) -> None:
+    def set_data(self, common_analysis_structure: CommonAnalysisStructure) -> None:
         """
-        Render a simulated RGB-D frame and write it into the CAS.
+        Render a simulated RGB-D frame and write it into the common analysis structure.
 
-        :param cas: CAS that receives rendered camera data and frame metadata.
+        :param common_analysis_structure: common analysis structure that receives rendered camera data and frame metadata.
         """
         world = self._load_runtime_world()
         world_frame_body = self._ensure_world_frame(world)
@@ -124,19 +127,38 @@ class SemDTRayTracerCameraInterface(CameraInterface):
         camera_info.header.stamp.sec = int(timestamp_ns // 1_000_000_000)
         camera_info.header.stamp.nanosec = int(timestamp_ns % 1_000_000_000)
 
-        cas.set(CASViews.COLOR_IMAGE, color_bgr)
-        cas.set(CASViews.DEPTH_IMAGE, depth_mm)
-        cas.set(CASViews.CAMERA_INFO, camera_info)
-        cas.set(CASViews.CAMERA_INTRINSIC, camera_intrinsic)
-        cas.set(CASViews.COLOR_TO_DEPTH_RATIO, self.camera_config.color_to_depth_ratio)
-        cas.set(CASViews.OBJECT_IMAGE, segmentation)
-        cas.set(CASViews.OBJECT_COLOR_MAP, object_color_map)
+        common_analysis_structure.set(
+            CommonAnalysisStructureViews.COLOR_IMAGE, color_bgr
+        )
+        common_analysis_structure.set(
+            CommonAnalysisStructureViews.DEPTH_IMAGE, depth_mm
+        )
+        common_analysis_structure.set(
+            CommonAnalysisStructureViews.CAMERA_INFO, camera_info
+        )
+        common_analysis_structure.set(
+            CommonAnalysisStructureViews.CAMERA_INTRINSIC, camera_intrinsic
+        )
+        common_analysis_structure.set(
+            CommonAnalysisStructureViews.COLOR_TO_DEPTH_RATIO,
+            self.camera_config.color_to_depth_ratio,
+        )
+        common_analysis_structure.set(
+            CommonAnalysisStructureViews.OBJECT_IMAGE, segmentation
+        )
+        common_analysis_structure.set(
+            CommonAnalysisStructureViews.OBJECT_COLOR_MAP, object_color_map
+        )
         # Shared SemDT ground-truth world for this frame. Consumers must treat as read-only.
-        cas.set_ref(CASViews.GROUND_TRUTH_WORLD_REFERENCE, world)
+        common_analysis_structure.set_ref(
+            CommonAnalysisStructureViews.GROUND_TRUTH_WORLD_REFERENCE, world
+        )
 
-        cas.camera_to_world_transform = optical_camera_to_world
-        cas.data_timestamp = timestamp_ns
-        ROSCameraInterface.store_legacy_camera_to_world_transform_from_cas(cas)
+        common_analysis_structure.camera_to_world_transform = optical_camera_to_world
+        common_analysis_structure.data_timestamp = timestamp_ns
+        ROSCameraInterface.store_legacy_camera_to_world_transform_from_common_analysis_structure(
+            common_analysis_structure
+        )
 
     def _load_runtime_world(self) -> World:
         """

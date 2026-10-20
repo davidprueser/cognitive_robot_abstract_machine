@@ -19,7 +19,7 @@ from robokudo.annotators.open_vocabulary_object_detection_annotator import (
     Owlv2ForObjectDetection,
     Owlv2Processor,
 )
-from robokudo.cas import CASViews
+from robokudo.common_analysis_structure import CommonAnalysisStructureViews
 from robokudo.pipeline import Pipeline
 from robokudo.types.annotation import Classification
 from robokudo.types.scene import ObjectHypothesis
@@ -57,7 +57,9 @@ def numpy_image_annotator(
     pipeline = Pipeline("Detection")
     pipeline.add_child(annotator)
     image = numpy.arange(4 * 6 * 3, dtype=numpy.uint8).reshape(4, 6, 3)
-    annotator.get_cas().set(CASViews.COLOR_IMAGE, image)
+    annotator.get_common_analysis_structure().set(
+        CommonAnalysisStructureViews.COLOR_IMAGE, image
+    )
     return annotator
 
 
@@ -67,7 +69,9 @@ def test_detector_receives_rgb_numpy_image(
     """
     Convert the stored BGR image to an RGB array for the detector.
     """
-    image = numpy_image_annotator.get_cas().get(CASViews.COLOR_IMAGE)
+    image = numpy_image_annotator.get_common_analysis_structure().get(
+        CommonAnalysisStructureViews.COLOR_IMAGE
+    )
     assert numpy_image_annotator.compute() == Status.SUCCESS
     received_image = numpy_image_annotator.processor.call_args.kwargs["images"]
     assert isinstance(received_image, numpy.ndarray)
@@ -82,7 +86,9 @@ def test_target_sizes_use_numpy_image_height_and_width(
     """
     Scale detection boxes to the image height and width, excluding channels.
     """
-    image = numpy_image_annotator.get_cas().get(CASViews.COLOR_IMAGE)
+    image = numpy_image_annotator.get_common_analysis_structure().get(
+        CommonAnalysisStructureViews.COLOR_IMAGE
+    )
     assert numpy_image_annotator.compute() == Status.SUCCESS
     target_sizes = numpy_image_annotator.processor.post_process_grounded_object_detection.call_args.kwargs[
         "target_sizes"
@@ -96,7 +102,9 @@ def test_mask_predictor_receives_original_bgr_numpy_image(
     """
     Preserve the stored BGR array when requesting a precision-mode mask.
     """
-    image = numpy_image_annotator.get_cas().get(CASViews.COLOR_IMAGE)
+    image = numpy_image_annotator.get_common_analysis_structure().get(
+        CommonAnalysisStructureViews.COLOR_IMAGE
+    )
     height, width = image.shape[:2]
     numpy_image_annotator.descriptor.parameters.precision_mode = True
     numpy_image_annotator.segment_anything_model = MagicMock()
@@ -127,7 +135,9 @@ def precision_mask_annotator(
     Configure a patterned mask and an object box offset from the image origin.
     """
     annotator = numpy_image_annotator
-    image = annotator.get_cas().get(CASViews.COLOR_IMAGE)
+    image = annotator.get_common_analysis_structure().get(
+        CommonAnalysisStructureViews.COLOR_IMAGE
+    )
     height, width = image.shape[:2]
     annotator.descriptor.parameters.precision_mode = True
     annotator.segment_anything_model = MagicMock()
@@ -159,7 +169,9 @@ def test_precision_mask_preserves_color_coordinates(
     """
     annotator = precision_mask_annotator
     annotator.descriptor.parameters.global_with_depth = color_to_depth_ratio is not None
-    annotator.get_cas().set(CASViews.COLOR_TO_DEPTH_RATIO, color_to_depth_ratio)
+    annotator.get_common_analysis_structure().set(
+        CommonAnalysisStructureViews.COLOR_TO_DEPTH_RATIO, color_to_depth_ratio
+    )
     mask = annotator.segment_anything_model.predict.return_value[
         0
     ].masks.data.cpu.return_value.numpy.return_value[0]
@@ -167,9 +179,11 @@ def test_precision_mask_preserves_color_coordinates(
 
     assert annotator.compute() == Status.SUCCESS
 
-    object_hypothesis = annotator.get_cas().filter_annotations_by_type(
-        ObjectHypothesis
-    )[0]
+    object_hypothesis = (
+        annotator.get_common_analysis_structure().filter_annotations_by_type(
+            ObjectHypothesis
+        )[0]
+    )
     numpy.testing.assert_array_equal(
         object_hypothesis.roi.mask,
         crop_image_roi(expected_mask, object_hypothesis.roi),
@@ -184,7 +198,9 @@ def test_precision_mask_does_not_require_color_to_depth_ratio(
     """
     annotator = precision_mask_annotator
     annotator.descriptor.parameters.global_with_depth = True
-    annotator.get_cas().set(CASViews.COLOR_TO_DEPTH_RATIO, None)
+    annotator.get_common_analysis_structure().set(
+        CommonAnalysisStructureViews.COLOR_TO_DEPTH_RATIO, None
+    )
 
     assert annotator.compute() == Status.SUCCESS
 
@@ -198,8 +214,9 @@ def test_precision_bounding_box_uses_segment_anything_mask_color_coordinates(
     annotator = precision_mask_annotator
     annotator.descriptor.parameters.refine_bounding_boxes = True
     annotator.descriptor.parameters.global_with_depth = True
-    annotator.get_cas().set(
-        CASViews.COLOR_TO_DEPTH_RATIO, ColorToDepthRatio(horizontal=0.5, vertical=0.5)
+    annotator.get_common_analysis_structure().set(
+        CommonAnalysisStructureViews.COLOR_TO_DEPTH_RATIO,
+        ColorToDepthRatio(horizontal=0.5, vertical=0.5),
     )
     mask = (
         annotator.segment_anything_model.predict.return_value[
@@ -212,9 +229,11 @@ def test_precision_bounding_box_uses_segment_anything_mask_color_coordinates(
 
     assert annotator.compute() == Status.SUCCESS
 
-    object_hypothesis = annotator.get_cas().filter_annotations_by_type(
-        ObjectHypothesis
-    )[0]
+    object_hypothesis = (
+        annotator.get_common_analysis_structure().filter_annotations_by_type(
+            ObjectHypothesis
+        )[0]
+    )
     assert object_hypothesis.roi.roi.as_tuple() == expected_rectangle
 
 
@@ -228,7 +247,9 @@ def test_detect_objects_creates_classified_hypotheses_without_publishing(
     Return classified detections while leaving publication to compute.
     """
     annotator = numpy_image_annotator
-    image = annotator.get_cas().get(CASViews.COLOR_IMAGE)
+    image = annotator.get_common_analysis_structure().get(
+        CommonAnalysisStructureViews.COLOR_IMAGE
+    )
     height, width = image.shape[:2]
     result = {
         DetectionResultField.BOXES: torch.Tensor([[1, 1, width - 1, height - 1]]),
@@ -251,7 +272,7 @@ def test_detect_objects_creates_classified_hypotheses_without_publishing(
     assert hypotheses[0].roi.roi.get_corner_points() == tuple(
         result[DetectionResultField.BOXES][0].tolist()
     )
-    assert annotator.get_cas().annotations == []
+    assert annotator.get_common_analysis_structure().annotations == []
     annotator.get_annotator_output_struct().set_image.assert_not_called()
 
 
@@ -263,7 +284,9 @@ def test_predict_mask_returns_full_color_resolution_byte_mask(
     resizing.
     """
     annotator = precision_mask_annotator
-    image = annotator.get_cas().get(CASViews.COLOR_IMAGE)
+    image = annotator.get_common_analysis_structure().get(
+        CommonAnalysisStructureViews.COLOR_IMAGE
+    )
     box = annotator.processor.post_process_grounded_object_detection.return_value[0][
         DetectionResultField.BOXES
     ][0].tolist()
@@ -302,7 +325,9 @@ def test_visualize_objects_draws_roi_mask_without_mutating_source(
     Render foreground pixels in the object ROI on a separate image.
     """
     annotator = precision_mask_annotator
-    image = annotator.get_cas().get(CASViews.COLOR_IMAGE)
+    image = annotator.get_common_analysis_structure().get(
+        CommonAnalysisStructureViews.COLOR_IMAGE
+    )
     original_image = image.copy()
     hypotheses = annotator.detect_objects(image)
     object_hypothesis = hypotheses[0]

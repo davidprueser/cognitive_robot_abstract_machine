@@ -7,7 +7,7 @@ import pytest
 from cv2 import boundingRect
 
 from robokudo.types.cv import ColorToDepthRatio
-import robokudo.cas
+import robokudo.common_analysis_structure
 from robokudo.annotators.core import BaseAnnotator
 from robokudo.annotators.image_preprocessor import ImagePreprocessorAnnotator
 from robokudo.pipeline import Pipeline
@@ -125,20 +125,24 @@ class TestUtilsCVHelper(object):
         kinect_intrinsics: o3d.camera.PinholeCameraIntrinsic,
     ) -> None:
         annotator_in_pipeline.descriptor.parameters.global_with_depth = True
-        cas = annotator_in_pipeline.get_cas()
+        common_analysis_structure = (
+            annotator_in_pipeline.get_common_analysis_structure()
+        )
         width, height = kinect_intrinsics.width, kinect_intrinsics.height
         scalex, scaley = scale_factor
 
         image = np.zeros((height, width, 3), dtype=np.uint8)
 
-        cas.set(
-            robokudo.cas.CASViews.COLOR_TO_DEPTH_RATIO,
+        common_analysis_structure.set(
+            robokudo.common_analysis_structure.CommonAnalysisStructureViews.COLOR_TO_DEPTH_RATIO,
             ColorToDepthRatio(horizontal=scalex, vertical=scaley),
         )
 
         annotator_in_pipeline.camera_intrinsics = copy.deepcopy(kinect_intrinsics)
 
-        scaled_image = get_scaled_color_image_for_depth_image(cas, image)
+        scaled_image = get_scaled_color_image_for_depth_image(
+            common_analysis_structure, image
+        )
         assert scaled_image.shape[:2] == (
             height * scaley,
             width * scalex,
@@ -147,11 +151,19 @@ class TestUtilsCVHelper(object):
     def test_get_scaled_color_image_for_depth_image_no_depth_ratio(
         self, annotator_in_pipeline: BaseAnnotator
     ) -> None:
-        cas = annotator_in_pipeline.get_cas()
-        cas.set(robokudo.cas.CASViews.COLOR_TO_DEPTH_RATIO, None)
+        common_analysis_structure = (
+            annotator_in_pipeline.get_common_analysis_structure()
+        )
+        common_analysis_structure.set(
+            robokudo.common_analysis_structure.CommonAnalysisStructureViews.COLOR_TO_DEPTH_RATIO,
+            None,
+        )
         image = np.zeros((640, 480, 3), dtype=np.uint8)
         assert pytest.raises(
-            RuntimeError, get_scaled_color_image_for_depth_image, cas, image
+            RuntimeError,
+            get_scaled_color_image_for_depth_image,
+            common_analysis_structure,
+            image,
         )
 
     @pytest.mark.parametrize(

@@ -150,9 +150,13 @@ class LocationAnnotator(ThreadedAnnotator):
         # TODO Filter active regions by FRUSTUM CULLING
 
         world_to_camera_transform_matrix = get_world_to_camera_transform_matrix(
-            self.get_cas()
+            self.get_common_analysis_structure()
         )
-        object_hypotheses = self.get_cas().filter_annotations_by_type(ObjectHypothesis)
+        object_hypotheses = (
+            self.get_common_analysis_structure().filter_annotations_by_type(
+                ObjectHypothesis
+            )
+        )
 
         for region_name, region in active_regions.items():
 

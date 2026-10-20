@@ -5,8 +5,11 @@ import pytest
 import sensor_msgs.msg
 
 from robokudo.types.cv import ColorToDepthRatio
-import robokudo.cas
-from robokudo.cas import CAS, CASViews
+import robokudo.common_analysis_structure
+from robokudo.common_analysis_structure import (
+    CommonAnalysisStructure,
+    CommonAnalysisStructureViews,
+)
 from robokudo.utils.o3d_helper import (
     put_obb_on_target_obb,
     transform_obb_relative_to_obb_center,
@@ -25,11 +28,19 @@ from robokudo.utils.o3d_helper import (
 
 class TestUtilsO3DHelper(object):
     @pytest.fixture
-    def cas(self, kinect_intrinsics: o3d.camera.PinholeCameraIntrinsic) -> CAS:
-        cas = robokudo.cas.CAS()
-        cas.set(CASViews.POINTCLOUD_CAMERA_INTRINSIC, kinect_intrinsics)
-        cas.set(CASViews.COLOR_TO_DEPTH_RATIO, ColorToDepthRatio())
-        return cas
+    def common_analysis_structure(
+        self, kinect_intrinsics: o3d.camera.PinholeCameraIntrinsic
+    ) -> CommonAnalysisStructure:
+        common_analysis_structure = (
+            robokudo.common_analysis_structure.CommonAnalysisStructure()
+        )
+        common_analysis_structure.set(
+            CommonAnalysisStructureViews.POINTCLOUD_CAMERA_INTRINSIC, kinect_intrinsics
+        )
+        common_analysis_structure.set(
+            CommonAnalysisStructureViews.COLOR_TO_DEPTH_RATIO, ColorToDepthRatio()
+        )
+        return common_analysis_structure
 
     @pytest.fixture
     def kinect_intrinsics(self) -> o3d.camera.PinholeCameraIntrinsic:
@@ -220,12 +231,14 @@ class TestUtilsO3DHelper(object):
         with pytest.raises(IndexError):
             get_obb_from_size_and_transform(bb_size, transform)
 
-    def test_get_2d_corner_points_from_3d_bb_basic_case(self, cas: CAS) -> None:
+    def test_get_2d_corner_points_from_3d_bb_basic_case(
+        self, common_analysis_structure: CommonAnalysisStructure
+    ) -> None:
         obb = o3d.geometry.OrientedBoundingBox(
             center=[0, 0, 1], R=np.eye(3), extent=[1, 1, 1]
         )
 
-        result = get_2d_corner_points_from_3d_bb(cas, obb)
+        result = get_2d_corner_points_from_3d_bb(common_analysis_structure, obb)
 
         assert isinstance(result, np.ndarray)
         assert result.shape == (8, 2)
@@ -243,9 +256,11 @@ class TestUtilsO3DHelper(object):
             ]
         ), f"unexpected corner points, did the camera intrinsics change? {result}"
 
-    def test_get_2d_corner_points_from_3d_bb_with_scaling(self, cas: CAS) -> None:
-        cas.set(
-            robokudo.cas.CASViews.COLOR_TO_DEPTH_RATIO,
+    def test_get_2d_corner_points_from_3d_bb_with_scaling(
+        self, common_analysis_structure: CommonAnalysisStructure
+    ) -> None:
+        common_analysis_structure.set(
+            robokudo.common_analysis_structure.CommonAnalysisStructureViews.COLOR_TO_DEPTH_RATIO,
             ColorToDepthRatio(horizontal=2.0, vertical=2.0),
         )
 
@@ -253,7 +268,7 @@ class TestUtilsO3DHelper(object):
             center=[0, 0, 1], R=np.eye(3), extent=[1, 1, 1]
         )
 
-        result = get_2d_corner_points_from_3d_bb(cas, obb)
+        result = get_2d_corner_points_from_3d_bb(common_analysis_structure, obb)
 
         assert isinstance(result, np.ndarray)
         assert result.shape == (8, 2)
@@ -271,12 +286,14 @@ class TestUtilsO3DHelper(object):
             ]
         ), f"unexpected corner points, did the camera intrinsics change? {result}"
 
-    def test_get_2d_corner_points_from_3d_bb_far_from_camera(self, cas: CAS) -> None:
+    def test_get_2d_corner_points_from_3d_bb_far_from_camera(
+        self, common_analysis_structure: CommonAnalysisStructure
+    ) -> None:
         obb = o3d.geometry.OrientedBoundingBox(
             center=[0, 0, 10], R=np.eye(3), extent=[1, 1, 1]
         )
 
-        result = get_2d_corner_points_from_3d_bb(cas, obb)
+        result = get_2d_corner_points_from_3d_bb(common_analysis_structure, obb)
 
         assert isinstance(result, np.ndarray)
         assert result.shape == (8, 2)
@@ -294,9 +311,11 @@ class TestUtilsO3DHelper(object):
             ]
         ), f"unexpected corner points, did the camera intrinsics change? {result}"
 
-    def test_get_2d_corner_points_from_3d_bb_invalid_intrinsics(self, cas: CAS) -> None:
-        cas.set(
-            robokudo.cas.CASViews.POINTCLOUD_CAMERA_INTRINSIC,
+    def test_get_2d_corner_points_from_3d_bb_invalid_intrinsics(
+        self, common_analysis_structure: CommonAnalysisStructure
+    ) -> None:
+        common_analysis_structure.set(
+            robokudo.common_analysis_structure.CommonAnalysisStructureViews.POINTCLOUD_CAMERA_INTRINSIC,
             "anything but CameraIntrinsics",
         )
 
@@ -304,34 +323,47 @@ class TestUtilsO3DHelper(object):
             center=[0, 0, 1], R=np.eye(3), extent=[1, 1, 1]
         )
 
-        assert pytest.raises(AssertionError, get_2d_corner_points_from_3d_bb, cas, obb)
+        assert pytest.raises(
+            AssertionError,
+            get_2d_corner_points_from_3d_bb,
+            common_analysis_structure,
+            obb,
+        )
 
-    def test_get_2d_corner_points_from_3d_bb_zero_depth(self, cas: CAS) -> None:
+    def test_get_2d_corner_points_from_3d_bb_zero_depth(
+        self, common_analysis_structure: CommonAnalysisStructure
+    ) -> None:
         obb = o3d.geometry.OrientedBoundingBox(
             center=[0, 0, 0], R=np.eye(3), extent=[0, 0, 0]
         )
 
-        assert pytest.raises(ValueError, get_2d_corner_points_from_3d_bb, cas, obb)
+        assert pytest.raises(
+            ValueError, get_2d_corner_points_from_3d_bb, common_analysis_structure, obb
+        )
 
-    def test_get_2d_bounding_rect_from_3d_bb(self, cas: CAS) -> None:
+    def test_get_2d_bounding_rect_from_3d_bb(
+        self, common_analysis_structure: CommonAnalysisStructure
+    ) -> None:
         obb = o3d.geometry.OrientedBoundingBox(
             center=[0, 0, 1], R=np.eye(3), extent=[1, 1, 1]
         )
 
-        rect = get_2d_bounding_rect_from_3d_bb(cas, obb)
+        rect = get_2d_bounding_rect_from_3d_bb(common_analysis_structure, obb)
 
         assert isinstance(rect, tuple)
         assert len(rect) == 4  # (x, y, w, h)
         assert np.all(rect == (-410, -570, 2100, 2100))
         assert all(isinstance(val, int) for val in rect)
 
-    def test_draw_wireframe_of_obb_into_image(self, cas: CAS) -> None:
+    def test_draw_wireframe_of_obb_into_image(
+        self, common_analysis_structure: CommonAnalysisStructure
+    ) -> None:
         image = np.ones((300, 300, 3), dtype=np.uint8) * 255
         obb = o3d.geometry.OrientedBoundingBox(
             center=[0, 0, 1], R=np.eye(3), extent=[1, 1, 1]
         )
 
-        draw_wireframe_of_obb_into_image(cas, image, obb)
+        draw_wireframe_of_obb_into_image(common_analysis_structure, image, obb)
 
         non_white_pixels = np.any(image != 255, axis=2)
         assert np.any(non_white_pixels), "No lines were drawn on the image."
