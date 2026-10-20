@@ -158,6 +158,16 @@ def test_floor_rectangles_cover_the_outline_area(l_shaped_room):
     ) == pytest.approx(4.0)
 
 
+def test_footprint_is_the_rectangle_around_the_outline(l_shaped_room):
+    footprint = l_shaped_room.footprint
+    assert (
+        footprint.min_x,
+        footprint.min_y,
+        footprint.max_x,
+        footprint.max_y,
+    ) == (0, 0, 3, 2)
+
+
 def test_spawn_registers_the_room_with_its_floor(l_shaped_room_world):
     world, room = l_shaped_room_world
     assert world.get_semantic_annotations_by_type(Room) == [room]

@@ -312,6 +312,22 @@ class RectilinearRoom:
         )
 
     @property
+    def footprint(self) -> PlanarBoundingBox:
+        """
+        :return: The smallest axis-aligned rectangle around the outline, in the
+            outline's frame.
+        """
+        minimum_x, minimum_y = self._vertices.min(axis=0)
+        maximum_x, maximum_y = self._vertices.max(axis=0)
+        return PlanarBoundingBox(
+            float(minimum_x),
+            float(minimum_y),
+            float(maximum_x),
+            float(maximum_y),
+            HomogeneousTransformationMatrix(),
+        )
+
+    @property
     def floor_rectangles(self) -> list[PlanarBoundingBox]:
         """
         Split the outline into non-overlapping axis-aligned rectangles that together

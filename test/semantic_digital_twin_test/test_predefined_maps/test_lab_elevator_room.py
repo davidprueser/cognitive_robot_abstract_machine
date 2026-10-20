@@ -1,9 +1,15 @@
+import numpy as np
 import pytest
 
-from semantic_digital_twin.predefined_maps.lab_elevator_room import LabElevatorRoom
+from semantic_digital_twin.predefined_maps.lab_elevator_room import (
+    LabElevatorRoom,
+    lab_corridor_doorway,
+)
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Door,
     Elevator,
+    FirstFloor,
+    GroundFloor,
     Room,
     Wall,
 )
@@ -135,6 +141,7 @@ def test_left_wall_doorway_faces_the_corridor_doorway(lab_elevator_room_world):
         (
             world.compute_forward_kinematics_np(room.floor.root, aperture.root)[:2, 3]
             for wall in world.get_semantic_annotations_by_type(Wall)
+            if wall.root.parent_kinematic_structure_entity is room.floor.root
             for aperture in wall.apertures
         ),
         key=lambda position: position[0],
@@ -159,3 +166,212 @@ def test_wall_beside_the_elevator_shaft_stands_up_to_the_next_corner(
     while not edges[index].is_convex_at_start:
         assert not room_description.is_open(edges[index])
         index = (index + 1) % len(edges)
+
+
+# %% first floor
+
+
+@pytest.fixture()
+def lab_world_with_elevator_upstairs(lab_elevator_room) -> tuple[World, Room, Elevator]:
+    world = World.create_with_root_body("map")
+    room = lab_elevator_room.spawn(world, "lab")
+    (elevator,) = world.get_semantic_annotations_by_type(Elevator)
+    (first_floor_level,) = world.get_semantic_annotations_by_type(FirstFloor)
+    elevator.drive_to_floor(first_floor_level)
+    return world, room, elevator
+
+
+def first_floor_room(world: World, ground_floor_room: Room) -> Room:
+    """
+    :return: The room spawned for the first floor, which stands on the ground floor.
+    """
+    (room,) = [
+        room
+        for room in world.get_semantic_annotations_by_type(Room)
+        if room.floor.root.parent_kinematic_structure_entity
+        is ground_floor_room.floor.root
+    ]
+    return room
+
+
+def test_first_floor_rests_on_the_ground_floor_walls(
+    lab_elevator_room, lab_elevator_room_world
+):
+    world, room = lab_elevator_room_world
+    upstairs = first_floor_room(world, room)
+    assert world.compute_forward_kinematics_np(room.floor.root, upstairs.floor.root)[
+        2, 3
+    ] == pytest.approx(lab_elevator_room.room.wall_height)
+
+
+def test_ground_and_first_floor_are_levels(lab_elevator_room_world):
+    world, _ = lab_elevator_room_world
+    assert len(world.get_semantic_annotations_by_type(GroundFloor)) == 1
+    assert len(world.get_semantic_annotations_by_type(FirstFloor)) == 1
+
+
+def test_elevator_driven_upstairs_stands_on_the_first_floor(
+    lab_elevator_room, lab_world_with_elevator_upstairs
+):
+    world, room, elevator = lab_world_with_elevator_upstairs
+    cabin_bottom = (
+        world.compute_forward_kinematics_np(room.floor.root, elevator.root)[2, 3]
+        - lab_elevator_room.elevator.scale.z / 2
+    )
+    assert cabin_bottom == pytest.approx(lab_elevator_room.room.wall_height)
+
+
+def test_elevator_driven_upstairs_opens_onto_the_first_floor(
+    lab_elevator_room, lab_world_with_elevator_upstairs
+):
+    world, room, elevator = lab_world_with_elevator_upstairs
+    upstairs = first_floor_room(world, room)
+    in_front_of_doors = Point3(
+        -lab_elevator_room.elevator.scale.x / 2 - 0.2,
+        0,
+        -lab_elevator_room.elevator.scale.z / 2 - 0.01,
+        reference_frame=elevator.root,
+    )
+    assert upstairs.floor.root.collision.as_bounding_box_collection_in_frame(
+        upstairs.floor.root
+    ).contains(in_front_of_doors)
+
+
+def test_first_floor_has_no_wall_across_the_elevator_entrance(lab_elevator_room):
+    elevator_center = lab_elevator_room.elevator_center.to_np()
+    entrance_middle = Point2(
+        elevator_center[0],
+        elevator_center[1] - lab_elevator_room.elevator.scale.x / 2,
+    )
+    first_floor = lab_elevator_room.first_floor
+    (entrance,) = [edge for edge in first_floor.edges if edge.contains(entrance_middle)]
+    assert first_floor.is_open(entrance)
+
+
+def test_first_floor_has_no_wall_on_the_railing_side(lab_elevator_room):
+    first_floor = lab_elevator_room.first_floor
+    lowest_y = min(vertex.to_np()[1] for vertex in first_floor.outline)
+    (railing_side,) = [
+        edge
+        for edge in first_floor.edges
+        if edge.start[1] == lowest_y and edge.end[1] == lowest_y
+    ]
+    assert first_floor.is_open(railing_side)
+
+
+def test_first_floor_has_a_door_right_above_each_ground_floor_doorway(
+    lab_elevator_room_world,
+):
+    world, room = lab_elevator_room_world
+    upstairs = first_floor_room(world, room)
+
+    def aperture_positions(storey: Room) -> list:
+        return [
+            world.compute_forward_kinematics_np(room.floor.root, aperture.root)[:3, 3]
+            for wall in world.get_semantic_annotations_by_type(Wall)
+            if wall.root.parent_kinematic_structure_entity is storey.floor.root
+            for aperture in wall.apertures
+        ]
+
+    first_floor_doors = aperture_positions(upstairs)
+    for archway in aperture_positions(room):
+        assert any(
+            door[:2] == pytest.approx(archway[:2]) and door[2] > archway[2]
+            for door in first_floor_doors
+        )
+
+
+def test_no_first_floor_wall_hangs_over_the_ground_floor_room(lab_elevator_room):
+    first_floor = lab_elevator_room.first_floor
+    ground_floor_rectangles = lab_elevator_room.room.floor_rectangles
+    for edge in first_floor.edges:
+        if first_floor.is_open(edge):
+            continue
+        x, y = (
+            edge.start + edge.end
+        ) / 2 + edge.outward_normal * first_floor.wall_thickness / 2
+        assert not any(
+            rectangle.min_x < x < rectangle.max_x
+            and rectangle.min_y < y < rectangle.max_y
+            for rectangle in ground_floor_rectangles
+        )
+
+
+# %% hallway
+
+
+def is_on_any_floor(world: World, point: Point3) -> bool:
+    """
+    :return: Whether ``point`` lies inside the floor of any room.
+    """
+    return any(
+        room.floor.root.collision.as_bounding_box_collection_in_frame(
+            room.floor.root
+        ).contains(point)
+        for room in world.get_semantic_annotations_by_type(Room)
+    )
+
+
+def is_inside_any_wall(world: World, point: Point3) -> bool:
+    """
+    :return: Whether ``point`` lies inside any wall.
+    """
+    return any(
+        wall.root.collision.as_bounding_box_collection_in_frame(wall.root).contains(
+            point
+        )
+        for wall in world.get_semantic_annotations_by_type(Wall)
+    )
+
+
+def test_hallway_continues_beyond_the_corridor_doorway(
+    lab_elevator_room, lab_elevator_room_world
+):
+    world, room = lab_elevator_room_world
+    doorway = lab_corridor_doorway()
+    beyond_doorway = (doorway.start.to_np() + doorway.end.to_np()) / 2 + np.array(
+        [lab_elevator_room.room.wall_thickness + 0.3, 0]
+    )
+    assert is_on_any_floor(
+        world, Point3(*beyond_doorway, -0.01, reference_frame=room.floor.root)
+    )
+    assert not is_inside_any_wall(
+        world, Point3(*beyond_doorway, 1.0, reference_frame=room.floor.root)
+    )
+
+
+def test_hallway_stretches_meet_without_a_wall(
+    lab_elevator_room, lab_elevator_room_world
+):
+    world, _ = lab_elevator_room_world
+    hallway = lab_elevator_room.hallway
+    south_stretch = hallway.south_stretch
+    highest_y = max(vertex.to_np()[1] for vertex in south_stretch.outline)
+    (joint,) = [
+        edge
+        for edge in south_stretch.edges
+        if edge.start[1] == highest_y and edge.end[1] == highest_y
+    ]
+    assert south_stretch.is_open(joint)
+    joint_middle = (joint.start + joint.end) / 2
+    for offset in (-0.3, 0.3):
+        x, y = joint_middle + joint.outward_normal * offset
+        map_point = hallway.map_T_south_stretch.to_np() @ np.array([x, y, 0, 1])
+        assert is_on_any_floor(
+            world, Point3(*map_point[:2], -0.01, reference_frame=world.root)
+        )
+        assert not is_inside_any_wall(
+            world, Point3(*map_point[:2], 1.0, reference_frame=world.root)
+        )
+
+
+def test_hallway_ends_in_a_doorway_as_wide_as_its_end(lab_elevator_room):
+    south_stretch = lab_elevator_room.hallway.south_stretch
+    lowest_y = min(vertex.to_np()[1] for vertex in south_stretch.outline)
+    (end,) = [
+        edge
+        for edge in south_stretch.edges
+        if edge.start[1] == lowest_y and edge.end[1] == lowest_y
+    ]
+    (doorway,) = [doorway for doorway in south_stretch.doorways if end.holds(doorway)]
+    assert doorway.width == pytest.approx(end.length)
