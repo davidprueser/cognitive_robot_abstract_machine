@@ -7,7 +7,7 @@ from robokudo.descriptors.camera_configs.registry import CameraConfigRegistry
 from robokudo.io.camera_interface import KinectCameraInterface
 from robokudo.io.camera_without_depth_interface import OpenCVCameraWithoutDepthInterface
 from robokudo.io.file_reader_interface import RGBDFileReaderInterface
-from robokudo.io.semdt_raytracer_camera_interface import (
+from robokudo.io.semantic_digital_twin_raytracer_camera_interface import (
     SemDTRayTracerCameraInterface,
 )
 from robokudo.io.storage_reader_interface import StorageReaderInterface

@@ -21,7 +21,7 @@ class SemDTRayTracerCameraConfig(BaseCameraConfig):
     ROS package containing the world descriptor module.
     """
 
-    world_descriptor_name: str = "world_semdt_raytracer_tabletop"
+    world_descriptor_name: str = "world_semantic_digital_twin_raytracer_tabletop"
     """
     Module name in descriptors/worlds that defines class WorldDescriptor.
     """

@@ -25,12 +25,12 @@ from robokudo.pipeline import Pipeline
 
 class AnalysisEngine(AnalysisEngineInterface):
     def name(self) -> str:
-        return "semdt_raytracer_demo"
+        return "semantic_digital_twin_raytracer_demo"
 
     def implementation(self) -> Pipeline:
         raytracer_config = CollectionReaderDescriptorFactory.create_descriptor(
             "semdt_raytracer",
-            world_descriptor_name="world_semdt_raytracer_tabletop",
+            world_descriptor_name="world_semantic_digital_twin_raytracer_tabletop",
         )
         plane_desc = PlaneAnnotator.Descriptor()
         plane_desc.parameters.distance_threshold = 0.01

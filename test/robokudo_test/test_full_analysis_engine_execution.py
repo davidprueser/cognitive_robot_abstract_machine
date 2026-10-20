@@ -13,7 +13,7 @@ import robokudo.descriptors.camera_configs.config_filereader_playback
 import robokudo.descriptors.camera_configs.config_mongodb_playback
 import robokudo.descriptors.camera_configs.config_semdt_raytracer
 import robokudo.io.file_reader_interface
-import robokudo.io.semdt_raytracer_camera_interface
+import robokudo.io.semantic_digital_twin_raytracer_camera_interface
 import robokudo.io.storage_reader_interface
 import robokudo.behaviours.clear_annotator_outputs
 import robokudo.pipeline
@@ -274,7 +274,7 @@ class TestFullAEExecution(object):
     def test_run_semdt_raytracer_ae_successfully(self, node: Node) -> None:
         raytracer_config = CollectionReaderDescriptorFactory.create_descriptor(
             "semdt_raytracer",
-            world_descriptor_name="world_semdt_raytracer_cylinders",
+            world_descriptor_name="world_semantic_digital_twin_raytracer_cylinders",
             resolution=128,
         )
 
@@ -356,7 +356,7 @@ class TestFullAEExecution(object):
     ) -> None:
         raytracer_config = CollectionReaderDescriptorFactory.create_descriptor(
             "semdt_raytracer",
-            world_descriptor_name="world_semdt_raytracer_tabletop",
+            world_descriptor_name="world_semantic_digital_twin_raytracer_tabletop",
             resolution=128,
         )
 
