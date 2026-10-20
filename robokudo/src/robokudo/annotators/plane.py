@@ -129,7 +129,7 @@ class PlaneAnnotator(ThreadedAnnotator):
 
         :return: SUCCESS after processing
         """
-        self.rk_logger.info("Plane compute start")
+        self.robokudo_logger.info("Plane compute start")
         start_timer = default_timer()
         cloud = self.get_common_analysis_structure().get(
             CommonAnalysisStructureViews.CLOUD
@@ -189,9 +189,9 @@ class PlaneAnnotator(ThreadedAnnotator):
             visualized_geometries.append(
                 {"name": "plane_model", "geometry": plane_model_mesh}
             )
-            self.get_annotator_output_struct().set_geometries(visualized_geometries)
+            self.get_annotator_output_structure().set_geometries(visualized_geometries)
 
         end_timer = default_timer()
         self.feedback_message = f"Processing took {(end_timer - start_timer):.4f}s"
-        self.rk_logger.info("Plane compute end")
+        self.robokudo_logger.info("Plane compute end")
         return Status.SUCCESS

@@ -53,7 +53,7 @@ def numpy_image_annotator(
     descriptor.parameters = descriptor.Parameters()
     descriptor.parameters.global_with_depth = False
     annotator = OpenVocabularyObjectDetectionAnnotator(descriptor=descriptor)
-    monkeypatch.setattr(annotator, "get_annotator_output_struct", MagicMock())
+    monkeypatch.setattr(annotator, "get_annotator_output_structure", MagicMock())
     pipeline = Pipeline("Detection")
     pipeline.add_child(annotator)
     image = numpy.arange(4 * 6 * 3, dtype=numpy.uint8).reshape(4, 6, 3)
@@ -273,7 +273,7 @@ def test_detect_objects_creates_classified_hypotheses_without_publishing(
         result[DetectionResultField.BOXES][0].tolist()
     )
     assert annotator.get_common_analysis_structure().annotations == []
-    annotator.get_annotator_output_struct().set_image.assert_not_called()
+    annotator.get_annotator_output_structure().set_image.assert_not_called()
 
 
 def test_predict_mask_returns_full_color_resolution_byte_mask(

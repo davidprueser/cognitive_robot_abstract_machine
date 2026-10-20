@@ -6,7 +6,7 @@ import pytest
 from py_trees.blackboard import Blackboard
 
 from robokudo.annotators.core import BaseAnnotator
-from robokudo.identifier import BBIdentifier
+from robokudo.identifier import BlackboardIdentifier
 from robokudo.utils.error_handling import (
     raise_to_blackboard,
     has_blackboard_exception,
@@ -41,10 +41,10 @@ class TestUtilsErrorHandling(object):
         exception = Exception("Test")
         try:
             raise exception
-        except Exception as e:
-            raise_to_blackboard(e)
+        except Exception as caught_exception:
+            raise_to_blackboard(caught_exception)
         assert (
-            blackboard.get(BBIdentifier.BLACKBOARD_EXCEPTION_NAME) == exception
+            blackboard.get(BlackboardIdentifier.BLACKBOARD_EXCEPTION_NAME) == exception
         ), "Blackboard should contain exception"
 
     def test_has_blackboard_exception(self, blackboard: Blackboard) -> None:

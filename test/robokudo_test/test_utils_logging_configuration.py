@@ -100,11 +100,13 @@ class TestUtilsLoggingConfiguration:
             "module3": 40,
             "module4": 50,
         }
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
-            yaml.dump(config, f)
-            f.flush()
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".yaml", delete=False
+        ) as file:
+            yaml.dump(config, file)
+            file.flush()
 
-            configure_logging(f.name)
+            configure_logging(file.name)
 
             assert logging.getLogger("root").level == name
             assert logging.getLogger("module0").level == logging.DEBUG

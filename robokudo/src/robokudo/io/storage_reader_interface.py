@@ -92,7 +92,7 @@ class StorageReaderInterface(CameraInterface):
         """
         common_analysis_structure_frame = self.reader.get_next_frame()
         if common_analysis_structure_frame is None:
-            self.rk_logger.debug(
+            self.robokudo_logger.debug(
                 f"Reader has no next frame common_analysis_structure_frame:={common_analysis_structure_frame}"
             )
             return

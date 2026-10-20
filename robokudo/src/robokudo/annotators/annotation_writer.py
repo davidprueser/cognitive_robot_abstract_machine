@@ -56,7 +56,7 @@ class AnnotationStorageWriter(BaseAnnotator):
         :param descriptor: Configuration descriptor
         """
         super().__init__(name, descriptor)
-        self.rk_logger.debug("%s.__init__()" % self.__class__.__name__)
+        self.robokudo_logger.debug("%s.__init__()" % self.__class__.__name__)
 
         self.counter: int = -1
         """Counter for generating sequential filenames"""
@@ -128,7 +128,7 @@ class AnnotationPublisherWriter(BaseAnnotator):
         :param descriptor: Configuration descriptor
         """
         super().__init__(name, descriptor)
-        self.rk_logger.debug("%s.__init__()" % self.__class__.__name__)
+        self.robokudo_logger.debug("%s.__init__()" % self.__class__.__name__)
 
         self.pub: Optional[Publisher] = None
         """ROS publisher for annotations"""
@@ -138,7 +138,7 @@ class AnnotationPublisherWriter(BaseAnnotator):
 
         :param timeout: Maximum time to wait for setup completion
         """
-        self.rk_logger.debug("%s.setup()" % self.__class__.__name__)
+        self.robokudo_logger.debug("%s.setup()" % self.__class__.__name__)
 
         node = ROSNodeRegistry().get()
         self.pub = node.create_publisher(

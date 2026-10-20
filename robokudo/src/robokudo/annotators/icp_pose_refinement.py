@@ -90,7 +90,7 @@ class ICPPoseRefinementAnnotator(ThreadedAnnotator):
         :param descriptor: Configuration descriptor
         """
         super().__init__(name, descriptor)
-        self.rk_logger.debug("%s.__init__()" % self.__class__.__name__)
+        self.robokudo_logger.debug("%s.__init__()" % self.__class__.__name__)
 
         # Data structure for available classes -> PLY files
         self.class_name_to_ply_model = dict()
@@ -98,7 +98,9 @@ class ICPPoseRefinementAnnotator(ThreadedAnnotator):
         # Load PLY PointClouds (not Meshes!) for all objects
         ply_path = self.get_model_path("JeroenCup")
         if ply_path is None or not ply_path.exists():
-            self.rk_logger.error("Couldn't lookup model path. Deactivating Annotator.")
+            self.robokudo_logger.error(
+                "Couldn't lookup model path. Deactivating Annotator."
+            )
             self.annotator_deactivated = True
         else:
             self.annotator_deactivated = False
@@ -122,29 +124,31 @@ class ICPPoseRefinementAnnotator(ThreadedAnnotator):
             assert self.descriptor.parameters.data_path is not None
 
             data_folder_path = FileLoader.get_path_to_file_in_ros_package(
-                ros_pkg_name=self.descriptor.parameters.ros_pkg_path,
+                ros_package_name=self.descriptor.parameters.ros_pkg_path,
                 relative_path=self.descriptor.parameters.data_path,
             )
         elif self.descriptor.parameters.data_path is not None:
             data_folder_path = Path(self.descriptor.parameters.data_path)
 
             if not data_folder_path.exists():
-                self.rk_logger.error(f"'{data_folder_path}' is not existing.")
+                self.robokudo_logger.error(f"'{data_folder_path}' is not existing.")
                 return None
 
             if not data_folder_path.is_dir():
-                self.rk_logger.error(f"No directory found at '{data_folder_path}.'")
+                self.robokudo_logger.error(
+                    f"No directory found at '{data_folder_path}.'"
+                )
                 return None
 
         else:
-            self.rk_logger.error(
+            self.robokudo_logger.error(
                 f"Can't look up necessary input data. Please check Parameters of this Annotator.'"
             )
             return None
 
         ply_path = data_folder_path.joinpath(f"{class_name}.ply")
         if not ply_path.exists():
-            self.rk_logger.error(f"No ply model found at '{ply_path}'")
+            self.robokudo_logger.error(f"No ply model found at '{ply_path}'")
         return ply_path
 
     def compute(self) -> Status:
@@ -168,7 +172,7 @@ class ICPPoseRefinementAnnotator(ThreadedAnnotator):
             error_message = (
                 f"{type(self).__name__} couldn't find model files and is deactivated."
             )
-            self.rk_logger.warn(error_message)
+            self.robokudo_logger.warn(error_message)
             self.feedback_message = error_message
             return Status.SUCCESS  # Don't fail the whole pipeline
 
@@ -235,7 +239,7 @@ class ICPPoseRefinementAnnotator(ThreadedAnnotator):
 
                 # evaluation = o3d.pipelines.registration.evaluate_registration(
                 #     ply_model, cluster_cloud, thresh, icp_transform_init)
-                # self.rk_logger.info(evaluation)
+                # self.robokudo_logger.info(evaluation)
 
                 # We'll now go through our pose variants, register them after each other and then check which has the
                 # highest fitness
@@ -259,7 +263,7 @@ class ICPPoseRefinementAnnotator(ThreadedAnnotator):
                     pose_variant_registration_results.append(
                         (reg_p2p, pose_variant, description)
                     )
-                    # self.rk_logger.info(reg_p2p)
+                    # self.robokudo_logger.info(reg_p2p)
 
                 best_registration_result = None
                 best_registration_result_idx = 0
@@ -283,7 +287,7 @@ class ICPPoseRefinementAnnotator(ThreadedAnnotator):
                 if best_registration_result is None:
                     continue  # Abort here if we didn't find a good fit
 
-                self.rk_logger.info(
+                self.robokudo_logger.info(
                     f"Selected pose {best_registration_result_idx} as the best one"
                 )
                 # Visualize ICP Result
@@ -319,7 +323,7 @@ class ICPPoseRefinementAnnotator(ThreadedAnnotator):
         ]
         vis_geometries.extend(geometries_to_visualize)
 
-        self.get_annotator_output_struct().set_geometries(vis_geometries)
+        self.get_annotator_output_structure().set_geometries(vis_geometries)
 
         end_timer = default_timer()
         self.feedback_message = f"Processing took {(end_timer - start_timer):.4f}s"

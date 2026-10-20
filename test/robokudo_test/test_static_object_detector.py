@@ -52,9 +52,11 @@ def test_bounding_box_cloud_covers_box_on_depth_resolution(
     parameters.bounding_box_y = 6
     parameters.bounding_box_width = 10
     parameters.bounding_box_height = 8
-    color_rgb = np.zeros((*detector.depth.shape, 3), dtype=np.uint8)
+    color_in_red_green_blue = np.zeros((*detector.depth.shape, 3), dtype=np.uint8)
 
-    cloud = detector.get_cloud_from_2d_bb_roi(color_rgb)
+    cloud = detector.get_cloud_from_2d_bounding_box_region_of_interest(
+        color_in_red_green_blue
+    )
 
     depth_box_area = (7 - 2) * (7 - 3)
     assert len(cloud.points) == depth_box_area

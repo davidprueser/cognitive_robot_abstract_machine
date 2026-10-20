@@ -237,7 +237,9 @@ def test_custom_weights_and_class_names_are_read_from_ros_package(
         FileLoader,
         "get_path_to_file_in_ros_package",
         staticmethod(
-            lambda ros_pkg_name, relative_path: tmp_path / ros_pkg_name / relative_path
+            lambda ros_package_name, relative_path: tmp_path
+            / ros_package_name
+            / relative_path
         ),
     )
     descriptor = scene.descriptor()
@@ -433,7 +435,7 @@ def test_visualization_draws_labelled_bounding_box_of_each_detection(
         lambda _: f"{classification.classname}, {classification.confidence:.2f}",
     )
     np.testing.assert_array_equal(
-        annotator.get_annotator_output_struct().image, expected_image
+        annotator.get_annotator_output_structure().image, expected_image
     )
 
 
@@ -447,7 +449,7 @@ def test_precision_mode_visualization_paints_mask_in_palette_color(
     x1, y1, x2, y2 = scene.cup_corners()
     segmented_rows = slice(y1 + 2, (y1 + y2) // 2)
     columns_inside_box = slice(x1 + 2, x2 - 2)
-    painted = annotator.get_annotator_output_struct().image[
+    painted = annotator.get_annotator_output_structure().image[
         segmented_rows, columns_inside_box
     ]
     assert np.all(painted == colors(0, bgr=True))

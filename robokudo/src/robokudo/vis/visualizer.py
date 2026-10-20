@@ -61,8 +61,8 @@ class Visualizer(object):
 
         def notify_observers(self, *args: Any, **kwargs: Any) -> None:
             """Notify all registered observers."""
-            for obs in self._observers:
-                obs.notify(self, *args, **kwargs)
+            for observer in self._observers:
+                observer.notify(self, *args, **kwargs)
 
     class Observer:
         """Base class for objects that observe state changes.
@@ -124,7 +124,7 @@ class Visualizer(object):
         self.pipeline: Pipeline = pipeline
         """Pipeline being visualized"""
 
-        self.indicate_termination_var: bool = False
+        self.indicate_termination_variable: bool = False
         """Flag indicating if visualization should terminate"""
 
         self.shared_visualizer_state: Optional[Visualizer.SharedState] = (
@@ -148,7 +148,7 @@ class Visualizer(object):
             )
             self.shared_visualizer_state.active_annotator_i = 0
 
-        self.rk_logger: logging.Logger = logging.getLogger(PACKAGE_NAME)
+        self.robokudo_logger: logging.Logger = logging.getLogger(PACKAGE_NAME)
         """Logger instance"""
 
     def identifier(self) -> str:
@@ -199,9 +199,11 @@ class Visualizer(object):
 
         :returns: New visualizer instance
         """
-        vis = cls(pipeline=pipeline, shared_visualizer_state=shared_visualizer_state)
-        Visualizer.instances.append(vis)
-        return vis
+        visualizer = cls(
+            pipeline=pipeline, shared_visualizer_state=shared_visualizer_state
+        )
+        Visualizer.instances.append(visualizer)
+        return visualizer
 
     @staticmethod
     def clear_visualizer_instances() -> None:
@@ -234,7 +236,7 @@ class Visualizer(object):
 
         :returns: True if visualization should terminate, False otherwise
         """
-        return self.indicate_termination_var
+        return self.indicate_termination_variable
 
     @staticmethod
     def get_unique_types_of_visualizer_instances() -> Set[Type]:

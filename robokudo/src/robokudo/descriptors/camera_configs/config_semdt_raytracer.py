@@ -53,7 +53,7 @@ class SemDTRayTracerCameraConfig(BaseCameraConfig):
     Square output resolution in pixels (width == height).
     """
 
-    fov_deg: float = 90.0
+    field_of_view_degrees: float = 90.0
     """
     Symmetric horizontal/vertical field of view in degrees.
     """

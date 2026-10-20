@@ -27,7 +27,9 @@ class AnalysisEngine(robokudo.analysis_engine.AnalysisEngineInterface):
         return "static_detector_world_descriptor_from_storage"
 
     def implementation(self) -> Behaviour:
-        cr_storage_config = CollectionReaderDescriptorFactory.create_descriptor("mongo")
+        storage_reader_descriptor = CollectionReaderDescriptorFactory.create_descriptor(
+            "mongo"
+        )
 
         bootstrap = WorldDescriptorBootstrapAnnotator.Descriptor()
         bootstrap.parameters.world_descriptor_name = "world_iai_kitchen20"
@@ -38,18 +40,18 @@ class AnalysisEngine(robokudo.analysis_engine.AnalysisEngineInterface):
         sod.parameters.create_bounding_box_annotation = True
         sod.parameters.create_pose_annotation = True
 
-        oh_vis = ObjectHypothesisVisualizer.Descriptor()
-        oh_vis.parameters.visualize_full_cloud = True
+        object_hypothesis_visualizer = ObjectHypothesisVisualizer.Descriptor()
+        object_hypothesis_visualizer.parameters.visualize_full_cloud = True
 
-        seq = robokudo.pipeline.Pipeline("StoragePipeline")
-        seq.add_children(
+        pipeline = robokudo.pipeline.Pipeline("StoragePipeline")
+        pipeline.add_children(
             [
                 robokudo.idioms.pipeline_init(),
-                CollectionReaderAnnotator(descriptor=cr_storage_config),
+                CollectionReaderAnnotator(descriptor=storage_reader_descriptor),
                 WorldDescriptorBootstrapAnnotator(descriptor=bootstrap),
                 ImagePreprocessorAnnotator("ImagePreprocessor"),
                 StaticObjectDetectorAnnotator(descriptor=sod),
-                ObjectHypothesisVisualizer(descriptor=oh_vis),
+                ObjectHypothesisVisualizer(descriptor=object_hypothesis_visualizer),
             ]
         )
-        return seq
+        return pipeline

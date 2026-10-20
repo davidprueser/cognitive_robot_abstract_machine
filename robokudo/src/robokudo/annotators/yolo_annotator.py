@@ -41,7 +41,7 @@ from robokudo.utils.annotator_helper import (
     resize_mask,
     scale_camera_intrinsics,
 )
-from robokudo.utils.comparators import RoiComparator
+from robokudo.utils.comparators import RegionOfInterestComparator
 from robokudo.utils.cv_helper import crop_image, get_scaled_color_image_for_depth_image
 from robokudo.utils.decorators import timer_decorator
 from robokudo.utils.file_loader import FileLoader
@@ -212,7 +212,7 @@ class YoloAnnotator(ThreadedAnnotator):
                 :return: The absolute path of the file.
                 """
                 return FileLoader.get_path_to_file_in_ros_package(
-                    ros_pkg_name=self.ros_package_name, relative_path=relative_path
+                    ros_package_name=self.ros_package_name, relative_path=relative_path
                 )
 
     @classproperty
@@ -250,7 +250,7 @@ class YoloAnnotator(ThreadedAnnotator):
         """
         Intrinsics of the camera at the resolution of the depth image.
         """
-        self.roi_comparator = RoiComparator(weight=1.0)
+        self.region_of_interest_comparator = RegionOfInterestComparator(weight=1.0)
         """
         Comparator measuring how much a detection overlaps an existing hypothesis.
         """
@@ -423,11 +423,11 @@ class YoloAnnotator(ThreadedAnnotator):
             return None
         most_overlapped = max(
             hypotheses,
-            key=lambda hypothesis: self.roi_comparator.compute_similarity(
+            key=lambda hypothesis: self.region_of_interest_comparator.compute_similarity(
                 hypothesis.roi.roi, region
             ),
         )
-        overlap = self.roi_comparator.compute_similarity(
+        overlap = self.region_of_interest_comparator.compute_similarity(
             most_overlapped.roi.roi, region
         )
         if overlap <= self.descriptor.parameters.minimum_hypothesis_overlap:
@@ -533,9 +533,9 @@ class YoloAnnotator(ThreadedAnnotator):
                 [annotated.hypothesis],
                 lambda _: f"{classification.classname}, {classification.confidence:.2f}",
             )
-        self.get_annotator_output_struct().set_image(visualization_image)
+        self.get_annotator_output_structure().set_image(visualization_image)
         if parameters.global_with_depth:
-            self.get_annotator_output_struct().set_geometries(
+            self.get_annotator_output_structure().set_geometries(
                 [
                     annotated.hypothesis.points
                     for annotated in annotated_detections

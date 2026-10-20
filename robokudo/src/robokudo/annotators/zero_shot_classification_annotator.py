@@ -103,8 +103,8 @@ class ZeroShotClassificationAnnotator(ThreadedAnnotator, ABC):
 
         visualization_img = color_image.copy()
 
-        self.rk_logger.info("Image Classification Results:")
-        self.rk_logger.info("Label \t\t Score")
+        self.robokudo_logger.info("Image Classification Results:")
+        self.robokudo_logger.info("Label \t\t Score")
         for i, classification in enumerate(classifications):
             text = f"{classification.confidence:.2f} /{classification.classname}"
             visualization_img = cv2.putText(
@@ -118,12 +118,12 @@ class ZeroShotClassificationAnnotator(ThreadedAnnotator, ABC):
                 2,
             )
 
-            self.rk_logger.info(
+            self.robokudo_logger.info(
                 f"Top {i} prediction: Class {classification.classname} with "
                 f"confidence\t {classification.confidence:.4f}"
             )
 
-        self.get_annotator_output_struct().set_image(visualization_img)
+        self.get_annotator_output_structure().set_image(visualization_img)
         return Status.SUCCESS
 
     def _analyze_object_hypotheses(self, color_image: npt.NDArray[np.uint8]) -> Status:
@@ -139,14 +139,14 @@ class ZeroShotClassificationAnnotator(ThreadedAnnotator, ABC):
             ObjectHypothesis
         )
         if len(ohs) == 0:
-            self.rk_logger.info("Found 0 object hypotheses to analyze")
+            self.robokudo_logger.info("Found 0 object hypotheses to analyze")
             return Status.SUCCESS
 
         if self.descriptor.parameters.filter_fn is not None:
             ohs = list(filter(self.descriptor.parameters.filter_fn, ohs))
 
             if len(ohs) == 0:
-                self.rk_logger.info("All object hypotheses were filtered out")
+                self.robokudo_logger.info("All object hypotheses were filtered out")
                 return Status.SUCCESS
 
         # Create per-object image crop
@@ -158,7 +158,7 @@ class ZeroShotClassificationAnnotator(ThreadedAnnotator, ABC):
         for object_hypothesis, classifications in zip(
             ohs, self.classify(cropped_images)
         ):
-            self.rk_logger.info(
+            self.robokudo_logger.info(
                 f"Classification results for Object hypothesis ID: '{object_hypothesis.id}'"
             )
 
@@ -184,12 +184,12 @@ class ZeroShotClassificationAnnotator(ThreadedAnnotator, ABC):
 
             object_hypothesis.annotations.extend(classifications)
             for i, classification in enumerate(classifications):
-                self.rk_logger.info(
+                self.robokudo_logger.info(
                     f"Top {i}: Classified as {classification.classname} "
                     f"with confidence {classification.confidence:.4f}"
                 )
 
-        self.get_annotator_output_struct().set_image(visualization_img)
+        self.get_annotator_output_structure().set_image(visualization_img)
         return Status.SUCCESS
 
     def compute(self) -> Status:

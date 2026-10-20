@@ -59,29 +59,29 @@ class DynamicCompactFormatter(Formatter):
         :return: Formatted log message as a string
         """
         filename = os.path.basename(record.filename)
-        funcname = record.funcName
+        function_name = record.funcName
 
         # New format: filename@methodname:lineno
-        file_line = f"{filename}/{funcname}:{record.lineno}"
+        file_line = f"{filename}/{function_name}:{record.lineno}"
 
         # Dynamic truncation using parsed width
         if len(file_line) > self.max_file_line_width:
             # Reserve space for @methodname:lineno + "..."
-            lineno_part = f":{record.lineno}"
-            method_part = f"/{funcname}"
-            reserved_len = len(method_part) + len(lineno_part) + 3  # "..."
+            line_number_part = f":{record.lineno}"
+            method_part = f"/{function_name}"
+            reserved_length = len(method_part) + len(line_number_part) + 3  # "..."
 
-            max_filename_len = self.max_file_line_width - reserved_len
-            if max_filename_len > 0:
-                short_filename = filename[: max_filename_len - 3] + "..."
-                file_line = f"{short_filename}/{funcname}:{record.lineno}"
+            max_filename_length = self.max_file_line_width - reserved_length
+            if max_filename_length > 0:
+                short_filename = filename[: max_filename_length - 3] + "..."
+                file_line = f"{short_filename}/{function_name}:{record.lineno}"
             else:
                 # Fallback: truncate method name too
-                max_method_len = (
-                    self.max_file_line_width - len(lineno_part) - 4
+                max_method_length = (
+                    self.max_file_line_width - len(line_number_part) - 4
                 )  # "...@"
-                if max_method_len > 0:
-                    short_method = funcname[: max_method_len - 3] + "..."
+                if max_method_length > 0:
+                    short_method = function_name[: max_method_length - 3] + "..."
                     file_line = f".../{short_method}:{record.lineno}"
                 else:
                     file_line = f"...:{record.lineno}"

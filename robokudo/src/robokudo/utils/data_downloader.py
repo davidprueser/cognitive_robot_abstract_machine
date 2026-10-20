@@ -55,6 +55,6 @@ def test_data_path() -> Path:
 
     # Pooch returns list of extracted file paths
     # We usually want the root extracted directory:
-    extracted_dir = Path(extracted_files[0]).parents[0]
+    extracted_directory = Path(extracted_files[0]).parents[0]
 
-    return extracted_dir
+    return extracted_directory

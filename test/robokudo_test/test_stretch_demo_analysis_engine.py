@@ -114,9 +114,9 @@ def shelf_world_footprint_corners() -> np.ndarray:
     center = np.array([0.455 + 0.85 / 2, -0.17])
     yaw = -np.pi / 2
     local_x_extent, local_y_extent = 0.305, 0.85
-    cos_yaw, sin_yaw = np.cos(yaw), np.sin(yaw)
-    local_x_axis_in_world = np.array([cos_yaw, sin_yaw]) * (local_x_extent / 2)
-    local_y_axis_in_world = np.array([-sin_yaw, cos_yaw]) * (local_y_extent / 2)
+    cosine_of_yaw, sin_yaw = np.cos(yaw), np.sin(yaw)
+    local_x_axis_in_world = np.array([cosine_of_yaw, sin_yaw]) * (local_x_extent / 2)
+    local_y_axis_in_world = np.array([-sin_yaw, cosine_of_yaw]) * (local_y_extent / 2)
     return np.array(
         [
             center + sign_x * local_x_axis_in_world + sign_y * local_y_axis_in_world

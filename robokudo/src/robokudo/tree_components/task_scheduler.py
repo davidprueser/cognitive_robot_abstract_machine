@@ -54,10 +54,10 @@ class TaskSchedulerBase(Behaviour, ABC):
         """
         super().__init__(name)
 
-        self.rk_logger: logging.Logger = logging.getLogger(PACKAGE_NAME)
+        self.robokudo_logger: logging.Logger = logging.getLogger(PACKAGE_NAME)
         """Logger for this class."""
 
-        self.rk_logger.debug("%s.__init__()" % self.__class__.__name__)
+        self.robokudo_logger.debug("%s.__init__()" % self.__class__.__name__)
 
         self.fix_parent_relationships_after_plan: bool = True
         """Whether to fix parent relationships after planning"""
@@ -70,7 +70,7 @@ class TaskSchedulerBase(Behaviour, ABC):
 
         :raises AssertionError: If parent is not a Sequence or if the first child is not the scheduler
         """
-        self.rk_logger.debug("%s.initialise()" % self.__class__.__name__)
+        self.robokudo_logger.debug("%s.initialise()" % self.__class__.__name__)
 
         # Make sanity checks that we are in a correctly configured environment
         parent = self.parent
@@ -108,7 +108,7 @@ class TaskSchedulerBase(Behaviour, ABC):
         new_job = self.plan_new_job()
 
         if new_job is None:
-            self.rk_logger.debug(
+            self.robokudo_logger.debug(
                 "Couldn't find solution for Job Scheduling. Aborting..."
             )
             self.feedback_message = (

@@ -124,9 +124,10 @@ def test_scene_scope_adds_the_image_classifications_to_the_common_analysis_struc
     )
 
 
-def test_images_are_classified_in_rgb_channel_order() -> None:
+def test_images_are_classified_in_red_green_blue_channel_order() -> None:
     """
-    The common analysis structure color image is stored in BGR channel order; classifiers receive it in RGB.
+    The common analysis structure color image is stored in BGR channel order;
+    classifiers receive it in RGB.
     """
     annotator = _annotator_in_pipeline(
         _color_descriptor(), solid_image(COLOR_BY_WORD["red"])

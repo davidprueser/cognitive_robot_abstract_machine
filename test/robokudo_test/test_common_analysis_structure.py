@@ -17,16 +17,16 @@ class TestCommonAnalysisStructureObject(object):
         color2 = robokudo.types.annotation.SemanticColor()
         color2.color = "red"
 
-        rs_obj = robokudo.types.scene.ObjectHypothesis()
-        rs_obj.annotations.append(classification)
-        rs_obj.annotations.append(color1)
-        rs_obj.annotations.append(color2)
+        object_hypothesis = robokudo.types.scene.ObjectHypothesis()
+        object_hypothesis.annotations.append(classification)
+        object_hypothesis.annotations.append(color1)
+        object_hypothesis.annotations.append(color2)
 
         classification_list = common_analysis_structure.filter_by_type(
-            robokudo.types.annotation.Classification, rs_obj.annotations
+            robokudo.types.annotation.Classification, object_hypothesis.annotations
         )
         color_list = common_analysis_structure.filter_by_type(
-            robokudo.types.annotation.SemanticColor, rs_obj.annotations
+            robokudo.types.annotation.SemanticColor, object_hypothesis.annotations
         )
 
         assert len(classification_list) == 1
@@ -45,38 +45,46 @@ class TestCommonAnalysisStructureObject(object):
         color2 = robokudo.types.annotation.SemanticColor()
         color2.color = "red"
 
-        rs_obj = robokudo.types.scene.ObjectHypothesis()
-        rs_obj.annotations.append(classification)
-        rs_obj.annotations.append(color1)
-        rs_obj.annotations.append(color2)
-        rs_obj2 = robokudo.types.scene.ObjectHypothesis()
+        object_hypothesis = robokudo.types.scene.ObjectHypothesis()
+        object_hypothesis.annotations.append(classification)
+        object_hypothesis.annotations.append(color1)
+        object_hypothesis.annotations.append(color2)
+        second_object_hypothesis = robokudo.types.scene.ObjectHypothesis()
 
-        cl = common_analysis_structure.filter_by_type_and_criteria(
-            robokudo.types.annotation.Classification,
-            rs_obj.annotations,
-            {"classname": ("==", "Spoon")},
+        filtered_object_hypotheses = (
+            common_analysis_structure.filter_by_type_and_criteria(
+                robokudo.types.annotation.Classification,
+                object_hypothesis.annotations,
+                {"classname": ("==", "Spoon")},
+            )
         )
-        assert len(cl) == 1
+        assert len(filtered_object_hypotheses) == 1
 
         # Attribute checking is case-sensitive!
-        cl = common_analysis_structure.filter_by_type_and_criteria(
-            robokudo.types.annotation.Classification,
-            rs_obj2.annotations,
-            {"classname": ("==", "spoon")},
+        filtered_object_hypotheses = (
+            common_analysis_structure.filter_by_type_and_criteria(
+                robokudo.types.annotation.Classification,
+                second_object_hypothesis.annotations,
+                {"classname": ("==", "spoon")},
+            )
         )
-        assert len(cl) == 0
+        assert len(filtered_object_hypotheses) == 0
 
         # Other Object without annotations
-        cl = common_analysis_structure.filter_by_type_and_criteria(
-            robokudo.types.annotation.Classification,
-            rs_obj2.annotations,
-            {"classname": ("==", "Spoon")},
+        filtered_object_hypotheses = (
+            common_analysis_structure.filter_by_type_and_criteria(
+                robokudo.types.annotation.Classification,
+                second_object_hypothesis.annotations,
+                {"classname": ("==", "Spoon")},
+            )
         )
-        assert len(cl) == 0
+        assert len(filtered_object_hypotheses) == 0
 
-        cl = common_analysis_structure.filter_by_type_and_criteria(
-            robokudo.types.annotation.SemanticColor,
-            rs_obj.annotations,
-            {"color": ("==", "red")},
+        filtered_object_hypotheses = (
+            common_analysis_structure.filter_by_type_and_criteria(
+                robokudo.types.annotation.SemanticColor,
+                object_hypothesis.annotations,
+                {"color": ("==", "red")},
+            )
         )
-        assert len(cl) == 1
+        assert len(filtered_object_hypotheses) == 1

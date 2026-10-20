@@ -108,7 +108,7 @@ class PointcloudCheckAnnotator(BaseAnnotator):
                     relation=PointCloudThresholdRelation.BELOW,
                 )
 
-            self.rk_logger.info(
+            self.robokudo_logger.info(
                 f"Scene Pointcloud size({point_count}) is below "
                 f"threshold of {self.descriptor.parameters.point_threshold}"
             )
@@ -126,7 +126,7 @@ class PointcloudCheckAnnotator(BaseAnnotator):
                     relation=PointCloudThresholdRelation.ABOVE,
                 )
 
-            self.rk_logger.info(
+            self.robokudo_logger.info(
                 f"Scene Pointcloud size({point_count}) is above "
                 f"threshold of {self.descriptor.parameters.point_threshold}"
             )

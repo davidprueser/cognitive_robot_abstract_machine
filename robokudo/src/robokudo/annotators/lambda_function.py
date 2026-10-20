@@ -42,15 +42,15 @@ class LambdaFunctionAnnotator(BaseAnnotator):
             """
             Parameter container for function configuration.
 
-            :type func: callable
-            :type func_args: tuple
-            :type func_kwargs: dict
+            :type function: callable
+            :type function_arguments: tuple
+            :type function_keyword_arguments: dict
             """
 
             def __init__(self) -> None:
-                self.func: Optional[Callable] = None
-                self.func_args: Optional[Tuple] = None
-                self.func_kwargs: Optional[Dict] = None
+                self.function: Optional[Callable] = None
+                self.function_arguments: Optional[Tuple] = None
+                self.function_keyword_arguments: Optional[Dict] = None
 
         # Overwrite the parameters explicitly to enable auto-completion
         parameters = Parameters()
@@ -78,12 +78,14 @@ class LambdaFunctionAnnotator(BaseAnnotator):
 
         :return: SUCCESS status
         """
-        func = self.descriptor.parameters.func
+        function = self.descriptor.parameters.function
 
-        if func:
-            func_args = self.descriptor.parameters.func_args or []
-            func_kwargs = self.descriptor.parameters.func_kwargs or {}
+        if function:
+            function_arguments = self.descriptor.parameters.function_arguments or []
+            function_keyword_arguments = (
+                self.descriptor.parameters.function_keyword_arguments or {}
+            )
 
-            func(self, *func_args, **func_kwargs)
+            function(self, *function_arguments, **function_keyword_arguments)
 
         return Status.SUCCESS

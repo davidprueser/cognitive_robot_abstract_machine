@@ -21,7 +21,7 @@ class ObjectAssociator(BaseAnnotator):
 
     def __init__(self, name: str = "ObjectAssociator") -> None:
         super().__init__(name)
-        self.rk_logger.debug("%s.__init__()" % self.__class__.__name__)
+        self.robokudo_logger.debug("%s.__init__()" % self.__class__.__name__)
 
         self.tracked_objects: List[ObjectHypothesis] = []
 
@@ -59,14 +59,14 @@ class ObjectAssociator(BaseAnnotator):
                     best_similarity = similarity
 
             if best_match_id is not None and best_similarity > 0.5:
-                self.rk_logger.info(
+                self.robokudo_logger.info(
                     f"Associate object {new_oh.id} with {best_match_id} ({self.tracked_objects[best_match_id].id})."
                 )
                 matched_new_ids.add(best_match_id)
                 self.tracked_objects[best_match_id] = new_oh
             else:
                 self.tracked_objects.append(new_oh)
-                self.rk_logger.info(
+                self.robokudo_logger.info(
                     f"Discovered new object {len(self.tracked_objects)}"
                 )
         return Status.SUCCESS

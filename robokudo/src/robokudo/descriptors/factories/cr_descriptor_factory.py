@@ -8,7 +8,7 @@ from robokudo.io.camera_interface import KinectCameraInterface
 from robokudo.io.camera_without_depth_interface import OpenCVCameraWithoutDepthInterface
 from robokudo.io.file_reader_interface import RGBDFileReaderInterface
 from robokudo.io.semantic_digital_twin_raytracer_camera_interface import (
-    SemDTRayTracerCameraInterface,
+    SemanticDigitalTwinRayTracerCameraInterface,
 )
 from robokudo.io.storage_reader_interface import StorageReaderInterface
 
@@ -26,7 +26,7 @@ class CollectionReaderDescriptorFactory:
         "orbbec": KinectCameraInterface,
         "orbbec_wo_tf": KinectCameraInterface,
         "file_reader": RGBDFileReaderInterface,
-        "semdt_raytracer": SemDTRayTracerCameraInterface,
+        "semdt_raytracer": SemanticDigitalTwinRayTracerCameraInterface,
         "hsr_ros2": KinectCameraInterface,
     }
     """Mapping of camera names to their corresponding camera interface types."""

@@ -9,7 +9,7 @@ to ensure proper data access and communication between components.
 from __future__ import annotations
 
 
-class BBIdentifier(object):
+class BlackboardIdentifier(object):
     """
     Constants for accessing data on the behavior tree's blackboard.
 
@@ -49,7 +49,7 @@ class BBIdentifier(object):
     Flag indicating if preemption was requested.
     """
 
-    QUERY_PREEMPT_ACK: str = "query_preempt_ack"
+    QUERY_PREEMPT_ACKNOWLEDGED: str = "query_preempt_ack"
     """
     Flag indicating if preemption was acknowledged.
     """

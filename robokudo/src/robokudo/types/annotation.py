@@ -12,16 +12,16 @@ from dataclasses import dataclass, field
 import cv2
 import open3d as o3d
 from semantic_digital_twin.world_description.geometry import (
-    Box as SemDTBox,
+    Box as SemanticDigitalTwinBox,
 )
 from semantic_digital_twin.world_description.geometry import (
-    Cylinder as SemDTCylinder,
+    Cylinder as SemanticDigitalTwinCylinder,
 )
 from semantic_digital_twin.world_description.geometry import (
     Shape as SemDTShape,
 )
 from semantic_digital_twin.world_description.geometry import (
-    Sphere as SemDTSphere,
+    Sphere as SemanticDigitalTwinSphere,
 )
 from typing_extensions import TYPE_CHECKING, Any, List, Optional, Sequence
 
@@ -138,7 +138,7 @@ class Shape(Annotation):
     List of pointcloud indices that belong to this shape
     """
 
-    geometry: SemDTShape = field(default_factory=SemDTBox)
+    geometry: SemDTShape = field(default_factory=SemanticDigitalTwinBox)
     """
     SemDT geometry shape represented by this annotation
     """
@@ -156,7 +156,7 @@ class Cuboid(Shape):
     This class represents a cuboid shape as a SemDT box geometry.
     """
 
-    geometry: SemDTBox = field(default_factory=SemDTBox)
+    geometry: SemanticDigitalTwinBox = field(default_factory=SemanticDigitalTwinBox)
     """
     SemDT box geometry represented by this annotation
     """
@@ -169,7 +169,9 @@ class Sphere(Shape):
     This class represents a sphere shape as a SemDT sphere geometry.
     """
 
-    geometry: SemDTSphere = field(default_factory=SemDTSphere)
+    geometry: SemanticDigitalTwinSphere = field(
+        default_factory=SemanticDigitalTwinSphere
+    )
     """
     SemDT sphere geometry represented by this annotation
     """
@@ -182,7 +184,9 @@ class Cylinder(Shape):
     This class represents a cylinder shape as a SemDT cylinder geometry.
     """
 
-    geometry: SemDTCylinder = field(default_factory=SemDTCylinder)
+    geometry: SemanticDigitalTwinCylinder = field(
+        default_factory=SemanticDigitalTwinCylinder
+    )
     """
     SemDT cylinder geometry represented by this annotation
     """

@@ -18,14 +18,14 @@ import open3d as o3d
 from py_trees.common import Status
 from semantic_digital_twin.world_description.world_entity import Region
 
-import robokudo.world as rk_world
+import robokudo.world as robokudo_world
 from robokudo.annotators.core import BaseAnnotator, ThreadedAnnotator
 from robokudo.common_analysis_structure import CommonAnalysisStructureViews
 from robokudo.types.scene import RegionHypothesis
 from robokudo.utils.annotator_helper import get_world_to_camera_transform_matrix
 from robokudo.utils.error_handling import catch_and_raise_to_blackboard
 from robokudo.utils.region import (
-    region_obb_in_camera_coordinates,
+    region_oriented_bounding_box_in_camera_coordinates,
     region_pose_annotation,
 )
 
@@ -102,7 +102,7 @@ class RegionFilter(ThreadedAnnotator):
                 CommonAnalysisStructureViews.QUERY
             )
 
-        runtime_world = rk_world.world_instance()
+        runtime_world = robokudo_world.world_instance()
 
         regions = runtime_world.get_kinematic_structure_entity_by_type(Region)
         all_regions = {str(region.name): region for region in regions}
@@ -112,7 +112,7 @@ class RegionFilter(ThreadedAnnotator):
         if query is not None:
             queried_location = query.obj.location
             if queried_location != "" and queried_location != self.active_region:
-                self.rk_logger.info(
+                self.robokudo_logger.info(
                     f"Setting region filter to check for location '{queried_location}'"
                 )
                 active_regions = dict()
@@ -126,14 +126,14 @@ class RegionFilter(ThreadedAnnotator):
         visualized_geometries = []
         filtered_indices = set()
 
-        self.rk_logger.debug(f"Analyzing {len(active_regions.keys())}")
+        self.robokudo_logger.debug(f"Analyzing {len(active_regions.keys())}")
 
         try:
             world_to_camera_transform = get_world_to_camera_transform_matrix(
                 self.get_common_analysis_structure()
             )
         except KeyError as err:
-            self.rk_logger.warning(
+            self.robokudo_logger.warning(
                 f"Couldn't find viewpoint in the common analysis structure: {err}"
             )
             return Status.FAILURE
@@ -145,7 +145,7 @@ class RegionFilter(ThreadedAnnotator):
             # RegionHypothetis for this specific region
             region_hypothesis = RegionHypothesis()
 
-            obb = region_obb_in_camera_coordinates(
+            obb = region_oriented_bounding_box_in_camera_coordinates(
                 runtime_world, region, world_to_camera_transform
             )
             region_hypothesis.annotations.append(region_pose_annotation(region))
@@ -183,7 +183,7 @@ class RegionFilter(ThreadedAnnotator):
                 "geometry": world_frame.transform(world_to_camera_transform),
             }
         )
-        self.get_annotator_output_struct().set_geometries(visualized_geometries)
+        self.get_annotator_output_structure().set_geometries(visualized_geometries)
 
         end_timer = default_timer()
         self.feedback_message = f"Processing took {(end_timer - start_timer):.4f}s"

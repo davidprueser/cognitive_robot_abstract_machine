@@ -22,7 +22,7 @@ from robokudo.io.open3d_codec_utils import (
 )
 
 try:
-    # Side effect import: registers ROS message serializers from SemDT.
+    # Side effect import: registers ROS message serializers from semantic digital twin.
     import semantic_digital_twin.adapters.ros  # noqa: F401
 except (
     ImportError

@@ -86,7 +86,7 @@ class CameraInterface(object):
         """
         Camera configuration object.
         """
-        self.rk_logger: logging.Logger = logging.getLogger(PACKAGE_NAME)
+        self.robokudo_logger: logging.Logger = logging.getLogger(PACKAGE_NAME)
         """
         RoboKudo logger instance.
         """
@@ -254,7 +254,7 @@ class ROSCameraInterface(CameraInterface):
                     float(rotation.w),
                 ]
             except Exception as err:
-                self.rk_logger.warning(
+                self.robokudo_logger.warning(
                     f"cannot transform from {self.tf_from} to {self.tf_to} at ts {timestamp}: {err}"
                 )
                 return False
@@ -467,10 +467,10 @@ class KinectCameraInterface(ROSCameraInterface):
         )
         ts.registerCallback(self.callback)
 
-        self.rk_logger.info("Subscribed to: ")
-        self.rk_logger.info(f"  {camera_config.topic_color}")
-        self.rk_logger.info(f"  {camera_config.topic_depth}")
-        self.rk_logger.info(f"  {camera_config.topic_camera_info}")
+        self.robokudo_logger.info("Subscribed to: ")
+        self.robokudo_logger.info(f"  {camera_config.topic_color}")
+        self.robokudo_logger.info(f"  {camera_config.topic_depth}")
+        self.robokudo_logger.info(f"  {camera_config.topic_camera_info}")
 
         self.color: Optional[npt.NDArray] = None
         """
@@ -563,8 +563,8 @@ class KinectCameraInterface(ROSCameraInterface):
         :param camera_info: Camera calibration message
         """
         self.lock.acquire()
-        if self.rk_logger.isEnabledFor(logging.DEBUG):
-            self.rk_logger.debug("Received data:")
+        if self.robokudo_logger.isEnabledFor(logging.DEBUG):
+            self.robokudo_logger.debug("Received data:")
 
             color_time = Time(
                 seconds=color_data.header.stamp.sec,
@@ -576,7 +576,7 @@ class KinectCameraInterface(ROSCameraInterface):
                     seconds=depth_data.header.stamp.sec,
                     nanoseconds=depth_data.header.stamp.nanosec,
                 )
-                self.rk_logger.debug(
+                self.robokudo_logger.debug(
                     f"  Color time - Depth time: {(color_time - depth_time).nanoseconds / 1e9:.6f}"
                 )
 
@@ -585,7 +585,7 @@ class KinectCameraInterface(ROSCameraInterface):
                     seconds=camera_info.header.stamp.sec,
                     nanoseconds=camera_info.header.stamp.nanosec,
                 )
-                self.rk_logger.debug(
+                self.robokudo_logger.debug(
                     f"  Color time - Camera Info time: {(color_time - camera_info_time).nanoseconds / 1e9:.6f}"
                 )
 
@@ -614,7 +614,7 @@ class KinectCameraInterface(ROSCameraInterface):
 
         self.camera_info = camera_info
 
-        # self.rk_logger.info("Callback processing done - Final steps")
+        # self.robokudo_logger.info("Callback processing done - Final steps")
         if not self.lookup_transform():
             self._has_new_data = False
             self.lock.release()

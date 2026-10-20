@@ -20,7 +20,7 @@ from robokudo.types.annotation import (
     StampedPoseAnnotation,
 )
 from robokudo.types.scene import ObjectHypothesis
-from robokudo import world as rk_world
+from robokudo import world as robokudo_world
 from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
 
 
@@ -74,7 +74,7 @@ def _set_camera_to_world_transform(
     pos_y: float = 0.0,
     pos_z: float = 0.0,
 ) -> None:
-    sem_world = rk_world.world_instance()
+    sem_world = robokudo_world.world_instance()
     world_body = sem_world.get_body_by_name(common_analysis_structure.world_frame)
     camera_body = sem_world.get_body_by_name(common_analysis_structure.camera_frame)
     common_analysis_structure.camera_to_world_transform = (
@@ -110,9 +110,11 @@ def connector() -> SemanticDigitalTwinConnector:
 
 @pytest.fixture
 def semdt_common_analysis_structure() -> CommonAnalysisStructure:
-    rk_world.get_object_belief_states().clear()
-    rk_world.init_world_with_entity_tracker()
-    rk_world.setup_world_for_camera_frame(world_frame="map", camera_frame="camera")
+    robokudo_world.get_object_belief_states().clear()
+    robokudo_world.init_world_with_entity_tracker()
+    robokudo_world.setup_world_for_camera_frame(
+        world_frame="map", camera_frame="camera"
+    )
 
     common_analysis_structure = CommonAnalysisStructure()
     common_analysis_structure.world_frame = "map"
@@ -121,8 +123,8 @@ def semdt_common_analysis_structure() -> CommonAnalysisStructure:
 
     yield common_analysis_structure
 
-    rk_world.get_object_belief_states().clear()
-    rk_world.init_world_with_entity_tracker()
+    robokudo_world.get_object_belief_states().clear()
+    robokudo_world.init_world_with_entity_tracker()
 
 
 class TestSemanticDigitalTwinConnector:
@@ -141,7 +143,7 @@ class TestSemanticDigitalTwinConnector:
         )
 
         assert [hypothesis for hypothesis, _ in associated_hypotheses] == hypotheses
-        assert len(rk_world.get_object_belief_states()) == 2
+        assert len(robokudo_world.get_object_belief_states()) == 2
         for hypothesis, belief in associated_hypotheses:
             assert belief.latest_hypothesis is hypothesis
             assert belief.body.parent_connection is not None
@@ -177,7 +179,7 @@ class TestSemanticDigitalTwinConnector:
             semdt_common_analysis_structure,
         )
 
-        assert len(rk_world.get_object_belief_states()) == 2
+        assert len(robokudo_world.get_object_belief_states()) == 2
         assert existing_belief.latest_hypothesis is matched_hypothesis
         assert associated_hypotheses[0] == (matched_hypothesis, existing_belief)
         assert associated_hypotheses[1][0] is unmatched_hypothesis
@@ -200,7 +202,7 @@ class TestSemanticDigitalTwinConnector:
             [hypothesis], [existing_belief], semdt_common_analysis_structure
         )
 
-        assert len(rk_world.get_object_belief_states()) == 2
+        assert len(robokudo_world.get_object_belief_states()) == 2
         assert existing_belief.latest_hypothesis is previous_hypothesis
         assert associated_hypotheses[0][0] is hypothesis
         assert associated_hypotheses[0][1] is not existing_belief
@@ -241,9 +243,9 @@ class TestSemanticDigitalTwinConnector:
 
         status = connector.compute()
 
-        output_image = connector.get_annotator_output_struct().image
+        output_image = connector.get_annotator_output_structure().image
         assert status is py_trees.common.Status.SUCCESS
-        assert len(rk_world.get_object_belief_states()) == 1
+        assert len(robokudo_world.get_object_belief_states()) == 1
         assert len(_stamped_world_poses(hypothesis)) == 1
         assert not np.array_equal(output_image, color_image)
         assert np.array_equal(

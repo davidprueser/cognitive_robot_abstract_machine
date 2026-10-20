@@ -30,7 +30,7 @@ from typing_extensions import TYPE_CHECKING, Optional
 
 from robokudo.garden import grow_tree
 from robokudo.utils.tree import setup_with_descendants_rk
-from robokudo.identifier import BBIdentifier
+from robokudo.identifier import BlackboardIdentifier
 
 if TYPE_CHECKING:
     from py_trees.behaviour import Behaviour
@@ -46,10 +46,10 @@ def _query_is_active() -> bool:
     Check whether the current behavior tree is handling a query.
     """
     blackboard = Blackboard()
-    if not blackboard.exists(BBIdentifier.QUERY_SERVER):
+    if not blackboard.exists(BlackboardIdentifier.QUERY_SERVER):
         return False
 
-    query_server: QueryActionServer = blackboard.get(BBIdentifier.QUERY_SERVER)
+    query_server: QueryActionServer = blackboard.get(BlackboardIdentifier.QUERY_SERVER)
     return query_server.is_active()
 
 
@@ -74,8 +74,8 @@ def _tick_tree_until(
 
         # Fetch the Action Server, if present. It's a separate node.
         blackboard = Blackboard()
-        if blackboard.exists(BBIdentifier.QUERY_SERVER):
-            query_server_node = blackboard.get(BBIdentifier.QUERY_SERVER)
+        if blackboard.exists(BlackboardIdentifier.QUERY_SERVER):
+            query_server_node = blackboard.get(BlackboardIdentifier.QUERY_SERVER)
             executor.add_node(query_server_node)
             executor_nodes.append(query_server_node)
 

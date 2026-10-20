@@ -1,5 +1,6 @@
 """
-Analysis engine for simulated RGB-D input from SemDT RayTracer with query functionality.
+Analysis engine for simulated RGB-D input from semantic digital twin RayTracer with
+query functionality.
 
 This pipeline mirrors the standard tabletop segmentation flow but uses the
 `semdt_raytracer` camera descriptor, which renders color/depth images from a
@@ -34,26 +35,26 @@ class AnalysisEngine(AnalysisEngineInterface):
             "semdt_raytracer",
             world_descriptor_name="world_semantic_digital_twin_raytracer_tabletop",
         )
-        plane_desc = PlaneAnnotator.Descriptor()
-        plane_desc.parameters.distance_threshold = 0.01
+        plane_descriptor = PlaneAnnotator.Descriptor()
+        plane_descriptor.parameters.distance_threshold = 0.01
 
-        query_result_desc = GenerateQueryResult.Descriptor()
-        query_result_desc.parameters.filter_by_query = True
+        query_result_descriptor = GenerateQueryResult.Descriptor()
+        query_result_descriptor.parameters.filter_by_query = True
 
-        seq = Pipeline("SemDTRayTracerPipeline")
-        seq.add_children(
+        pipeline = Pipeline("SemDTRayTracerPipeline")
+        pipeline.add_children(
             [
                 pipeline_init(),
                 QueryAnnotator(),
                 CollectionReaderAnnotator(descriptor=raytracer_config),
                 ImagePreprocessorAnnotator("ImagePreprocessor"),
                 PointcloudCropAnnotator(),
-                PlaneAnnotator(descriptor=plane_desc),
+                PlaneAnnotator(descriptor=plane_descriptor),
                 PointCloudClusterExtractor(),
                 ClusterColorAnnotator(),
                 ClusterPoseBBAnnotator(),
-                GenerateQueryResult(descriptor=query_result_desc),
+                GenerateQueryResult(descriptor=query_result_descriptor),
                 ActionServerCheck(),
             ]
         )
-        return seq
+        return pipeline

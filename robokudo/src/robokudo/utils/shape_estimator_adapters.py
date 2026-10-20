@@ -11,16 +11,16 @@ import numpy as np
 import open3d as o3d
 from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
 from semantic_digital_twin.world_description.geometry import (
-    Box as SemDTBox,
+    Box as SemanticDigitalTwinBox,
 )
 from semantic_digital_twin.world_description.geometry import (
-    Cylinder as SemDTCylinder,
+    Cylinder as SemanticDigitalTwinCylinder,
 )
 from semantic_digital_twin.world_description.geometry import (
     Scale,
 )
 from semantic_digital_twin.world_description.geometry import (
-    Sphere as SemDTSphere,
+    Sphere as SemanticDigitalTwinSphere,
 )
 from typing_extensions import Optional, Union
 
@@ -46,9 +46,9 @@ class SphereFitParameters:
     distance_threshold: float
     robust_loss: str
     max_radius: float
-    max_radius_to_bbox_diagonal_ratio: float
+    max_radius_to_bounding_box_diagonal_ratio: float
     max_radius_to_observed_extent_ratio: float
-    max_center_distance_to_bbox_diagonal_ratio: float
+    max_center_distance_to_bounding_box_diagonal_ratio: float
     min_inlier_ratio: float
 
 
@@ -62,9 +62,9 @@ class CylinderFitParameters:
     robust_loss: str
     max_radius: float
     max_height: float
-    max_radius_to_bbox_diagonal_ratio: float
+    max_radius_to_bounding_box_diagonal_ratio: float
     max_radius_to_cross_section_extent_ratio: float
-    max_axis_center_distance_to_bbox_diagonal_ratio: float
+    max_axis_center_distance_to_bounding_box_diagonal_ratio: float
     min_inlier_ratio: float
     max_initializations: int
     consensus_trials: int
@@ -276,14 +276,14 @@ class SphereFitAdapter(ShapeFitAdapter):
             distance_threshold=fit_parameters.distance_threshold,
             robust_loss=fit_parameters.robust_loss,
             max_radius=fit_parameters.max_radius,
-            max_radius_to_bbox_diagonal_ratio=(
-                fit_parameters.max_radius_to_bbox_diagonal_ratio
+            max_radius_to_bounding_box_diagonal_ratio=(
+                fit_parameters.max_radius_to_bounding_box_diagonal_ratio
             ),
             max_radius_to_observed_extent_ratio=(
                 fit_parameters.max_radius_to_observed_extent_ratio
             ),
-            max_center_distance_to_bbox_diagonal_ratio=(
-                fit_parameters.max_center_distance_to_bbox_diagonal_ratio
+            max_center_distance_to_bounding_box_diagonal_ratio=(
+                fit_parameters.max_center_distance_to_bounding_box_diagonal_ratio
             ),
             min_inlier_ratio=fit_parameters.min_inlier_ratio,
         )
@@ -303,7 +303,7 @@ class SphereFitAdapter(ShapeFitAdapter):
             quat_w=1.0,
         )
         return Sphere(
-            geometry=SemDTSphere(
+            geometry=SemanticDigitalTwinSphere(
                 origin=origin,
                 radius=float(sphere_fit.radius),
             )
@@ -370,14 +370,14 @@ class CylinderFitAdapter(ShapeFitAdapter):
             robust_loss=fit_parameters.robust_loss,
             max_radius=fit_parameters.max_radius,
             max_height=fit_parameters.max_height,
-            max_radius_to_bbox_diagonal_ratio=(
-                fit_parameters.max_radius_to_bbox_diagonal_ratio
+            max_radius_to_bounding_box_diagonal_ratio=(
+                fit_parameters.max_radius_to_bounding_box_diagonal_ratio
             ),
             max_radius_to_cross_section_extent_ratio=(
                 fit_parameters.max_radius_to_cross_section_extent_ratio
             ),
-            max_axis_center_distance_to_bbox_diagonal_ratio=(
-                fit_parameters.max_axis_center_distance_to_bbox_diagonal_ratio
+            max_axis_center_distance_to_bounding_box_diagonal_ratio=(
+                fit_parameters.max_axis_center_distance_to_bounding_box_diagonal_ratio
             ),
             min_inlier_ratio=fit_parameters.min_inlier_ratio,
             max_initializations=fit_parameters.max_initializations,
@@ -402,7 +402,7 @@ class CylinderFitAdapter(ShapeFitAdapter):
             quat_w=float(quaternion[3]),
         )
         return Cylinder(
-            geometry=SemDTCylinder(
+            geometry=SemanticDigitalTwinCylinder(
                 origin=origin,
                 width=float(2.0 * cylinder_fit.radius),
                 height=float(cylinder_fit.height),
@@ -493,7 +493,7 @@ class CuboidFitAdapter(ShapeFitAdapter):
             quat_w=float(quaternion[3]),
         )
         return Cuboid(
-            geometry=SemDTBox(
+            geometry=SemanticDigitalTwinBox(
                 origin=origin,
                 scale=Scale(
                     x=float(cuboid_fit.extents[0]),

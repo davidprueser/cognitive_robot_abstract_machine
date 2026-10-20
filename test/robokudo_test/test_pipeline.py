@@ -117,7 +117,7 @@ class TestPipeline(object):
         annotator1 = BaseAnnotator("1")
         annotator3 = BaseAnnotator("3")
 
-        # Pipeline children will not be fetched in nested RK Pipelines
+        # Pipeline children will not be fetched in nested RoboKudo Pipelines
         sub_pipeline = Pipeline("Subsequence")
         annotator2 = BaseAnnotator("2")
         sub_pipeline.add_child(annotator2)

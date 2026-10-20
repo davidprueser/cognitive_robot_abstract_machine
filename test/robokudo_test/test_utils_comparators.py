@@ -13,15 +13,15 @@ from robokudo.types.cv import Rect, ImageROI, Point2D
 from robokudo.types.tf import Pose
 from robokudo.utils.comparators import (
     TranslationComparator,
-    BboxComparator,
+    BoundingBoxComparator,
     SizeComparator,
     HistogramComparator,
     SemanticColorComparator,
     AdditionalDataComparator,
-    RoiComparator,
+    RegionOfInterestComparator,
     MaskComparator,
     ClassificationComparator,
-    ImageROIComparator,
+    ImageRegionOfInterestComparator,
     OrientationComparator,
     PoseComparator,
 )
@@ -34,7 +34,7 @@ if TYPE_CHECKING:
 class TestUtilsComparators(object):
 
     @pytest.mark.parametrize(
-        ["query_value", "obj_value", "expected_similarity"],
+        ["query_value", "object_value", "expected_similarity"],
         [
             ((0.0, 0.0, 0.0), (0.0, 0.0, 0.0), 1.0),  # 100% the same
             (
@@ -102,27 +102,29 @@ class TestUtilsComparators(object):
     def test_translation_comparator(
         self,
         query_value: tuple[float, float, float],
-        obj_value: tuple[float, float, float],
+        object_value: tuple[float, float, float],
         expected_similarity: float,
     ) -> None:
         comparator = TranslationComparator(weight=1.0, max_distance=1.0)
-        assert comparator.compute_similarity(query_value, obj_value) == pytest.approx(
-            expected_similarity
-        )
+        assert comparator.compute_similarity(
+            query_value, object_value
+        ) == pytest.approx(expected_similarity)
 
     @pytest.fixture
     def bounding_box_from_tuple(
         self,
     ) -> Callable[[tuple[float, float, float]], BoundingBox3DAnnotation]:
         def _make(lengths: tuple[float, float, float]) -> BoundingBox3DAnnotation:
-            bbox = BoundingBox3DAnnotation()
-            bbox.x_length, bbox.y_length, bbox.z_length = lengths
-            return bbox
+            bounding_box = BoundingBox3DAnnotation()
+            bounding_box.x_length, bounding_box.y_length, bounding_box.z_length = (
+                lengths
+            )
+            return bounding_box
 
         return _make
 
     @pytest.mark.parametrize(
-        ["query_value", "obj_value", "expected_similarity"],
+        ["query_value", "object_value", "expected_similarity"],
         [
             ((0.0, 0.0, 0.0), (0.0, 0.0, 0.0), 1.0),
             ((1.0, 1.0, 1.0), (1.0, 1.0, 1.0), 1.0),
@@ -130,25 +132,27 @@ class TestUtilsComparators(object):
             ((1.0, 1.0, 1.0), (2.0, 2.0, 2.0), 0.25),
         ],
     )
-    def test_bbox_comparator(
+    def test_bounding_box_comparator(
         self,
         query_value: tuple[float, float, float],
-        obj_value: tuple[float, float, float],
+        object_value: tuple[float, float, float],
         expected_similarity: float,
         bounding_box_from_tuple: Callable[
             [tuple[float, float, float]], BoundingBox3DAnnotation
         ],
     ) -> None:
-        query_bbox = bounding_box_from_tuple(query_value)
-        obj_bbox = bounding_box_from_tuple(obj_value)
-        comparator = BboxComparator(weight=1.0)
+        query_bounding_box = bounding_box_from_tuple(query_value)
+        object_bounding_box = bounding_box_from_tuple(object_value)
+        comparator = BoundingBoxComparator(weight=1.0)
 
-        similarity = comparator.compute_similarity(query_bbox, obj_bbox)
+        similarity = comparator.compute_similarity(
+            query_bounding_box, object_bounding_box
+        )
         assert isinstance(similarity, float)
         assert similarity == pytest.approx(expected_similarity)
 
     @pytest.mark.parametrize(
-        ["query_value", "obj_value", "expected_similarity"],
+        ["query_value", "object_value", "expected_similarity"],
         [
             ([0.0, 0.0, 0.0], [0.0, 0.0, 0.0], 1.0),
             ([1.0, 1.0, 1.0], [1.0, 1.0, 1.0], 1.0),
@@ -159,12 +163,12 @@ class TestUtilsComparators(object):
     def test_size_comparator(
         self,
         query_value: list[float],
-        obj_value: list[float],
+        object_value: list[float],
         expected_similarity: float,
     ) -> None:
         comparator = SizeComparator(weight=1.0)
 
-        similarity = comparator.compute_similarity(query_value, obj_value)
+        similarity = comparator.compute_similarity(query_value, object_value)
         assert isinstance(similarity, float)
         assert similarity == pytest.approx(expected_similarity)
 
@@ -180,7 +184,7 @@ class TestUtilsComparators(object):
         return _make
 
     @pytest.mark.parametrize(
-        ["query_value", "obj_value", "expected_similarity"],
+        ["query_value", "object_value", "expected_similarity"],
         [
             (np.array([0, 0, 0]), np.array([0, 0, 0]), pytest.approx(1.0)),
             (
@@ -198,27 +202,31 @@ class TestUtilsComparators(object):
     def test_histogram_comparator(
         self,
         query_value: np.ndarray,
-        obj_value: np.ndarray,
+        object_value: np.ndarray,
         expected_similarity: pytest.approx,
     ) -> None:
         comparator = HistogramComparator(weight=1.0)
 
-        query_hist, _ = np.histogram(query_value.ravel(), bins=256, range=[0, 256])
-        obj_hist, _ = np.histogram(obj_value.ravel(), bins=256, range=[0, 256])
+        query_histogram, _ = np.histogram(query_value.ravel(), bins=256, range=[0, 256])
+        object_histogram, _ = np.histogram(
+            object_value.ravel(), bins=256, range=[0, 256]
+        )
 
-        query_color_hist = ColorHistogram()
-        query_color_hist.hist = query_hist.astype(np.float32)
+        query_color_histogram = ColorHistogram()
+        query_color_histogram.hist = query_histogram.astype(np.float32)
 
-        obj_color_hist = ColorHistogram()
-        obj_color_hist.hist = obj_hist.astype(np.float32)
+        object_color_histogram = ColorHistogram()
+        object_color_histogram.hist = object_histogram.astype(np.float32)
 
-        similarity = comparator.compute_similarity(query_color_hist, obj_color_hist)
+        similarity = comparator.compute_similarity(
+            query_color_histogram, object_color_histogram
+        )
 
         assert isinstance(similarity, float)
         assert similarity == expected_similarity
 
     @pytest.mark.parametrize(
-        ["query_value", "obj_value", "expected_similarity"],
+        ["query_value", "object_value", "expected_similarity"],
         [
             (("white", 1.0), ("black", 1.0), 0.0),  # Different colors, full ratio
             (("white", 1.0), ("black", 0.0), 0.0),  # Different colors, different ratio
@@ -230,7 +238,7 @@ class TestUtilsComparators(object):
     def test_semantic_color_comparator(
         self,
         query_value: tuple[str, float],
-        obj_value: tuple[str, float],
+        object_value: tuple[str, float],
         expected_similarity: float,
     ) -> None:
         comparator = SemanticColorComparator(weight=1.0)
@@ -239,17 +247,17 @@ class TestUtilsComparators(object):
         query_color.color = query_value[0]
         query_color.ratio = query_value[1]
 
-        obj_color = SemanticColor()
-        obj_color.color = obj_value[0]
-        obj_color.ratio = obj_value[1]
+        object_color = SemanticColor()
+        object_color.color = object_value[0]
+        object_color.ratio = object_value[1]
 
-        similarity = comparator.compute_similarity(query_color, obj_color)
+        similarity = comparator.compute_similarity(query_color, object_color)
 
         assert isinstance(similarity, float)
         assert similarity == expected_similarity
 
     @pytest.mark.parametrize(
-        ["query_value", "obj_value", "expected_similarity"],
+        ["query_value", "object_value", "expected_similarity"],
         [
             # Test floats
             (1.0, 1.0, 1.0),
@@ -264,50 +272,50 @@ class TestUtilsComparators(object):
         ],
     )
     def test_additional_data_comparator(
-        self, query_value: Any, obj_value: Any, expected_similarity: float
+        self, query_value: Any, object_value: Any, expected_similarity: float
     ) -> None:
         comparator = AdditionalDataComparator(weight=1.0)
 
-        similarity = comparator.compute_similarity(query_value, obj_value)
+        similarity = comparator.compute_similarity(query_value, object_value)
 
         assert isinstance(similarity, float)
         assert similarity == pytest.approx(expected_similarity)
 
     @pytest.mark.parametrize(
-        ["query_value", "obj_value", "expected_similarity"],
+        ["query_value", "object_value", "expected_similarity"],
         [
             ((0, 0, 1, 1), (0, 0, 1, 1), 1.0),  # Full overlap
             ((2, 2, 1, 1), (0, 0, 1, 1), 0.0),  # No overlap
             ((0, 0, 1, 1), (0, 0, 3, 3), 0.25),  # Partial overlap
         ],
     )
-    def test_roi_comparator(
+    def test_region_of_interest_comparator(
         self,
         query_value: tuple[int, int, int, int],
-        obj_value: tuple[int, int, int, int],
+        object_value: tuple[int, int, int, int],
         expected_similarity: float,
     ) -> None:
-        query_rect = Rect()
-        query_rect.pos.x = query_value[0]
-        query_rect.pos.y = query_value[1]
-        query_rect.width = query_value[2]
-        query_rect.height = query_value[3]
+        query_rectangle = Rect()
+        query_rectangle.pos.x = query_value[0]
+        query_rectangle.pos.y = query_value[1]
+        query_rectangle.width = query_value[2]
+        query_rectangle.height = query_value[3]
 
-        obj_rect = Rect()
-        obj_rect.pos.x = obj_value[0]
-        obj_rect.pos.y = obj_value[1]
-        obj_rect.width = obj_value[2]
-        obj_rect.height = obj_value[3]
+        object_rectangle = Rect()
+        object_rectangle.pos.x = object_value[0]
+        object_rectangle.pos.y = object_value[1]
+        object_rectangle.width = object_value[2]
+        object_rectangle.height = object_value[3]
 
-        comparator = RoiComparator(weight=1.0)
+        comparator = RegionOfInterestComparator(weight=1.0)
 
-        similarity = comparator.compute_similarity(query_rect, obj_rect)
+        similarity = comparator.compute_similarity(query_rectangle, object_rectangle)
 
         assert isinstance(similarity, float)
         assert similarity == pytest.approx(expected_similarity)
 
     @pytest.mark.parametrize(
-        ["query_value", "obj_value", "expected_similarity"],
+        ["query_value", "object_value", "expected_similarity"],
         [
             (
                 np.array([[0.0, 0.0], [0.0, 0.0]]),
@@ -334,18 +342,18 @@ class TestUtilsComparators(object):
     def test_mask_comparator(
         self,
         query_value: npt.NDArray,
-        obj_value: npt.NDArray,
+        object_value: npt.NDArray,
         expected_similarity: float,
     ) -> None:
         comparator = MaskComparator(weight=1.0)
 
-        similarity = comparator.compute_similarity(query_value, obj_value)
+        similarity = comparator.compute_similarity(query_value, object_value)
 
         assert isinstance(similarity, float)
         assert similarity == pytest.approx(expected_similarity)
 
     @pytest.mark.parametrize(
-        ["query_value", "obj_value", "expected_similarity"],
+        ["query_value", "object_value", "expected_similarity"],
         [
             (
                 Classification(
@@ -395,17 +403,17 @@ class TestUtilsComparators(object):
         ],
     )
     def test_classification_comparator(
-        self, query_value: Pose, obj_value: Pose, expected_similarity: float
+        self, query_value: Pose, object_value: Pose, expected_similarity: float
     ) -> None:
         comparator = ClassificationComparator(weight=1.0)
 
-        similarity = comparator.compute_similarity(query_value, obj_value)
+        similarity = comparator.compute_similarity(query_value, object_value)
 
         assert isinstance(similarity, float)
         assert similarity == pytest.approx(expected_similarity)
 
     @pytest.mark.parametrize(
-        ["query_value", "obj_value", "expected_similarity"],
+        ["query_value", "object_value", "expected_similarity"],
         [
             (
                 ImageROI(
@@ -476,18 +484,18 @@ class TestUtilsComparators(object):
             ),  # Positions are not identical, but roi masks are
         ],
     )
-    def test_image_roi_comparator(
-        self, query_value: Pose, obj_value: Pose, expected_similarity: float
+    def test_image_region_of_interest_comparator(
+        self, query_value: Pose, object_value: Pose, expected_similarity: float
     ) -> None:
-        comparator = ImageROIComparator(weight=1.0)
+        comparator = ImageRegionOfInterestComparator(weight=1.0)
 
-        similarity = comparator.compute_similarity(query_value, obj_value)
+        similarity = comparator.compute_similarity(query_value, object_value)
 
         assert isinstance(similarity, float)
         assert similarity == pytest.approx(expected_similarity)
 
     @pytest.mark.parametrize(
-        ["query_value", "obj_value", "expected_similarity"],
+        ["query_value", "object_value", "expected_similarity"],
         [
             (np.array([0.0, 0.0, 0.0, 1.0]), np.array([0.0, 0.0, 0.0, 1.0]), 1.0),
             (np.array([0.0, 0.0, 0.0, -1.0]), np.array([0.0, 0.0, 0.0, 1.0]), 0.0),
@@ -499,17 +507,17 @@ class TestUtilsComparators(object):
         ],
     )
     def test_orientation_comparator(
-        self, query_value: Pose, obj_value: Pose, expected_similarity: float
+        self, query_value: Pose, object_value: Pose, expected_similarity: float
     ) -> None:
         comparator = OrientationComparator(weight=1.0)
 
-        similarity = comparator.compute_similarity(query_value, obj_value)
+        similarity = comparator.compute_similarity(query_value, object_value)
 
         assert isinstance(similarity, float)
         assert similarity == pytest.approx(expected_similarity)
 
     @pytest.mark.parametrize(
-        ["query_value", "obj_value", "expected_similarity"],
+        ["query_value", "object_value", "expected_similarity"],
         [
             (
                 Pose(
@@ -547,11 +555,11 @@ class TestUtilsComparators(object):
         ],
     )
     def test_pose_comparator(
-        self, query_value: Pose, obj_value: Pose, expected_similarity: float
+        self, query_value: Pose, object_value: Pose, expected_similarity: float
     ) -> None:
         comparator = PoseComparator(weight=1.0)
 
-        similarity = comparator.compute_similarity(query_value, obj_value)
+        similarity = comparator.compute_similarity(query_value, object_value)
 
         assert isinstance(similarity, float)
         assert similarity == pytest.approx(expected_similarity)

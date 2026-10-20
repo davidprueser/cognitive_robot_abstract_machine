@@ -45,7 +45,7 @@ class GoalCanceled(Behaviour):
         This method is called when the behavior is first ticked. No initialization is
         needed for this behavior.
         """
-        # self.rk_logger.debug("%s.initialise()" % self.__class__.__name__)
+        # self.robokudo_logger.debug("%s.initialise()" % self.__class__.__name__)
         pass
 
     def update(self) -> Status:
@@ -59,7 +59,7 @@ class GoalCanceled(Behaviour):
 
         :return: SUCCESS if goal should be canceled, FAILURE otherwise
         """
-        # self.rk_logger.debug("%s.update()" % (self.__class__.__name__))
+        # self.robokudo_logger.debug("%s.update()" % (self.__class__.__name__))
         if get_blackboard_exception() is not None:
             return Status.SUCCESS
 

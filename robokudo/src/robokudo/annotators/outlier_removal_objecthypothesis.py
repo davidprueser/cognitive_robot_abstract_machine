@@ -47,7 +47,7 @@ remaining copy of the old state for some point cloud.
 Authors: Sorin Arion, Naser Azizi 
 """
 
-_PYTYPE_TO_ROS_FIELD: Dict[Type, str] = {
+_PYTHON_TYPE_TO_ROS_FIELD: Dict[Type, str] = {
     int: "integer_value",
     float: "double_value",
     str: "string_value",
@@ -84,10 +84,10 @@ class OutlierRemovalOnObjectHypothesisAnnotator(BaseAnnotator):
                 self.dbscan_epsilon: float = 0.02
                 """DBSCAN neighborhood size"""
 
-                self.stat_neighbors: int = 200
+                self.statistical_neighbor_count: int = 200
                 """Number of neighbors for statistical analysis"""
 
-                self.stat_std: float = 0.5
+                self.statistical_standard_deviation_ratio: float = 0.5
                 """Standard deviation threshold for outlier removal"""
 
                 self.skip_removal_on_classes: List[str] = []
@@ -110,23 +110,25 @@ class OutlierRemovalOnObjectHypothesisAnnotator(BaseAnnotator):
         :param descriptor: Configuration descriptor
         """
         super().__init__(name, descriptor)
-        self.rk_logger.debug("%s.__init__()" % self.__class__.__name__)
+        self.robokudo_logger.debug("%s.__init__()" % self.__class__.__name__)
 
         self.node = ROSNodeRegistry().get()
 
-        for param_name, default_value in vars(self.descriptor.parameters).items():
-            self.node.declare_parameter(f"{self.name}/{param_name}", default_value)
+        for parameter_name, default_value in vars(self.descriptor.parameters).items():
+            self.node.declare_parameter(f"{self.name}/{parameter_name}", default_value)
 
         self.node.add_on_set_parameters_callback(self.parameters_callback)
 
-        self.rk_logger.info("OutlierRemovalNode initialized with current parameters")
+        self.robokudo_logger.info(
+            "OutlierRemovalNode initialized with current parameters"
+        )
 
-    def parameters_callback(self, params: List[Parameter]) -> SetParametersResult:
-        for param in params:
-            if hasattr(self.descriptor.parameters, param.name):
-                setattr(self.descriptor.parameters, param.name, param.value)
+    def parameters_callback(self, parameters: List[Parameter]) -> SetParametersResult:
+        for parameter in parameters:
+            if hasattr(self.descriptor.parameters, parameter.name):
+                setattr(self.descriptor.parameters, parameter.name, parameter.value)
 
-        self.rk_logger.info("Received reconf call: " + str(params))
+        self.robokudo_logger.info("Received reconf call: " + str(parameters))
         return SetParametersResult(successful=True)
 
     @catch_and_raise_to_blackboard
@@ -138,18 +140,18 @@ class OutlierRemovalOnObjectHypothesisAnnotator(BaseAnnotator):
         """
 
         start_timer = default_timer()
-        pcd_cluster = self.cluster_statistical_outlierremoval_pcd()
+        point_cloud_cluster = self.cluster_statistical_outlier_removal_point_cloud()
 
-        if not pcd_cluster:
-            # TODO This should not be decided by this Annotator, but by the Result Generator - Refactor and test AEs
-            self.rk_logger.warning(f"No Clusters have been found.")
+        if not point_cloud_cluster:
+            # TODO This should not be decided by this Annotator, but by the Result Generator - Refactor and test analysis engines
+            self.robokudo_logger.warning(f"No Clusters have been found.")
             self.feedback_message = f"No clusters have been found"
             raise Exception("No Clusters have been found.")
         end_timer = default_timer()
         self.feedback_message = f"Processing took {(end_timer - start_timer):.4f}s"
         return Status.SUCCESS
 
-    def cluster_statistical_outlierremoval_pcd(self) -> bool:
+    def cluster_statistical_outlier_removal_point_cloud(self) -> bool:
         """Perform outlier removal and clustering on each object hypothesis.
 
         :return: True, if at least one of the object hypotheses could be optimized. False otherwise.
@@ -157,7 +159,7 @@ class OutlierRemovalOnObjectHypothesisAnnotator(BaseAnnotator):
         annotations = self.get_common_analysis_structure().filter_annotations_by_type(
             ObjectHypothesis
         )
-        vis_geometries = []
+        visualization_geometries = []
 
         optimized_one_cluster = False
 
@@ -171,9 +173,9 @@ class OutlierRemovalOnObjectHypothesisAnnotator(BaseAnnotator):
                 )
 
                 found_class = False
-                for c in classes:
+                for classification in classes:
                     if (
-                        c.classname
+                        classification.classname
                         in self.descriptor.parameters.skip_removal_on_classes
                     ):
                         found_class = True
@@ -182,19 +184,19 @@ class OutlierRemovalOnObjectHypothesisAnnotator(BaseAnnotator):
                 if found_class:
                     continue
 
-            pcd = annotation.points
-            cl, ind = pcd.remove_statistical_outlier(
-                nb_neighbors=self.descriptor.parameters.stat_neighbors,
-                std_ratio=self.descriptor.parameters.stat_std,
+            point_cloud = annotation.points
+            inlier_cloud, inlier_indices = point_cloud.remove_statistical_outlier(
+                nb_neighbors=self.descriptor.parameters.statistical_neighbor_count,
+                std_ratio=self.descriptor.parameters.statistical_standard_deviation_ratio,
             )
 
-            pcd = pcd.select_by_index(ind)
+            point_cloud = point_cloud.select_by_index(inlier_indices)
 
             with o3d.utility.VerbosityContextManager(
                 o3d.utility.VerbosityLevel.Debug
-            ) as cm:
+            ) as verbosity_context:
                 labels = np.array(
-                    pcd.cluster_dbscan(
+                    point_cloud.cluster_dbscan(
                         eps=self.descriptor.parameters.dbscan_epsilon,
                         min_points=self.descriptor.parameters.dbscan_neighbors,
                         print_progress=True,
@@ -205,11 +207,11 @@ class OutlierRemovalOnObjectHypothesisAnnotator(BaseAnnotator):
             try:
                 cluster_sizes = []
                 max_label = labels.max()
-                for val in range(0, max_label + 1):
-                    cluster_sizes.append(np.where(labels == val)[0].shape[0])
+                for label in range(0, max_label + 1):
+                    cluster_sizes.append(np.where(labels == label)[0].shape[0])
                 best_cluster = np.argmax(np.asarray(cluster_sizes))
 
-            except ValueError as e:
+            except ValueError as exception:
                 # We couldn't optimize THIS object hypothesis, but maybe there are other ones that already have been
                 # optimized in previous iterations or we will find optimizables ones next
                 continue
@@ -218,18 +220,18 @@ class OutlierRemovalOnObjectHypothesisAnnotator(BaseAnnotator):
             optimized_one_cluster = True
 
             cluster_indices = np.where(labels == best_cluster)[0]
-            clustered_pcd = pcd.select_by_index(cluster_indices)
+            clustered_point_cloud = point_cloud.select_by_index(cluster_indices)
             # Replace old state with clustered point cloud
-            annotation.points = clustered_pcd
-            vis_geometries.append(clustered_pcd)
+            annotation.points = clustered_point_cloud
+            visualization_geometries.append(clustered_point_cloud)
 
         if not optimized_one_cluster:
             return False
 
-        visualization_img = self.get_common_analysis_structure().get(
+        visualization_image = self.get_common_analysis_structure().get(
             CommonAnalysisStructureViews.COLOR_IMAGE
         )
-        self.get_annotator_output_struct().set_image(visualization_img)
-        self.get_annotator_output_struct().set_geometries(vis_geometries)
+        self.get_annotator_output_structure().set_image(visualization_image)
+        self.get_annotator_output_structure().set_geometries(visualization_geometries)
 
         return True

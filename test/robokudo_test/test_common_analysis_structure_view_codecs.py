@@ -25,16 +25,16 @@ def test_bytes_codec_roundtrip() -> None:
 
 def test_ros_message_codec_roundtrip() -> None:
     registry = CommonAnalysisStructureViewCodecRegistry()
-    msg = String(data="hello")
+    message = String(data="hello")
 
-    encoded = registry.encode_view("msg", msg)
+    encoded = registry.encode_view("msg", message)
     assert encoded is not None
     assert encoded["serializer_id"] == "ros_message_v1"
 
-    decoded_name, decoded_msg = registry.decode_view(encoded)
+    decoded_name, decoded_message = registry.decode_view(encoded)
     assert decoded_name == "msg"
-    assert isinstance(decoded_msg, String)
-    assert decoded_msg.data == "hello"
+    assert isinstance(decoded_message, String)
+    assert decoded_message.data == "hello"
 
 
 def test_stamped_transform_codec_roundtrip() -> None:

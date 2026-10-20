@@ -70,7 +70,7 @@ class TestUtilsTransforms(object):
     ) -> None:
         pose = get_pose_from_transform_matrix(transform_matrix)
 
-        pose_quat = np.array(
+        pose_quaternion = np.array(
             [
                 pose.orientation.x,
                 pose.orientation.y,
@@ -79,8 +79,8 @@ class TestUtilsTransforms(object):
             ]
         )
 
-        assert np.allclose(pose_quat, quaternion)
-        assert np.isclose(np.linalg.norm(pose_quat), 1.0, atol=1e-6)
+        assert np.allclose(pose_quaternion, quaternion)
+        assert np.isclose(np.linalg.norm(pose_quaternion), 1.0, atol=1e-6)
         assert [pose.position.x, pose.position.y, pose.position.z] == [0.0, 0.0, 0.0]
 
     @pytest.mark.parametrize("translation", TRANSLATION_CASES)
@@ -91,13 +91,13 @@ class TestUtilsTransforms(object):
         matrix[:3, 3] = translation
         pose = get_pose_from_transform_matrix(matrix)
 
-        pose_quat = [
+        pose_quaternion = [
             pose.orientation.x,
             pose.orientation.y,
             pose.orientation.z,
             pose.orientation.w,
         ]
-        assert pose_quat == [0.0, 0.0, 0.0, 1.0]
+        assert pose_quaternion == [0.0, 0.0, 0.0, 1.0]
         assert [pose.position.x, pose.position.y, pose.position.z] == translation
 
     def test_get_pose_from_transform_matrix_invalid_matrix(self) -> None:
@@ -282,9 +282,9 @@ class TestUtilsTransforms(object):
         transform_matrix: np.ndarray,
         quaternion: tuple[float, float, float, float],
     ) -> None:
-        rot = get_rotation_from_transform_matrix(transform_matrix)
-        assert np.all(rot == transform_matrix[:3, :3])
-        assert np.allclose(Rotation.from_matrix(rot).as_quat(True), quaternion)
+        rotation = get_rotation_from_transform_matrix(transform_matrix)
+        assert np.all(rotation == transform_matrix[:3, :3])
+        assert np.allclose(Rotation.from_matrix(rotation).as_quat(True), quaternion)
 
     @pytest.mark.parametrize(
         ["rotation", "quaternion"],
@@ -582,11 +582,11 @@ class TestUtilsTransforms(object):
     def test_get_rotation_matrix_from_direction_vector(
         self, direction: np.ndarray, up_hint: np.ndarray
     ) -> None:
-        rot = get_rotation_matrix_from_direction_vector(direction, up_hint=up_hint)
+        rotation = get_rotation_matrix_from_direction_vector(direction, up_hint=up_hint)
 
-        assert np.allclose(rot[:, 0], direction / np.linalg.norm(direction))
-        assert np.allclose(rot @ rot.T, np.eye(3), atol=1e-6)
-        assert np.allclose(np.linalg.det(rot), 1, atol=1e-6)
+        assert np.allclose(rotation[:, 0], direction / np.linalg.norm(direction))
+        assert np.allclose(rotation @ rotation.T, np.eye(3), atol=1e-6)
+        assert np.allclose(np.linalg.det(rotation), 1, atol=1e-6)
 
     def test_get_rotation_matrix_from_direction_vector_invalid_vector(self) -> None:
         assert pytest.raises(

@@ -185,17 +185,17 @@ def setup_world_for_camera_frame(
     :param world_frame: The name of the world frame.
     :param camera_frame: The name of the camera frame.
     """
-    rk_world = world_instance()
-    world_bodies = rk_world.get_bodies_by_name(name=world_frame)
-    camera_bodies = rk_world.get_bodies_by_name(name=camera_frame)
+    robokudo_world = world_instance()
+    world_bodies = robokudo_world.get_bodies_by_name(name=world_frame)
+    camera_bodies = robokudo_world.get_bodies_by_name(name=camera_frame)
 
     world_body = world_bodies[0] if len(world_bodies) > 0 else None
     camera_body = camera_bodies[0] if len(camera_bodies) > 0 else None
 
-    with rk_world.modify_world():
+    with robokudo_world.modify_world():
         if world_body is None:
             world_body = Body(name=PrefixedName(name=world_frame))
-            rk_world.add_body(world_body)
+            robokudo_world.add_body(world_body)
 
             world_body.visual.append(
                 Mesh.from_trimesh(
@@ -206,7 +206,7 @@ def setup_world_for_camera_frame(
 
         if camera_body is None:
             camera_body = Body(name=PrefixedName(name=camera_frame))
-            rk_world.add_body(camera_body)
+            robokudo_world.add_body(camera_body)
 
             camera_body.visual.append(
                 Mesh.from_trimesh(
@@ -216,14 +216,14 @@ def setup_world_for_camera_frame(
             )
 
         connection_name = PrefixedName(name=f"{camera_frame}_T_{world_frame}")
-        if len(rk_world.get_connections_by_name(connection_name)) == 0:
+        if len(robokudo_world.get_connections_by_name(connection_name)) == 0:
             camera_T_world = Connection6DoF.create_with_dofs(
                 parent=world_body,
                 child=camera_body,
-                world=rk_world,
+                world=robokudo_world,
                 name=connection_name,
             )
-            rk_world.add_connection(camera_T_world)
+            robokudo_world.add_connection(camera_T_world)
 
 
 def update_connection_transform(
@@ -258,7 +258,7 @@ def get_object_belief_states() -> Dict[UUID, ObjectBeliefState]:
 
 
 def _get_world_body_from_common_analysis_structure(
-    common_analysis_structure: CommonAnalysisStructure, rk_world: World
+    common_analysis_structure: CommonAnalysisStructure, robokudo_world: World
 ) -> Body | None:
     """
     Return the world-frame body referenced by the common analysis structure, if available.
@@ -266,7 +266,7 @@ def _get_world_body_from_common_analysis_structure(
     world_frame = common_analysis_structure.world_frame
     if world_frame is None:
         return None
-    return rk_world.get_body_by_name(PrefixedName(name=world_frame))
+    return robokudo_world.get_body_by_name(PrefixedName(name=world_frame))
 
 
 def _create_world_origin_and_scale_from_latest_bbox(
@@ -277,7 +277,7 @@ def _create_world_origin_and_scale_from_latest_bbox(
     """
     Convert the latest camera-frame bbox into a world-frame SemDT origin and scale.
     """
-    bb = object_belief.latest_bbox_3d
+    bb = object_belief.latest_bounding_box_3d
     if bb is None:
         return None
 
@@ -311,7 +311,7 @@ def _create_world_origin_and_scale_from_latest_bbox(
 def _update_belief_body_from_latest_bbox(
     object_belief: ObjectBeliefState,
     common_analysis_structure: CommonAnalysisStructure,
-    rk_world: World,
+    robokudo_world: World,
     world_body: Body,
     world_T_object_belief: Connection6DoF,
     replace_existing_visuals: bool,
@@ -330,7 +330,7 @@ def _update_belief_body_from_latest_bbox(
     origin, scale = origin_and_scale
     object_belief_body = object_belief.body
 
-    with rk_world.modify_world():
+    with robokudo_world.modify_world():
         if replace_existing_visuals:
             object_belief_body.visual.shapes.clear()
         object_belief_body.visual.append(Box(scale=scale))
@@ -351,7 +351,7 @@ def add_object_hypothesis_as_belief_state(
     :param common_analysis_structure: The common analysis structure to use for transform lookups.
     :return: The new object belief.
     """
-    rk_world = world_instance()
+    robokudo_world = world_instance()
 
     object_belief = ObjectBeliefState.create_with_new_body().add_hypothesis(
         object_hypothesis
@@ -360,23 +360,23 @@ def add_object_hypothesis_as_belief_state(
     _tracked_objects[object_belief.uuid] = object_belief
 
     world_body = _get_world_body_from_common_analysis_structure(
-        common_analysis_structure, rk_world
+        common_analysis_structure, robokudo_world
     )
     if world_body is None:
         return object_belief
 
-    with rk_world.modify_world():
+    with robokudo_world.modify_world():
         world_T_object_belief = Connection6DoF.create_with_dofs(
-            world=rk_world,
+            world=robokudo_world,
             parent=world_body,
             child=object_belief_body,
         )
-        rk_world.add_connection(world_T_object_belief)
+        robokudo_world.add_connection(world_T_object_belief)
 
     _update_belief_body_from_latest_bbox(
         object_belief=object_belief,
         common_analysis_structure=common_analysis_structure,
-        rk_world=rk_world,
+        robokudo_world=robokudo_world,
         world_body=world_body,
         world_T_object_belief=world_T_object_belief,
         replace_existing_visuals=False,
@@ -399,13 +399,13 @@ def update_belief_state_with_object_hypothesis(
     :param object_hypothesis: Object hypothesis state to update the belief state with.
     :param common_analysis_structure: The common analysis structure to use for transform lookups.
     """
-    rk_world = world_instance()
+    robokudo_world = world_instance()
 
     object_belief.add_hypothesis(object_hypothesis)
     object_belief_body = object_belief.body
 
     world_body = _get_world_body_from_common_analysis_structure(
-        common_analysis_structure, rk_world
+        common_analysis_structure, robokudo_world
     )
     if world_body is None:
         return
@@ -413,7 +413,7 @@ def update_belief_state_with_object_hypothesis(
     _update_belief_body_from_latest_bbox(
         object_belief=object_belief,
         common_analysis_structure=common_analysis_structure,
-        rk_world=rk_world,
+        robokudo_world=robokudo_world,
         world_body=world_body,
         world_T_object_belief=object_belief_body.get_first_parent_connection_of_type(
             Connection6DoF

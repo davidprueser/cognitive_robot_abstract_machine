@@ -10,7 +10,7 @@ Key features:
 * HSV color space thresholding
 * Contour detection and filtering
 * 3D point cloud generation from depth data
-* ROI and mask generation
+* region of interest and mask generation
 * Query-based color parameter adjustment
 * Visualization of detected clusters
 """
@@ -48,7 +48,7 @@ class ImageClusterExtractor(BaseAnnotator):
     * Applies HSV thresholding based on configured parameters
     * Detects and filters contours based on size
     * Generates point clouds from depth data for each contour
-    * Creates ObjectHypothesis annotations with ROIs and masks
+    * Creates ObjectHypothesis annotations with regions of interest and masks
     * Provides visualization of detected clusters
 
     The HSV thresholds can be adjusted dynamically based on color queries.
@@ -116,9 +116,9 @@ class ImageClusterExtractor(BaseAnnotator):
                 }
 
                 self.outlier_removal: bool = True
-                self.outlier_removal_nb_neighbors: int = 20
-                self.outlier_removal_std_ratio: float = 2.0
-                self.num_of_objects: int = 2
+                self.outlier_removal_neighbor_count: int = 20
+                self.outlier_removal_standard_deviation_ratio: float = 2.0
+                self.number_of_objects: int = 2
 
                 # The minimal amount of 3D points of the object's pointcloud
                 # This check is applied AFTER self.contour_min_size
@@ -128,12 +128,12 @@ class ImageClusterExtractor(BaseAnnotator):
         parameters = Parameters()
 
     # def dyn_rec_callback(self, config, level):
-    #    self.rk_logger.info("Received reconf call: " + str(config))
+    #    self.robokudo_logger.info("Received reconf call: " + str(config))
     #    self.descriptor.parameters.hsv_min = (config['h_min'], config['s_min'], config['v_min'])
     #    self.descriptor.parameters.hsv_max = (config['h_max'], config['s_max'], config['v_max'])
     #    self.descriptor.parameters.erosion_iterations = config['erosion_iterations']
     #    self.descriptor.parameters.contour_min_size = config['contour_min_size']
-    #    self.descriptor.parameters.num_of_objects = config['num_of_objects']
+    #    self.descriptor.parameters.number_of_objects = config['number_of_objects']
     #    self.descriptor.parameters.min_points_threshold = config['min_points_threshold']
     #    return config
 
@@ -143,7 +143,7 @@ class ImageClusterExtractor(BaseAnnotator):
         descriptor: ImageClusterExtractor.Descriptor | None = None,
     ) -> None:
         super().__init__(name, descriptor)
-        self.rk_logger.debug("%s.__init__()" % self.__class__.__name__)
+        self.robokudo_logger.debug("%s.__init__()" % self.__class__.__name__)
         self.color: Optional[npt.NDArray] = None
         self.depth: Optional[npt.NDArray] = None
         self.query = None
@@ -171,7 +171,7 @@ class ImageClusterExtractor(BaseAnnotator):
         # self.declare_parameter("contour_min_size", self.descriptor.parameters.contour_min_size,
         #                       ParameterDescriptor(min_value=str(0), max_value=str(20000)))
 
-        # self.declare_parameter("num_of_objects", self.descriptor.parameters.num_of_objects,
+        # self.declare_parameter("number_of_objects", self.descriptor.parameters.number_of_objects,
         #                       ParameterDescriptor(min_value=str(1), max_value=str(6)))
 
         # self.declare_parameter("min_points_threshold", self.descriptor.parameters.min_points_threshold,
@@ -183,8 +183,9 @@ class ImageClusterExtractor(BaseAnnotator):
         """
         Adjust HSV thresholds based on color query.
 
-        Checks for a color query in the common analysis structure and updates the HSV thresholding parameters
-        if a matching color is found in the color_name_to_hsv_range mapping.
+        Checks for a color query in the common analysis structure and updates the HSV
+        thresholding parameters if a matching color is found in the
+        color_name_to_hsv_range mapping.
         """
         try:
             self.query = self.get_common_analysis_structure().get(
@@ -283,7 +284,7 @@ class ImageClusterExtractor(BaseAnnotator):
             )
             scale_camera_intrinsics(self)
         except ColorToDepthRatioMissing:
-            self.rk_logger.error(
+            self.robokudo_logger.error(
                 "No color to depth ratio set by your camera driver! Can't scale image for Point Cloud creation."
             )
             raise
@@ -314,14 +315,14 @@ class ImageClusterExtractor(BaseAnnotator):
         contours = [
             contour for i, contour in enumerate(contours) if hierarchy[0][i][3] == -1
         ]
-        contour_areas = np.asarray([cv2.contourArea(c) for c in contours])
+        contour_areas = np.asarray([cv2.contourArea(contour) for contour in contours])
         filtered_contour_areas = [
             area
             for area in contour_areas
             if area > self.descriptor.parameters.contour_min_size
         ]
         sorted_areas = sorted(filtered_contour_areas, reverse=True)
-        largest_elements = sorted_areas[: self.descriptor.parameters.num_of_objects]
+        largest_elements = sorted_areas[: self.descriptor.parameters.number_of_objects]
         filtered_contours = [
             contours[i]
             for i, area in enumerate(contour_areas)
@@ -351,37 +352,37 @@ class ImageClusterExtractor(BaseAnnotator):
                 kernel,
                 iterations=self.descriptor.parameters.erosion_iterations,
             )
-            biggest_contour_mask_rgb = cv2.cvtColor(
+            biggest_contour_mask_in_red_green_blue = cv2.cvtColor(
                 biggest_contour_mask, cv2.COLOR_GRAY2BGR
             )
 
             # Cluster creation
             # Here we'll exploit, that the depth creation in open3d will ignore depth values of 0
             # https://github.com/isl-org/Open3D/issues/1662
-            # color_rgb = cv2.cvtColor(self.color, cv2.COLOR_BGR2RGB)
-            color_rgb = cv2.cvtColor(resized_color, cv2.COLOR_BGR2RGB)
+            # color_in_red_green_blue = cv2.cvtColor(self.color, cv2.COLOR_BGR2RGB)
+            color_in_red_green_blue = cv2.cvtColor(resized_color, cv2.COLOR_BGR2RGB)
             depth_masked = copy.deepcopy(self.depth)
 
             depth_masked = np.where(
                 biggest_contour_mask == 255, depth_masked, 0
             )  # mask all depth values
 
-            o3d_color = o3d.geometry.Image(color_rgb)
+            o3d_color = o3d.geometry.Image(color_in_red_green_blue)
             o3d_depth = o3d.geometry.Image(
                 depth_masked
             )  # Please note that depth values should be in mm
-            rgbd_image = o3d.geometry.RGBDImage.create_from_color_and_depth(
+            color_and_depth_image = o3d.geometry.RGBDImage.create_from_color_and_depth(
                 o3d_color, o3d_depth, convert_rgb_to_intensity=False, depth_trunc=9.0
             )
 
             cloud = o3d.geometry.PointCloud.create_from_rgbd_image(
-                rgbd_image, self.camera_intrinsics
+                color_and_depth_image, self.camera_intrinsics
             )
 
             if self.descriptor.parameters.outlier_removal:
                 cloud, indices_after_outlier = cloud.remove_statistical_outlier(
-                    nb_neighbors=self.descriptor.parameters.outlier_removal_nb_neighbors,
-                    std_ratio=self.descriptor.parameters.outlier_removal_std_ratio,
+                    nb_neighbors=self.descriptor.parameters.outlier_removal_neighbor_count,
+                    std_ratio=self.descriptor.parameters.outlier_removal_standard_deviation_ratio,
                 )
             visualized_geometries.append(cloud)
 
@@ -395,12 +396,12 @@ class ImageClusterExtractor(BaseAnnotator):
                 object_hypothesis.points = cloud
 
                 # Calculate bounding rectangle for the current contour
-                x, y, w, h = cv2.boundingRect(contour)
-                # Set ROI attributes for the ObjectHypothesis
+                x, y, width, height = cv2.boundingRect(contour)
+                # Set region of interest attributes for the ObjectHypothesis
                 object_hypothesis.roi.roi.pos.x = x
                 object_hypothesis.roi.roi.pos.y = y
-                object_hypothesis.roi.roi.width = w
-                object_hypothesis.roi.roi.height = h
+                object_hypothesis.roi.roi.width = width
+                object_hypothesis.roi.roi.height = height
 
                 # TODO Generate proper Masks
 
@@ -415,22 +416,28 @@ class ImageClusterExtractor(BaseAnnotator):
         # Create visualization Output
         #
         if self.display_mode == self.ViewMode.masked_object:
-            visualization_img = copy.deepcopy(result)
+            visualization_image = copy.deepcopy(result)
         elif self.display_mode == self.ViewMode.depth_mask:
-            visualization_img = copy.deepcopy(biggest_contour_mask_rgb)
+            visualization_image = copy.deepcopy(biggest_contour_mask_in_red_green_blue)
         else:
-            visualization_img = copy.deepcopy(result)
+            visualization_image = copy.deepcopy(result)
 
-        for oh in object_hypotheses:
-            assert isinstance(oh, ObjectHypothesis)
-            oh_roi = oh.roi.roi
-            upper_left = (oh_roi.pos.x, oh_roi.pos.y)
-            upper_left_text = (oh_roi.pos.x, oh_roi.pos.y - 5)
+        for object_hypothesis in object_hypotheses:
+            assert isinstance(object_hypothesis, ObjectHypothesis)
+            object_hypothesis_region_of_interest = object_hypothesis.roi.roi
+            upper_left = (
+                object_hypothesis_region_of_interest.pos.x,
+                object_hypothesis_region_of_interest.pos.y,
+            )
+            upper_left_text = (
+                object_hypothesis_region_of_interest.pos.x,
+                object_hypothesis_region_of_interest.pos.y - 5,
+            )
 
             font = cv2.FONT_HERSHEY_COMPLEX
-            visualization_img = cv2.putText(
-                visualization_img,
-                f"ROI-{oh.id}({len(oh.points.points)})",
+            visualization_image = cv2.putText(
+                visualization_image,
+                f"ROI-{object_hypothesis.id}({len(object_hypothesis.points.points)})",
                 upper_left_text,
                 font,
                 0.5,
@@ -438,16 +445,21 @@ class ImageClusterExtractor(BaseAnnotator):
                 1,
                 2,
             )
-            visualization_img = cv2.rectangle(
-                visualization_img,
+            visualization_image = cv2.rectangle(
+                visualization_image,
                 upper_left,
-                (oh_roi.pos.x + oh_roi.width, oh_roi.pos.y + oh_roi.height),
+                (
+                    object_hypothesis_region_of_interest.pos.x
+                    + object_hypothesis_region_of_interest.width,
+                    object_hypothesis_region_of_interest.pos.y
+                    + object_hypothesis_region_of_interest.height,
+                ),
                 (0, 0, 255),
                 2,
             )
 
-        self.get_annotator_output_struct().set_image(visualization_img)
-        self.get_annotator_output_struct().set_geometries(visualized_geometries)
+        self.get_annotator_output_structure().set_image(visualization_image)
+        self.get_annotator_output_structure().set_geometries(visualized_geometries)
         end_timer = default_timer()
         self.feedback_message = f"Processing took {(end_timer - start_timer):.4f}s"
         return Status.SUCCESS

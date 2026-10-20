@@ -10,7 +10,7 @@ import pymongo
 import numpy as np
 
 import robokudo.common_analysis_structure
-from robokudo import world as rk_world
+from robokudo import world as robokudo_world
 from robokudo.common_analysis_structure import (
     CommonAnalysisStructure,
     CommonAnalysisStructureViews,
@@ -45,8 +45,8 @@ pytestmark = pytest.mark.skipif(
 
 @pytest.fixture(scope="module")
 def storage_instance() -> Iterator[Storage]:
-    db_name = "ONLY_UNITTESTS_test_db"
-    storage = Storage(db_name)
+    database_name = "ONLY_UNITTESTS_test_db"
+    storage = Storage(database_name)
     yield storage
     # Cleanup after tests
     storage.drop_database()
@@ -114,7 +114,7 @@ def create_camera_intrinsic() -> o3d.camera.PinholeCameraIntrinsic:
 
 class TestStorage:
     def test_drop_database(self, storage_instance: Storage) -> None:
-        db_name = storage_instance.db_name
+        database_name = storage_instance.db_name
         storage_instance.drop_database()
 
         # Verify the database no longer exists
@@ -125,7 +125,7 @@ class TestStorage:
         mongo_host = os.getenv("RK_MONGO_HOST", "localhost")
         mongo_port = int(os.getenv("RK_MONGO_PORT", 27017))
         client = pymongo.MongoClient(host=mongo_host, port=mongo_port)
-        assert db_name not in client.list_database_names()
+        assert database_name not in client.list_database_names()
 
     def test_store_and_retrieve_common_analysis_structure(
         self,
@@ -168,23 +168,23 @@ class TestStorage:
             == common_analysis_structure_data.timestamp_readable
         )
 
-    def test_store_and_retrieve_common_analysis_structure_with_single_oh(
+    def test_store_and_retrieve_common_analysis_structure_with_single_object_hypothesis(
         self,
         storage_instance: Storage,
         common_analysis_structure_data: CommonAnalysisStructure,
     ) -> None:
         # Generate a dict from the common analysis structure and store it
-        oh = ObjectHypothesis()
-        oh.source = "test_storage"
-        oh.id = 1
-        oh.roi = ImageROI()
-        oh.roi.roi.pos.x = 1
-        oh.roi.roi.pos.y = 2
-        oh.roi.roi.width = 20
-        oh.roi.roi.height = 40
-        oh.points = create_point_cloud()
+        object_hypothesis = ObjectHypothesis()
+        object_hypothesis.source = "test_storage"
+        object_hypothesis.id = 1
+        object_hypothesis.roi = ImageROI()
+        object_hypothesis.roi.roi.pos.x = 1
+        object_hypothesis.roi.roi.pos.y = 2
+        object_hypothesis.roi.roi.width = 20
+        object_hypothesis.roi.roi.height = 40
+        object_hypothesis.points = create_point_cloud()
 
-        common_analysis_structure_data.annotations.append(oh)
+        common_analysis_structure_data.annotations.append(object_hypothesis)
 
         result = store_common_analysis_structure_in_storage(
             storage_instance, common_analysis_structure_data
@@ -260,20 +260,30 @@ class TestStorage:
         )
 
         assert len(retrieved_common_analysis_structure.annotations) == 1
-        retrieved_oh = retrieved_common_analysis_structure.annotations[0]
+        retrieved_object_hypothesis = retrieved_common_analysis_structure.annotations[0]
 
-        assert oh.source == retrieved_oh.source
-        assert oh.id == retrieved_oh.id
-        assert oh.roi.roi.pos.x == retrieved_oh.roi.roi.pos.x
-        assert oh.roi.roi.pos.y == retrieved_oh.roi.roi.pos.y
-        assert oh.roi.roi.width == retrieved_oh.roi.roi.width
-        assert oh.roi.roi.height == retrieved_oh.roi.roi.height
+        assert object_hypothesis.source == retrieved_object_hypothesis.source
+        assert object_hypothesis.id == retrieved_object_hypothesis.id
+        assert (
+            object_hypothesis.roi.roi.pos.x == retrieved_object_hypothesis.roi.roi.pos.x
+        )
+        assert (
+            object_hypothesis.roi.roi.pos.y == retrieved_object_hypothesis.roi.roi.pos.y
+        )
+        assert (
+            object_hypothesis.roi.roi.width == retrieved_object_hypothesis.roi.roi.width
+        )
+        assert (
+            object_hypothesis.roi.roi.height
+            == retrieved_object_hypothesis.roi.roi.height
+        )
 
         # Compare PointCloud
-        test_pcd = create_point_cloud()
+        test_point_cloud = create_point_cloud()
 
         np.testing.assert_array_equal(
-            np.asarray(test_pcd.points), np.asarray(retrieved_oh.points.points)
+            np.asarray(test_point_cloud.points),
+            np.asarray(retrieved_object_hypothesis.points.points),
         )
 
     def test_annotations_are_serialized_with_krrood(
@@ -281,10 +291,10 @@ class TestStorage:
         storage_instance: Storage,
         common_analysis_structure_data: CommonAnalysisStructure,
     ) -> None:
-        oh = ObjectHypothesis()
-        oh.source = "test_storage"
-        oh.id = 1
-        common_analysis_structure_data.annotations.append(oh)
+        object_hypothesis = ObjectHypothesis()
+        object_hypothesis.source = "test_storage"
+        object_hypothesis.id = 1
+        common_analysis_structure_data.annotations.append(object_hypothesis)
 
         result = store_common_analysis_structure_in_storage(
             storage_instance, common_analysis_structure_data
@@ -430,13 +440,13 @@ class TestStorage:
         world_frame = f"map_{uuid.uuid4().hex[:8]}"
         camera_frame = f"camera_{uuid.uuid4().hex[:8]}"
 
-        rk_world.init_world_with_entity_tracker()
-        rk_world.setup_world_for_camera_frame(
+        robokudo_world.init_world_with_entity_tracker()
+        robokudo_world.setup_world_for_camera_frame(
             world_frame=world_frame, camera_frame=camera_frame
         )
-        sem_world = rk_world.world_instance()
-        camera_body = sem_world.get_body_by_name(camera_frame)
-        world_body = sem_world.get_body_by_name(world_frame)
+        semantic_world = robokudo_world.world_instance()
+        camera_body = semantic_world.get_body_by_name(camera_frame)
+        world_body = semantic_world.get_body_by_name(world_frame)
 
         transform = HomogeneousTransformationMatrix.from_xyz_quaternion(
             pos_x=0.1,
@@ -499,12 +509,12 @@ class TestStorage:
         stored_world_frame = f"stored_map_{uuid.uuid4().hex[:8]}"
         stored_camera_frame = f"stored_camera_{uuid.uuid4().hex[:8]}"
 
-        rk_world.init_world_with_entity_tracker()
-        rk_world.setup_world_for_camera_frame(
+        robokudo_world.init_world_with_entity_tracker()
+        robokudo_world.setup_world_for_camera_frame(
             world_frame=stored_world_frame,
             camera_frame=stored_camera_frame,
         )
-        stored_world = rk_world.world_instance()
+        stored_world = robokudo_world.world_instance()
         stored_world_body = stored_world.get_body_by_name(stored_world_frame)
         stored_camera_body = stored_world.get_body_by_name(stored_camera_frame)
         transform = HomogeneousTransformationMatrix.from_xyz_quaternion(
@@ -529,8 +539,8 @@ class TestStorage:
         )
         assert retrieved_common_analysis_structure_record is not None
 
-        rk_world.init_world_with_entity_tracker()
-        running_world = rk_world.world_instance()
+        robokudo_world.init_world_with_entity_tracker()
+        running_world = robokudo_world.world_instance()
         assert len(running_world.bodies) == 0
 
         reader = StorageReaderInterface(

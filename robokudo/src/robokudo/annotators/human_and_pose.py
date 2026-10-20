@@ -512,13 +512,13 @@ class HumanAndPoseAnnotator(ThreadedAnnotator):
         :param result: The detections of the pose model on the color image.
         :param hypotheses: The human hypotheses made from the detections.
         """
-        self.get_annotator_output_struct().set_image(result.plot())
+        self.get_annotator_output_structure().set_image(result.plot())
         clouds = [
             hypothesis.points
             for hypothesis in hypotheses
             if hypothesis.points is not None
         ]
         if len(clouds) > 0:
-            self.get_annotator_output_struct().set_geometries(
+            self.get_annotator_output_structure().set_geometries(
                 concatenate_clouds(clouds)
             )

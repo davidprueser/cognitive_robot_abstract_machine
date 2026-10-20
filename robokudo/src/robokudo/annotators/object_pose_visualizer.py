@@ -39,7 +39,7 @@ class ObjectPoseVisualizer(BaseAnnotator):
         :param name: Name of the annotator instance
         """
         super().__init__(name)
-        self.rk_logger.debug("%s.__init__()" % self.__class__.__name__)
+        self.robokudo_logger.debug("%s.__init__()" % self.__class__.__name__)
 
     @catch_and_raise_to_blackboard
     def update(self) -> Status:
@@ -56,7 +56,7 @@ class ObjectPoseVisualizer(BaseAnnotator):
         """
         start_timer = default_timer()
 
-        visualization_img = self.get_common_analysis_structure().get_copy(
+        visualization_image = self.get_common_analysis_structure().get_copy(
             CommonAnalysisStructureViews.COLOR_IMAGE
         )
         cloud = self.get_common_analysis_structure().get(
@@ -71,15 +71,15 @@ class ObjectPoseVisualizer(BaseAnnotator):
 
         geometries_to_visualize = []
         object_id = 0
-        for oh in object_hypotheses:
-            for oh_anno in oh.annotations:
-                if isinstance(oh_anno, PoseAnnotation):
+        for object_hypothesis in object_hypotheses:
+            for object_hypothesis_annotation in object_hypothesis.annotations:
+                if isinstance(object_hypothesis_annotation, PoseAnnotation):
                     cluster_frame = o3d.geometry.TriangleMesh.create_coordinate_frame(
                         size=0.2
                     )
                     pose_transform = get_transform_matrix_from_q(
-                        np.asarray(oh_anno.rotation),
-                        np.asarray(oh_anno.translation),
+                        np.asarray(object_hypothesis_annotation.rotation),
+                        np.asarray(object_hypothesis_annotation.translation),
                     )
                     cluster_frame.transform(pose_transform)
 
@@ -89,13 +89,13 @@ class ObjectPoseVisualizer(BaseAnnotator):
 
             object_id += 1
 
-        self.get_annotator_output_struct().set_image(visualization_img)
+        self.get_annotator_output_structure().set_image(visualization_image)
 
-        vis_geometries = [
+        visualization_geometries = [
             {"name": "Cloud", "geometry": cloud},
         ]
-        vis_geometries.extend(geometries_to_visualize)
-        self.get_annotator_output_struct().set_geometries(vis_geometries)
+        visualization_geometries.extend(geometries_to_visualize)
+        self.get_annotator_output_structure().set_geometries(visualization_geometries)
 
         end_timer = default_timer()
         self.feedback_message = f"Processing took {(end_timer - start_timer):.4f}s"

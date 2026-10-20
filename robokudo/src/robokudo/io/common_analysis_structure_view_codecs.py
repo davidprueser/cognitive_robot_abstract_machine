@@ -42,13 +42,13 @@ def _recursive_convert(value: Any) -> Any:
     return value
 
 
-def _ros_message_to_dict(msg: Any) -> Dict[str, Any]:
+def _ros_message_to_dict(message: Any) -> Dict[str, Any]:
     """
     Convert a ROS message object into plain dictionary data.
     """
     result: Dict[str, Any] = {}
-    for field_name, _ in msg.get_fields_and_field_types().items():
-        value = getattr(msg, field_name)
+    for field_name, _ in message.get_fields_and_field_types().items():
+        value = getattr(message, field_name)
         if hasattr(value, "get_fields_and_field_types"):
             result[field_name] = _ros_message_to_dict(value)
         elif isinstance(value, list):
@@ -62,19 +62,21 @@ def _dict_to_ros_message(message_type: type[Any], data_dict: Dict[str, Any]) -> 
     """
     Populate a ROS message instance from plain dictionary data.
     """
-    msg = message_type()
-    for field_name, _ in msg.get_fields_and_field_types().items():
+    message = message_type()
+    for field_name, _ in message.get_fields_and_field_types().items():
         if field_name not in data_dict:
             continue
         value = data_dict[field_name]
-        current_field = getattr(msg, field_name)
+        current_field = getattr(message, field_name)
         if hasattr(current_field, "get_fields_and_field_types"):
-            setattr(msg, field_name, _dict_to_ros_message(type(current_field), value))
+            setattr(
+                message, field_name, _dict_to_ros_message(type(current_field), value)
+            )
         elif isinstance(current_field, list):
-            setattr(msg, field_name, value)
+            setattr(message, field_name, value)
         else:
-            setattr(msg, field_name, value)
-    return msg
+            setattr(message, field_name, value)
+    return message
 
 
 def _is_json_primitive(value: Any) -> bool:
@@ -298,11 +300,11 @@ class NumpyCodec(ViewCodec):
         """
         Encode a NumPy array as base64 encoded ``.npy`` data.
         """
-        mem_file = io.BytesIO()
-        np.save(mem_file, value)
+        memory_file = io.BytesIO()
+        np.save(memory_file, value)
         return ViewPayload(
             serializer_id=self.serializer_id,
-            payload=base64.b64encode(mem_file.getvalue()).decode("ascii"),
+            payload=base64.b64encode(memory_file.getvalue()).decode("ascii"),
             type_name=_full_type_name(value),
             metadata={"dtype": str(value.dtype), "shape": list(value.shape)},
         )
@@ -311,9 +313,9 @@ class NumpyCodec(ViewCodec):
         """
         Decode base64 encoded ``.npy`` payload data.
         """
-        mem_file = io.BytesIO(base64.b64decode(payload.payload.encode("ascii")))
-        mem_file.seek(0)
-        return np.load(mem_file)
+        memory_file = io.BytesIO(base64.b64decode(payload.payload.encode("ascii")))
+        memory_file.seek(0)
+        return np.load(memory_file)
 
 
 class RosMessageCodec(ViewCodec):
@@ -489,7 +491,7 @@ class StampedTransformCodec(ViewCodec):
 
 class HomogeneousTransformationMatrixCodec(ViewCodec):
     """
-    Codec for SemDT homogeneous transformation matrices.
+    Codec for semantic digital twin homogeneous transformation matrices.
     """
 
     serializer_id: str = "semdt_homogeneous_transform_v1"

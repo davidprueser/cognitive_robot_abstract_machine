@@ -78,9 +78,9 @@ class CylinderFitConstraints:
     robust_loss: str
     max_radius: float
     max_height: float
-    max_radius_to_bbox_diagonal_ratio: float
+    max_radius_to_bounding_box_diagonal_ratio: float
     max_radius_to_cross_section_extent_ratio: float
-    max_axis_center_distance_to_bbox_diagonal_ratio: float
+    max_axis_center_distance_to_bounding_box_diagonal_ratio: float
 
 
 @dataclass(frozen=True)
@@ -145,9 +145,9 @@ def fit_sphere(
     distance_threshold: float,
     robust_loss: str = "soft_l1",
     max_radius: float = np.inf,
-    max_radius_to_bbox_diagonal_ratio: float = np.inf,
+    max_radius_to_bounding_box_diagonal_ratio: float = np.inf,
     max_radius_to_observed_extent_ratio: float = np.inf,
-    max_center_distance_to_bbox_diagonal_ratio: float = np.inf,
+    max_center_distance_to_bounding_box_diagonal_ratio: float = np.inf,
     min_inlier_ratio: float = 0.0,
 ) -> Optional[SphereFit]:
     """
@@ -213,14 +213,17 @@ def fit_sphere(
 
     bbox_diagonal = float(np.linalg.norm(points.max(axis=0) - points.min(axis=0)))
     if bbox_diagonal > 1e-9:
-        if radius / bbox_diagonal > max_radius_to_bbox_diagonal_ratio:
+        if radius / bbox_diagonal > max_radius_to_bounding_box_diagonal_ratio:
             return None
 
         point_centroid = points.mean(axis=0)
         center_distance = float(
             np.linalg.norm(optimization_result.x[:3] - point_centroid)
         )
-        if center_distance / bbox_diagonal > max_center_distance_to_bbox_diagonal_ratio:
+        if (
+            center_distance / bbox_diagonal
+            > max_center_distance_to_bounding_box_diagonal_ratio
+        ):
             return None
 
     root_mean_square_error = float(
@@ -252,9 +255,9 @@ def fit_cylinder(
     robust_loss: str = "soft_l1",
     max_radius: float = np.inf,
     max_height: float = np.inf,
-    max_radius_to_bbox_diagonal_ratio: float = np.inf,
+    max_radius_to_bounding_box_diagonal_ratio: float = np.inf,
     max_radius_to_cross_section_extent_ratio: float = np.inf,
-    max_axis_center_distance_to_bbox_diagonal_ratio: float = np.inf,
+    max_axis_center_distance_to_bounding_box_diagonal_ratio: float = np.inf,
     min_inlier_ratio: float = 0.0,
     max_initializations: int = 8,
     consensus_trials: int = 24,
@@ -268,12 +271,12 @@ def fit_cylinder(
         robust_loss=robust_loss,
         max_radius=max_radius,
         max_height=max_height,
-        max_radius_to_bbox_diagonal_ratio=max_radius_to_bbox_diagonal_ratio,
+        max_radius_to_bounding_box_diagonal_ratio=max_radius_to_bounding_box_diagonal_ratio,
         max_radius_to_cross_section_extent_ratio=(
             max_radius_to_cross_section_extent_ratio
         ),
-        max_axis_center_distance_to_bbox_diagonal_ratio=(
-            max_axis_center_distance_to_bbox_diagonal_ratio
+        max_axis_center_distance_to_bounding_box_diagonal_ratio=(
+            max_axis_center_distance_to_bounding_box_diagonal_ratio
         ),
     )
     cylinder_initialization_settings = CylinderInitializationSettings(
@@ -429,13 +432,16 @@ def _build_cylinder_fit_from_parameters(
 
     bbox_diagonal = float(np.linalg.norm(points.max(axis=0) - points.min(axis=0)))
     if bbox_diagonal > 1e-9:
-        if radius / bbox_diagonal > constraints.max_radius_to_bbox_diagonal_ratio:
+        if (
+            radius / bbox_diagonal
+            > constraints.max_radius_to_bounding_box_diagonal_ratio
+        ):
             return None
         point_centroid = points.mean(axis=0)
         center_distance = float(np.linalg.norm(axis_center - point_centroid))
         if (
             center_distance / bbox_diagonal
-            > constraints.max_axis_center_distance_to_bbox_diagonal_ratio
+            > constraints.max_axis_center_distance_to_bounding_box_diagonal_ratio
         ):
             return None
 
@@ -629,14 +635,17 @@ def _fixed_axis_cylinder_passes_geometry_limits(
     """
     bbox_diagonal = float(np.linalg.norm(points.max(axis=0) - points.min(axis=0)))
     if bbox_diagonal > 1e-9:
-        if radius / bbox_diagonal > constraints.max_radius_to_bbox_diagonal_ratio:
+        if (
+            radius / bbox_diagonal
+            > constraints.max_radius_to_bounding_box_diagonal_ratio
+        ):
             return False
 
         point_centroid = points.mean(axis=0)
         center_distance = float(np.linalg.norm(axis_center - point_centroid))
         if (
             center_distance / bbox_diagonal
-            > constraints.max_axis_center_distance_to_bbox_diagonal_ratio
+            > constraints.max_axis_center_distance_to_bounding_box_diagonal_ratio
         ):
             return False
 

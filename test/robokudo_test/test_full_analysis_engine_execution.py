@@ -6,7 +6,7 @@ import py_trees
 import pytest
 
 from robokudo.types.cv import ColorToDepthRatio
-from robokudo import world as rk_world
+from robokudo import world as robokudo_world
 import robokudo.common_analysis_structure
 import robokudo.defs
 import robokudo.descriptors.camera_configs.config_filereader_playback
@@ -45,19 +45,19 @@ if TYPE_CHECKING:
 
 @pytest.fixture
 def clean_semantic_world() -> Iterator[None]:
-    rk_world.get_object_belief_states().clear()
-    rk_world.init_world_with_entity_tracker()
+    robokudo_world.get_object_belief_states().clear()
+    robokudo_world.init_world_with_entity_tracker()
     yield
-    rk_world.get_object_belief_states().clear()
-    rk_world.init_world_with_entity_tracker()
+    robokudo_world.get_object_belief_states().clear()
+    robokudo_world.init_world_with_entity_tracker()
 
 
-class TestFullAEExecution(object):
-    def test_run_simple_ae_successfully(self, node: Node) -> None:
+class TestFullAnalysisEngineExecution(object):
+    def test_run_simple_analysis_engine_successfully(self, node: Node) -> None:
         # rclpy.init()
         # node = Node(robokudo.defs.TEST_ROS_NODE_NAME)
 
-        cr_fr_config = CollectionReaderDescriptorFactory.create_descriptor(
+        file_reader_descriptor = CollectionReaderDescriptorFactory.create_descriptor(
             "file_reader",
             loop=False,
             target_dir=robokudo.utils.data_downloader.test_data_path() / Path("data"),
@@ -69,40 +69,40 @@ class TestFullAEExecution(object):
         )
 
         # Restrict FOV of pointcloud to robustly get only one object
-        pc_crop_config = (
+        point_cloud_crop_config = (
             robokudo.annotators.pointcloud_crop.PointcloudCropAnnotator.Descriptor()
         )
-        pc_crop_config.parameters.min_x = -0.3
-        pc_crop_config.parameters.max_x = 0.3
+        point_cloud_crop_config.parameters.min_x = -0.3
+        point_cloud_crop_config.parameters.max_x = 0.3
 
-        seq = robokudo.pipeline.Pipeline("TestPipeline")
-        seq.add_children(
+        pipeline = robokudo.pipeline.Pipeline("TestPipeline")
+        pipeline.add_children(
             [
                 robokudo.behaviours.clear_annotator_outputs.ClearAnnotatorOutputs(),
-                CollectionReaderAnnotator(descriptor=cr_fr_config),
+                CollectionReaderAnnotator(descriptor=file_reader_descriptor),
                 ImagePreprocessorAnnotator("ImagePreprocessor"),
-                PointcloudCropAnnotator(descriptor=pc_crop_config),
+                PointcloudCropAnnotator(descriptor=point_cloud_crop_config),
                 PlaneAnnotator(),
                 PointCloudClusterExtractor(),
             ]
         )
 
-        tree_result = robokudo.utils.tree_execution.run_tree_once(seq, node)
+        tree_result = robokudo.utils.tree_execution.run_tree_once(pipeline, node)
         assert tree_result is py_trees.common.Status.SUCCESS
 
         # We should have found a plane and an object
-        assert len(seq.common_analysis_structure.annotations) > 0
+        assert len(pipeline.common_analysis_structure.annotations) > 0
         types_of_annotations = list(
-            map(type, seq.common_analysis_structure.annotations)
+            map(type, pipeline.common_analysis_structure.annotations)
         )
 
         assert types_of_annotations.count(robokudo.types.annotation.Plane) == 1
         assert types_of_annotations.count(robokudo.types.scene.ObjectHypothesis) == 1
 
-    def test_run_file_reader_ae_synchronizes_semantic_digital_twin_belief_state(
+    def test_run_file_reader_analysis_engine_synchronizes_semantic_digital_twin_belief_state(
         self, node: Node, clean_semantic_world: None
     ) -> None:
-        cr_fr_config = CollectionReaderDescriptorFactory.create_descriptor(
+        file_reader_descriptor = CollectionReaderDescriptorFactory.create_descriptor(
             "file_reader",
             loop=False,
             target_dir=robokudo.utils.data_downloader.test_data_path() / Path("data"),
@@ -113,19 +113,21 @@ class TestFullAEExecution(object):
             static_camera_frame="camera",
         )
 
-        pc_crop_config = (
+        point_cloud_crop_config = (
             robokudo.annotators.pointcloud_crop.PointcloudCropAnnotator.Descriptor()
         )
-        pc_crop_config.parameters.min_x = -0.3
-        pc_crop_config.parameters.max_x = 0.3
+        point_cloud_crop_config.parameters.min_x = -0.3
+        point_cloud_crop_config.parameters.max_x = 0.3
 
-        seq = robokudo.pipeline.Pipeline("SemanticDigitalTwinFileReaderTestPipeline")
-        seq.add_children(
+        pipeline = robokudo.pipeline.Pipeline(
+            "SemanticDigitalTwinFileReaderTestPipeline"
+        )
+        pipeline.add_children(
             [
                 robokudo.behaviours.clear_annotator_outputs.ClearAnnotatorOutputs(),
-                CollectionReaderAnnotator(descriptor=cr_fr_config),
+                CollectionReaderAnnotator(descriptor=file_reader_descriptor),
                 ImagePreprocessorAnnotator("ImagePreprocessor"),
-                PointcloudCropAnnotator(descriptor=pc_crop_config),
+                PointcloudCropAnnotator(descriptor=point_cloud_crop_config),
                 PlaneAnnotator(),
                 PointCloudClusterExtractor(),
                 ClusterPoseBBAnnotator(),
@@ -145,7 +147,7 @@ class TestFullAEExecution(object):
                 len(object_hypotheses) == 1
             ), "Each successful common analysis structure should already contain the object hypothesis to be synchronized."
 
-            object_beliefs = list(rk_world.get_object_belief_states().values())
+            object_beliefs = list(robokudo_world.get_object_belief_states().values())
             assert (
                 len(object_beliefs) == 1
             ), "After each successful connector run, the current object should map to exactly one belief."
@@ -159,7 +161,7 @@ class TestFullAEExecution(object):
             )
 
         successful_common_analysis_structure_instances = robokudo.utils.tree_execution.run_tree_until_successful_common_analysis_structure_count(
-            seq,
+            pipeline,
             node,
             expected_common_analysis_structure_count=2,
             max_iterations=120,
@@ -231,7 +233,7 @@ class TestFullAEExecution(object):
                 robokudo.types.annotation.PoseAnnotation,
                 object_hypothesis.annotations,
             )
-            bbox_annotations = common_analysis_structure.filter_by_type(
+            bounding_box_annotations = common_analysis_structure.filter_by_type(
                 robokudo.types.annotation.BoundingBox3DAnnotation,
                 object_hypothesis.annotations,
             )
@@ -241,7 +243,7 @@ class TestFullAEExecution(object):
             )
 
             assert len(pose_annotations) == 1
-            assert len(bbox_annotations) == 1
+            assert len(bounding_box_annotations) == 1
             assert len(stamped_pose_annotations) == 1
             assert (
                 stamped_pose_annotations[0].source
@@ -249,7 +251,7 @@ class TestFullAEExecution(object):
             )
             assert stamped_pose_annotations[0].frame == "map"
 
-        object_beliefs = list(rk_world.get_object_belief_states().values())
+        object_beliefs = list(robokudo_world.get_object_belief_states().values())
         assert (
             len(object_beliefs) == 1
         ), "Both observations of the static object should update one stable object belief."
@@ -262,74 +264,78 @@ class TestFullAEExecution(object):
             object_belief.latest_pose is not None
         ), "The object belief should expose the latest pose from its associated hypothesis."
         assert (
-            object_belief.latest_bbox_3d is not None
+            object_belief.latest_bounding_box_3d is not None
         ), "The object belief should expose the latest 3D bounding box from its associated hypothesis."
         assert (
             object_belief.body.parent_connection is not None
-        ), "The object belief body should be attached to the SemDT world frame."
+        ), "The object belief body should be attached to the semantic digital twin world frame."
         assert (
             len(object_belief.body.visual.shapes) == 1
         ), "The object belief body should contain one visual shape derived from the latest bounding box."
 
-    def test_run_semdt_raytracer_ae_successfully(self, node: Node) -> None:
+    def test_run_semantic_digital_twin_raytracer_analysis_engine_successfully(
+        self, node: Node
+    ) -> None:
         raytracer_config = CollectionReaderDescriptorFactory.create_descriptor(
             "semdt_raytracer",
             world_descriptor_name="world_semantic_digital_twin_raytracer_cylinders",
             resolution=128,
         )
 
-        plane_desc = PlaneAnnotator.Descriptor()
-        plane_desc.parameters.distance_threshold = 0.01
-        plane_desc.parameters.random_seed = 0
+        plane_descriptor = PlaneAnnotator.Descriptor()
+        plane_descriptor.parameters.distance_threshold = 0.01
+        plane_descriptor.parameters.random_seed = 0
 
-        cluster_desc = PointCloudClusterExtractor.Descriptor()
-        cluster_desc.parameters.dbscan_min_cluster_count = 8
-        cluster_desc.parameters.min_cluster_count = 20
-        cluster_desc.parameters.min_on_plane_point_count = 10
-        cluster_desc.parameters.eps = 0.05
+        cluster_descriptor = PointCloudClusterExtractor.Descriptor()
+        cluster_descriptor.parameters.dbscan_min_cluster_count = 8
+        cluster_descriptor.parameters.min_cluster_count = 20
+        cluster_descriptor.parameters.min_on_plane_point_count = 10
+        cluster_descriptor.parameters.dbscan_epsilon = 0.05
 
-        shape_desc = ShapeEstimatorAnnotator.Descriptor()
-        shape_desc.parameters.minimum_point_count = 20
-        shape_desc.parameters.distance_threshold = 0.015
-        shape_desc.parameters.cylinder_minimum_inlier_ratio = 0.5
-        shape_desc.parameters.cuboid_minimum_inlier_ratio = 0.3
-        shape_desc.parameters.log_candidate_metrics = False
-        shape_desc.parameters.log_rejection_reasons = False
+        shape_descriptor = ShapeEstimatorAnnotator.Descriptor()
+        shape_descriptor.parameters.minimum_point_count = 20
+        shape_descriptor.parameters.distance_threshold = 0.015
+        shape_descriptor.parameters.cylinder_minimum_inlier_ratio = 0.5
+        shape_descriptor.parameters.cuboid_minimum_inlier_ratio = 0.3
+        shape_descriptor.parameters.log_candidate_metrics = False
+        shape_descriptor.parameters.log_rejection_reasons = False
 
-        seq = robokudo.pipeline.Pipeline("SemDTRayTracerTestPipeline")
-        seq.add_children(
+        pipeline = robokudo.pipeline.Pipeline("SemDTRayTracerTestPipeline")
+        pipeline.add_children(
             [
                 robokudo.behaviours.clear_annotator_outputs.ClearAnnotatorOutputs(),
                 CollectionReaderAnnotator(descriptor=raytracer_config),
                 ImagePreprocessorAnnotator("ImagePreprocessor"),
                 PointcloudCropAnnotator(),
-                PlaneAnnotator(descriptor=plane_desc),
-                PointCloudClusterExtractor(descriptor=cluster_desc),
+                PlaneAnnotator(descriptor=plane_descriptor),
+                PointCloudClusterExtractor(descriptor=cluster_descriptor),
                 ClusterColorAnnotator(),
                 ClusterPoseBBAnnotator(),
-                ShapeEstimatorAnnotator(descriptor=shape_desc),
+                ShapeEstimatorAnnotator(descriptor=shape_descriptor),
             ]
         )
 
         tree_result = robokudo.utils.tree_execution.run_tree_once(
-            seq, node, max_iterations=80, tick_rate=20
+            pipeline, node, max_iterations=80, tick_rate=20
         )
         assert tree_result is py_trees.common.Status.SUCCESS
 
         types_of_annotations = list(
-            map(type, seq.common_analysis_structure.annotations)
+            map(type, pipeline.common_analysis_structure.annotations)
         )
         assert types_of_annotations.count(robokudo.types.annotation.Plane) == 1
         assert types_of_annotations.count(robokudo.types.scene.ObjectHypothesis) == 2
 
-        object_hypotheses = seq.common_analysis_structure.filter_annotations_by_type(
-            robokudo.types.scene.ObjectHypothesis
+        object_hypotheses = (
+            pipeline.common_analysis_structure.filter_annotations_by_type(
+                robokudo.types.scene.ObjectHypothesis
+            )
         )
         dominant_colors = {
             colors[0].color
             for object_hypothesis in object_hypotheses
             if (
-                colors := seq.common_analysis_structure.filter_by_type(
+                colors := pipeline.common_analysis_structure.filter_by_type(
                     robokudo.types.annotation.SemanticColor,
                     object_hypothesis.annotations,
                 )
@@ -338,7 +344,7 @@ class TestFullAEExecution(object):
         assert dominant_colors == {"red", "blue"}
 
         object_shapes = [
-            seq.common_analysis_structure.filter_by_type(
+            pipeline.common_analysis_structure.filter_by_type(
                 robokudo.types.annotation.Shape,
                 object_hypothesis.annotations,
             )
@@ -351,7 +357,7 @@ class TestFullAEExecution(object):
         )
         assert all(len(shapes[0].inliers) > 0 for shapes in object_shapes)
 
-    def test_run_semdt_raytracer_tabletop_ae_loads_mesh_world_descriptor(
+    def test_run_semantic_digital_twin_raytracer_tabletop_analysis_engine_loads_mesh_world_descriptor(
         self, node: Node
     ) -> None:
         raytracer_config = CollectionReaderDescriptorFactory.create_descriptor(
@@ -360,37 +366,37 @@ class TestFullAEExecution(object):
             resolution=128,
         )
 
-        plane_desc = PlaneAnnotator.Descriptor()
-        plane_desc.parameters.distance_threshold = 0.01
-        plane_desc.parameters.random_seed = 0
+        plane_descriptor = PlaneAnnotator.Descriptor()
+        plane_descriptor.parameters.distance_threshold = 0.01
+        plane_descriptor.parameters.random_seed = 0
 
-        cluster_desc = PointCloudClusterExtractor.Descriptor()
-        cluster_desc.parameters.dbscan_min_cluster_count = 8
-        cluster_desc.parameters.min_cluster_count = 20
-        cluster_desc.parameters.min_on_plane_point_count = 10
-        cluster_desc.parameters.eps = 0.05
+        cluster_descriptor = PointCloudClusterExtractor.Descriptor()
+        cluster_descriptor.parameters.dbscan_min_cluster_count = 8
+        cluster_descriptor.parameters.min_cluster_count = 20
+        cluster_descriptor.parameters.min_on_plane_point_count = 10
+        cluster_descriptor.parameters.dbscan_epsilon = 0.05
 
-        seq = robokudo.pipeline.Pipeline("SemDTRayTracerTabletopTestPipeline")
-        seq.add_children(
+        pipeline = robokudo.pipeline.Pipeline("SemDTRayTracerTabletopTestPipeline")
+        pipeline.add_children(
             [
                 robokudo.behaviours.clear_annotator_outputs.ClearAnnotatorOutputs(),
                 CollectionReaderAnnotator(descriptor=raytracer_config),
                 ImagePreprocessorAnnotator("ImagePreprocessor"),
                 PointcloudCropAnnotator(),
-                PlaneAnnotator(descriptor=plane_desc),
-                PointCloudClusterExtractor(descriptor=cluster_desc),
+                PlaneAnnotator(descriptor=plane_descriptor),
+                PointCloudClusterExtractor(descriptor=cluster_descriptor),
                 ClusterColorAnnotator(),
                 ClusterPoseBBAnnotator(),
             ]
         )
 
         tree_result = robokudo.utils.tree_execution.run_tree_once(
-            seq, node, max_iterations=80, tick_rate=20
+            pipeline, node, max_iterations=80, tick_rate=20
         )
         assert tree_result is py_trees.common.Status.SUCCESS
 
         types_of_annotations = list(
-            map(type, seq.common_analysis_structure.annotations)
+            map(type, pipeline.common_analysis_structure.annotations)
         )
         assert types_of_annotations.count(robokudo.types.annotation.Plane) == 1
         assert types_of_annotations.count(robokudo.types.scene.ObjectHypothesis) == 4

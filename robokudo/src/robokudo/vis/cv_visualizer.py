@@ -176,7 +176,7 @@ class CVVisualizer(Visualizer, Visualizer.Observer):
 
         # Key Callback returns false when execution should be stopped.
         if not cv_visualizer_for_key.handle_keycallback(key):
-            cv_visualizer_for_key.indicate_termination_var = True
+            cv_visualizer_for_key.indicate_termination_variable = True
 
     @staticmethod
     def get_gui_handler_for_detected_key() -> Optional[CVVisualizer]:

@@ -59,7 +59,7 @@ def common_analysis_structure_with_a_noisy_plane() -> CommonAnalysisStructure:
         np.vstack([on_the_plane, above_the_plane])
     )
     common_analysis_structure = CommonAnalysisStructure()
-    common_analysis_structure.set_ref(CommonAnalysisStructureViews.CLOUD, cloud)
+    common_analysis_structure.set_reference(CommonAnalysisStructureViews.CLOUD, cloud)
     common_analysis_structure.set(
         CommonAnalysisStructureViews.COLOR_IMAGE,
         np.zeros((200, 200, 3), dtype=np.uint8),

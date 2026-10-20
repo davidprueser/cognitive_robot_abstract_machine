@@ -52,7 +52,7 @@ class SizeBBAnnotator(BaseAnnotator):
         Minimal one-time init!
         """
         super().__init__(name)
-        self.rk_logger.debug("%s.__init__()" % self.__class__.__name__)
+        self.robokudo_logger.debug("%s.__init__()" % self.__class__.__name__)
 
     def update(self) -> Status:
         """
@@ -98,7 +98,7 @@ class SizeBBAnnotator(BaseAnnotator):
                     transform_inplace=True,
                 )
             except Exception as e:
-                self.rk_logger.warning(
+                self.robokudo_logger.warning(
                     f"Couldn't find camera viewpoint in the common analysis structure."
                     f"Fail. Error: {e}"
                 )
@@ -172,7 +172,7 @@ class SizeBBAnnotator(BaseAnnotator):
             size_annotation.y_length = y
             size_annotation.z_length = z
 
-            # self.rk_logger.info(
+            # self.robokudo_logger.info(
             #     f"x length: {x}, y_length {y}, z_length {z}"
             #     f" of type object: {oh.classification.classname}")
             oh.annotations.append(size_annotation)
@@ -204,6 +204,6 @@ class SizeBBAnnotator(BaseAnnotator):
 
         end_timer = default_timer()
         self.feedback_message = f"Processing took {(end_timer - start_timer):.4f}s"
-        self.get_annotator_output_struct().set_image(visualization_img)
-        self.get_annotator_output_struct().set_geometries(vis_geometries)
+        self.get_annotator_output_structure().set_image(visualization_img)
+        self.get_annotator_output_structure().set_geometries(vis_geometries)
         return Status.SUCCESS

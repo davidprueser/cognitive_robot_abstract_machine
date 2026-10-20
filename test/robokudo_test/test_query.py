@@ -52,7 +52,7 @@ class QueryWorkerThread(threading.Thread):
 
 
 def query_simple_pipeline(node: Node) -> tuple[Sequence, Status]:
-    cr_fr_config = CollectionReaderDescriptorFactory.create_descriptor(
+    file_reader_descriptor = CollectionReaderDescriptorFactory.create_descriptor(
         "file_reader",
         loop=True,
         target_dir=robokudo.utils.data_downloader.test_data_path() / Path("data"),
@@ -61,18 +61,18 @@ def query_simple_pipeline(node: Node) -> tuple[Sequence, Status]:
     )
 
     # Restrict FOV of pointcloud to robustly get only one object
-    pc_crop_config = PointcloudCropAnnotator.Descriptor()
-    pc_crop_config.parameters.min_x = -0.3
-    pc_crop_config.parameters.max_x = 0.3
+    point_cloud_crop_config = PointcloudCropAnnotator.Descriptor()
+    point_cloud_crop_config.parameters.min_x = -0.3
+    point_cloud_crop_config.parameters.max_x = 0.3
 
     seq = Pipeline("TestPipeline")
     seq.add_children(
         [
             robokudo.idioms.pipeline_init(),
             QueryAnnotator(),
-            CollectionReaderAnnotator(descriptor=cr_fr_config),
+            CollectionReaderAnnotator(descriptor=file_reader_descriptor),
             ImagePreprocessorAnnotator("ImagePreprocessor"),
-            PointcloudCropAnnotator(descriptor=pc_crop_config),
+            PointcloudCropAnnotator(descriptor=point_cloud_crop_config),
             PlaneAnnotator(),
             PointCloudClusterExtractor(),
             GenerateQueryResult(),

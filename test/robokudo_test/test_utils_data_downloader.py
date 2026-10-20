@@ -64,16 +64,16 @@ class UnpackingRecorder:
     """
 
     def unpack_recorded(
-        self, unzip: pooch.Unzip, archive: str, extract_dir: str
+        self, unzip: pooch.Unzip, archive: str, extract_directory: str
     ) -> None:
         """
-        Unpack ``archive`` into ``extract_dir`` as ``unzip`` would, and record that it happened.
+        Unpack ``archive`` into ``extract_directory`` as ``unzip`` would, and record that it happened.
         """
         self.unpacking_count += 1
         if self.unpacking_count == 1:
             self.first_unpacking_started.set()
             time.sleep(UNPACKING_DELAY_SECONDS)
-        self.unpack(unzip, archive, extract_dir)
+        self.unpack(unzip, archive, extract_directory)
 
 
 @pytest.fixture
@@ -95,8 +95,8 @@ def unpacking_recorder(
     monkeypatch.setattr(
         pooch.Unzip,
         "_extract_file",
-        lambda unzip, archive, extract_dir: recorder.unpack_recorded(
-            unzip, archive, extract_dir
+        lambda unzip, archive, extract_directory: recorder.unpack_recorded(
+            unzip, archive, extract_directory
         ),
     )
     return recorder

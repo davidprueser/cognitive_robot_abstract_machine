@@ -84,7 +84,7 @@ class ClusterPositionAnnotator(BaseAnnotator):
         :param descriptor: Configuration descriptor
         """
         super().__init__(name, descriptor)
-        self.rk_logger.debug("%s.__init__()" % self.__class__.__name__)
+        self.robokudo_logger.debug("%s.__init__()" % self.__class__.__name__)
 
     def update(self) -> Status:
         """
@@ -126,7 +126,7 @@ class ClusterPositionAnnotator(BaseAnnotator):
                     )
                 )
                 if len(o_clouds) == 0:
-                    self.rk_logger.warning(
+                    self.robokudo_logger.warning(
                         "CloudAnnotation mode, but no CloudAnnotation found on object"
                     )
                     continue
@@ -147,7 +147,7 @@ class ClusterPositionAnnotator(BaseAnnotator):
         ]
         vis_geometries.extend(centroids_to_visualize)
 
-        self.get_annotator_output_struct().set_geometries(vis_geometries)
+        self.get_annotator_output_structure().set_geometries(vis_geometries)
 
         end_timer = default_timer()
         self.feedback_message = f"Processing took {(end_timer - start_timer):.4f}s"

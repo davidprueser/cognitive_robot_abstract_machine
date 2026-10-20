@@ -104,7 +104,7 @@ class OpenCVCameraWithoutDepthInterface(CameraInterface):
         """
         Backup of image for single-image file mode.
         """
-        self.rk_logger.info("OpenCVCameraWithoutDepthInterface initialized")
+        self.robokudo_logger.info("OpenCVCameraWithoutDepthInterface initialized")
 
     def has_new_data(self) -> bool:
         """
@@ -148,7 +148,7 @@ class OpenCVCameraWithoutDepthInterface(CameraInterface):
             color = self._backup_color
             retval = True
 
-        self.rk_logger.debug(
+        self.robokudo_logger.debug(
             "loaded frame {} of {}".format(
                 self.video_capture.get(cv2.CAP_PROP_POS_FRAMES),
                 self.video_capture.get(cv2.CAP_PROP_FRAME_COUNT),

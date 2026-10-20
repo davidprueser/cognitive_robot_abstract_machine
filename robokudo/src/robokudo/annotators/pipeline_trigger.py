@@ -50,7 +50,7 @@ class PipelineTrigger(BaseAnnotator):
 
         :return: SUCCESS if triggered, RUNNING otherwise
         """
-        self.rk_logger.debug("%s.update()" % (self.__class__.__name__))
+        self.robokudo_logger.debug("%s.update()" % (self.__class__.__name__))
         blackboard = Blackboard()
         pipeline_trigger = blackboard.get("pipeline_trigger")
 

@@ -43,7 +43,7 @@ T = TypeVar("T", bound=Annotation)
 S = TypeVar("S", bound=Shape)
 
 
-class Annotation2AnnotationConverter(ABC, Generic[T]):
+class AnnotationToAnnotationConverter(ABC, Generic[T]):
     """
     An abstract converter class for converting annotations to other annotations.
     """
@@ -75,13 +75,14 @@ class Annotation2AnnotationConverter(ABC, Generic[T]):
         given annotation to the desired type.
 
         :param annotation: The annotation to convert.
-        :param common_analysis_structure: The common analysis structure to use for conversion.
+        :param common_analysis_structure: The common analysis structure to use for
+            conversion.
         :returns: The converted annotation.
         """
         pass
 
 
-class Annotation2ODConverter(ABC, Generic[T]):
+class AnnotationToObjectDesignatorConverter(ABC, Generic[T]):
     """
     An abstract converter class for converting annotations to object designators.
     """
@@ -113,7 +114,8 @@ class Annotation2ODConverter(ABC, Generic[T]):
         designator.
 
         :param annotation: The annotation to convert.
-        :param common_analysis_structure: The common analysis structure to use for conversion.
+        :param common_analysis_structure: The common analysis structure to use for
+            conversion.
         :param object_designator: The object designator to fill with the data of
             `annotation`
         """
@@ -124,10 +126,10 @@ class Annotation2ODConverter(ABC, Generic[T]):
 
 
 class PoseAnnotationToStampedPoseAnnotationConverter(
-    Annotation2AnnotationConverter[PoseAnnotation]
+    AnnotationToAnnotationConverter[PoseAnnotation]
 ):
     """
-    Extended `Annotation2AnnotationConverter` that converts a `PoseAnnotation` to a
+    Extended `AnnotationToAnnotationConverter` that converts a `PoseAnnotation` to a
     `StampedPoseAnnotation`.
     """
 
@@ -151,10 +153,10 @@ class PoseAnnotationToStampedPoseAnnotationConverter(
 
 
 class PositionAnnotationToStampedPoseAnnotationConverter(
-    Annotation2AnnotationConverter[PositionAnnotation]
+    AnnotationToAnnotationConverter[PositionAnnotation]
 ):
     """
-    Extended `Annotation2AnnotationConverter` that converts a `Positionnnotation` to a
+    Extended `AnnotationToAnnotationConverter` that converts a `Positionnnotation` to a
     `StampedPoseAnnotation`.
     """
 
@@ -179,10 +181,12 @@ class PositionAnnotationToStampedPoseAnnotationConverter(
 # %% annotation to object designator conversion
 
 
-class SemanticColor2ODConverter(Annotation2ODConverter[SemanticColor]):
+class SemanticColorToObjectDesignatorConverter(
+    AnnotationToObjectDesignatorConverter[SemanticColor]
+):
     """
-    Extended `Annotation2AnnotationConverter` that converts a `SemanticColor` annotation
-    to `ObjectDesignator` data.
+    Extended `AnnotationToAnnotationConverter` that converts a `SemanticColor`
+    annotation to `ObjectDesignator` data.
     """
 
     def can_convert(self, annotation: Annotation) -> bool:
@@ -197,9 +201,11 @@ class SemanticColor2ODConverter(Annotation2ODConverter[SemanticColor]):
         object_designator.color.append(annotation.color)
 
 
-class Classification2ODConverter(Annotation2ODConverter[Classification]):
+class ClassificationToObjectDesignatorConverter(
+    AnnotationToObjectDesignatorConverter[Classification]
+):
     """
-    Extended `Annotation2AnnotationConverter` that converts a `Classification`
+    Extended `AnnotationToAnnotationConverter` that converts a `Classification`
     annotation to `ObjectDesignator` data.
     """
 
@@ -215,7 +221,7 @@ class Classification2ODConverter(Annotation2ODConverter[Classification]):
         object_designator.type = annotation.classname
 
 
-# class PoseBase2ODConverter(Annotation2ODConverter):
+# class PoseBase2ODConverter(AnnotationToObjectDesignatorConverter):
 #    def transform_camera_pose_to_world_pose(self, annotation: Annotation, common_analysis_structure: common analysis structure) -> PoseAnnotation:
 #        return transform_pose_from_camera_to_world(common_analysis_structure, annotation)
 #
@@ -241,10 +247,12 @@ class Classification2ODConverter(Annotation2ODConverter[Classification]):
 #        return ps
 
 
-class StampedPose2ODConverter(Annotation2ODConverter[StampedPoseAnnotation]):
+class StampedPoseToObjectDesignatorConverter(
+    AnnotationToObjectDesignatorConverter[StampedPoseAnnotation]
+):
     """
-    Extended `Annotation2AnnotationConverter` that converts a `StampedPoseAnnotation` to
-    `ObjectDesignator` data.
+    Extended `AnnotationToAnnotationConverter` that converts a `StampedPoseAnnotation`
+    to `ObjectDesignator` data.
     """
 
     def can_convert(self, annotation: Annotation) -> bool:
@@ -256,32 +264,34 @@ class StampedPose2ODConverter(Annotation2ODConverter[StampedPoseAnnotation]):
         common_analysis_structure: CommonAnalysisStructure,
         object_designator: ObjectDesignator,
     ) -> None:
-        ps = PoseStamped()
-        ps.pose.position.x = annotation.translation[0]
-        ps.pose.position.y = annotation.translation[1]
-        ps.pose.position.z = annotation.translation[2]
+        pose_stamped = PoseStamped()
+        pose_stamped.pose.position.x = annotation.translation[0]
+        pose_stamped.pose.position.y = annotation.translation[1]
+        pose_stamped.pose.position.z = annotation.translation[2]
 
-        ps.pose.orientation.x = annotation.rotation[0]
-        ps.pose.orientation.y = annotation.rotation[1]
-        ps.pose.orientation.z = annotation.rotation[2]
-        ps.pose.orientation.w = annotation.rotation[3]
+        pose_stamped.pose.orientation.x = annotation.rotation[0]
+        pose_stamped.pose.orientation.y = annotation.rotation[1]
+        pose_stamped.pose.orientation.z = annotation.rotation[2]
+        pose_stamped.pose.orientation.w = annotation.rotation[3]
 
-        ps.header.frame_id = annotation.frame
-        ps.header.stamp.sec = annotation.timestamp
+        pose_stamped.header.frame_id = annotation.frame
+        pose_stamped.header.stamp.sec = annotation.timestamp
 
-        object_designator.pose.append(ps)
+        object_designator.pose.append(pose_stamped)
         object_designator.pose_source.append(annotation.source)
 
 
-class Pose2ODConverter(Annotation2ODConverter[PoseAnnotation]):
+class PoseToObjectDesignatorConverter(
+    AnnotationToObjectDesignatorConverter[PoseAnnotation]
+):
     """
-    Extended `StampedPose2ODConverter` that converts a `PoseAnnotation` to
-    `ObjectDesignator` data.
+    Extended `StampedPoseToObjectDesignatorConverter` that converts a `PoseAnnotation`
+    to `ObjectDesignator` data.
     """
 
     def __init__(self) -> None:
         self.pose_converter = PoseAnnotationToStampedPoseAnnotationConverter()
-        self.stamped_pose_converter = StampedPose2ODConverter()
+        self.stamped_pose_converter = StampedPoseToObjectDesignatorConverter()
 
     def can_convert(self, annotation: Annotation) -> bool:
         return isinstance(annotation, PoseAnnotation)
@@ -301,12 +311,15 @@ class Pose2ODConverter(Annotation2ODConverter[PoseAnnotation]):
         world transform in the given common analysis structure.
 
         :param annotation: The annotation to convert.
-        :param common_analysis_structure: The common analysis structure to use for conversion.
+        :param common_analysis_structure: The common analysis structure to use for
+            conversion.
         :param object_designator: The object designator to fill with the data of
             `annotation`
         """
-        use_camera_coords = common_analysis_structure.camera_to_world_transform is None
-        if use_camera_coords:
+        use_camera_coordinates = (
+            common_analysis_structure.camera_to_world_transform is None
+        )
+        if use_camera_coordinates:
             pose_annotation = annotation
         else:
             pose_annotation = transform_pose_from_camera_to_world(
@@ -321,7 +334,7 @@ class Pose2ODConverter(Annotation2ODConverter[PoseAnnotation]):
         ).header.stamp.sec
 
         # For the frame, check if we should return camera or world coordinates based on the previous check
-        if use_camera_coords:
+        if use_camera_coordinates:
             spa.frame = common_analysis_structure.get(
                 CommonAnalysisStructureViews.CAMERA_INFO
             ).header.frame_id
@@ -334,9 +347,11 @@ class Pose2ODConverter(Annotation2ODConverter[PoseAnnotation]):
         )
 
 
-class Position2ODConverter(Annotation2ODConverter[PositionAnnotation]):
+class PositionToObjectDesignatorConverter(
+    AnnotationToObjectDesignatorConverter[PositionAnnotation]
+):
     """
-    Extended `Annotation2AnnotationConverter` that converts a `PositionAnnotation` to
+    Extended `AnnotationToAnnotationConverter` that converts a `PositionAnnotation` to
     `ObjectDesignator` data.
     """
 
@@ -358,49 +373,54 @@ class Position2ODConverter(Annotation2ODConverter[PositionAnnotation]):
         world transform in the given common analysis structure.
 
         :param annotation: The annotation to convert.
-        :param common_analysis_structure: The common analysis structure to use for conversion.
+        :param common_analysis_structure: The common analysis structure to use for
+            conversion.
         :param object_designator: The object designator to fill with the data of
             `annotation`
         """
-        pos = PoseAnnotation()
-        pos.source = annotation.source
-        pos.translation.insert(0, annotation.translation[0])
-        pos.translation.insert(1, annotation.translation[1])
-        pos.translation.insert(2, annotation.translation[2])
+        pose_annotation = PoseAnnotation()
+        pose_annotation.source = annotation.source
+        pose_annotation.translation.insert(0, annotation.translation[0])
+        pose_annotation.translation.insert(1, annotation.translation[1])
+        pose_annotation.translation.insert(2, annotation.translation[2])
 
-        pos.rotation.insert(0, 0)
-        pos.rotation.insert(1, 0)
-        pos.rotation.insert(2, 0)
-        pos.rotation.insert(3, 1)
+        pose_annotation.rotation.insert(0, 0)
+        pose_annotation.rotation.insert(1, 0)
+        pose_annotation.rotation.insert(2, 0)
+        pose_annotation.rotation.insert(3, 1)
 
-        pose_map = transform_pose_from_camera_to_world(common_analysis_structure, pos)
+        pose_map = transform_pose_from_camera_to_world(
+            common_analysis_structure, pose_annotation
+        )
 
         # Must be a PoseStamped due to type specification in ros message
-        ps = PoseStamped()
-        ps.pose.position.x = pose_map.translation[0]
-        ps.pose.position.y = pose_map.translation[1]
-        ps.pose.position.z = pose_map.translation[2]
+        pose_stamped = PoseStamped()
+        pose_stamped.pose.position.x = pose_map.translation[0]
+        pose_stamped.pose.position.y = pose_map.translation[1]
+        pose_stamped.pose.position.z = pose_map.translation[2]
 
-        ps.pose.orientation.x = pose_map.rotation[0]
-        ps.pose.orientation.y = pose_map.rotation[1]
-        ps.pose.orientation.z = pose_map.rotation[2]
-        ps.pose.orientation.w = pose_map.rotation[3]
+        pose_stamped.pose.orientation.x = pose_map.rotation[0]
+        pose_stamped.pose.orientation.y = pose_map.rotation[1]
+        pose_stamped.pose.orientation.z = pose_map.rotation[2]
+        pose_stamped.pose.orientation.w = pose_map.rotation[3]
 
         # We assume that the pose annotation is in CAMERA coordinates
-        ps.header = copy.deepcopy(
+        pose_stamped.header = copy.deepcopy(
             common_analysis_structure.get(
                 CommonAnalysisStructureViews.CAMERA_INFO
             ).header
         )
-        ps.header.frame_id = "map"
-        object_designator.pose.append(ps)
+        pose_stamped.header.frame_id = "map"
+        object_designator.pose.append(pose_stamped)
 
         object_designator.pose_source.append(annotation.source)
 
 
-class StampedPosition2ODConverter(Annotation2ODConverter[StampedPositionAnnotation]):
+class StampedPositionToObjectDesignatorConverter(
+    AnnotationToObjectDesignatorConverter[StampedPositionAnnotation]
+):
     """
-    Extended `Annotation2AnnotationConverter` that converts a
+    Extended `AnnotationToAnnotationConverter` that converts a
     `StampedPositionAnnotation` to `ObjectDesignator` data.
     """
 
@@ -422,46 +442,51 @@ class StampedPosition2ODConverter(Annotation2ODConverter[StampedPositionAnnotati
         world transform in the given common analysis structure.
 
         :param annotation: The annotation to convert.
-        :param common_analysis_structure: The common analysis structure to use for conversion.
+        :param common_analysis_structure: The common analysis structure to use for
+            conversion.
         :param object_designator: The object designator to fill with the data of
             `annotation`
         """
         # Create pose from position
-        pos = PoseAnnotation()
-        pos.source = annotation.source
-        pos.translation.insert(0, annotation.translation[0])
-        pos.translation.insert(1, annotation.translation[1])
-        pos.translation.insert(2, annotation.translation[2])
+        pose_annotation = PoseAnnotation()
+        pose_annotation.source = annotation.source
+        pose_annotation.translation.insert(0, annotation.translation[0])
+        pose_annotation.translation.insert(1, annotation.translation[1])
+        pose_annotation.translation.insert(2, annotation.translation[2])
 
-        pos.rotation.insert(0, 0)
-        pos.rotation.insert(1, 0)
-        pos.rotation.insert(2, 0)
-        pos.rotation.insert(3, 1)
+        pose_annotation.rotation.insert(0, 0)
+        pose_annotation.rotation.insert(1, 0)
+        pose_annotation.rotation.insert(2, 0)
+        pose_annotation.rotation.insert(3, 1)
 
-        pose_map = transform_pose_from_camera_to_world(common_analysis_structure, pos)
+        pose_map = transform_pose_from_camera_to_world(
+            common_analysis_structure, pose_annotation
+        )
 
         # Must be a PoseStamped due to type specification in ros message
-        ps = PoseStamped()
-        ps.pose.position.x = pose_map.translation[0]
-        ps.pose.position.y = pose_map.translation[1]
-        ps.pose.position.z = pose_map.translation[2]
+        pose_stamped = PoseStamped()
+        pose_stamped.pose.position.x = pose_map.translation[0]
+        pose_stamped.pose.position.y = pose_map.translation[1]
+        pose_stamped.pose.position.z = pose_map.translation[2]
 
-        ps.pose.orientation.x = pose_map.rotation[0]
-        ps.pose.orientation.y = pose_map.rotation[1]
-        ps.pose.orientation.z = pose_map.rotation[2]
-        ps.pose.orientation.w = pose_map.rotation[3]
+        pose_stamped.pose.orientation.x = pose_map.rotation[0]
+        pose_stamped.pose.orientation.y = pose_map.rotation[1]
+        pose_stamped.pose.orientation.z = pose_map.rotation[2]
+        pose_stamped.pose.orientation.w = pose_map.rotation[3]
 
         # Keep stamp data
-        ps.header.frame_id = annotation.frame
-        ps.header.stamp.sec = annotation.timestamp
+        pose_stamped.header.frame_id = annotation.frame
+        pose_stamped.header.stamp.sec = annotation.timestamp
 
-        object_designator.pose.append(ps)
+        object_designator.pose.append(pose_stamped)
         object_designator.pose_source.append(annotation.source)
 
 
-class BoundingBox3DForShapeSizeConverter(Annotation2ODConverter[BoundingBox3D]):
+class BoundingBox3DForShapeSizeConverter(
+    AnnotationToObjectDesignatorConverter[BoundingBox3D]
+):
     """
-    Extended `Annotation2AnnotationConverter` that converts a
+    Extended `AnnotationToAnnotationConverter` that converts a
     `robokudo.types.cv.BoundingBox3D` to `ObjectDesignator` data.
     """
 
@@ -487,9 +512,9 @@ class BoundingBox3DForShapeSizeConverter(Annotation2ODConverter[BoundingBox3D]):
         object_designator.shape_size.append(size)
 
 
-class Shape2ODConverter(Annotation2ODConverter[Shape]):
+class ShapeToObjectDesignatorConverter(AnnotationToObjectDesignatorConverter[Shape]):
     """
-    Extended `Annotation2AnnotationConverter` that converts a `Shape` annotation to
+    Extended `AnnotationToAnnotationConverter` that converts a `Shape` annotation to
     `ObjectDesignator` data.
     """
 
@@ -505,14 +530,14 @@ class Shape2ODConverter(Annotation2ODConverter[Shape]):
         object_designator.shape.append(annotation.shape_name)
 
 
-class Cuboid2ODConverter(Annotation2ODConverter[Cuboid]):
+class CuboidToObjectDesignatorConverter(AnnotationToObjectDesignatorConverter[Cuboid]):
     """
-    Extended `Shape2ODConverter` that converts a `Cuboid` annotation to
+    Extended `ShapeToObjectDesignatorConverter` that converts a `Cuboid` annotation to
     `ObjectDesignator` data.
     """
 
     def __init__(self) -> None:
-        self.shape_converter = Shape2ODConverter()
+        self.shape_converter = ShapeToObjectDesignatorConverter()
 
     def can_convert(self, annotation: Annotation) -> bool:
         return isinstance(annotation, Cuboid)
@@ -528,14 +553,16 @@ class Cuboid2ODConverter(Annotation2ODConverter[Cuboid]):
         )
 
 
-class Cylinder2ODConverter(Annotation2ODConverter[Cylinder]):
+class CylinderToObjectDesignatorConverter(
+    AnnotationToObjectDesignatorConverter[Cylinder]
+):
     """
-    Extended `Shape2ODConverter` that converts a `Cylinder` annotation to
+    Extended `ShapeToObjectDesignatorConverter` that converts a `Cylinder` annotation to
     `ObjectDesignator` data.
     """
 
     def __init__(self) -> None:
-        self.shape_converter = Shape2ODConverter()
+        self.shape_converter = ShapeToObjectDesignatorConverter()
 
     def can_convert(self, annotation: Annotation) -> bool:
         return isinstance(annotation, Cylinder)
@@ -551,14 +578,14 @@ class Cylinder2ODConverter(Annotation2ODConverter[Cylinder]):
         )
 
 
-class Sphere2ODConverter(Annotation2ODConverter[Sphere]):
+class SphereToObjectDesignatorConverter(AnnotationToObjectDesignatorConverter[Sphere]):
     """
-    Extended `Shape2ODConverter` that converts a `Sphere` annotation to
+    Extended `ShapeToObjectDesignatorConverter` that converts a `Sphere` annotation to
     `ObjectDesignator` data.
     """
 
     def __init__(self) -> None:
-        self.shape_converter = Shape2ODConverter()
+        self.shape_converter = ShapeToObjectDesignatorConverter()
 
     def can_convert(self, annotation: Annotation) -> bool:
         return isinstance(annotation, Sphere)
@@ -571,8 +598,8 @@ class Sphere2ODConverter(Annotation2ODConverter[Sphere]):
     ) -> None:
         size = ShapeSize(radius=annotation.geometry.radius)
 
-        rk_logger = logging.getLogger(PACKAGE_NAME)
-        rk_logger.info(
+        robokudo_logger = logging.getLogger(PACKAGE_NAME)
+        robokudo_logger.info(
             f"The center point of the Sphere annotation is currently not converted to OD."
         )
 
@@ -582,9 +609,11 @@ class Sphere2ODConverter(Annotation2ODConverter[Sphere]):
         )
 
 
-class Location2ODConverter(Annotation2ODConverter[LocationAnnotation]):
+class LocationToObjectDesignatorConverter(
+    AnnotationToObjectDesignatorConverter[LocationAnnotation]
+):
     """
-    Extended `Shape2ODConverter` that converts a `LocationAnnotation` to
+    Extended `ShapeToObjectDesignatorConverter` that converts a `LocationAnnotation` to
     `ObjectDesignator` data.
     """
 

@@ -51,7 +51,8 @@ class TestUtilsAnnotatorHelper(object):
     @pytest.fixture()
     def identity_common_analysis_structure(self) -> CommonAnalysisStructure:
         """
-        Creates a common analysis structure containing an identify camera to world transform.
+        Creates a common analysis structure containing an identify camera to world
+        transform.
         """
         common_analysis_structure = (
             robokudo.common_analysis_structure.CommonAnalysisStructure()
@@ -82,7 +83,8 @@ class TestUtilsAnnotatorHelper(object):
     @pytest.fixture()
     def camera_to_world_common_analysis_structure(self) -> CommonAnalysisStructure:
         """
-        Creates a common analysis structure containing a valid non-identity camera to world transform.
+        Creates a common analysis structure containing a valid non-identity camera to
+        world transform.
         """
         common_analysis_structure = CommonAnalysisStructure()
 
@@ -117,70 +119,74 @@ class TestUtilsAnnotatorHelper(object):
         """
         Test pose transform round trip.
         """
-        pos = PoseAnnotation()
-        pos.source = "test"
-        pos.translation.insert(0, 1)
-        pos.translation.insert(1, 2)
-        pos.translation.insert(2, 3)
+        pose_annotation = PoseAnnotation()
+        pose_annotation.source = "test"
+        pose_annotation.translation.insert(0, 1)
+        pose_annotation.translation.insert(1, 2)
+        pose_annotation.translation.insert(2, 3)
 
-        pos.rotation.insert(0, 0)
-        pos.rotation.insert(1, 0)
-        pos.rotation.insert(2, 0)
-        pos.rotation.insert(3, 1)
+        pose_annotation.rotation.insert(0, 0)
+        pose_annotation.rotation.insert(1, 0)
+        pose_annotation.rotation.insert(2, 0)
+        pose_annotation.rotation.insert(3, 1)
 
         pose_in_world = transform_pose_from_camera_to_world(
-            camera_to_world_common_analysis_structure, pos
+            camera_to_world_common_analysis_structure, pose_annotation
         )
         pose_back = transform_pose_from_world_to_camera(
             camera_to_world_common_analysis_structure, pose_in_world
         )
 
-        np.testing.assert_array_almost_equal(pos.translation, pose_back.translation)
-        np.testing.assert_array_almost_equal(pos.rotation, pose_back.rotation)
+        np.testing.assert_array_almost_equal(
+            pose_annotation.translation, pose_back.translation
+        )
+        np.testing.assert_array_almost_equal(
+            pose_annotation.rotation, pose_back.rotation
+        )
 
-    def test_pose_transform_helper_identy_tf(
+    def test_pose_transform_helper_identity_transform(
         self, identity_common_analysis_structure: CommonAnalysisStructure
     ) -> None:
         """
         Test pose transform with identity transform.
         """
-        pos = PoseAnnotation()
-        pos.source = "test"
-        pos.translation.insert(0, 1)
-        pos.translation.insert(1, 2)
-        pos.translation.insert(2, 3)
+        pose_annotation = PoseAnnotation()
+        pose_annotation.source = "test"
+        pose_annotation.translation.insert(0, 1)
+        pose_annotation.translation.insert(1, 2)
+        pose_annotation.translation.insert(2, 3)
 
-        pos.rotation.insert(0, 0)
-        pos.rotation.insert(1, 0)
-        pos.rotation.insert(2, 0)
-        pos.rotation.insert(3, 1)
+        pose_annotation.rotation.insert(0, 0)
+        pose_annotation.rotation.insert(1, 0)
+        pose_annotation.rotation.insert(2, 0)
+        pose_annotation.rotation.insert(3, 1)
 
         pose_in_world = transform_pose_from_camera_to_world(
-            identity_common_analysis_structure, pos
+            identity_common_analysis_structure, pose_annotation
         )
 
         np.testing.assert_array_almost_equal(
-            pos.translation,
+            pose_annotation.translation,
             pose_in_world.translation,
             err_msg="pose translation was modified during identity transform",
         )
         np.testing.assert_array_almost_equal(
-            pos.rotation,
+            pose_annotation.rotation,
             pose_in_world.rotation,
             err_msg="pose rotation was modified during identity transform",
         )
 
         pose_in_camera = transform_pose_from_world_to_camera(
-            identity_common_analysis_structure, pos
+            identity_common_analysis_structure, pose_annotation
         )
 
         np.testing.assert_array_almost_equal(
-            pos.translation,
+            pose_annotation.translation,
             pose_in_camera.translation,
             err_msg="pose translation was modified during identity transform",
         )
         np.testing.assert_array_almost_equal(
-            pos.rotation,
+            pose_annotation.rotation,
             pose_in_camera.rotation,
             err_msg="pose rotation was modified during identity transform",
         )
@@ -209,8 +215,8 @@ class TestUtilsAnnotatorHelper(object):
             camera_to_world_common_analysis_structure, cloud_in_world
         )
 
-        dists = cloud.compute_point_cloud_distance(cloud_back)
-        assert np.all(np.asarray(dists) < 1.0e-6)
+        distances = cloud.compute_point_cloud_distance(cloud_back)
+        assert np.all(np.asarray(distances) < 1.0e-6)
 
     def test_cloud_transform_helper_in_place(
         self, camera_to_world_common_analysis_structure: CommonAnalysisStructure
@@ -244,10 +250,10 @@ class TestUtilsAnnotatorHelper(object):
             cloud_back == cloud
         ), f"different object instance was returned on in-place transform"
 
-        dists = cloud.compute_point_cloud_distance(cloud_back)
-        assert np.all(np.asarray(dists) < 1.0e-6)
+        distances = cloud.compute_point_cloud_distance(cloud_back)
+        assert np.all(np.asarray(distances) < 1.0e-6)
 
-    def test_cloud_transform_helper_identy_tf(
+    def test_cloud_transform_helper_identity_transform(
         self, identity_common_analysis_structure: CommonAnalysisStructure
     ) -> None:
         """
@@ -261,18 +267,18 @@ class TestUtilsAnnotatorHelper(object):
             identity_common_analysis_structure, cloud
         )
 
-        dists_in_world = cloud.compute_point_cloud_distance(cloud_in_world)
+        distances_in_world = cloud.compute_point_cloud_distance(cloud_in_world)
         assert np.all(
-            np.asarray(dists_in_world) < 1.0e-6
+            np.asarray(distances_in_world) < 1.0e-6
         ), "transform_cloud_from_camera_to_world changed points in identify transform"
 
         cloud_in_camera = transform_cloud_from_world_to_camera(
             identity_common_analysis_structure, cloud
         )
 
-        dists_in_camera = cloud.compute_point_cloud_distance(cloud_in_camera)
+        distances_in_camera = cloud.compute_point_cloud_distance(cloud_in_camera)
         assert np.all(
-            np.asarray(dists_in_camera) < 1.0e-6
+            np.asarray(distances_in_camera) < 1.0e-6
         ), "transform_cloud_from_world_to_camera changed points in identify transform"
 
     # %% transform matrices
@@ -280,11 +286,11 @@ class TestUtilsAnnotatorHelper(object):
     def test_get_camera_to_world_transform_matrix(
         self, camera_to_world_common_analysis_structure: CommonAnalysisStructure
     ) -> None:
-        tf_matrix = get_camera_to_world_transform_matrix(
+        transform_matrix = get_camera_to_world_transform_matrix(
             camera_to_world_common_analysis_structure
         )
         np.testing.assert_allclose(
-            tf_matrix,
+            transform_matrix,
             np.array(
                 [
                     [
@@ -310,22 +316,22 @@ class TestUtilsAnnotatorHelper(object):
             ),
         )
 
-    def test_get_camera_to_world_transform_matrix_identity_tf(
+    def test_get_camera_to_world_transform_matrix_identity_transform(
         self, identity_common_analysis_structure: CommonAnalysisStructure
     ) -> None:
-        tf_matrix = get_camera_to_world_transform_matrix(
+        transform_matrix = get_camera_to_world_transform_matrix(
             identity_common_analysis_structure
         )
-        np.testing.assert_allclose(tf_matrix, np.eye(4))
+        np.testing.assert_allclose(transform_matrix, np.eye(4))
 
     def test_get_world_to_camera_transform_matrix(
         self, camera_to_world_common_analysis_structure: CommonAnalysisStructure
     ) -> None:
-        tf_matrix = get_world_to_camera_transform_matrix(
+        transform_matrix = get_world_to_camera_transform_matrix(
             camera_to_world_common_analysis_structure
         )
         np.testing.assert_allclose(
-            tf_matrix,
+            transform_matrix,
             np.linalg.inv(
                 np.array(
                     [
@@ -353,48 +359,54 @@ class TestUtilsAnnotatorHelper(object):
             ),
         )
 
-    def test_get_world_to_camera_transform_matrix_identity_tf(
+    def test_get_world_to_camera_transform_matrix_identity_transform(
         self, identity_common_analysis_structure: CommonAnalysisStructure
     ) -> None:
-        tf_matrix = get_world_to_camera_transform_matrix(
+        transform_matrix = get_world_to_camera_transform_matrix(
             identity_common_analysis_structure
         )
-        np.testing.assert_allclose(tf_matrix, np.eye(4))
+        np.testing.assert_allclose(transform_matrix, np.eye(4))
 
     def test_draw_bounding_boxes(self) -> None:
-        img = np.zeros((100, 100, 3), dtype=np.uint8)
+        image = np.zeros((100, 100, 3), dtype=np.uint8)
 
-        oh = ObjectHypothesis()
-        oh.roi.roi.pos.x = 10
-        oh.roi.roi.pos.y = 10
-        oh.roi.roi.width = 20
-        oh.roi.roi.height = 20
+        object_hypothesis = ObjectHypothesis()
+        object_hypothesis.roi.roi.pos.x = 10
+        object_hypothesis.roi.roi.pos.y = 10
+        object_hypothesis.roi.roi.width = 20
+        object_hypothesis.roi.roi.height = 20
 
-        def text_function(oh: ObjectHypothesis) -> str:
+        def text_function(object_hypothesis: ObjectHypothesis) -> str:
             return "Test Label"
 
-        draw_bounding_boxes_from_object_hypotheses(img, [oh], text_function)
+        draw_bounding_boxes_from_object_hypotheses(
+            image, [object_hypothesis], text_function
+        )
 
-        assert np.any(img[10, 10] != 0)  # Top-left corner of the box
-        assert np.any(img[30, 10] != 0)  # Bottom-right corner of the box
-        assert np.any(img[10, 30] != 0)  # Top-right corner of the box
-        assert np.any(img[30, 30] != 0)  # Bottom-right corner of the box
+        assert np.any(image[10, 10] != 0)  # Top-left corner of the box
+        assert np.any(image[30, 10] != 0)  # Bottom-right corner of the box
+        assert np.any(image[10, 30] != 0)  # Top-right corner of the box
+        assert np.any(image[30, 30] != 0)  # Bottom-right corner of the box
 
-        text_roi = img[0:9, 10:30]  # Text area
-        assert np.any(text_roi != 0)
+        text_region = image[0:9, 10:30]  # Text area
+        assert np.any(text_region != 0)
 
     def test_draw_bounding_boxes_empty_list(self) -> None:
-        img = np.zeros((100, 100, 3), dtype=np.uint8)
-        img_copy = img.copy()
-        draw_bounding_boxes_from_object_hypotheses(img, [], lambda oh: "Test")
-        assert np.array_equal(img, img_copy)
+        image = np.zeros((100, 100, 3), dtype=np.uint8)
+        image_copy = image.copy()
+        draw_bounding_boxes_from_object_hypotheses(
+            image, [], lambda object_hypothesis: "Test"
+        )
+        assert np.array_equal(image, image_copy)
 
     def test_draw_bounding_boxes_invalid_objects(self) -> None:
-        img = np.zeros((100, 100, 3), dtype=np.uint8)
-        img_copy = img.copy()
-        invalid_oh = "Not an ObjectHypothesis"
-        draw_bounding_boxes_from_object_hypotheses(img, [invalid_oh], lambda oh: "Test")
-        assert np.array_equal(img, img_copy)
+        image = np.zeros((100, 100, 3), dtype=np.uint8)
+        image_copy = image.copy()
+        invalid_object_hypothesis = "Not an ObjectHypothesis"
+        draw_bounding_boxes_from_object_hypotheses(
+            image, [invalid_object_hypothesis], lambda object_hypothesis: "Test"
+        )
+        assert np.array_equal(image, image_copy)
 
     @pytest.mark.parametrize(
         "scale_factor",
@@ -413,31 +425,31 @@ class TestUtilsAnnotatorHelper(object):
     ) -> None:
         annotator_in_pipeline.descriptor.parameters.global_with_depth = True
         width, height = kinect_intrinsics.width, kinect_intrinsics.height
-        scalex, scaley = scale_factor
+        scale_x, scale_y = scale_factor
 
         common_analysis_structure = (
             annotator_in_pipeline.get_common_analysis_structure()
         )
         common_analysis_structure.set(
             robokudo.common_analysis_structure.CommonAnalysisStructureViews.COLOR_TO_DEPTH_RATIO,
-            ColorToDepthRatio(horizontal=scalex, vertical=scaley),
+            ColorToDepthRatio(horizontal=scale_x, vertical=scale_y),
         )
         annotator_in_pipeline.camera_intrinsics = copy.deepcopy(kinect_intrinsics)
 
         scale_camera_intrinsics(annotator_in_pipeline)
         assert annotator_in_pipeline.camera_intrinsics.width == int(
-            width * scalex
-        ), f"Width should be scaled to {scalex}"
+            width * scale_x
+        ), f"Width should be scaled to {scale_x}"
         assert annotator_in_pipeline.camera_intrinsics.height == int(
-            height * scaley
-        ), f"Height should be scaled to {scaley}"
+            height * scale_y
+        ), f"Height should be scaled to {scale_y}"
 
         scaled_matrix = copy.deepcopy(kinect_intrinsics.intrinsic_matrix)
-        scaled_matrix[0, [0, 2]] *= scalex
-        scaled_matrix[1, [1, 2]] *= scaley
+        scaled_matrix[0, [0, 2]] *= scale_x
+        scaled_matrix[1, [1, 2]] *= scale_y
         assert np.array_equal(
             annotator_in_pipeline.camera_intrinsics.intrinsic_matrix, scaled_matrix
-        ), f"Intrinsics should be scaled to {scalex}, {scaley}"
+        ), f"Intrinsics should be scaled to {scale_x}, {scale_y}"
 
     @pytest.mark.parametrize(
         "scale_factor",
@@ -460,7 +472,7 @@ class TestUtilsAnnotatorHelper(object):
             annotator_in_pipeline.get_common_analysis_structure()
         )
         width, height = kinect_intrinsics.width, kinect_intrinsics.height
-        scalex, scaley = scale_factor
+        scale_x, scale_y = scale_factor
 
         common_analysis_structure.set(
             robokudo.common_analysis_structure.CommonAnalysisStructureViews.COLOR_IMAGE,
@@ -468,16 +480,16 @@ class TestUtilsAnnotatorHelper(object):
         )
         common_analysis_structure.set(
             robokudo.common_analysis_structure.CommonAnalysisStructureViews.COLOR_TO_DEPTH_RATIO,
-            ColorToDepthRatio(horizontal=scalex, vertical=scaley),
+            ColorToDepthRatio(horizontal=scale_x, vertical=scale_y),
         )
 
         annotator_in_pipeline.camera_intrinsics = copy.deepcopy(kinect_intrinsics)
 
         image = get_color_image(annotator_in_pipeline)
         assert image.shape[:2] == (
-            height * scaley,
-            width * scalex,
-        ), f"Image should be scaled to {scalex}, {scaley}"
+            height * scale_y,
+            width * scale_x,
+        ), f"Image should be scaled to {scale_x}, {scale_y}"
 
     def test_get_color_image_no_depth(
         self,
@@ -544,18 +556,20 @@ class TestUtilsAnnotatorHelper(object):
             annotator_in_pipeline.get_common_analysis_structure()
         )
         width, height = kinect_intrinsics.width, kinect_intrinsics.height
-        scalex, scaley = scale_factor
+        scale_x, scale_y = scale_factor
 
         common_analysis_structure.set(
             robokudo.common_analysis_structure.CommonAnalysisStructureViews.COLOR_TO_DEPTH_RATIO,
-            ColorToDepthRatio(horizontal=scalex, vertical=scaley),
+            ColorToDepthRatio(horizontal=scale_x, vertical=scale_y),
         )
-        mask = np.zeros((int(height * scaley), int(width * scalex), 3), dtype=np.uint8)
+        mask = np.zeros(
+            (int(height * scale_y), int(width * scale_x), 3), dtype=np.uint8
+        )
         mask = resize_mask(annotator_in_pipeline, mask)
         assert mask.shape[:2] == (
             1280,
             1024,
-        ), f"Mask should be rescaled by scalex={scalex}, scaley={scaley}"
+        ), f"Mask should be rescaled by scale_x={scale_x}, scale_y={scale_y}"
 
     def test_resize_mask_invalid_depth(
         self, annotator_in_pipeline: BaseAnnotator

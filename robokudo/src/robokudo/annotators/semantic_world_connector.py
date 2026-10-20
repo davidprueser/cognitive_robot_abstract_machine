@@ -48,7 +48,7 @@ class SemanticDigitalTwinConnector(ThreadedAnnotator):
     ) -> None:
         """Default construction. Minimal one-time init!"""
         super().__init__(name, descriptor)
-        self.rk_logger.debug("%s.__init__()" % self.__class__.__name__)
+        self.robokudo_logger.debug("%s.__init__()" % self.__class__.__name__)
 
         self.object_comparator = (
             ObjectHypothesisComparator(self.get_common_analysis_structure)
@@ -237,9 +237,9 @@ class SemanticDigitalTwinConnector(ThreadedAnnotator):
 
     def log_world_state(self) -> None:
         """Log a compact summary of the current SemDT world contents."""
-        rk_world = world_instance()
-        self.rk_logger.debug(
-            f"SemDT \nKS Entities: {len(rk_world.kinematic_structure_entities)}\nViews: {len(rk_world.semantic_annotations)}\nConnections: {len(rk_world.connections)}"
+        robokudo_world = world_instance()
+        self.robokudo_logger.debug(
+            f"SemDT \nKS Entities: {len(robokudo_world.kinematic_structure_entities)}\nViews: {len(robokudo_world.semantic_annotations)}\nConnections: {len(robokudo_world.connections)}"
         )
 
     def create_association_visualization(
@@ -267,7 +267,7 @@ class SemanticDigitalTwinConnector(ThreadedAnnotator):
             object_hypotheses,
             lambda oh: labels_by_hypothesis_id.get(id(oh), "unassociated"),
         )
-        self.get_annotator_output_struct().set_image(visualization_img)
+        self.get_annotator_output_structure().set_image(visualization_img)
 
     @staticmethod
     def get_object_belief_label(object_belief: ObjectBeliefState) -> str:

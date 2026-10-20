@@ -131,7 +131,7 @@ class ClusterColorAnnotator(BaseAnnotator):
         :param descriptor: Configuration descriptor
         """
         super().__init__(name, descriptor)
-        self.rk_logger.debug("%s.__init__()" % self.__class__.__name__)
+        self.robokudo_logger.debug("%s.__init__()" % self.__class__.__name__)
 
         # This list defines the range of a certain color.
         hue_intervals = [
@@ -160,7 +160,7 @@ class ClusterColorAnnotator(BaseAnnotator):
             mask = np.array([[0]])
             self.count_colors_numba(hsv_image, mask)
             end_timer_jit = default_timer()
-            self.rk_logger.info(
+            self.robokudo_logger.info(
                 f"Pre-compilation took {(end_timer_jit - start_timer_jit):.4f}s"
             )
 
@@ -390,8 +390,8 @@ class ClusterColorAnnotator(BaseAnnotator):
             {"name": "Cloud", "geometry": cloud},
         ]
 
-        self.get_annotator_output_struct().set_geometries(vis_geometries)
-        self.get_annotator_output_struct().set_image(visualization_img)
+        self.get_annotator_output_structure().set_geometries(vis_geometries)
+        self.get_annotator_output_structure().set_image(visualization_img)
 
         end_timer = default_timer()
         self.feedback_message = f"Processing took {(end_timer - start_timer):.4f}s"

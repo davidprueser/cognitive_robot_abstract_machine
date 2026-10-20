@@ -76,8 +76,8 @@ class FileWriter(BaseAnnotator):
         super().__init__(name, descriptor)
         self.initialized = False
 
-        self.rk_logger.debug("%s.__init__()" % self.__class__.__name__)
-        self.rk_logger.debug(
+        self.robokudo_logger.debug("%s.__init__()" % self.__class__.__name__)
+        self.robokudo_logger.debug(
             f"Writing files to {self.descriptor.parameters.target_dir}"
         )
         self.target_dir_path: Path = Path(self.descriptor.parameters.target_dir)
@@ -85,7 +85,7 @@ class FileWriter(BaseAnnotator):
         if self.target_dir_path.exists() and self.target_dir_path.is_dir():
             self.initialized = True
         else:
-            self.rk_logger.error(
+            self.robokudo_logger.error(
                 f"{self.descriptor.parameters.target_dir} is not existing or not a directory"
             )
 

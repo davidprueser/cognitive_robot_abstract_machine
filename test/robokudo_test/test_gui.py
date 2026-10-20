@@ -44,10 +44,10 @@ class TestVisualizerObject(object):
     ) -> None:
         root = Pipeline("TestPipeline")
         root.add_child(robokudo.annotators.testing.SlowAnnotator())
-        vis1 = Visualizer.new_visualizer_instance(pipeline=root)
-        vis2 = Visualizer.new_visualizer_instance(pipeline=root)
+        first_visualizer = Visualizer.new_visualizer_instance(pipeline=root)
+        second_visualizer = Visualizer.new_visualizer_instance(pipeline=root)
 
-        assert id(vis1) != id(vis2)
+        assert id(first_visualizer) != id(second_visualizer)
 
     def test_visualizer_instantiation_bookkeeping(self, function_setup: None) -> None:
         root = Pipeline("TestPipeline")

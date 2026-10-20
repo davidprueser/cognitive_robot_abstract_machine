@@ -11,7 +11,7 @@ from rclpy.node import Node
 
 from robokudo.types.cv import ColorToDepthRatio
 import robokudo.defs
-from robokudo import world as rk_world
+from robokudo import world as robokudo_world
 import robokudo.descriptors.camera_configs.config_filereader_playback
 import robokudo.descriptors.camera_configs.config_mongodb_playback
 import robokudo.utils.data_downloader
@@ -43,7 +43,7 @@ def _camera_info_k_values(camera_info: CameraInfo) -> list[float]:
     return list(camera_info.K)
 
 
-def _build_writer_pipeline(db_name: str) -> Pipeline:
+def _build_writer_pipeline(database_name: str) -> Pipeline:
     file_reader_descriptor = CollectionReaderDescriptorFactory.create_descriptor(
         "file_reader",
         loop=False,
@@ -53,7 +53,7 @@ def _build_writer_pipeline(db_name: str) -> Pipeline:
     )
 
     writer_descriptor = StorageWriter.Descriptor()
-    writer_descriptor.parameters.db_name = db_name
+    writer_descriptor.parameters.db_name = database_name
     writer_descriptor.parameters.drop_database_on_storage = True
 
     pipeline = Pipeline("WriterPipeline")
@@ -67,9 +67,9 @@ def _build_writer_pipeline(db_name: str) -> Pipeline:
     return pipeline
 
 
-def _build_reader_pipeline(db_name: str) -> Pipeline:
+def _build_reader_pipeline(database_name: str) -> Pipeline:
     mongo_descriptor = CollectionReaderDescriptorFactory.create_descriptor(
-        "mongo", loop=False, db_name=db_name
+        "mongo", loop=False, db_name=database_name
     )
     pipeline = Pipeline("ReaderPipeline")
     pipeline.add_children(
@@ -83,8 +83,8 @@ def _build_reader_pipeline(db_name: str) -> Pipeline:
 
 class TestStorageRoundtripPipeline:
     def test_store_and_replay_sensor_data_roundtrip(self) -> None:
-        db_name = f"ONLY_UNITTESTS_roundtrip_{uuid.uuid4().hex}"
-        storage = Storage(db_name)
+        database_name = f"ONLY_UNITTESTS_roundtrip_{uuid.uuid4().hex}"
+        storage = Storage(database_name)
         writer_node = Node(
             f"{robokudo.defs.TEST_ROS_NODE_NAME}_writer_{uuid.uuid4().hex}"
         )
@@ -92,7 +92,7 @@ class TestStorageRoundtripPipeline:
             f"{robokudo.defs.TEST_ROS_NODE_NAME}_reader_{uuid.uuid4().hex}"
         )
         try:
-            writer_pipeline = _build_writer_pipeline(db_name)
+            writer_pipeline = _build_writer_pipeline(database_name)
             writer_status = robokudo.utils.tree_execution.run_tree_once(
                 writer_pipeline, writer_node
             )
@@ -107,17 +107,17 @@ class TestStorageRoundtripPipeline:
             assert "state" in world_snapshot_payload
             assert {"ids", "states"}.issubset(world_snapshot_payload["state"])
 
-            tracker = rk_world.init_world_with_entity_tracker()
+            tracker = robokudo_world.init_world_with_entity_tracker()
             WorldModelSnapshot.apply_to_json_snapshot_to_world(
-                rk_world.world_instance(),
+                robokudo_world.world_instance(),
                 world_snapshot_payload,
                 **tracker.create_kwargs(),
             )
-            assert len(rk_world.world_instance().state.keys()) == len(
+            assert len(robokudo_world.world_instance().state.keys()) == len(
                 world_snapshot_payload["state"]["ids"]
             )
 
-            reader_pipeline = _build_reader_pipeline(db_name)
+            reader_pipeline = _build_reader_pipeline(database_name)
             reader_status = robokudo.utils.tree_execution.run_tree_once(
                 reader_pipeline, reader_node
             )

@@ -124,8 +124,8 @@ class BlurAnnotator(BaseAnnotator):
             {"name": "Cloud", "geometry": cloud},
         ]
 
-        self.get_annotator_output_struct().set_geometries(vis_geometries)
-        self.get_annotator_output_struct().set_image(visualization_img)
+        self.get_annotator_output_structure().set_geometries(vis_geometries)
+        self.get_annotator_output_structure().set_image(visualization_img)
 
         end_timer = default_timer()
         self.feedback_message = f"Processing took {(end_timer - start_timer):.4f}s"

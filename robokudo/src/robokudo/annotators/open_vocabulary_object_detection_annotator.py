@@ -71,7 +71,7 @@ class SegmentPromptLabel(IntEnum):
 
 def get_box_text(object_hypothesis: ObjectHypothesis) -> str:
     """
-    Label a hypothesis with its most confident classification or ROI identifier.
+    Label a hypothesis with its most confident classification or region of interest identifier.
 
     :param object_hypothesis: Hypothesis whose classifications determine the label.
     :return: Identifier, class name, and confidence, or an identifier-only label.
@@ -206,7 +206,7 @@ class OpenVocabularyObjectDetectionAnnotator(
         object_hypotheses = self.detect_objects(image)
         visualization = self.visualize_objects(image, object_hypotheses)
         self.get_common_analysis_structure().annotations.extend(object_hypotheses)
-        self.get_annotator_output_struct().set_image(visualization)
+        self.get_annotator_output_structure().set_image(visualization)
         self.feedback_message = f"Processing took {default_timer() - start_timer:.4f}s"
         return py_trees.common.Status.SUCCESS
 
@@ -247,7 +247,7 @@ class OpenVocabularyObjectDetectionAnnotator(
                 for coordinate in box.tolist()
             ]
             confidence = round(score.item(), confidence_decimal_places)
-            self.rk_logger.info(
+            self.robokudo_logger.info(
                 f"Detected {self.classes[label]} with confidence {confidence} at location {box}"
             )
             left, top, right, bottom = box
@@ -302,13 +302,13 @@ class OpenVocabularyObjectDetectionAnnotator(
         )
         if not contours:
             return
-        self.rk_logger.info(f"Attempting to fix {object_hypothesis.roi.roi}")
+        self.robokudo_logger.info(f"Attempting to fix {object_hypothesis.roi.roi}")
         left, top, width, height = cv2.boundingRect(contours[0])
         object_hypothesis.roi.roi.pos.x = int(left)
         object_hypothesis.roi.roi.pos.y = int(top)
         object_hypothesis.roi.roi.width = int(width)
         object_hypothesis.roi.roi.height = int(height)
-        self.rk_logger.info(f"After fix: {object_hypothesis.roi.roi}")
+        self.robokudo_logger.info(f"After fix: {object_hypothesis.roi.roi}")
 
     def visualize_objects(
         self,

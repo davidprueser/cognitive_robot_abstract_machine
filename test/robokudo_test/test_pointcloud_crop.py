@@ -48,9 +48,9 @@ def common_analysis_structure_with_cloud_at_world_origin(
     camera_intrinsics: o3d.camera.PinholeCameraIntrinsic,
 ) -> CommonAnalysisStructure:
     """
-    A common analysis structure whose cloud sits at the world origin, one metre in front of the camera, with
-    an identity camera-to-world transform (so world and camera coordinates coincide
-    here, keeping the fixture's geometry simple).
+    A common analysis structure whose cloud sits at the world origin, one metre in front
+    of the camera, with an identity camera-to-world transform (so world and camera
+    coordinates coincide here, keeping the fixture's geometry simple).
     """
     common_analysis_structure = CommonAnalysisStructure()
     common_analysis_structure.camera_to_world_transform = (
@@ -72,7 +72,7 @@ def common_analysis_structure_with_cloud_at_world_origin(
         np.vstack([points_inside_the_crop, points_outside_the_crop])
     )
 
-    common_analysis_structure.set_ref(CommonAnalysisStructureViews.CLOUD, cloud)
+    common_analysis_structure.set_reference(CommonAnalysisStructureViews.CLOUD, cloud)
     common_analysis_structure.set(
         CommonAnalysisStructureViews.COLOR_IMAGE,
         np.zeros((200, 200, 3), dtype=np.uint8),

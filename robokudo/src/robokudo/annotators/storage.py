@@ -67,7 +67,7 @@ class StorageWriter(BaseAnnotator):
         :param descriptor: Configuration descriptor
         """
         super().__init__(name, descriptor)
-        self.rk_logger.debug("%s.__init__()" % self.__class__.__name__)
+        self.robokudo_logger.debug("%s.__init__()" % self.__class__.__name__)
         self.storage = Storage(self.descriptor.parameters.db_name)
         self.storage_preparation_completed: bool = False
         """
@@ -137,7 +137,7 @@ class StorageWriter(BaseAnnotator):
             flat_common_analysis_structure
         )
         if not result.acknowledged:
-            self.rk_logger.error(
+            self.robokudo_logger.error(
                 f"mongo db error when trying to store common_analysis_structure"
             )
             return Status.FAILURE

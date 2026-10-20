@@ -32,7 +32,7 @@ from typing_extensions import TYPE_CHECKING
 from robokudo.annotators.query import QueryActionServer
 from robokudo.defs import LOGGING_IDENTIFIER_MAIN_EXECUTABLE, PACKAGE_NAME
 from robokudo.garden import grow_tree
-from robokudo.identifier import BBIdentifier
+from robokudo.identifier import BlackboardIdentifier
 from robokudo.utils.logging_configuration import configure_logging
 from robokudo.utils.module_loader import ModuleLoader
 from robokudo.utils.tree import setup_with_descendants_rk
@@ -197,9 +197,9 @@ def main() -> None:
     # 5. Create any action servers or supporting nodes
     query_action_server = QueryActionServer(name="query")
     blackboard = Blackboard()
-    blackboard.set(BBIdentifier.QUERY_SERVER, query_action_server)
+    blackboard.set(BlackboardIdentifier.QUERY_SERVER, query_action_server)
     blackboard.set(
-        BBIdentifier.QUERY_SERVER_IN_PIPELINE, False
+        BlackboardIdentifier.QUERY_SERVER_IN_PIPELINE, False
     )  # Ownership in Pipeline has to be declared first
 
     # 6. Start executors in separate threads
@@ -225,7 +225,7 @@ def main() -> None:
     # 7. Dynamically load the requested Analysis Engine (AE) using the **refactored** ModuleLoader
     loader = ModuleLoader()
     logger.info(f"Loading AE '{args.ae}' from package '{args.ros_pkg}'...")
-    loaded_ae = loader.load_ae(ros_pkg_name=args.ros_pkg, module_name=args.ae)
+    loaded_ae = loader.load_ae(ros_package_name=args.ros_pkg, module_name=args.ae)
 
     # 8. Build your Behavior Tree from the loaded AE
     #    (Assuming loaded_ae.implementation() returns a py_trees root or something similar)

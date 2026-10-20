@@ -74,16 +74,16 @@ class ROSCameraWithoutDepthInterface(ROSCameraInterface):
         """
         Subscriber for camera info topic.
         """
-        ts = message_filters.ApproximateTimeSynchronizer(
+        time_synchronizer = message_filters.ApproximateTimeSynchronizer(
             [self.color_subscriber, self.camera_info_subscriber],
             queue_size=10,
             slop=0.4,
         )
-        ts.registerCallback(self.callback)
+        time_synchronizer.registerCallback(self.callback)
 
-        self.rk_logger.info("Subscribed to: ")
-        self.rk_logger.info(f"  {camera_config.topic_color}")
-        self.rk_logger.info(f"  {camera_config.topic_camera_info}")
+        self.robokudo_logger.info("Subscribed to: ")
+        self.robokudo_logger.info(f"  {camera_config.topic_color}")
+        self.robokudo_logger.info(f"  {camera_config.topic_camera_info}")
 
         self.color: Optional[Tuple[npt.NDArray]] = None
         """Latest RGB image data"""
@@ -158,29 +158,29 @@ class ROSCameraWithoutDepthInterface(ROSCameraInterface):
         return new_K, new_size
 
     def rotate_image_and_intrinsics(
-        self, img: npt.NDArray, K: npt.NDArray, rotation: str = "90_ccw"
+        self, image: npt.NDArray, K: npt.NDArray, rotation: str = "90_ccw"
     ) -> Tuple[npt.NDArray, npt.NDArray, Tuple[int, int]]:
         """
         Rotate an image and adjust its camera intrinsics accordingly.
 
-        :param img: Input image to rotate
+        :param image: Input image to rotate
         :param K: Camera intrinsics matrix
         :param rotation: Type of rotation to apply, defaults to '90_ccw'
         :return: Tuple of (rotated image, new intrinsics matrix, new dimensions)
         :raises ValueError: If rotation type is not supported
         """
-        h, w = img.shape[:2]
+        height, width = image.shape[:2]
         if rotation == "90_ccw":
-            img_rotated = cv2.rotate(img, cv2.ROTATE_90_COUNTERCLOCKWISE)
+            rotated_image = cv2.rotate(image, cv2.ROTATE_90_COUNTERCLOCKWISE)
         elif rotation == "90_cw":
-            img_rotated = cv2.rotate(img, cv2.ROTATE_90_CLOCKWISE)
+            rotated_image = cv2.rotate(image, cv2.ROTATE_90_CLOCKWISE)
         elif rotation == "180":
-            img_rotated = cv2.rotate(img, cv2.ROTATE_180)
+            rotated_image = cv2.rotate(image, cv2.ROTATE_180)
         else:
             raise ValueError("Unsupported rotation type.")
 
-        K_new, new_size = self.rotate_camera_intrinsics(K, (w, h), rotation)
-        return img_rotated, K_new, new_size
+        K_new, new_size = self.rotate_camera_intrinsics(K, (width, height), rotation)
+        return rotated_image, K_new, new_size
 
     def callback(
         self,
@@ -248,10 +248,10 @@ class ROSCameraWithoutDepthInterface(ROSCameraInterface):
             K = np.array([[fx, 0, cx], [0, fy, cy], [0, 0, 1]])
             # 1) calculate camera intrinsics
             # 2) modify ROS camera info setting
-            rotated_img, K_rotated, new_size = self.rotate_image_and_intrinsics(
+            rotated_image, K_rotated, new_size = self.rotate_image_and_intrinsics(
                 self.color, K=K, rotation=self.camera_config.rotate_image
             )
-            self.color = rotated_img
+            self.color = rotated_image
             k_flat = K_rotated.flatten()
             fx = k_flat[0]
             cx = k_flat[2]

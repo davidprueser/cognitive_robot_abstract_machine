@@ -68,7 +68,7 @@ class Pipeline(Sequence):
         """
         Timer for measuring pipeline execution time.
         """
-        self.rk_logger = logging.getLogger(defs.PACKAGE_NAME)
+        self.robokudo_logger = logging.getLogger(defs.PACKAGE_NAME)
         """
         Logger instance for this pipeline.
         """
@@ -109,7 +109,7 @@ class Pipeline(Sequence):
 
         annotators = self.get_annotators()
         for a in annotators:
-            a.add_self_to_annotator_output_struct()
+            a.add_self_to_annotator_output_structure()
         annotator_output_pipeline_map_buffer.map[self.name].redraw = True
         return True
 
@@ -161,9 +161,9 @@ class Pipeline(Sequence):
         Handles pipeline execution status and triggers GUI updates on failure.
         """
         super().update()
-        self.rk_logger.debug("%s.update()" % self.__class__.__name__)
+        self.robokudo_logger.debug("%s.update()" % self.__class__.__name__)
         if self.status == Status.FAILURE:
-            self.rk_logger.debug(
+            self.robokudo_logger.debug(
                 "%s: Previous execution was a failure. Update GUI." % self.status
             )
             blackboard = Blackboard()
@@ -181,7 +181,7 @@ class Pipeline(Sequence):
 
         :param new_status: New execution status
         """
-        self.rk_logger.debug(
+        self.robokudo_logger.debug(
             "%s.terminate()[%s->%s]"
             % (self.__class__.__name__, self.status, new_status)
         )
@@ -195,7 +195,7 @@ class Pipeline(Sequence):
 
         if new_status == Status.SUCCESS or new_status == Status.FAILURE:
             self.feedback_message = f"Processing took {(timeit.default_timer() - self.common_analysis_structure_start_timer):.4f}s"
-            self.rk_logger.debug(
+            self.robokudo_logger.debug(
                 f"Pipeline Processing took in total {(timeit.default_timer() - self.common_analysis_structure_start_timer):.4f}s"
             )
             self.common_analysis_structure_start_timer = timeit.default_timer()

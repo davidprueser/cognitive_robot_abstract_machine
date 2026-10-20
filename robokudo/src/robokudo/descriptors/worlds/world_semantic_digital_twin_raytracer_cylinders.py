@@ -6,7 +6,8 @@ from semantic_digital_twin.world_description.geometry import Scale, Color
 
 class WorldDescriptor(BaseWorldDescriptor):
     """
-    A compact tabletop world for SemDT RayTracer with cylindrical target objects.
+    A compact tabletop world for semantic digital twin RayTracer with cylindrical target
+    objects.
     """
 
     def __init__(self) -> None:

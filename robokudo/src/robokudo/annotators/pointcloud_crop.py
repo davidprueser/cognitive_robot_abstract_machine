@@ -85,7 +85,7 @@ class PointcloudCropAnnotator(BaseAnnotator):
         :param descriptor: Configuration descriptor
         """
         super().__init__(name, descriptor)
-        self.rk_logger.debug("%s.__init__()" % self.__class__.__name__)
+        self.robokudo_logger.debug("%s.__init__()" % self.__class__.__name__)
 
         self.color: Optional[npt.NDArray] = None
         """A copy of the color image currently being worked with."""
@@ -107,7 +107,7 @@ class PointcloudCropAnnotator(BaseAnnotator):
         :raises Exception: If world transform not found when needed
         """
         start_timer = default_timer()
-        self.rk_logger.warning(f"{self.__class__.__name__} called for update()")
+        self.robokudo_logger.warning(f"{self.__class__.__name__} called for update()")
 
         cloud = self.get_common_analysis_structure().get(
             CommonAnalysisStructureViews.CLOUD
@@ -132,7 +132,7 @@ class PointcloudCropAnnotator(BaseAnnotator):
                     self.get_common_analysis_structure(), cloud
                 )
             except Exception as e:
-                self.rk_logger.warning(
+                self.robokudo_logger.warning(
                     f"Couldn't find camera viewpoint in the common analysis structure and relative_to_world is true. "
                     f"Fail. Error: {e}"
                 )
@@ -167,10 +167,10 @@ class PointcloudCropAnnotator(BaseAnnotator):
 
         assert isinstance(cropped_cloud, o3d.geometry.PointCloud)
 
-        self.get_common_analysis_structure().set_ref(
+        self.get_common_analysis_structure().set_reference(
             CommonAnalysisStructureViews.CLOUD, cropped_cloud
         )
-        self.get_annotator_output_struct().set_geometries(cropped_cloud)
+        self.get_annotator_output_structure().set_geometries(cropped_cloud)
 
         mask_scale = 1.0 / color_to_depth_ratio.horizontal
         mask = get_mask_from_pointcloud(
@@ -181,7 +181,7 @@ class PointcloudCropAnnotator(BaseAnnotator):
             crop_to_ref=True,
         )
         combined_mask_color = cv2.addWeighted(self.color, 0.5, mask, 0.5, 0)
-        self.get_annotator_output_struct().set_image(combined_mask_color)
+        self.get_annotator_output_structure().set_image(combined_mask_color)
 
         end_timer = default_timer()
         self.feedback_message = f"Processing took {(end_timer - start_timer):.4f}s"

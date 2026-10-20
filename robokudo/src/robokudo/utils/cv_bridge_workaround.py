@@ -47,7 +47,7 @@ class CVBridgeWorkaround:
     paths.
     """
 
-    _GENERIC_ENCODING_RE = re.compile(r"^(8|16|32|64)([USFusf])C([1-4])$")
+    _GENERIC_ENCODING_PATTERN = re.compile(r"^(8|16|32|64)([USFusf])C([1-4])$")
 
     _ENCODING_TO_DTYPE_CHANNELS = {
         "mono8": (np.uint8, 1),
@@ -78,13 +78,13 @@ class CVBridgeWorkaround:
     }
 
     def imgmsg_to_cv2(
-        self, img_msg: Image, desired_encoding: str = "passthrough"
+        self, image_message: Image, desired_encoding: str = "passthrough"
     ) -> npt.NDArray:
         """
         Convert ROS ``sensor_msgs/Image`` to a NumPy/OpenCV image.
         """
-        image = self._decode_image_message(img_msg)
-        source_encoding = img_msg.encoding.strip().lower()
+        image = self._decode_image_message(image_message)
+        source_encoding = image_message.encoding.strip().lower()
         target_encoding = desired_encoding.strip().lower()
 
         if target_encoding in ("", "passthrough") or target_encoding == source_encoding:
@@ -102,13 +102,13 @@ class CVBridgeWorkaround:
             if source_encoding in ("mono8", "8uc1"):
                 return cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
             raise ValueError(
-                f"Cannot convert ROS image encoding '{img_msg.encoding}' to '{desired_encoding}'"
+                f"Cannot convert ROS image encoding '{image_message.encoding}' to '{desired_encoding}'"
             )
 
         if target_encoding == "32fc1":
             if image.ndim != 2:
                 raise CVBridgeImageConversionError(
-                    source_encoding=img_msg.encoding,
+                    source_encoding=image_message.encoding,
                     target_encoding=desired_encoding,
                     reason="source image is not single-channel",
                 )
@@ -169,7 +169,7 @@ class CVBridgeWorkaround:
             dtype, channels = cls._ENCODING_TO_DTYPE_CHANNELS[normalized]
             return np.dtype(dtype), int(channels)
 
-        match = cls._GENERIC_ENCODING_RE.match(normalized)
+        match = cls._GENERIC_ENCODING_PATTERN.match(normalized)
         if match is None:
             raise CVBridgeUnsupportedEncoding(encoding=encoding)
 
@@ -190,35 +190,37 @@ class CVBridgeWorkaround:
         return np.dtype(dtype), int(channels)
 
     @classmethod
-    def _decode_image_message(cls, msg: Image) -> npt.NDArray:
-        base_dtype, channels = cls._encoding_to_dtype_channels(msg.encoding)
-        if msg.height <= 0 or msg.width <= 0:
-            raise CVBridgeROSImageShapeError(height=msg.height, width=msg.width)
+    def _decode_image_message(cls, message: Image) -> npt.NDArray:
+        base_dtype, channels = cls._encoding_to_dtype_channels(message.encoding)
+        if message.height <= 0 or message.width <= 0:
+            raise CVBridgeROSImageShapeError(height=message.height, width=message.width)
 
-        msg_dtype = base_dtype.newbyteorder(">" if msg.is_bigendian else "<")
-        row_bytes = int(msg.step)
-        pixel_row_bytes = int(msg.width) * channels * base_dtype.itemsize
+        message_dtype = base_dtype.newbyteorder(">" if message.is_bigendian else "<")
+        row_bytes = int(message.step)
+        pixel_row_bytes = int(message.width) * channels * base_dtype.itemsize
         if row_bytes < pixel_row_bytes:
             raise CVBridgeROSImageStepError(
                 row_bytes=row_bytes,
                 pixel_row_bytes=pixel_row_bytes,
             )
 
-        required_bytes = int(msg.height) * row_bytes
-        if len(msg.data) < required_bytes:
+        required_bytes = int(message.height) * row_bytes
+        if len(message.data) < required_bytes:
             raise CVBridgeROSImagePayloadError(
-                actual_bytes=len(msg.data),
+                actual_bytes=len(message.data),
                 required_bytes=required_bytes,
             )
 
-        raw = np.frombuffer(msg.data, dtype=np.uint8, count=required_bytes)
-        raw = raw.reshape((int(msg.height), row_bytes))[:, :pixel_row_bytes]
+        raw = np.frombuffer(message.data, dtype=np.uint8, count=required_bytes)
+        raw = raw.reshape((int(message.height), row_bytes))[:, :pixel_row_bytes]
 
-        decoded = raw.view(msg_dtype)
+        decoded = raw.view(message_dtype)
         if channels == 1:
-            decoded = decoded.reshape((int(msg.height), int(msg.width)))
+            decoded = decoded.reshape((int(message.height), int(message.width)))
         else:
-            decoded = decoded.reshape((int(msg.height), int(msg.width), channels))
+            decoded = decoded.reshape(
+                (int(message.height), int(message.width), channels)
+            )
 
         if not decoded.dtype.isnative:
             decoded = decoded.byteswap().view(base_dtype)

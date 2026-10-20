@@ -61,7 +61,7 @@ class CLIPAnnotator(ZeroShotClassificationAnnotator):
     ) -> None:
         super().__init__(name=name, descriptor=descriptor)
 
-        self.rk_logger.debug(f"Starting to init {self.__class__.__name__}")
+        self.robokudo_logger.debug(f"Starting to init {self.__class__.__name__}")
 
         self.clip_model = CLIPModel.from_pretrained(
             self.descriptor.parameters.model_name
@@ -100,7 +100,7 @@ class CLIPAnnotator(ZeroShotClassificationAnnotator):
             text_features = text_features.cpu().numpy()
         self.vocabulary_index.add(text_features)
 
-        self.rk_logger.debug(f"Initialized {self.__class__.__name__}")
+        self.robokudo_logger.debug(f"Initialized {self.__class__.__name__}")
 
     def _get_image_features(self, images: list[Image.Image]) -> npt.NDArray[np.float32]:
         """

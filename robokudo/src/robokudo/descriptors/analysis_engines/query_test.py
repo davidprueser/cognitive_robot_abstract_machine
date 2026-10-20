@@ -26,7 +26,7 @@ from robokudo.annotators.core import BaseAnnotator
 from robokudo.annotators.query import QueryAnnotator
 from robokudo.behaviours.action_server_checks import ActionServerNoPreemptRequest
 from robokudo.common_analysis_structure import CommonAnalysisStructureViews
-from robokudo.identifier import BBIdentifier
+from robokudo.identifier import BlackboardIdentifier
 from robokudo.idioms import pipeline_init
 from robokudo.pipeline import Pipeline
 
@@ -47,10 +47,10 @@ class PrintNumbers(BaseAnnotator):
 
     def update(self) -> Status:
         blackboard = Blackboard()
-        feedback_queue = blackboard.get(BBIdentifier.QUERY_FEEDBACK)
+        feedback_queue = blackboard.get(BlackboardIdentifier.QUERY_FEEDBACK)
         if feedback_queue is None:
             feedback_queue = Queue()
-            blackboard.set(BBIdentifier.QUERY_FEEDBACK, feedback_queue)
+            blackboard.set(BlackboardIdentifier.QUERY_FEEDBACK, feedback_queue)
 
         if self.current_number <= 100:
             # Append number and update result
@@ -67,7 +67,7 @@ class PrintNumbers(BaseAnnotator):
             return Status.RUNNING
         else:
             self.completed = True
-            blackboard.set(BBIdentifier.QUERY_ANSWER, self.result_string)
+            blackboard.set(BlackboardIdentifier.QUERY_ANSWER, self.result_string)
             return Status.SUCCESS
 
 

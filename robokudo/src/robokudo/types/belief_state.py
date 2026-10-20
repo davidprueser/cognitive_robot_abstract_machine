@@ -19,10 +19,10 @@ if TYPE_CHECKING:
 class ObjectBeliefState:
     body: Body
     """
-    The semdt body associated with the belief state.
+    The semantic digital twin body associated with the belief state.
     """
 
-    max_num_hypotheses: int = 1
+    max_number_of_hypotheses: int = 1
     """
     The maximum number of object hypotheses to keep in the belief state.
     """
@@ -33,7 +33,7 @@ class ObjectBeliefState:
     """
 
     def __post_init__(self) -> None:
-        self.hypotheses = deque(maxlen=self.max_num_hypotheses)
+        self.hypotheses = deque(maxlen=self.max_number_of_hypotheses)
 
     @classmethod
     def create_with_new_body(cls, name: Optional[PrefixedName] = None) -> Self:
@@ -76,7 +76,7 @@ class ObjectBeliefState:
         return None
 
     @property
-    def latest_bbox_3d(self) -> Optional[BoundingBox3DAnnotation]:
+    def latest_bounding_box_3d(self) -> Optional[BoundingBox3DAnnotation]:
         """
         The newest 3D bounding box annotation of the latest hypothesis.
         """

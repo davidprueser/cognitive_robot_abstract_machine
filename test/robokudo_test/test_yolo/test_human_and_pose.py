@@ -550,7 +550,7 @@ def test_visualization_shows_detections_drawn_by_model(
         scene.color_image(), conf=descriptor.parameters.confidence_threshold
     )
     np.testing.assert_array_equal(
-        annotator.get_annotator_output_struct().image, expected_result.plot()
+        annotator.get_annotator_output_structure().image, expected_result.plot()
     )
 
 
@@ -561,7 +561,7 @@ def test_visualization_shows_point_clouds_of_hypotheses(
 
     annotator.compute()
 
-    assert len(annotator.get_annotator_output_struct().geometries.points) == _area(
+    assert len(annotator.get_annotator_output_structure().geometries.points) == _area(
         scene.person_box_in(scene.color_image())
     )
 
@@ -573,4 +573,4 @@ def test_visualization_without_depth_shows_no_point_clouds(
 
     annotator.compute()
 
-    assert annotator.get_annotator_output_struct().geometries == []
+    assert annotator.get_annotator_output_structure().geometries == []

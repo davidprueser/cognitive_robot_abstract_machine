@@ -70,22 +70,22 @@ class TestUtilsDecorators(object):
             time.sleep(0.1)
 
         dummy = DummyTimerClass()
-        dummy.rk_logger = MagicMock()
+        dummy.robokudo_logger = MagicMock()
 
         timer(self=dummy)
 
-        dummy.rk_logger.info.assert_called_once()
+        dummy.robokudo_logger.info.assert_called_once()
         expected_prefix = f"Function '{DummyTimerClass}.timer' took"
-        assert expected_prefix in dummy.rk_logger.info.call_args[0][0]
+        assert expected_prefix in dummy.robokudo_logger.info.call_args[0][0]
 
     def test_timer_decorator_class_method_with_logger(self) -> None:
         dummy = DummyTimerClass()
-        dummy.rk_logger = MagicMock()
+        dummy.robokudo_logger = MagicMock()
 
         dummy.timer()
-        dummy.rk_logger.info.assert_called_once()
+        dummy.robokudo_logger.info.assert_called_once()
         expected_prefix = f"Function '{DummyTimerClass}.timer' took"
-        assert expected_prefix in dummy.rk_logger.info.call_args[0][0]
+        assert expected_prefix in dummy.robokudo_logger.info.call_args[0][0]
 
     def test_record_time(self) -> None:
         duration = 0.1

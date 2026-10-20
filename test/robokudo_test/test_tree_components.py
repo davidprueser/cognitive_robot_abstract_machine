@@ -8,7 +8,7 @@ from py_trees.blackboard import Blackboard
 from py_trees.composites import Sequence
 
 from robokudo.common_analysis_structure import CommonAnalysisStructureViews
-from robokudo.identifier import BBIdentifier
+from robokudo.identifier import BlackboardIdentifier
 from robokudo.pipeline import Pipeline
 from robokudo.tree_components.query_based_task_scheduler import QueryBasedScheduler
 from robokudo.tree_components.task_scheduler import (
@@ -123,4 +123,4 @@ class TestTreeComponents:
 
         status = scheduler.update()
         assert status == py_trees.common.Status.FAILURE
-        assert Blackboard().get(BBIdentifier.BLACKBOARD_EXCEPTION_NAME)
+        assert Blackboard().get(BlackboardIdentifier.BLACKBOARD_EXCEPTION_NAME)

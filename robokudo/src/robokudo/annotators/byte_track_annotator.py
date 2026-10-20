@@ -24,9 +24,9 @@ class ByteTrackAnnotator(BaseAnnotator):
 
     The annotator is capable of utilizing:
 
-    * ObjectHypothesis ROI
-    * ObjectHypothesis ROI + Mask
-    * ObjectHypothesis ROI + Mask + Classification annotation
+    * ObjectHypothesis region of interest
+    * ObjectHypothesis region of interest + Mask
+    * ObjectHypothesis region of interest + Mask + Classification annotation
     """
 
     def __init__(self, name: str = "ByteTrackAnnotator") -> None:
@@ -35,13 +35,13 @@ class ByteTrackAnnotator(BaseAnnotator):
         self.tracker: ByteTrackTracker = ByteTrackTracker()
         """Main ByteTrack instance for object instance tracking."""
 
-        self.last_ts: float = 0.0
+        self.last_timestamp: float = 0.0
         """Timestamp of the last data received, used for tracker reset detection."""
 
         self.label_annotator = sv.RichLabelAnnotator(color_lookup=sv.ColorLookup.TRACK)
-        """A special label annotator, that cannot simply be used like the annotators in `self.vis_annotators`."""
+        """A special label annotator, that cannot simply be used like the annotators in `self.visualization_annotators`."""
 
-        self.vis_annotators = [
+        self.visualization_annotators = [
             sv.BoxAnnotator(color_lookup=sv.ColorLookup.TRACK),
             sv.MaskAnnotator(color_lookup=sv.ColorLookup.INDEX),
             sv.TraceAnnotator(color_lookup=sv.ColorLookup.TRACK),
@@ -51,35 +51,46 @@ class ByteTrackAnnotator(BaseAnnotator):
     def update(self) -> Status:
         common_analysis_structure = self.get_common_analysis_structure()
 
-        data_ts = common_analysis_structure.get(
+        data_timestamp = common_analysis_structure.get(
             CommonAnalysisStructureViews.DATA_TIMESTAMP
         )
-        if data_ts < self.last_ts:
+        if data_timestamp < self.last_timestamp:
             # This is expected when looping data
-            self.rk_logger.debug("Time moved backward, resetting tracker.")
+            self.robokudo_logger.debug("Time moved backward, resetting tracker.")
             self.tracker.reset()
-        self.last_ts = data_ts
+        self.last_timestamp = data_timestamp
 
-        ohs: List[ObjectHypothesis] = (
+        object_hypotheses: List[ObjectHypothesis] = (
             common_analysis_structure.filter_annotations_by_type(ObjectHypothesis)
         )
-        if len(ohs) == 0:
-            self.rk_logger.debug(f"{len(ohs)} object hypothesis found, nothing to do.")
+        if len(object_hypotheses) == 0:
+            self.robokudo_logger.debug(
+                f"{len(object_hypotheses)} object hypothesis found, nothing to do."
+            )
             return Status.SUCCESS
 
-        rois_xyxy = np.array([oh.roi.roi.get_corner_points() for oh in ohs])
-        if len(rois_xyxy) == 0:
-            self.rk_logger.debug(f"No ROI found in {len(ohs)} object hypothesis.")
+        regions_of_interest_xyxy = np.array(
+            [
+                object_hypothesis.roi.roi.get_corner_points()
+                for object_hypothesis in object_hypotheses
+            ]
+        )
+        if len(regions_of_interest_xyxy) == 0:
+            self.robokudo_logger.debug(
+                f"No region of interest found in {len(object_hypotheses)} object hypothesis."
+            )
             return Status.FAILURE
 
         detections = {
-            "xyxy": rois_xyxy,
-            "confidence": np.ones(len(rois_xyxy), dtype=float),  # Default confidence
+            "xyxy": regions_of_interest_xyxy,
+            "confidence": np.ones(
+                len(regions_of_interest_xyxy), dtype=float
+            ),  # Default confidence
         }
 
-        masks = [oh.roi.mask for oh in ohs]
-        masks = list(filter(lambda m: m is not None, masks))
-        if len(masks) == len(rois_xyxy):
+        masks = [object_hypothesis.roi.mask for object_hypothesis in object_hypotheses]
+        masks = list(filter(lambda mask: mask is not None, masks))
+        if len(masks) == len(regions_of_interest_xyxy):
             camera_intrinsic: o3d.cuda.pybind.camera.PinholeCameraIntrinsic = (
                 common_analysis_structure.get(
                     CommonAnalysisStructureViews.CAMERA_INTRINSIC
@@ -88,39 +99,46 @@ class ByteTrackAnnotator(BaseAnnotator):
 
             # Masks must be restored to full color image size
             restored_masks = []
-            for roi, mask in zip(rois_xyxy, masks):
+            for region_of_interest, mask in zip(regions_of_interest_xyxy, masks):
                 restored_mask = np.zeros(
                     (camera_intrinsic.height, camera_intrinsic.width), dtype=np.uint8
                 )
-                restored_mask[roi[1] : roi[3], roi[0] : roi[2]] = mask
+                restored_mask[
+                    region_of_interest[1] : region_of_interest[3],
+                    region_of_interest[0] : region_of_interest[2],
+                ] = mask
                 restored_masks.append(restored_mask)
             detections["mask"] = np.array(restored_masks).astype(bool)
 
-            self.rk_logger.debug(
+            self.robokudo_logger.debug(
                 f"Using {len(restored_masks)} masks for object tracking."
             )
 
         classifications: List[Classification] = []
-        for oh in ohs:
+        for object_hypothesis in object_hypotheses:
             classification = common_analysis_structure.filter_by_type(
-                Classification, oh.annotations
+                Classification, object_hypothesis.annotations
             )
             if len(classification) == 0:
                 break
             classifications.append(classification[0])
-        if len(classifications) == len(rois_xyxy):
-            detections["class_id"] = np.zeros(len(ohs))
-            detections["confidence"] = np.zeros(len(ohs))
+        if len(classifications) == len(regions_of_interest_xyxy):
+            detections["class_id"] = np.zeros(len(object_hypotheses))
+            detections["confidence"] = np.zeros(len(object_hypotheses))
             detections["data"][CLASS_NAME_DATA_FIELD] = np.full(
-                len(ohs), "NONE", dtype=str
+                len(object_hypotheses), "NONE", dtype=str
             )
 
-            for i, (oh, cls) in enumerate(zip(ohs, classifications)):
+            for i, (object_hypothesis, cls) in enumerate(
+                zip(object_hypotheses, classifications)
+            ):
                 detections["class_id"][i] = cls.class_id
                 detections["confidence"][i] = cls.confidence
                 detections["data"][CLASS_NAME_DATA_FIELD] = cls.classname
 
-            self.rk_logger.debug(f"Using {len(ohs)} class ids for object tracking.")
+            self.robokudo_logger.debug(
+                f"Using {len(object_hypotheses)} class ids for object tracking."
+            )
 
         detections = sv.Detections(**detections)
         tracked_detections = self.tracker.update(detections)
@@ -134,7 +152,7 @@ class ByteTrackAnnotator(BaseAnnotator):
 
         :param tracked_detections: The tracked detections to visualize.
         """
-        vis_image: npt.NDArray[np.uint8] = copy.deepcopy(
+        visualization_image: npt.NDArray[np.uint8] = copy.deepcopy(
             self.get_common_analysis_structure().get(
                 CommonAnalysisStructureViews.COLOR_IMAGE
             )
@@ -144,8 +162,10 @@ class ByteTrackAnnotator(BaseAnnotator):
             tracked_detections.tracker_id is not None
             and len(tracked_detections.tracker_id) > 0
         ):
-            for annotator in self.vis_annotators:
-                vis_image = annotator.annotate(vis_image, tracked_detections)
+            for annotator in self.visualization_annotators:
+                visualization_image = annotator.annotate(
+                    visualization_image, tracked_detections
+                )
 
             labels = []
             for i, track_id in enumerate(tracked_detections.tracker_id):
@@ -157,8 +177,8 @@ class ByteTrackAnnotator(BaseAnnotator):
                 label += f" ({tracked_detections.confidence[i]:.2f})"
 
                 labels.append(label)
-            vis_image = self.label_annotator.annotate(
-                scene=vis_image, detections=tracked_detections, labels=labels
+            visualization_image = self.label_annotator.annotate(
+                scene=visualization_image, detections=tracked_detections, labels=labels
             )
 
-        self.get_annotator_output_struct().set_image(vis_image)
+        self.get_annotator_output_structure().set_image(visualization_image)

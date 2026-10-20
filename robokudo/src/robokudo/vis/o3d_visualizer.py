@@ -107,7 +107,7 @@ class O3DVisualizer(Visualizer, Visualizer.Observer):
         )  # right now, this is the last update call. if that's true, the GUI is happy.
 
         if not tick_result:
-            self.indicate_termination_var = True
+            self.indicate_termination_variable = True
 
     def window_title(self) -> str:
         """
@@ -142,7 +142,7 @@ class Viewer3D(object):
         """
         Name identifier for the point cloud.
         """
-        self.rk_logger: logging.Logger = logging.getLogger(PACKAGE_NAME)
+        self.robokudo_logger: logging.Logger = logging.getLogger(PACKAGE_NAME)
         """
         Logger instance.
         """
@@ -154,7 +154,7 @@ class Viewer3D(object):
         """
         app.initialize()
 
-        self.rk_logger.info(
+        self.robokudo_logger.info(
             "Starting O3DVisualizer. 3D output might be broken if no success message follows. "
             "Try rebooting the machine if running local or check GPU passthrough in Docker."
         )
@@ -165,7 +165,7 @@ class Viewer3D(object):
         """
         Open3D visualizer instance.
         """
-        self.rk_logger.info("Starting O3DVisualizer was successful")
+        self.robokudo_logger.info("Starting O3DVisualizer was successful")
 
         app.add_window(self.main_vis)
 

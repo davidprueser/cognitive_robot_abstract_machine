@@ -17,9 +17,9 @@ import robokudo.annotators.core
 import robokudo.utils.annotator_helper
 import robokudo.utils.error_handling
 import robokudo.utils.o3d_helper
-import robokudo.world as rk_world
+import robokudo.world as robokudo_world
 from robokudo.common_analysis_structure import CommonAnalysisStructureViews
-from robokudo.utils.region import region_obb_in_camera_coordinates
+from robokudo.utils.region import region_oriented_bounding_box_in_camera_coordinates
 from robokudo.world_descriptor import PredefinedObject
 
 
@@ -61,7 +61,7 @@ class WorldVisualizer(robokudo.annotators.core.ThreadedAnnotator):
         cloud = self.get_common_analysis_structure().get(
             CommonAnalysisStructureViews.CLOUD
         )
-        runtime_world = rk_world.world_instance()
+        runtime_world = robokudo_world.world_instance()
 
         try:
             world_to_camera_transform = (
@@ -70,7 +70,7 @@ class WorldVisualizer(robokudo.annotators.core.ThreadedAnnotator):
                 )
             )
         except KeyError as err:
-            self.rk_logger.warning(
+            self.robokudo_logger.warning(
                 f"Couldn't find viewpoint in the common analysis structure: {err}"
             )
             return py_trees.common.Status.FAILURE
@@ -98,7 +98,7 @@ class WorldVisualizer(robokudo.annotators.core.ThreadedAnnotator):
         if self.descriptor.parameters.visualize_regions:
             regions = runtime_world.get_kinematic_structure_entity_by_type(Region)
             for region in regions:
-                obb = region_obb_in_camera_coordinates(
+                obb = region_oriented_bounding_box_in_camera_coordinates(
                     runtime_world, region, world_to_camera_transform
                 )
                 visualized_geometries.append(
@@ -115,7 +115,7 @@ class WorldVisualizer(robokudo.annotators.core.ThreadedAnnotator):
             }
         )
 
-        self.get_annotator_output_struct().set_geometries(visualized_geometries)
+        self.get_annotator_output_structure().set_geometries(visualized_geometries)
 
         end_timer = default_timer()
         self.feedback_message = f"Processing took {(end_timer - start_timer):.4f}s"

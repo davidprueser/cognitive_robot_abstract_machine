@@ -1,9 +1,9 @@
 """
-SDT Region helpers for RoboKudo.
+Semantic digital twin Region helpers for RoboKudo.
 
 This module provides utilities to:
 - Normalize region naming
-- Compute region poses and OBBs
+- Compute region poses and oriented bounding boxes
 - Convert regions to annotations/markers
 """
 
@@ -22,11 +22,11 @@ from semantic_digital_twin.world_description.geometry import Box
 from semantic_digital_twin.world_description.world_entity import Region
 
 
-def _box_obb_from_shape(
+def _box_oriented_bounding_box_from_shape(
     box: Box, world_T_region: HomogeneousTransformationMatrix
 ) -> o3d.geometry.OrientedBoundingBox:
     """
-    Build an OBB for a single SDT Box shape.
+    Build an oriented bounding box for a single semantic digital twin Box shape.
     """
     # Box origin is in the region frame; combine with region global pose
     box_origin: HomogeneousTransformationMatrix = box.origin
@@ -34,7 +34,7 @@ def _box_obb_from_shape(
     # world_T_box = world_T_region * region_T_box
     world_T_box = world_T_region @ box_origin
 
-    # Build OBB from center, rotation, scale
+    # Build oriented bounding box from center, rotation, scale
     center_np = world_T_box.position.to_np()
     if center_np.shape[0] == 4:
         center_np = center_np[:3]
@@ -47,60 +47,62 @@ def _box_obb_from_shape(
         .reshape(3, 1)
         .astype(float)
     )
-    obb = o3d.geometry.OrientedBoundingBox(center=center, R=R, extent=extent)
-    return obb
+    oriented_bounding_box = o3d.geometry.OrientedBoundingBox(
+        center=center, R=R, extent=extent
+    )
+    return oriented_bounding_box
 
 
-def region_obb(
+def region_oriented_bounding_box(
     region: Region, world: Optional[World] = None
 ) -> o3d.geometry.OrientedBoundingBox:
     """
-    Return an OBB for the region in world coordinates.
+    Return an oriented bounding box for the region in world coordinates.
 
     Strategy:
     - If a single Box shape exists, build directly from its scale and pose.
     - Otherwise, fall back to combined mesh or bounding boxes.
     """
-    # Get world_T_region as homogeneous matrix (global_pose is Pose in current SDT API)
+    # Get world_T_region as homogeneous matrix (global_pose is Pose in current semantic digital twin API)
     world_T_region = region.global_transform
 
     # Fast path: single Box
     if len(region.area) == 1 and isinstance(region.area[0], Box):
-        return _box_obb_from_shape(region.area[0], world_T_region)
+        return _box_oriented_bounding_box_from_shape(region.area[0], world_T_region)
 
     # General path: approximate via combined mesh bounding box
     # This assumes region.area.combined_mesh is in region frame; transform to world
     mesh = region.area.combined_mesh
     if mesh is None:
-        raise ValueError("Region has no shapes; cannot compute OBB")
+        raise ValueError("Region has no shapes; cannot compute oriented bounding box")
 
     mesh = mesh.copy()
     mesh.apply_transform(world_T_region.to_np())
 
-    obb = o3d.geometry.OrientedBoundingBox.create_from_points(
+    oriented_bounding_box = o3d.geometry.OrientedBoundingBox.create_from_points(
         o3d.utility.Vector3dVector(mesh.vertices)
     )
-    return obb
+    return oriented_bounding_box
 
 
-def region_obb_in_camera_coordinates(
+def region_oriented_bounding_box_in_camera_coordinates(
     world: World,
     region: Region,
     world_T_camera: Union[np.ndarray, HomogeneousTransformationMatrix],
 ) -> o3d.geometry.OrientedBoundingBox:
     """
-    Transform region OBB to camera frame using world_to_camera matrix.
+    Transform region oriented bounding box to camera frame using world_to_camera matrix.
     """
-    obb = region_obb(region, world=world)
+    oriented_bounding_box = region_oriented_bounding_box(region, world=world)
     if isinstance(world_T_camera, HomogeneousTransformationMatrix):
         R = world_T_camera.rotation_matrix.to_np()
         t = world_T_camera.position.to_np()
     else:
         R = world_T_camera[:3, :3]
         t = world_T_camera[:3, 3]
-    obb.rotate(R, center=(0, 0, 0))
-    obb.translate(t)
-    return obb
+    oriented_bounding_box.rotate(R, center=(0, 0, 0))
+    oriented_bounding_box.translate(t)
+    return oriented_bounding_box
 
 
 def region_pose_annotation(region: Region) -> robokudo.types.annotation.PoseAnnotation:

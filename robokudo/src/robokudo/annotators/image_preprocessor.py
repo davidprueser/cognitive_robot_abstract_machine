@@ -60,7 +60,7 @@ class ImagePreprocessorAnnotator(BaseAnnotator):
             """Parameters for configuring preprocessing."""
 
             def __init__(self) -> None:
-                self.depth_trunc: float = 9.0
+                self.depth_truncation: float = 9.0
                 """Maximum depth distance in meters, points beyond are discarded from cloud creation"""
 
         # Overwrite the parameters explicitly to enable auto-completion
@@ -77,7 +77,7 @@ class ImagePreprocessorAnnotator(BaseAnnotator):
         :param descriptor: Configuration descriptor
         """
         super().__init__(name, descriptor)
-        self.rk_logger.debug("%s.__init__()" % self.__class__.__name__)
+        self.robokudo_logger.debug("%s.__init__()" % self.__class__.__name__)
 
         self.color: Optional[npt.NDArray] = None
         """Optional color image currently being worked with"""
@@ -117,9 +117,9 @@ class ImagePreprocessorAnnotator(BaseAnnotator):
         )
 
         if self.display_mode is self.ViewMode.DEPTH:
-            self.get_annotator_output_struct().set_image(self.depth)
+            self.get_annotator_output_structure().set_image(self.depth)
         else:
-            self.get_annotator_output_struct().set_image(self.color)
+            self.get_annotator_output_structure().set_image(self.color)
 
         scale_camera_intrinsics(self)
 
@@ -129,14 +129,14 @@ class ImagePreprocessorAnnotator(BaseAnnotator):
                 self.get_common_analysis_structure(), self.color
             )
         except ColorToDepthRatioMissing:
-            self.rk_logger.error(
+            self.robokudo_logger.error(
                 "No color to depth ratio set by your camera driver! Can't preprocess."
             )
             raise
 
         # o3d expects color images in RGB order
-        color_rgb = cv2.cvtColor(resized_color, cv2.COLOR_BGR2RGB)
-        o3d_color = o3d.geometry.Image(color_rgb)
+        color_in_red_green_blue = cv2.cvtColor(resized_color, cv2.COLOR_BGR2RGB)
+        o3d_color = o3d.geometry.Image(color_in_red_green_blue)
         o3d_depth = None
         try:
             o3d_depth = o3d.geometry.Image(
@@ -146,15 +146,15 @@ class ImagePreprocessorAnnotator(BaseAnnotator):
             # Even though you might have a uint16 already, it might be required to explicitly cast to uint16
             # (Note: the byteorder field might be different after the cast to make o3d happy)
             o3d_depth = o3d.geometry.Image(self.depth.astype(numpy.uint16))
-        rgbd_image = o3d.geometry.RGBDImage.create_from_color_and_depth(
+        color_and_depth_image = o3d.geometry.RGBDImage.create_from_color_and_depth(
             o3d_color,
             o3d_depth,
             convert_rgb_to_intensity=False,
-            depth_trunc=self.descriptor.parameters.depth_trunc,
+            depth_trunc=self.descriptor.parameters.depth_truncation,
         )
 
         cloud = o3d.geometry.PointCloud.create_from_rgbd_image(
-            rgbd_image, self.camera_intrinsics
+            color_and_depth_image, self.camera_intrinsics
         )
 
         self.get_common_analysis_structure().set(
@@ -162,10 +162,10 @@ class ImagePreprocessorAnnotator(BaseAnnotator):
             self.camera_intrinsics,
         )
 
-        self.get_common_analysis_structure().set_ref(
+        self.get_common_analysis_structure().set_reference(
             CommonAnalysisStructureViews.CLOUD, cloud
         )
-        self.get_annotator_output_struct().set_geometries(
+        self.get_annotator_output_structure().set_geometries(
             cloud
         )  # the visualizer can only show non-NaN pointclouds
 

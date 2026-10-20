@@ -65,7 +65,7 @@ class CommonAnalysisStructureViews(StrEnum):
 
     COLOR_TO_DEPTH_RATIO = "color_to_depth_ratio"
     """
-    Size of the :attr:`DEPTH_IMAGE` relative to the :attr:`COLOR_IMAGE`, as a
+    Size of the :attribute:`DEPTH_IMAGE` relative to the :attribute:`COLOR_IMAGE`, as a
     :class:`~robokudo.types.cv.ColorToDepthRatio`.
     """
 
@@ -118,10 +118,10 @@ class CommonAnalysisStructureViews(StrEnum):
     """Object color mapping data which assigns objects visible in OBJECT_IMAGE to entity names."""
 
     GROUND_TRUTH_WORLD_REFERENCE = "ground_truth_world_ref"
-    """Read-only reference to the SemDT ground-truth world used for this common analysis structure frame.
+    """Read-only reference to the semantic digital twin ground-truth world used for this common analysis structure frame.
 
     This view is intended for in-process consumers only and should be written
-    by producers via `CommonAnalysisStructure.set_ref(...)` to avoid deep-copying the world object.
+    by producers via `CommonAnalysisStructure.set_reference(...)` to avoid deep-copying the world object.
     Consumers must treat this object as strictly read-only.
     """
 
@@ -158,10 +158,10 @@ class CommonAnalysisStructure:
     """
 
     def __post_init__(self) -> None:
-        dt_timestamp = datetime(1970, 1, 1, tzinfo=timezone.utc) + timedelta(
+        creation_datetime = datetime(1970, 1, 1, tzinfo=timezone.utc) + timedelta(
             microseconds=self.timestamp // 1000
         )
-        self.timestamp_readable = dt_timestamp.strftime("%Y-%m-%d %H:%M:%S")
+        self.timestamp_readable = creation_datetime.strftime("%Y-%m-%d %H:%M:%S")
 
     @property
     def color_image(self) -> Optional[np.ndarray]:
@@ -297,11 +297,11 @@ class CommonAnalysisStructure:
         self.views[CommonAnalysisStructureViews.COMMON_ANALYSIS_STRUCTURE_ID] = value
 
     @property
-    def ground_truth_world_ref(self) -> Optional[World]:
+    def ground_truth_world_reference(self) -> Optional[World]:
         return self.views.get(CommonAnalysisStructureViews.GROUND_TRUTH_WORLD_REFERENCE)
 
-    @ground_truth_world_ref.setter
-    def ground_truth_world_ref(self, value: World) -> None:
+    @ground_truth_world_reference.setter
+    def ground_truth_world_reference(self, value: World) -> None:
         self.views[CommonAnalysisStructureViews.GROUND_TRUTH_WORLD_REFERENCE] = value
 
     def get(self, view_name: str) -> Any:
@@ -338,7 +338,7 @@ class CommonAnalysisStructure:
         """
         self.views[view_name] = copy.deepcopy(value)
 
-    def set_ref(self, view_name: str, value: Any) -> None:
+    def set_reference(self, view_name: str, value: Any) -> None:
         """Put data in the common analysis structure index by a given view name. In contrast to set(), this will not make a copy but just
         does an assignment.
 
@@ -383,28 +383,28 @@ class CommonAnalysisStructure:
         :return: Filtered list of objects matching all criteria
         """
 
-        def matches_criteria(obj: Any) -> bool:
-            for attr, (op, value) in criteria.items():
-                attr_value = getattr(obj, attr, None)
-                if not compare(attr_value, op, value):
+        def matches_criteria(candidate: Any) -> bool:
+            for attribute, (comparison_operator, value) in criteria.items():
+                attribute_value = getattr(candidate, attribute, None)
+                if not compare(attribute_value, comparison_operator, value):
                     return False
             return True
 
-        def compare(attr_value: Any, op: str, value: Any) -> bool:
-            if op == "==":
-                return attr_value == value
-            elif op == ">":
-                return attr_value > value
-            elif op == "<":
-                return attr_value < value
-            elif op == ">=":
-                return attr_value >= value
-            elif op == "<=":
-                return attr_value <= value
+        def compare(attribute_value: Any, comparison_operator: str, value: Any) -> bool:
+            if comparison_operator == "==":
+                return attribute_value == value
+            elif comparison_operator == ">":
+                return attribute_value > value
+            elif comparison_operator == "<":
+                return attribute_value < value
+            elif comparison_operator == ">=":
+                return attribute_value >= value
+            elif comparison_operator == "<=":
+                return attribute_value <= value
             else:
-                raise ValueError(f"Unsupported operator: {op}")
+                raise ValueError(f"Unsupported operator: {comparison_operator}")
 
-        return [obj for obj in objects if matches_criteria(obj)]
+        return [candidate for candidate in objects if matches_criteria(candidate)]
 
     def filter_by_type_and_criteria(
         self,

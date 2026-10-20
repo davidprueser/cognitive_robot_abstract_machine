@@ -17,7 +17,7 @@ from robokudo.annotators.outputs import AnnotatorOutputPerPipelineMap
 from robokudo.descriptors.camera_configs.config_mongodb_playback import (
     MongoCameraConfig,
 )
-from robokudo.identifier import BBIdentifier
+from robokudo.identifier import BlackboardIdentifier
 
 # %% Mongo storage preservation
 
@@ -135,11 +135,11 @@ def ros_default() -> Iterator[None]:
 @pytest.fixture
 def node(ros_default: None) -> Iterator[Node]:
     node_registry = ROSNodeRegistry()
-    n = Node(robokudo.defs.TEST_ROS_NODE_NAME)
-    node_registry.register(n)
-    yield n
-    node_registry.clear(n)
-    n.destroy_node()
+    ros_node = Node(robokudo.defs.TEST_ROS_NODE_NAME)
+    node_registry.register(ros_node)
+    yield ros_node
+    node_registry.clear(ros_node)
+    ros_node.destroy_node()
 
 
 def clear_blackboard() -> None:
@@ -147,8 +147,8 @@ def clear_blackboard() -> None:
     Destroy blackboard-owned ROS nodes before clearing shared state.
     """
     blackboard = Blackboard()
-    if blackboard.exists(BBIdentifier.QUERY_SERVER):
-        query_server = blackboard.get(BBIdentifier.QUERY_SERVER)
+    if blackboard.exists(BlackboardIdentifier.QUERY_SERVER):
+        query_server = blackboard.get(BlackboardIdentifier.QUERY_SERVER)
         query_server.destroy()
     Blackboard.clear()
 

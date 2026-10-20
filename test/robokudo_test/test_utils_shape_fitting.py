@@ -81,9 +81,9 @@ class TestShapeFitting:
                 robust_loss="soft_l1",
                 max_radius=0.4,
                 max_height=1.0,
-                max_radius_to_bbox_diagonal_ratio=10.0,
+                max_radius_to_bounding_box_diagonal_ratio=10.0,
                 max_radius_to_cross_section_extent_ratio=10.0,
-                max_axis_center_distance_to_bbox_diagonal_ratio=10.0,
+                max_axis_center_distance_to_bounding_box_diagonal_ratio=10.0,
             ),
             min_inlier_ratio=0.8,
         )
@@ -364,8 +364,8 @@ class TestShapeFitting:
             points=points,
             distance_threshold=0.01,
             max_radius=1.2,
-            max_radius_to_bbox_diagonal_ratio=1.8,
-            max_center_distance_to_bbox_diagonal_ratio=1.8,
+            max_radius_to_bounding_box_diagonal_ratio=1.8,
+            max_center_distance_to_bounding_box_diagonal_ratio=1.8,
         )
 
         assert unconstrained_fit is not None
@@ -387,16 +387,16 @@ class TestShapeFitting:
             points=points,
             distance_threshold=0.01,
             max_radius=0.4,
-            max_radius_to_bbox_diagonal_ratio=10.0,
-            max_center_distance_to_bbox_diagonal_ratio=10.0,
+            max_radius_to_bounding_box_diagonal_ratio=10.0,
+            max_center_distance_to_bounding_box_diagonal_ratio=10.0,
         )
         constrained_fit = fit_sphere(
             points=points,
             distance_threshold=0.01,
             max_radius=0.4,
-            max_radius_to_bbox_diagonal_ratio=10.0,
+            max_radius_to_bounding_box_diagonal_ratio=10.0,
             max_radius_to_observed_extent_ratio=0.8,
-            max_center_distance_to_bbox_diagonal_ratio=10.0,
+            max_center_distance_to_bounding_box_diagonal_ratio=10.0,
         )
 
         assert unconstrained_fit is not None
@@ -437,16 +437,16 @@ class TestShapeFitting:
             points=points,
             distance_threshold=0.01,
             max_radius=2.0,
-            max_radius_to_bbox_diagonal_ratio=10.0,
-            max_axis_center_distance_to_bbox_diagonal_ratio=10.0,
+            max_radius_to_bounding_box_diagonal_ratio=10.0,
+            max_axis_center_distance_to_bounding_box_diagonal_ratio=10.0,
         )
         constrained_fit = fit_cylinder(
             points=points,
             distance_threshold=0.01,
             max_radius=2.0,
-            max_radius_to_bbox_diagonal_ratio=10.0,
+            max_radius_to_bounding_box_diagonal_ratio=10.0,
             max_radius_to_cross_section_extent_ratio=0.95,
-            max_axis_center_distance_to_bbox_diagonal_ratio=10.0,
+            max_axis_center_distance_to_bounding_box_diagonal_ratio=10.0,
         )
 
         assert unconstrained_fit is not None

@@ -87,10 +87,10 @@ class QueryBasedScheduler(
         )
 
         task_key = self.filter_fn(query)
-        self.rk_logger.info(f"Running perception task: {task_key}")
+        self.robokudo_logger.info(f"Running perception task: {task_key}")
 
         if task_key not in self.tasks.keys():
-            self.rk_logger.debug(f"Can't find task pipeline for '{task_key}'")
+            self.robokudo_logger.debug(f"Can't find task pipeline for '{task_key}'")
             return None
 
         job_elements = self.tasks[task_key]

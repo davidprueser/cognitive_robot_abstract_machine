@@ -4,7 +4,7 @@ import queue
 import pytest
 from py_trees.blackboard import Blackboard
 
-from robokudo.identifier import BBIdentifier
+from robokudo.identifier import BlackboardIdentifier
 from robokudo.utils.query import QueryHandler
 from robokudo_msgs.action import Query
 
@@ -15,46 +15,48 @@ class TestUtilsQuery:
 
         QueryHandler.init_feedback_queue()
 
-        fb_queue = blackboard.get(BBIdentifier.QUERY_FEEDBACK)
-        assert fb_queue is not None
-        assert isinstance(fb_queue, queue.Queue)
+        feedback_queue = blackboard.get(BlackboardIdentifier.QUERY_FEEDBACK)
+        assert feedback_queue is not None
+        assert isinstance(feedback_queue, queue.Queue)
 
         QueryHandler.init_feedback_queue()
 
-        fb_queue2 = blackboard.get(BBIdentifier.QUERY_FEEDBACK)
-        assert fb_queue2 is not None
-        assert isinstance(fb_queue2, queue.Queue)
-        assert fb_queue2 == fb_queue, f"feedback queue should not be reinitialized"
+        second_feedback_queue = blackboard.get(BlackboardIdentifier.QUERY_FEEDBACK)
+        assert second_feedback_queue is not None
+        assert isinstance(second_feedback_queue, queue.Queue)
+        assert (
+            second_feedback_queue == feedback_queue
+        ), f"feedback queue should not be reinitialized"
 
     def test_get_feedback_queue(self) -> None:
-        fb_queue = QueryHandler.get_feedback_queue()
-        assert fb_queue is not None
-        assert isinstance(fb_queue, queue.Queue)
+        feedback_queue = QueryHandler.get_feedback_queue()
+        assert feedback_queue is not None
+        assert isinstance(feedback_queue, queue.Queue)
 
     def test_send_feedback(self) -> None:
-        fb = Query.Feedback()
-        fb.feedback = "Test Feedback"
-        QueryHandler.send_feedback(fb)
+        feedback = Query.Feedback()
+        feedback.feedback = "Test Feedback"
+        QueryHandler.send_feedback(feedback)
 
-        fb_queue = Blackboard().get(BBIdentifier.QUERY_FEEDBACK)
-        fb_item = fb_queue.get()
-        assert fb_item == fb
-        assert fb_item.feedback == fb.feedback
+        feedback_queue = Blackboard().get(BlackboardIdentifier.QUERY_FEEDBACK)
+        feedback_item = feedback_queue.get()
+        assert feedback_item == feedback
+        assert feedback_item.feedback == feedback.feedback
 
-    def test_send_feedback_str(self) -> None:
-        fb = "Test Feedback"
-        QueryHandler.send_feedback_str(feedback_str=fb)
+    def test_send_feedback_string(self) -> None:
+        feedback = "Test Feedback"
+        QueryHandler.send_feedback_str(feedback_string=feedback)
 
-        fb_queue = Blackboard().get(BBIdentifier.QUERY_FEEDBACK)
-        fb_item = fb_queue.get()
-        assert fb_item.feedback == fb
+        feedback_queue = Blackboard().get(BlackboardIdentifier.QUERY_FEEDBACK)
+        feedback_item = feedback_queue.get()
+        assert feedback_item.feedback == feedback
 
     def test_send_answer(self) -> None:
         answer = Query.Result()
         answer.text_result = "Test Answer"
         QueryHandler.send_answer(answer)
 
-        answer_item = Blackboard().get(BBIdentifier.QUERY_ANSWER)
+        answer_item = Blackboard().get(BlackboardIdentifier.QUERY_ANSWER)
         assert answer_item == answer
         assert answer_item.text_result == answer.text_result
 
@@ -66,7 +68,7 @@ class TestUtilsQuery:
     def test_send_arbitrary_answer(self, answer: str | int | float) -> None:
         QueryHandler.send_arbitrary_answer(answer)
 
-        answer_item = Blackboard().get(BBIdentifier.QUERY_ANSWER)
+        answer_item = Blackboard().get(BlackboardIdentifier.QUERY_ANSWER)
         assert answer_item == answer
 
     def test_preempt_requested(self) -> None:
@@ -76,13 +78,13 @@ class TestUtilsQuery:
         is_requested = QueryHandler.preempt_requested()
         assert is_requested == False
 
-        blackboard.set(BBIdentifier.QUERY_PREEMPT_REQUESTED, True)
+        blackboard.set(BlackboardIdentifier.QUERY_PREEMPT_REQUESTED, True)
 
         # Works with preempt requested
         is_requested = QueryHandler.preempt_requested()
         assert is_requested == True
 
-        blackboard.set(BBIdentifier.QUERY_PREEMPT_REQUESTED, False)
+        blackboard.set(BlackboardIdentifier.QUERY_PREEMPT_REQUESTED, False)
 
         # Works with no preempt requested
         is_requested = QueryHandler.preempt_requested()
@@ -91,8 +93,10 @@ class TestUtilsQuery:
     def test_acknowledge_preempt_request(self) -> None:
         blackboard = Blackboard()
 
-        assert pytest.raises(KeyError, blackboard.get, BBIdentifier.QUERY_PREEMPT_ACK)
+        assert pytest.raises(
+            KeyError, blackboard.get, BlackboardIdentifier.QUERY_PREEMPT_ACKNOWLEDGED
+        )
 
         QueryHandler.acknowledge_preempt_request()
 
-        assert blackboard.get(BBIdentifier.QUERY_PREEMPT_ACK) == True
+        assert blackboard.get(BlackboardIdentifier.QUERY_PREEMPT_ACKNOWLEDGED) == True

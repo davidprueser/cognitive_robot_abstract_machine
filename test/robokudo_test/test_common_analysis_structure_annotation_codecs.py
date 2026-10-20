@@ -10,9 +10,9 @@ from robokudo.types.human import (
     KeypointKind,
 )
 from semantic_digital_twin.world_description.geometry import (
-    Box as SemDTBox,
-    Cylinder as SemDTCylinder,
-    Sphere as SemDTSphere,
+    Box as SemanticDigitalTwinBox,
+    Cylinder as SemanticDigitalTwinCylinder,
+    Sphere as SemanticDigitalTwinSphere,
 )
 from typing_extensions import TYPE_CHECKING
 
@@ -120,7 +120,9 @@ def test_cloud_annotation_serialization_roundtrip_preserves_point_cloud() -> Non
 
 
 def test_shape_annotation_serialization_roundtrip_preserves_metadata() -> None:
-    shape = Shape(source="shape_annotator", inliers=[1, 2, 3], geometry=SemDTBox())
+    shape = Shape(
+        source="shape_annotator", inliers=[1, 2, 3], geometry=SemanticDigitalTwinBox()
+    )
     shape.geometry.scale.x = 0.31
 
     serialized = common_analysis_structure_annotation_codecs.serialize_annotations(
@@ -135,7 +137,7 @@ def test_shape_annotation_serialization_roundtrip_preserves_metadata() -> None:
     assert isinstance(restored_shape, Shape)
     assert restored_shape.source == "shape_annotator"
     assert restored_shape.inliers == [1, 2, 3]
-    assert isinstance(restored_shape.geometry, SemDTBox)
+    assert isinstance(restored_shape.geometry, SemanticDigitalTwinBox)
     assert restored_shape.geometry.scale.x == 0.31
 
 
@@ -143,7 +145,7 @@ def test_sphere_annotation_serialization_roundtrip_preserves_radius() -> None:
     sphere = Sphere(
         source="sphere_annotator",
         inliers=[9, 8],
-        geometry=SemDTSphere(radius=0.27),
+        geometry=SemanticDigitalTwinSphere(radius=0.27),
     )
 
     serialized = common_analysis_structure_annotation_codecs.serialize_annotations(
@@ -158,7 +160,7 @@ def test_sphere_annotation_serialization_roundtrip_preserves_radius() -> None:
     assert isinstance(restored_sphere, Sphere)
     assert restored_sphere.source == "sphere_annotator"
     assert restored_sphere.inliers == [9, 8]
-    assert isinstance(restored_sphere.geometry, SemDTSphere)
+    assert isinstance(restored_sphere.geometry, SemanticDigitalTwinSphere)
     assert restored_sphere.geometry.radius == 0.27
 
 
@@ -166,7 +168,7 @@ def test_cylinder_annotation_serialization_roundtrip_preserves_dimensions() -> N
     cylinder = Cylinder(
         source="cylinder_annotator",
         inliers=[3, 4],
-        geometry=SemDTCylinder(width=0.2, height=0.6),
+        geometry=SemanticDigitalTwinCylinder(width=0.2, height=0.6),
     )
 
     serialized = common_analysis_structure_annotation_codecs.serialize_annotations(
@@ -181,7 +183,7 @@ def test_cylinder_annotation_serialization_roundtrip_preserves_dimensions() -> N
     assert isinstance(restored_cylinder, Cylinder)
     assert restored_cylinder.source == "cylinder_annotator"
     assert restored_cylinder.inliers == [3, 4]
-    assert isinstance(restored_cylinder.geometry, SemDTCylinder)
+    assert isinstance(restored_cylinder.geometry, SemanticDigitalTwinCylinder)
     assert restored_cylinder.geometry.width == 0.2
     assert restored_cylinder.geometry.height == 0.6
 

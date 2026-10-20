@@ -18,7 +18,8 @@ from semantic_digital_twin.world_description.world_entity import Body
 
 class WorldDescriptor(BaseWorldDescriptor):
     """
-    A compact tabletop world for SemDT RayTracer-based camera simulation.
+    A compact tabletop world for semantic digital twin RayTracer-based camera
+    simulation.
     """
 
     def __init__(self) -> None:
@@ -27,14 +28,19 @@ class WorldDescriptor(BaseWorldDescriptor):
 
         table_top_z = 0.78
         table_thickness = 0.06
-        pycram_spec = find_spec("coraplex")
-        if pycram_spec is None or pycram_spec.origin is None:
+        coraplex_module_specification = find_spec("coraplex")
+        if (
+            coraplex_module_specification is None
+            or coraplex_module_specification.origin is None
+        ):
             raise ImportError("Could not locate the coraplex package for mesh loading.")
-        object_mesh_dir = (
-            Path(pycram_spec.origin).resolve().parents[2] / "resources" / "objects"
+        object_mesh_directory = (
+            Path(coraplex_module_specification.origin).resolve().parents[2]
+            / "resources"
+            / "objects"
         )
-        cup_mesh_path = object_mesh_dir / "jeroen_cup.stl"
-        milk_mesh_path = object_mesh_dir / "milk.stl"
+        cup_mesh_path = object_mesh_directory / "jeroen_cup.stl"
+        milk_mesh_path = object_mesh_directory / "milk.stl"
 
         object_specs = [
             ObjectSpec(

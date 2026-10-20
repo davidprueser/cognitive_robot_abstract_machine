@@ -101,8 +101,8 @@ class SIFTAnnotator(ThreadedAnnotator):
         pcd = self._keypoints_to_point_cloud(
             all_keypoints, depth_image, intrinsic, color_to_depth_ratio
         )
-        self.get_annotator_output_struct().set_image(vis_image)
-        self.get_annotator_output_struct().set_geometries(pcd)
+        self.get_annotator_output_structure().set_image(vis_image)
+        self.get_annotator_output_structure().set_geometries(pcd)
         return Status.SUCCESS
 
     def _draw_visualization(

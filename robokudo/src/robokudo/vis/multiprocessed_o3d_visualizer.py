@@ -129,7 +129,7 @@ class O3DVisualizer(Visualizer, Visualizer.Observer):
         )  # right now, this is the last update call. if that's true, the GUI is happy.
 
         if not tick_result:
-            self.indicate_termination_var = True
+            self.indicate_termination_variable = True
 
     def window_title(self) -> str:
         """Get the window title for this visualizer."""
@@ -1212,7 +1212,7 @@ class MultiprocessedViewer3DClient(object):
     """A client for the MultiprocessedViewer3D server."""
 
     def __init__(self, title: str, cmd_conn: Connection, tick_return: mp.Event) -> None:
-        self.rk_logger: logging.Logger = logging.getLogger(PACKAGE_NAME)
+        self.robokudo_logger: logging.Logger = logging.getLogger(PACKAGE_NAME)
         """Logger instance"""
 
         self.viewer3d = Viewer3D(title)
@@ -1270,7 +1270,7 @@ class MultiprocessedViewer3DClient(object):
                     self.viewer3d.main_vis.add_geometry("dummy", coordinate_frame)
                     tick_return = self.viewer3d.tick()
                     if not tick_return:
-                        self.rk_logger.debug("Visualizer indicates shutdown.")
+                        self.robokudo_logger.debug("Visualizer indicates shutdown.")
                         self.tick_return.set()
                         break
 
@@ -1278,26 +1278,26 @@ class MultiprocessedViewer3DClient(object):
                 else:
                     time.sleep(interval - elapsed)
         except KeyboardInterrupt:
-            self.rk_logger.debug("Keyboard interrupt received.")
+            self.robokudo_logger.debug("Keyboard interrupt received.")
         finally:
             self.close()
 
     def close(self) -> None:
         """Close the visualization client and clean up resources."""
-        self.rk_logger.debug("Shutting down...")
+        self.robokudo_logger.debug("Shutting down...")
         if self.receiver_thread.is_alive():
             self.receiver_thread.join(timeout=1.0 / 10.0)
         for manager in self.name_to_shm_manager.values():
-            self.rk_logger.debug(f"Closing shared memory {manager.name}")
+            self.robokudo_logger.debug(f"Closing shared memory {manager.name}")
             manager.close()
-        self.rk_logger.debug("Shutdown complete.")
+        self.robokudo_logger.debug("Shutdown complete.")
 
     def update_geometry(self) -> None:
         """Update the geometry in the viewer."""
         start_t = time.perf_counter()
         with self.geometries_lock:
             self.viewer3d.update_cloud(self.geometries)
-        self.rk_logger.debug(
+        self.robokudo_logger.debug(
             f"Updated geometry in {time.perf_counter() - start_t:.4f}s"
         )
 
@@ -1307,14 +1307,14 @@ class MultiprocessedViewer3DClient(object):
             try:
                 cmd = self.cmd_conn.recv()
             except EOFError as e:
-                self.rk_logger.error(
+                self.robokudo_logger.error(
                     f"Pipe closed unexpectedly, shutting down visualizer: {e}"
                 )
                 self.tick_return.set()
                 break
 
             if isinstance(cmd, MemoryMapTransport):
-                self.rk_logger.debug(f"Received memory map: {cmd}")
+                self.robokudo_logger.debug(f"Received memory map: {cmd}")
 
                 if self.tick_return.is_set():
                     break
@@ -1336,7 +1336,7 @@ class MultiprocessedViewer3DClient(object):
                     self.viewer3d.main_vis, self.update_geometry
                 )
 
-                self.rk_logger.debug(
+                self.robokudo_logger.debug(
                     f"Processed memory map in {time.perf_counter() - start_t:.4f}s"
                 )
 
@@ -1351,7 +1351,7 @@ class MultiprocessedViewer3D(object):
         :param shm_size: Size of the shared memory to use for communication
         """
 
-        self.rk_logger: logging.Logger = logging.getLogger(PACKAGE_NAME)
+        self.robokudo_logger: logging.Logger = logging.getLogger(PACKAGE_NAME)
         """Logger instance"""
 
         self.buffer_count = 2
@@ -1391,7 +1391,7 @@ class MultiprocessedViewer3D(object):
 
         atexit.register(self.close)
 
-        self.rk_logger.debug(
+        self.robokudo_logger.debug(
             f"Started viewer process with PID {self.visualizer_process.pid}"
         )
 
@@ -1471,7 +1471,9 @@ class MultiprocessedViewer3D(object):
                     geometry_dict
                 )
             except KeyError as e:
-                self.rk_logger.warning(f"Could not create a memory map for {g}: {e}")
+                self.robokudo_logger.warning(
+                    f"Could not create a memory map for {g}: {e}"
+                )
                 return
 
             write_manager.write_geometry(geometry_dict, memory_map)

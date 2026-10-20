@@ -136,7 +136,9 @@ class TSDFAnnotator(ThreadedAnnotator):
                 ).get_corner_points()
                 oh_data.append((oh, poses[0], roi))
             else:
-                self.rk_logger.debug(f"No pose found for object {oh.id}, skipping...")
+                self.robokudo_logger.debug(
+                    f"No pose found for object {oh.id}, skipping..."
+                )
 
         if len(oh_data) == 0:
             return Status.FAILURE
@@ -169,7 +171,9 @@ class TSDFAnnotator(ThreadedAnnotator):
         for i, (oh, pose, roi) in enumerate(oh_data):
             mask: npt.NDArray[np.uint8] = oh.roi.mask
             if mask is None:
-                self.rk_logger.debug(f"No mask found for object {oh.id}, skipping...")
+                self.robokudo_logger.debug(
+                    f"No mask found for object {oh.id}, skipping..."
+                )
                 continue
 
             # Mask should be or (0, 1)
@@ -250,14 +254,14 @@ class TSDFAnnotator(ThreadedAnnotator):
                 geometries.extend(vis_geom)
 
         vis_image = self.get_visualization_image(color_image, oh_data, masks)
-        self.get_annotator_output_struct().set_image(vis_image)
+        self.get_annotator_output_structure().set_image(vis_image)
 
         vis_mode = self.descriptor.parameters.geometry_visualization_mode
         if vis_mode != TSDFAnnotatorVisualizationModes.NONE:
-            self.rk_logger.debug(
+            self.robokudo_logger.debug(
                 f"Visualizing geometry for {len(geometries) // 3} objects"
             )
-            self.get_annotator_output_struct().set_geometries(geometries)
+            self.get_annotator_output_structure().set_geometries(geometries)
 
         return Status.SUCCESS
 
@@ -276,7 +280,7 @@ class TSDFAnnotator(ThreadedAnnotator):
         :param masks: The masks to visualize.
         :return: The image with the visualizations.
         """
-        self.rk_logger.debug(f"Visualizing image for {len(oh_data)} objects")
+        self.robokudo_logger.debug(f"Visualizing image for {len(oh_data)} objects")
 
         overlay = np.zeros_like(image, dtype=np.uint8)
         combined_mask = np.zeros(image.shape[:2], dtype=np.uint8)  # 0-1
@@ -313,5 +317,7 @@ class TSDFAnnotator(ThreadedAnnotator):
         elif vis_mode == TSDFAnnotatorVisualizationModes.MESH:
             return [volume.get_mesh(), volume.get_coordinate_frame()]
         else:
-            self.rk_logger.warning(f"Visualization mode '{vis_mode}' not supported!")
+            self.robokudo_logger.warning(
+                f"Visualization mode '{vis_mode}' not supported!"
+            )
             return []

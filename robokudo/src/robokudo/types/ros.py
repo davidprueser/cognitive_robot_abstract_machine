@@ -85,7 +85,7 @@ class CameraInfo(Type):
     * Image dimensions
     * Distortion model and parameters
     * Camera matrices (K, R, P)
-    * ROI and binning information
+    * region of interest and binning information
     """
 
     header: Header = field(default_factory=Header)
@@ -138,7 +138,7 @@ class CameraInfo(Type):
     Vertical binning factor
     """
 
-    roi: RegionOfInterest = field(default_factory=RegionOfInterest)
+    region_of_interest: RegionOfInterest = field(default_factory=RegionOfInterest)
     """
     Region of interest
     """

@@ -32,7 +32,7 @@ class CameraViewpointVisualizer(BaseAnnotator):
         :param name: Name of the annotator instance
         """
         super().__init__(name)
-        self.rk_logger.debug("%s.__init__()" % self.__class__.__name__)
+        self.robokudo_logger.debug("%s.__init__()" % self.__class__.__name__)
 
     def update(self) -> Status:
         """
@@ -53,7 +53,7 @@ class CameraViewpointVisualizer(BaseAnnotator):
                 )
             )
         except KeyError as err:
-            self.rk_logger.warning(
+            self.robokudo_logger.warning(
                 f"Couldn't find viewpoint in the common analysis structure: {err}"
             )
             return Status.FAILURE
@@ -68,6 +68,6 @@ class CameraViewpointVisualizer(BaseAnnotator):
             {"name": "World frame", "geometry": world_frame},
             {"name": "Cloud", "geometry": cloud},
         ]
-        self.get_annotator_output_struct().set_geometries(geometries)
+        self.get_annotator_output_structure().set_geometries(geometries)
 
         return Status.SUCCESS

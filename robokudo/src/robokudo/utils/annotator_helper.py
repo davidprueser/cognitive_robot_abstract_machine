@@ -266,7 +266,7 @@ def get_color_image(annotator: BaseAnnotator) -> npt.NDArray:
                 annotator.get_common_analysis_structure(), img
             )
         except ColorToDepthRatioMissing as e:  # pylint: disable=invalid-name
-            annotator.rk_logger.error(
+            annotator.robokudo_logger.error(
                 f"No color to depth ratio set by your camera driver! Can't preprocess: {e}"
             )
     else:

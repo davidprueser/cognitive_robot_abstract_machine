@@ -76,7 +76,7 @@ class SlowAnnotator(ThreadedAnnotator):
 
         :return: Success status after completion
         """
-        self.rk_logger.debug(
+        self.robokudo_logger.debug(
             "%s.compute(): Start doing the heavy stuff" % self.__class__.__name__
         )
 
@@ -95,11 +95,11 @@ class SlowAnnotator(ThreadedAnnotator):
             2,
         )
         vis = cv2.rectangle(vis, (400, 400), (650, 650), (0, 0, 255), 2)
-        self.get_annotator_output_struct().set_image(vis)
+        self.get_annotator_output_structure().set_image(vis)
 
         time.sleep(self.sleep_in_s)  # in s
 
-        self.rk_logger.debug(
+        self.robokudo_logger.debug(
             "%s.compute(): Stop doing the heavy stuff" % self.__class__.__name__
         )
         self.feedback_message = "SlowAnnotator was successful."
@@ -132,7 +132,7 @@ class EmptyAnnotator(BaseAnnotator):
         :return: SUCCESS status
         """
         vis = np.zeros((640, 480, 3), dtype="uint8")
-        self.get_annotator_output_struct().set_image(vis)
+        self.get_annotator_output_structure().set_image(vis)
 
         return Status.SUCCESS
 
@@ -170,7 +170,7 @@ class FailingAnnotator(ThreadedAnnotator):
 
         :return: SUCCESS or FAILURE status
         """
-        self.rk_logger.debug(
+        self.robokudo_logger.debug(
             "%s.compute(): Start doing the heavy stuff" % self.__class__.__name__
         )
         time.sleep(0.5)  # in s
@@ -184,7 +184,7 @@ class FailingAnnotator(ThreadedAnnotator):
             self.feedback_message_queue.put("Action successful")
             return Status.SUCCESS
 
-        self.rk_logger.debug(
+        self.robokudo_logger.debug(
             "%s.compute(): Stop doing the heavy stuff" % self.__class__.__name__
         )
 
@@ -215,11 +215,11 @@ class FakeCollectionReaderAnnotator(BaseAnnotator):
         :param name: Name of the annotator instance
         """
         super().__init__(name)
-        self.rk_logger.debug("%s.__init__()" % (self.__class__.__name__))
+        self.robokudo_logger.debug("%s.__init__()" % (self.__class__.__name__))
 
         self.collection_readers = [self.descriptor]
         """List of collection reader descriptors"""
-        # self.rk_logger.debug("%s" % (get_line_context(self)))
+        # self.robokudo_logger.debug("%s" % (get_line_context(self)))
 
     def setup(self, timeout: float) -> bool:
         """
@@ -228,7 +228,7 @@ class FakeCollectionReaderAnnotator(BaseAnnotator):
         :param timeout: Maximum time to wait for setup completion
         :return: True if setup successful
         """
-        self.rk_logger.debug("%s.setup()" % self.__class__.__name__)
+        self.robokudo_logger.debug("%s.setup()" % self.__class__.__name__)
         return True
 
     def initialise(self) -> None:
@@ -238,7 +238,7 @@ class FakeCollectionReaderAnnotator(BaseAnnotator):
         Called on first tick and whenever status changes from non-running.
         Resets counter and clears feedback messages for all children in sequence.
         """
-        self.rk_logger.debug("%s.initialise()" % (self.__class__.__name__))
+        self.robokudo_logger.debug("%s.initialise()" % (self.__class__.__name__))
         self.counter = 0
 
         # Clear all feedback messages when Collection Reader starts over
@@ -271,7 +271,7 @@ class FakeCollectionReaderAnnotator(BaseAnnotator):
 
         else:
             self.feedback_message = "Waiting for incoming sensor data ..."
-        self.rk_logger.debug(
+        self.robokudo_logger.debug(
             "%s.update()[%s->%s][%s]"
             % (self.__class__.__name__, self.status, new_status, self.feedback_message)
         )
@@ -283,7 +283,7 @@ class FakeCollectionReaderAnnotator(BaseAnnotator):
 
         :param new_status: New status being transitioned to
         """
-        self.rk_logger.debug(
+        self.robokudo_logger.debug(
             "%s.terminate()[%s->%s]"
             % (self.__class__.__name__, self.status, new_status)
         )
