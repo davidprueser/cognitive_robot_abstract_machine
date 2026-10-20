@@ -8,7 +8,7 @@ import supervision as sv
 from py_trees.common import Status
 from supervision.config import CLASS_NAME_DATA_FIELD
 from trackers import ByteTrackTracker
-from typing_extensions import TYPE_CHECKING
+from typing_extensions import TYPE_CHECKING, List
 
 from robokudo.annotators.core import BaseAnnotator
 from robokudo.cas import CASViews
@@ -58,7 +58,7 @@ class ByteTrackAnnotator(BaseAnnotator):
             self.tracker.reset()
         self.last_ts = data_ts
 
-        ohs: list[ObjectHypothesis] = cas.filter_annotations_by_type(ObjectHypothesis)
+        ohs: List[ObjectHypothesis] = cas.filter_annotations_by_type(ObjectHypothesis)
         if len(ohs) == 0:
             self.rk_logger.debug(f"{len(ohs)} object hypothesis found, nothing to do.")
             return Status.SUCCESS
@@ -94,7 +94,7 @@ class ByteTrackAnnotator(BaseAnnotator):
                 f"Using {len(restored_masks)} masks for object tracking."
             )
 
-        classifications: list[Classification] = []
+        classifications: List[Classification] = []
         for oh in ohs:
             classification = cas.filter_by_type(Classification, oh.annotations)
             if len(classification) == 0:

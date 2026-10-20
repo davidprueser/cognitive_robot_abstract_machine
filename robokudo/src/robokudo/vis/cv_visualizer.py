@@ -19,7 +19,7 @@ import sys
 import cv2
 import numpy as np
 from py_trees.blackboard import Blackboard
-from typing_extensions import Any
+from typing_extensions import Any, Optional
 
 from robokudo.annotators.core import BaseAnnotator
 from robokudo.vis.visualizer import Visualizer
@@ -179,7 +179,7 @@ class CVVisualizer(Visualizer, Visualizer.Observer):
             cv_visualizer_for_key.indicate_termination_var = True
 
     @staticmethod
-    def get_gui_handler_for_detected_key() -> CVVisualizer | None:
+    def get_gui_handler_for_detected_key() -> Optional[CVVisualizer]:
         """
         Get the visualizer instance for the focused window.
 

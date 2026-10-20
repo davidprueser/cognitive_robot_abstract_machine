@@ -26,7 +26,16 @@ from enum import StrEnum
 import numpy as np
 import open3d as o3d
 from sensor_msgs.msg import CameraInfo
-from typing_extensions import TYPE_CHECKING, Any, TypeVar
+from typing_extensions import (
+    TYPE_CHECKING,
+    Any,
+    Dict,
+    List,
+    Optional,
+    Tuple,
+    Type,
+    TypeVar,
+)
 
 from robokudo.types.tf import StampedTransform
 
@@ -136,13 +145,13 @@ class CAS:
     timestamp_readable: str = field(init=False)
     """Human readable timestamp string."""
 
-    views: dict[str, Any] = field(default_factory=dict)
+    views: Dict[str, Any] = field(default_factory=dict)
     """Dictionary storing view data, each view stores data that is typically singular for a single CAS.
     
     Example: Sensor data, camera info and cloud which are read from the sensors.
     """
 
-    annotations: list[Annotation] = field(default_factory=list)
+    annotations: List[Annotation] = field(default_factory=list)
     """
     List of annotations, each annotation describes a certain part of the acquired sensor data. In contrast to views
     there can be multiple annotations for the same 'thing' in the data.
@@ -155,7 +164,7 @@ class CAS:
         self.timestamp_readable = dt_timestamp.strftime("%Y-%m-%d %H:%M:%S")
 
     @property
-    def color_image(self) -> np.ndarray | None:
+    def color_image(self) -> Optional[np.ndarray]:
         return self.views.get(CASViews.COLOR_IMAGE)
 
     @color_image.setter
@@ -163,7 +172,7 @@ class CAS:
         self.views[CASViews.COLOR_IMAGE] = value
 
     @property
-    def depth_image(self) -> np.ndarray | None:
+    def depth_image(self) -> Optional[np.ndarray]:
         return self.views.get(CASViews.DEPTH_IMAGE)
 
     @depth_image.setter
@@ -182,7 +191,7 @@ class CAS:
         self.views[CASViews.COLOR_TO_DEPTH_RATIO] = value
 
     @property
-    def camera_info(self) -> CameraInfo | None:
+    def camera_info(self) -> Optional[CameraInfo]:
         return self.views.get(CASViews.CAMERA_INFO)
 
     @camera_info.setter
@@ -190,7 +199,7 @@ class CAS:
         self.views[CASViews.CAMERA_INFO] = value
 
     @property
-    def camera_intrinsic(self) -> o3d.camera.PinholeCameraIntrinsic | None:
+    def camera_intrinsic(self) -> Optional[o3d.camera.PinholeCameraIntrinsic]:
         return self.views.get(CASViews.CAMERA_INTRINSIC)
 
     @camera_intrinsic.setter
@@ -200,7 +209,7 @@ class CAS:
     @property
     def pointcloud_camera_intrinsic(
         self,
-    ) -> o3d.camera.PinholeCameraIntrinsic | None:
+    ) -> Optional[o3d.camera.PinholeCameraIntrinsic]:
         return self.views.get(CASViews.POINTCLOUD_CAMERA_INTRINSIC)
 
     @pointcloud_camera_intrinsic.setter
@@ -210,7 +219,7 @@ class CAS:
         self.views[CASViews.POINTCLOUD_CAMERA_INTRINSIC] = value
 
     @property
-    def cloud(self) -> o3d.geometry.PointCloud | None:
+    def cloud(self) -> Optional[o3d.geometry.PointCloud]:
         return self.views.get(CASViews.CLOUD)
 
     @cloud.setter
@@ -218,7 +227,7 @@ class CAS:
         self.views[CASViews.CLOUD] = value
 
     @property
-    def world_frame(self) -> str | None:
+    def world_frame(self) -> Optional[str]:
         """Name of the world frame."""
         return self.views.get(CASViews.WORLD_FRAME)
 
@@ -227,7 +236,7 @@ class CAS:
         self.views[CASViews.WORLD_FRAME] = value
 
     @property
-    def camera_frame(self) -> str | None:
+    def camera_frame(self) -> Optional[str]:
         """Name of the camera frame."""
         return self.views.get(CASViews.CAMERA_FRAME)
 
@@ -236,7 +245,7 @@ class CAS:
         self.views[CASViews.CAMERA_FRAME] = value
 
     @property
-    def viewpoint_camera_to_world(self) -> StampedTransform | None:
+    def viewpoint_camera_to_world(self) -> Optional[StampedTransform]:
         warnings.warn(
             "CAS.viewpoint_camera_to_world is deprecated. "
             "Use CAS.camera_to_world_transform instead.",
@@ -256,7 +265,7 @@ class CAS:
         self.views[CASViews.VIEWPOINT_CAMERA_TO_WORLD] = value
 
     @property
-    def camera_to_world_transform(self) -> HomogeneousTransformationMatrix | None:
+    def camera_to_world_transform(self) -> Optional[HomogeneousTransformationMatrix]:
         return self.views.get(CASViews.CAMERA_TO_WORLD_TRANSFORM)
 
     @camera_to_world_transform.setter
@@ -264,7 +273,7 @@ class CAS:
         self.views[CASViews.CAMERA_TO_WORLD_TRANSFORM] = value
 
     @property
-    def data_timestamp(self) -> int | None:
+    def data_timestamp(self) -> Optional[int]:
         return self.views.get(CASViews.DATA_TIMESTAMP)
 
     @data_timestamp.setter
@@ -272,7 +281,7 @@ class CAS:
         self.views[CASViews.DATA_TIMESTAMP] = value
 
     @property
-    def query(self) -> Any | None:
+    def query(self) -> Optional[Any]:
         return self.views.get(CASViews.QUERY)
 
     @query.setter
@@ -280,7 +289,7 @@ class CAS:
         self.views[CASViews.QUERY] = value
 
     @property
-    def cas_id(self) -> int | None:
+    def cas_id(self) -> Optional[int]:
         return self.views.get(CASViews.CAS_ID)
 
     @cas_id.setter
@@ -288,7 +297,7 @@ class CAS:
         self.views[CASViews.CAS_ID] = value
 
     @property
-    def ground_truth_world_ref(self) -> World | None:
+    def ground_truth_world_ref(self) -> Optional[World]:
         return self.views.get(CASViews.GROUND_TRUTH_WORLD_REFERENCE)
 
     @ground_truth_world_ref.setter
@@ -341,7 +350,7 @@ class CAS:
     T = TypeVar("T")
 
     @staticmethod
-    def filter_by_type(type_to_include: type[T], input_list: list[Any]) -> list[T]:
+    def filter_by_type(type_to_include: Type[T], input_list: List[Any]) -> List[T]:
         """Filter a list to include only objects of a specific type.
 
         :param type_to_include: Type to filter for
@@ -352,7 +361,7 @@ class CAS:
             element for element in input_list if isinstance(element, type_to_include)
         ]
 
-    def filter_annotations_by_type(self, type_to_include: type[T]) -> list[T]:
+    def filter_annotations_by_type(self, type_to_include: Type[T]) -> List[T]:
         """
         Filter annotations to include only those of a specific type.
 
@@ -363,8 +372,8 @@ class CAS:
 
     @staticmethod
     def _filter_objects(
-        objects: list[Any], criteria: dict[str, tuple[str, Any]]
-    ) -> list[Any]:
+        objects: List[Any], criteria: Dict[str, Tuple[str, Any]]
+    ) -> List[Any]:
         """
         Filters a list of objects based on specified criteria.
 
@@ -399,10 +408,10 @@ class CAS:
 
     def filter_by_type_and_criteria(
         self,
-        type_to_include: type,
-        input_list: list[Any],
-        criteria: dict[str, tuple[str, Any]],
-    ) -> list[Any]:
+        type_to_include: Type,
+        input_list: List[Any],
+        criteria: Dict[str, Tuple[str, Any]],
+    ) -> List[Any]:
         """Filters a list of objects based on specified criteria. Objects must be of type 'type_to_include'
 
         :param type_to_include: All the returned objects must be of this type.

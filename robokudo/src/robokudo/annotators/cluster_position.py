@@ -25,6 +25,7 @@ from timeit import default_timer
 
 import open3d as o3d
 from py_trees.common import Status
+from typing_extensions import List, Type
 
 from robokudo.annotators.core import BaseAnnotator
 from robokudo.cas import CAS, CASViews
@@ -58,7 +59,7 @@ class ClusterPositionAnnotator(BaseAnnotator):
             """
 
             def __init__(self) -> None:
-                self.analysis_scope: type = scene.ObjectHypothesis
+                self.analysis_scope: Type = scene.ObjectHypothesis
                 """
                 Type of data to perform position estimation on(e.g. ObjectHypothesis or
                 CloudAnnotation)
@@ -100,7 +101,7 @@ class ClusterPositionAnnotator(BaseAnnotator):
         start_timer = default_timer()
 
         cloud = self.get_cas().get(CASViews.CLOUD)
-        centroids_to_visualize: list[list[float]] = []
+        centroids_to_visualize: List[List[float]] = []
 
         object_hypotheses = self.get_cas().filter_annotations_by_type(
             scene.ObjectHypothesis
@@ -111,7 +112,7 @@ class ClusterPositionAnnotator(BaseAnnotator):
                 continue
 
             if self.descriptor.parameters.analysis_scope == annotation.CloudAnnotation:
-                o_clouds: list[annotation.CloudAnnotation] = CAS.filter_by_type(
+                o_clouds: List[annotation.CloudAnnotation] = CAS.filter_by_type(
                     annotation.CloudAnnotation,
                     object_hypothesis.annotations,
                 )
@@ -144,7 +145,7 @@ class ClusterPositionAnnotator(BaseAnnotator):
         return Status.SUCCESS
 
     def position_annotation_from_centroid(
-        self, centroid: list[float]
+        self, centroid: List[float]
     ) -> annotation.PositionAnnotation:
         """
         Create position annotation from centroid.
@@ -158,7 +159,7 @@ class ClusterPositionAnnotator(BaseAnnotator):
         return position
 
     def add_centroid_to_vis(
-        self, centroid: list[float], centroids_to_visualize: list[list[float]]
+        self, centroid: List[float], centroids_to_visualize: List[List[float]]
     ) -> None:
         """
         Add centroid visualization marker.

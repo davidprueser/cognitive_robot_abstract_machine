@@ -39,7 +39,7 @@ from rclpy.node import Node
 from rclpy.time import Time
 from sensor_msgs.msg import CompressedImage, CameraInfo, Image
 from tf2_ros import Buffer
-from typing_extensions import Any, TYPE_CHECKING
+from typing_extensions import Optional, List, Any, TYPE_CHECKING, Union
 
 from robokudo.cas import CASViews, CAS
 from robokudo.defs import PACKAGE_NAME
@@ -102,7 +102,7 @@ class CameraInterface(object):
         world_frame: str,
         camera_frame: str,
         world_T_camera: HomogeneousTransformationMatrix,
-        timestamp_ns: int | None = None,
+        timestamp_ns: Optional[int] = None,
     ) -> None:
         """Write a camera-to-world transform to the CAS and runtime world."""
         setup_world_for_camera_frame(world_frame=world_frame, camera_frame=camera_frame)
@@ -135,7 +135,7 @@ class CameraInterface(object):
         world_frame: str,
         camera_frame: str,
         world_T_camera: HomogeneousTransformationMatrix,
-        timestamp_ns: int | None = None,
+        timestamp_ns: Optional[int] = None,
     ) -> None:
         """Write a camera-to-world transform to the CAS and runtime world."""
         self.store_camera_to_world_transform_in_cas(
@@ -147,7 +147,7 @@ class CameraInterface(object):
         )
 
     def store_static_camera_transform_if_configured(
-        self, cas: CAS, timestamp_ns: int | None = None
+        self, cas: CAS, timestamp_ns: Optional[int] = None
     ) -> bool:
         """Write the configured static camera transform, if enabled."""
         if not self.camera_config.static_camera_transform_enabled:
@@ -182,7 +182,7 @@ class ROSCameraInterface(CameraInterface):
     transform lookups and camera intrinsics handling.
     """
 
-    def __init__(self, camera_config: Any, node: Node | None = None) -> None:
+    def __init__(self, camera_config: Any, node: Optional[Node] = None) -> None:
         """
         Initialize the ROS camera interface.
 
@@ -210,10 +210,10 @@ class ROSCameraInterface(CameraInterface):
             self.lookup_viewpoint: bool = False
             """Whether to look up camera transforms"""
 
-        self.camera_translation: list[float] = [0.0, 0.0, 0.0]
+        self.camera_translation: List[float] = [0.0, 0.0, 0.0]
         """Camera translation from TF"""
 
-        self.camera_quaternion: list[float] = [0.0, 0.0, 0.0, 1.0]
+        self.camera_quaternion: List[float] = [0.0, 0.0, 0.0, 1.0]
         """Camera rotation from TF"""
 
         if self.lookup_viewpoint:
@@ -459,21 +459,21 @@ class KinectCameraInterface(ROSCameraInterface):
         self.rk_logger.info(f"  {camera_config.topic_depth}")
         self.rk_logger.info(f"  {camera_config.topic_camera_info}")
 
-        self.color: npt.NDArray | None = None
+        self.color: Optional[npt.NDArray] = None
         """
         Latest color image.
         """
-        self.depth: npt.NDArray | None = None
+        self.depth: Optional[npt.NDArray] = None
         """
         Latest depth image
         """
 
-        self.camera_info: CameraInfo | None = None
+        self.camera_info: Optional[CameraInfo] = None
         """
         Latest camera info message
         """
 
-        self.camera_intrinsic: o3d.camera.PinholeCameraIntrinsic | None = None
+        self.camera_intrinsic: Optional[o3d.camera.PinholeCameraIntrinsic] = None
         """
         Open3D camera intrinsics
         """
@@ -483,7 +483,7 @@ class KinectCameraInterface(ROSCameraInterface):
         Ratio between color and depth image sizes
         """
 
-        self.timestamp: builtin_interfaces.msg.Time | None = None
+        self.timestamp: Optional[builtin_interfaces.msg.Time] = None
         """
         Latest message timestamp
         """
@@ -530,9 +530,9 @@ class KinectCameraInterface(ROSCameraInterface):
 
     def callback(
         self,
-        color_data: Image | CompressedImage,
-        depth_data: Image | CompressedImage | None = None,
-        camera_info: CameraInfo | None = None,
+        color_data: Union[Image, CompressedImage],
+        depth_data: Optional[Union[Image, CompressedImage]] = None,
+        camera_info: Optional[CameraInfo] = None,
     ) -> None:
         """
         Process synchronized camera data.

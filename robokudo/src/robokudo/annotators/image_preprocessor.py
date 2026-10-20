@@ -21,7 +21,7 @@ import cv2
 import numpy
 import open3d as o3d
 from py_trees.common import Status
-from typing_extensions import TYPE_CHECKING
+from typing_extensions import TYPE_CHECKING, Optional
 
 from robokudo.annotators.core import BaseAnnotator
 from robokudo.cas import CASViews
@@ -79,10 +79,10 @@ class ImagePreprocessorAnnotator(BaseAnnotator):
         super().__init__(name, descriptor)
         self.rk_logger.debug("%s.__init__()" % self.__class__.__name__)
 
-        self.color: npt.NDArray | None = None
+        self.color: Optional[npt.NDArray] = None
         """Optional color image currently being worked with"""
 
-        self.depth: npt.NDArray | None = None
+        self.depth: Optional[npt.NDArray] = None
         """Optional depth image currently being worked with"""
 
         self.display_mode: ImagePreprocessorAnnotator.ViewMode = self.ViewMode.COLOR

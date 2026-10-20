@@ -18,7 +18,7 @@ from timeit import default_timer
 import cv2
 import open3d as o3d
 from py_trees.common import Status
-from typing_extensions import TYPE_CHECKING
+from typing_extensions import TYPE_CHECKING, Optional
 
 from robokudo.annotators.core import BaseAnnotator
 from robokudo.cas import CASViews
@@ -87,7 +87,7 @@ class PointcloudCropAnnotator(BaseAnnotator):
         super().__init__(name, descriptor)
         self.rk_logger.debug("%s.__init__()" % self.__class__.__name__)
 
-        self.color: npt.NDArray | None = None
+        self.color: Optional[npt.NDArray] = None
         """A copy of the color image currently being worked with."""
 
     @catch_and_raise_to_blackboard

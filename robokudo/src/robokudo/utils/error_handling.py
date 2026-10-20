@@ -14,14 +14,14 @@ from functools import wraps
 
 from py_trees.blackboard import Blackboard
 from py_trees.common import Status
-from typing_extensions import Any, Callable
+from typing_extensions import Any, Callable, Optional
 
 from robokudo.identifier import BBIdentifier
 
 # rk_logger = logging.getLogger(robokudo.defs.PACKAGE_NAME)
 
 
-def raise_to_blackboard(exception: Exception | None) -> None:
+def raise_to_blackboard(exception: Optional[Exception]) -> None:
     """
     Store exception in blackboard.
 
@@ -60,7 +60,7 @@ def has_blackboard_exception() -> bool:
     )
 
 
-def get_blackboard_exception() -> Exception | None:
+def get_blackboard_exception() -> Optional[Exception]:
     """Retrieve exception from blackboard.
 
     :return: Stored exception or None if not found

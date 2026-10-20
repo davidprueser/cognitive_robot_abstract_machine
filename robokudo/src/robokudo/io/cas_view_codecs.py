@@ -11,7 +11,7 @@ import io
 from dataclasses import dataclass, field
 
 import numpy as np
-from typing_extensions import Any, Iterable
+from typing_extensions import Any, Dict, Iterable, List, Optional
 from robokudo import world
 from robokudo.io.cas_annotation_codecs import krrood_to_json, krrood_from_json
 from robokudo.io.open3d_codec_utils import (
@@ -39,11 +39,11 @@ def _recursive_convert(value: Any) -> Any:
     return value
 
 
-def _ros_message_to_dict(msg: Any) -> dict[str, Any]:
+def _ros_message_to_dict(msg: Any) -> Dict[str, Any]:
     """
     Convert a ROS message object into plain dictionary data.
     """
-    result: dict[str, Any] = {}
+    result: Dict[str, Any] = {}
     for field_name, _ in msg.get_fields_and_field_types().items():
         value = getattr(msg, field_name)
         if hasattr(value, "get_fields_and_field_types"):
@@ -55,7 +55,7 @@ def _ros_message_to_dict(msg: Any) -> dict[str, Any]:
     return result
 
 
-def _dict_to_ros_message(message_type: type[Any], data_dict: dict[str, Any]) -> Any:
+def _dict_to_ros_message(message_type: type[Any], data_dict: Dict[str, Any]) -> Any:
     """
     Populate a ROS message instance from plain dictionary data.
     """
@@ -134,9 +134,9 @@ class ViewPayload:
     serializer_id: str
     payload: Any
     type_name: str
-    metadata: dict[str, Any] = field(default_factory=dict)
+    metadata: Dict[str, Any] = field(default_factory=dict)
 
-    def to_document(self, view_name: str) -> dict[str, Any]:
+    def to_document(self, view_name: str) -> Dict[str, Any]:
         """
         Build a storage document for one encoded view.
         """
@@ -149,7 +149,7 @@ class ViewPayload:
         }
 
     @staticmethod
-    def from_document(document: dict[str, Any]) -> ViewPayload:
+    def from_document(document: Dict[str, Any]) -> ViewPayload:
         """
         Create a payload object from a storage document.
         """
@@ -410,7 +410,7 @@ class Open3DPinholeCameraIntrinsicCodec(ViewCodec):
         """
         Decode payload data to an Open3D pinhole intrinsic object.
         """
-        payload_data: dict[str, Any] = payload.payload
+        payload_data: Dict[str, Any] = payload.payload
         width = int(payload_data["width"])
         height = int(payload_data["height"])
         intrinsic_matrix = np.asarray(payload_data["intrinsic_matrix"], dtype=float)
@@ -568,7 +568,7 @@ class CASViewCodecRegistry:
     Registry that routes CAS views to matching codecs.
     """
 
-    codecs: list[ViewCodec] = field(default_factory=list)
+    codecs: List[ViewCodec] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         """
@@ -591,7 +591,7 @@ class CASViewCodecRegistry:
             ]
         )
 
-    def _find_encoder(self, value: Any) -> ViewCodec | None:
+    def _find_encoder(self, value: Any) -> Optional[ViewCodec]:
         """
         Return the first registered codec that can encode ``value``.
         """
@@ -611,7 +611,7 @@ class CASViewCodecRegistry:
 
     def encode_view(
         self, view_name: str, value: Any, strict: bool = True
-    ) -> dict[str, Any] | None:
+    ) -> Optional[Dict[str, Any]]:
         """
         Encode a single CAS view into a storage document.
         """
@@ -624,7 +624,7 @@ class CASViewCodecRegistry:
             return None
         return codec.encode(value).to_document(view_name=view_name)
 
-    def decode_view(self, document: dict[str, Any]) -> tuple[str, Any]:
+    def decode_view(self, document: Dict[str, Any]) -> tuple[str, Any]:
         """
         Decode a single storage document into one CAS view.
         """
@@ -634,23 +634,23 @@ class CASViewCodecRegistry:
         return view_name, codec.decode(payload)
 
     def encode_views(
-        self, views: dict[str, Any], strict: bool = True
-    ) -> list[dict[str, Any]]:
+        self, views: Dict[str, Any], strict: bool = True
+    ) -> List[Dict[str, Any]]:
         """
         Encode multiple CAS views into storage documents.
         """
-        documents: list[dict[str, Any]] = []
+        documents: List[Dict[str, Any]] = []
         for view_name, value in views.items():
             document = self.encode_view(view_name, value, strict=strict)
             if document is not None:
                 documents.append(document)
         return documents
 
-    def decode_views(self, documents: Iterable[dict[str, Any]]) -> dict[str, Any]:
+    def decode_views(self, documents: Iterable[Dict[str, Any]]) -> Dict[str, Any]:
         """
         Decode storage documents into CAS view values.
         """
-        result: dict[str, Any] = {}
+        result: Dict[str, Any] = {}
         for document in documents:
             view_name, view_value = self.decode_view(document)
             result[view_name] = view_value

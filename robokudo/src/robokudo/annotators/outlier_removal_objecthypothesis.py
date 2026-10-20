@@ -26,6 +26,7 @@ import open3d as o3d
 from py_trees.common import Status
 from rcl_interfaces.msg import SetParametersResult
 from rclpy.parameter import Parameter
+from typing_extensions import Dict, List, Type
 
 from robokudo.annotators.core import BaseAnnotator
 from robokudo.cas import CAS, CASViews
@@ -43,7 +44,7 @@ remaining copy of the old state for some point cloud.
 Authors: Sorin Arion, Naser Azizi 
 """
 
-_PYTYPE_TO_ROS_FIELD: dict[type, str] = {
+_PYTYPE_TO_ROS_FIELD: Dict[Type, str] = {
     int: "integer_value",
     float: "double_value",
     str: "string_value",
@@ -86,7 +87,7 @@ class OutlierRemovalOnObjectHypothesisAnnotator(BaseAnnotator):
                 self.stat_std: float = 0.5
                 """Standard deviation threshold for outlier removal"""
 
-                self.skip_removal_on_classes: list[str] = []
+                self.skip_removal_on_classes: List[str] = []
                 """List of class names to skip processing
                 
                 If you want to skip the complete outlier removal process on certain classes, you can add a list of
@@ -117,7 +118,7 @@ class OutlierRemovalOnObjectHypothesisAnnotator(BaseAnnotator):
 
         self.rk_logger.info("OutlierRemovalNode initialized with current parameters")
 
-    def parameters_callback(self, params: list[Parameter]) -> SetParametersResult:
+    def parameters_callback(self, params: List[Parameter]) -> SetParametersResult:
         for param in params:
             if hasattr(self.descriptor.parameters, param.name):
                 setattr(self.descriptor.parameters, param.name, param.value)
@@ -160,7 +161,7 @@ class OutlierRemovalOnObjectHypothesisAnnotator(BaseAnnotator):
                 continue
 
             if len(self.descriptor.parameters.skip_removal_on_classes) > 0:
-                classes: list[Classification] = CAS.filter_by_type(
+                classes: List[Classification] = CAS.filter_by_type(
                     Classification, annotation.annotations
                 )
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 import importlib
 import pkgutil
 
-from typing_extensions import Any
+from typing_extensions import Type, Dict, Any
 
 from robokudo.descriptors.camera_configs.base_camera_config import BaseCameraConfig
 
@@ -12,7 +12,7 @@ class CameraConfigRegistry:
     Registry for camera config classes.
     """
 
-    _registry: dict[str, type[BaseCameraConfig]] = {}
+    _registry: Dict[str, Type[BaseCameraConfig]] = {}
     """
     Map of camera config registry name to their class.
     """

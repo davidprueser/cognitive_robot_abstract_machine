@@ -22,7 +22,7 @@ import re
 import cv2
 import numpy as np
 from sensor_msgs.msg import Image
-from typing_extensions import TYPE_CHECKING
+from typing_extensions import TYPE_CHECKING, Tuple
 
 from robokudo.exceptions import (
     CVBridgeImageConversionError,
@@ -163,7 +163,7 @@ class CVBridgeWorkaround:
         return ros_image
 
     @classmethod
-    def _encoding_to_dtype_channels(cls, encoding: str) -> tuple[np.dtype, int]:
+    def _encoding_to_dtype_channels(cls, encoding: str) -> Tuple[np.dtype, int]:
         normalized = encoding.strip().lower()
         if normalized in cls._ENCODING_TO_DTYPE_CHANNELS:
             dtype, channels = cls._ENCODING_TO_DTYPE_CHANNELS[normalized]

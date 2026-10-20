@@ -15,6 +15,7 @@ The module supports:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing_extensions import List
 from builtin_interfaces.msg import Time
 from robokudo.types.core import Type
 
@@ -28,12 +29,12 @@ class Pose(Type):
     * 3D rotation as quaternion (x,y,z,w)
     """
 
-    rotation: list[float] = field(default_factory=list)
+    rotation: List[float] = field(default_factory=list)
     """
     Quaternion rotation of the pose in x,y,z,w order
     """
 
-    translation: list[float] = field(default_factory=list)
+    translation: List[float] = field(default_factory=list)
     """
     Translation of the pose in x,y,z order
     """
@@ -47,7 +48,7 @@ class Position(Type):
     * 3D translation (x,y,z)
     """
 
-    translation: list[float] = field(default_factory=list)
+    translation: List[float] = field(default_factory=list)
 
 
 @dataclass

@@ -28,7 +28,16 @@ from py_trees.behaviour import Behaviour
 from py_trees.blackboard import Blackboard
 from py_trees.common import Status
 from sensor_msgs.msg import JointState
-from typing_extensions import Any, Callable
+from typing_extensions import (
+    Any,
+    Callable,
+    Dict,
+    List,
+    Optional,
+    Tuple,
+    Type,
+    Union,
+)
 
 import robokudo.pipeline  # Work around circular import
 from robokudo.annotator_parameters import AnnotatorPredefinedParameters
@@ -132,7 +141,7 @@ class BaseAnnotator(Behaviour):
     def __init__(
         self,
         name: str = "Annotator",
-        descriptor: BaseAnnotator.Descriptor | None = None,
+        descriptor: Optional[BaseAnnotator.Descriptor] = None,
         ros_pkg_name: str = PACKAGE_NAME,
     ) -> None:
         """
@@ -233,7 +242,7 @@ class BaseAnnotator(Behaviour):
         """
         return self.get_parent_pipeline().cas
 
-    def get_parent_pipeline(self) -> robokudo.pipeline.Pipeline | None:
+    def get_parent_pipeline(self) -> Optional[robokudo.pipeline.Pipeline]:
         """
         Get the pipeline containing this annotator.
 
@@ -308,8 +317,8 @@ class BaseAnnotator(Behaviour):
         return type(self).__name__
 
     def get_data_from_analysis_scope(
-        self, analysis_scope: list[str | type]
-    ) -> dict[str | type, Any]:
+        self, analysis_scope: List[Union[str, Type]]
+    ) -> Dict[Union[str, Type], Any]:
         """
         Look up data to analyze based on a list of Types or String constants.
 
@@ -335,7 +344,7 @@ class BaseAnnotator(Behaviour):
         :return: Dict mapping requested types to corresponding data
         :raises ValueError: If result would be empty
         """
-        result: dict[str | type, Any] = {}
+        result: Dict[Union[str, Type], Any] = {}
 
         for content in analysis_scope:
             # CASViews are string values
@@ -405,7 +414,7 @@ class BaseAnnotator(Behaviour):
                 JointState,
                 queue_size=10,
             )
-            self.published_variables: dict[str, float] = dict()
+            self.published_variables: Dict[str, float] = dict()
 
     def update_published_variable(self, name: str, value: float) -> None:
         """
@@ -468,7 +477,7 @@ class Worker(object):
     execute a callback when the function completes.
     """
 
-    def __init__(self, fn: Callable, args: tuple = ()) -> None:
+    def __init__(self, fn: Callable, args: Tuple = ()) -> None:
         """
         Initialize the worker.
 
@@ -477,9 +486,9 @@ class Worker(object):
         """
         self.future: Future = Future()
         self._fn: Callable = fn
-        self._args: tuple = args
+        self._args: Tuple = args
 
-    def start(self, callback: Callable | None = None) -> threading.Thread:
+    def start(self, callback: Optional[Callable] = None) -> threading.Thread:
         """
         Start executing the function in a separate thread.
 
@@ -516,7 +525,7 @@ class ThreadedAnnotator(BaseAnnotator):
     def __init__(
         self,
         name: str = "ThreadedAnnotator",
-        descriptor: BaseAnnotator.Descriptor | None = None,
+        descriptor: Optional[BaseAnnotator.Descriptor] = None,
     ) -> None:
         """
         Initialize the ThreadedAnnotator.
@@ -526,9 +535,9 @@ class ThreadedAnnotator(BaseAnnotator):
         """
         super().__init__(name, descriptor)
         self.rk_logger.debug("%s.__init__()" % self.__class__.__name__)
-        self.compute_worker: Worker | None = None
+        self.compute_worker: Optional[Worker] = None
         self.compute_worker_started: bool = False
-        self.compute_worker_thread: threading.Thread | None = None
+        self.compute_worker_thread: Optional[threading.Thread] = None
 
     def initialise(self) -> None:
         """

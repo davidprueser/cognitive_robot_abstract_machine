@@ -34,7 +34,7 @@ from rclpy.action.server import ActionServer, ServerGoalHandle
 from rclpy.node import Node
 from robokudo_msgs.action import Query
 from robokudo_msgs.msg import ObjectDesignator
-from typing_extensions import Any
+from typing_extensions import Any, Optional, Type
 
 from robokudo.annotators.core import BaseAnnotator
 from robokudo.cas import CASViews
@@ -300,7 +300,7 @@ class GenerateQueryResult(BaseAnnotator):
         parameters = Parameters()
 
     def __init__(
-        self, name: str = "GenerateQueryResult", descriptor: Descriptor | None = None
+        self, name: str = "GenerateQueryResult", descriptor: Optional[Descriptor] = None
     ) -> None:
         """Initialize query result generator.
 
@@ -426,7 +426,7 @@ class QueryActionServer(Node):
         name: str,
         feedback_instance: Query.Feedback = Query.Feedback(),
         result_instance: Query.Result = Query.Result(),
-        action_type: type = Query,
+        action_type: Type = Query,
     ) -> None:
         super().__init__(name, namespace="robokudo")
         self._action_name = name
@@ -452,11 +452,11 @@ class QueryActionServer(Node):
         """
         Latest result message.
         """
-        self.new_query: Query.Goal | None = None
+        self.new_query: Optional[Query.Goal] = None
         """
         Latest received query.
         """
-        self.query: Query.Goal | None = None
+        self.query: Optional[Query.Goal] = None
         """
         Currently processing query.
         """
@@ -508,7 +508,7 @@ class QueryActionServer(Node):
         """
         return self.query is not None
 
-    async def execute_cb(self, goal_handle: ServerGoalHandle) -> Query.Result | None:
+    async def execute_cb(self, goal_handle: ServerGoalHandle) -> Optional[Query.Result]:
         """
         Action server execution callback.
 

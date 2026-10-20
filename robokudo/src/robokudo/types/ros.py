@@ -14,6 +14,7 @@ The module includes:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing_extensions import List
 
 
 from robokudo.types.core import Type
@@ -107,22 +108,22 @@ class CameraInfo(Type):
     Name of distortion model
     """
 
-    D: list[float] = field(default_factory=list)  # list of floats
+    D: List[float] = field(default_factory=list)  # list of floats
     """
     Distortion parameters
     """
 
-    K: list[float] = field(default_factory=list)  # 9-dim list of floats
+    K: List[float] = field(default_factory=list)  # 9-dim list of floats
     """
     Intrinsic camera matrix (3x3)
     """
 
-    R: list[float] = field(default_factory=list)  # 9-dim list of floats
+    R: List[float] = field(default_factory=list)  # 9-dim list of floats
     """
     Rotation matrix (3x3)
     """
 
-    P: list[float] = field(default_factory=list)  # 12-dim list of floats
+    P: List[float] = field(default_factory=list)  # 12-dim list of floats
     """
     Projection matrix (3x4)
     """

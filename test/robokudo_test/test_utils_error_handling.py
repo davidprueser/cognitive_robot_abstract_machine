@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing_extensions import Generator
+from typing import Generator
 
 import py_trees
 import pytest

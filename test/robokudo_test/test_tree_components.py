@@ -1,5 +1,6 @@
 from __future__ import annotations
-from typing_extensions import Any, TYPE_CHECKING
+from typing import Any
+from typing_extensions import TYPE_CHECKING
 
 import py_trees
 import pytest

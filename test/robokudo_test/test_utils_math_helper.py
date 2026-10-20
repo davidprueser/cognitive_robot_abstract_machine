@@ -1,5 +1,6 @@
 from __future__ import annotations
 import math
+from typing import Optional
 
 import numpy as np
 import pytest
@@ -207,7 +208,7 @@ class TestUtilsMathHelper(object):
         point2: tuple[float, float, float],
         sphere_center: tuple[float, float, float],
         sphere_radius: float,
-        intersects_at: list[float] | None,
+        intersects_at: Optional[list[float]],
     ) -> None:
         assert (
             compute_line_intersection_point(

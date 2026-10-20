@@ -27,7 +27,7 @@ from semantic_digital_twin.world_description.world_entity import (
     Region,
     SemanticAnnotation,
 )
-from typing_extensions import Any
+from typing_extensions import Any, Dict, List, Optional
 
 
 @dataclass
@@ -41,10 +41,10 @@ class ObjectSpec:
 
     name: str
     pose: HomogeneousTransformationMatrix
-    mesh_path: Path | None = None
-    box_scale: Scale | None = None
-    cylinder_width: float | None = None
-    cylinder_height: float | None = None
+    mesh_path: Optional[Path] = None
+    box_scale: Optional[Scale] = None
+    cylinder_width: Optional[float] = None
+    cylinder_height: Optional[float] = None
     center_mesh: bool = True
     color: Color = field(default_factory=lambda: Color(0.1, 0.2, 0.8, 1.0))
 
@@ -61,7 +61,7 @@ class RegionSpec:
     name: str
     pose: HomogeneousTransformationMatrix
     box_scale: Scale
-    parent_name: str | None = None
+    parent_name: Optional[str] = None
     color: Color = field(default_factory=Color)
 
 
@@ -77,9 +77,9 @@ class BaseWorldDescriptor:
 
     def __init__(
         self,
-        world: World | None = None,
+        world: Optional[World] = None,
         root_name: str = "descriptor_world_root",
-        root_prefix: str | None = "world",
+        root_prefix: Optional[str] = "world",
     ) -> None:
         """
         Initialize a world descriptor.
@@ -109,15 +109,15 @@ class BaseWorldDescriptor:
             -center_x, -center_y, -center_z, 0, 0, 0
         )
 
-    def build_objects(self, root: Body, specs: list[Any]) -> dict[str, Connection6DoF]:
+    def build_objects(self, root: Body, specs: List[Any]) -> Dict[str, Connection6DoF]:
         """
         Create bodies, connections, annotations, and poses from object specs.
         """
-        connections: dict[str, Connection6DoF] = {}
+        connections: Dict[str, Connection6DoF] = {}
 
         with self.world.modify_world():
             for spec in specs:
-                shapes: list[Any] = []
+                shapes: List[Any] = []
                 collision: ShapeCollection
 
                 if spec.mesh_path is not None:
@@ -174,12 +174,12 @@ class BaseWorldDescriptor:
         return connections
 
     def build_regions(
-        self, root: Body, specs: list[RegionSpec]
-    ) -> dict[str, Connection6DoF]:
+        self, root: Body, specs: List[RegionSpec]
+    ) -> Dict[str, Connection6DoF]:
         """
         Create regions and connections from region specs.
         """
-        connections: dict[str, Connection6DoF] = {}
+        connections: Dict[str, Connection6DoF] = {}
 
         with self.world.modify_world():
             for spec in specs:
@@ -212,7 +212,7 @@ class BaseWorldDescriptor:
 
         return connections
 
-    def get_predefined_object_bodies(self) -> list[Body]:
+    def get_predefined_object_bodies(self) -> List[Body]:
         """
         Get list of pre-defined objects.
         """

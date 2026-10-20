@@ -13,6 +13,7 @@ from timeit import default_timer
 from py_trees.common import Status
 from rclpy.publisher import Publisher
 from std_msgs.msg import String
+from typing_extensions import Optional
 
 from robokudo.annotators.core import BaseAnnotator
 from robokudo.io.cas_annotation_codecs import serialize_annotations
@@ -125,7 +126,7 @@ class AnnotationPublisherWriter(BaseAnnotator):
         super().__init__(name, descriptor)
         self.rk_logger.debug("%s.__init__()" % self.__class__.__name__)
 
-        self.pub: Publisher | None = None
+        self.pub: Optional[Publisher] = None
         """ROS publisher for annotations"""
 
     def setup(self, timeout: float) -> None:

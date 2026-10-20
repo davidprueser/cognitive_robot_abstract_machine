@@ -6,7 +6,7 @@ from collections import deque
 
 from robokudo.types.scene import ObjectHypothesis
 from dataclasses import dataclass, field
-from typing_extensions import TYPE_CHECKING, Self
+from typing_extensions import TYPE_CHECKING, Deque, Optional, Self
 
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.world_description.world_entity import Body
@@ -27,7 +27,7 @@ class ObjectBeliefState:
     The maximum number of object hypotheses to keep in the belief state.
     """
 
-    hypotheses: deque[ObjectHypothesis] = field(init=False)
+    hypotheses: Deque[ObjectHypothesis] = field(init=False)
     """
     The hypotheses associated with the belief state.
     """
@@ -36,7 +36,7 @@ class ObjectBeliefState:
         self.hypotheses = deque(maxlen=self.max_num_hypotheses)
 
     @classmethod
-    def create_with_new_body(cls, name: PrefixedName | None = None) -> Self:
+    def create_with_new_body(cls, name: Optional[PrefixedName] = None) -> Self:
         """
         Create a new ObjectBeliefState with a new Body.
 
@@ -55,7 +55,7 @@ class ObjectBeliefState:
         return self.body.id
 
     @property
-    def latest_hypothesis(self) -> ObjectHypothesis | None:
+    def latest_hypothesis(self) -> Optional[ObjectHypothesis]:
         """
         The latest hypothesis added to the belief state.
         """
@@ -64,7 +64,7 @@ class ObjectBeliefState:
         return self.hypotheses[len(self.hypotheses) - 1]
 
     @property
-    def latest_pose(self) -> PoseAnnotation | None:
+    def latest_pose(self) -> Optional[PoseAnnotation]:
         """
         The newest pose annotation of the latest hypothesis.
         """
@@ -76,7 +76,7 @@ class ObjectBeliefState:
         return None
 
     @property
-    def latest_bbox_3d(self) -> BoundingBox3DAnnotation | None:
+    def latest_bbox_3d(self) -> Optional[BoundingBox3DAnnotation]:
         """
         The newest 3D bounding box annotation of the latest hypothesis.
         """

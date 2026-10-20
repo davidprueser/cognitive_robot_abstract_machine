@@ -20,12 +20,13 @@ from timeit import default_timer
 from py_trees.behaviour import Behaviour
 from py_trees.common import Status
 from py_trees.decorators import Decorator
+from typing_extensions import List, Optional, Union
 
 from robokudo.display import render_dot_tree
 from robokudo.utils.tree import find_root
 
 
-def render_now(behaviour: RenderTreeToDot | RenderTreeToDotDecorator) -> None:
+def render_now(behaviour: Union[RenderTreeToDot, RenderTreeToDotDecorator]) -> None:
     """Generate behavior tree snapshot and save to disk.
 
     This method:
@@ -63,7 +64,7 @@ class RenderTreeToDot(Behaviour):
     saving the output to the specified directory.
     """
 
-    def __init__(self, path: str | None = None, suffix: str = "") -> None:
+    def __init__(self, path: Optional[str] = None, suffix: str = "") -> None:
         """Initialize render behavior.
 
         :param path: Output directory path
@@ -71,7 +72,7 @@ class RenderTreeToDot(Behaviour):
         """
         super().__init__(name="RenderToDot")
 
-        self.path: str | None = path
+        self.path: Optional[str] = path
         """Output directory path"""
 
         self.counter: int = 0
@@ -104,10 +105,10 @@ class RenderTreeToDotDecorator(Decorator):
 
     def __init__(
         self,
-        child: Behaviour | None = None,
-        path: str | None = None,
+        child: Optional[Behaviour] = None,
+        path: Optional[str] = None,
         suffix: str = "",
-        trigger_when_status_is: list[Status] | None = None,
+        trigger_when_status_is: Optional[List[Status]] = None,
     ) -> None:
         """Initialize render decorator.
 
@@ -124,7 +125,7 @@ class RenderTreeToDotDecorator(Decorator):
                 Status.FAILURE,
             ]
 
-        self.trigger_when_status_is: list[Status] = trigger_when_status_is
+        self.trigger_when_status_is: List[Status] = trigger_when_status_is
         """List of status values that trigger rendering"""
 
         self.path: str = path

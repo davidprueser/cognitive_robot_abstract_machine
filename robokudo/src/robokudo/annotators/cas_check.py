@@ -17,7 +17,7 @@ from __future__ import annotations
 import functools
 
 from py_trees.common import Status
-from typing_extensions import Callable
+from typing_extensions import Callable, Type, Optional
 
 from robokudo.annotators.core import BaseAnnotator
 from robokudo.cas import CAS
@@ -41,7 +41,7 @@ class CASCheckFunc(BaseAnnotator):
     def __init__(
         self,
         name: str = "CASCheckFunc",
-        func: Callable[[CAS], bool] | None = None,
+        func: Optional[Callable[[CAS], bool]] = None,
         raise_with_str: str = "",
     ) -> None:
         """
@@ -76,7 +76,7 @@ class CASCheckFunc(BaseAnnotator):
                 return Status.FAILURE
 
 
-def any_of_type_present(annotation_type: type, cas: CAS) -> bool:
+def any_of_type_present(annotation_type: Type, cas: CAS) -> bool:
     """
     Check if any annotations of a specific type exist in the CAS.
 
@@ -102,7 +102,7 @@ class CASCheckAnnotationTypeExists(CASCheckFunc):
     def __init__(
         self,
         name: str = "CASCheckAnnotationTypeExists",
-        annotation_type: type | None = None,
+        annotation_type: Optional[Type] = None,
         raise_with_str: str = "",
     ) -> None:
         """

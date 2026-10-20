@@ -17,7 +17,8 @@ import signal
 from contextlib import contextmanager
 from dataclasses import dataclass
 from types import FrameType
-from typing_extensions import Any, Iterator, TYPE_CHECKING
+from typing import Any, Iterator, List
+from typing_extensions import TYPE_CHECKING
 
 import pytest
 
@@ -134,7 +135,7 @@ def install_fake_collection_reader_descriptor(monkeypatch: pytest.MonkeyPatch) -
     )
 
 
-def flattened_pipeline_nodes(behaviour: Behaviour) -> list[object]:
+def flattened_pipeline_nodes(behaviour: Behaviour) -> List[object]:
     """
     All nodes in a behaviour tree, including the root and every descendant.
 
@@ -189,7 +190,7 @@ def test_tiago_demo_does_not_discard_its_real_answer(
 # %% sweep across every analysis engine, so the same mistake elsewhere is caught too
 
 
-def discovered_analysis_engine_module_names() -> list[str]:
+def discovered_analysis_engine_module_names() -> List[str]:
     """
     Every module name directly under ``robokudo.descriptors.analysis_engines``.
 

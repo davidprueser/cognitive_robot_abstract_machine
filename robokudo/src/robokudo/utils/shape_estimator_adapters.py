@@ -22,6 +22,7 @@ from semantic_digital_twin.world_description.geometry import (
 from semantic_digital_twin.world_description.geometry import (
     Sphere as SemDTSphere,
 )
+from typing_extensions import Optional, Union
 
 from robokudo.types.annotation import Cuboid, Cylinder, Shape, Sphere
 from robokudo.utils.shape_fitting import (
@@ -81,7 +82,11 @@ class CuboidFitParameters:
     min_inlier_ratio: float
 
 
-ShapeFitParameters = SphereFitParameters | CylinderFitParameters | CuboidFitParameters
+ShapeFitParameters = Union[
+    SphereFitParameters,
+    CylinderFitParameters,
+    CuboidFitParameters,
+]
 
 
 @dataclass(frozen=True)
@@ -216,7 +221,7 @@ class ShapeFitAdapter(ABC):
     @abstractmethod
     def fit(
         self, points: np.ndarray, parameters: ShapeFitParameters
-    ) -> FittedShape | None:
+    ) -> Optional[FittedShape]:
         """
         Fit this primitive using shape-specific fit parameters.
         """
@@ -261,7 +266,7 @@ class SphereFitAdapter(ShapeFitAdapter):
 
     def fit(
         self, points: np.ndarray, parameters: ShapeFitParameters
-    ) -> SphereFit | None:
+    ) -> Optional[SphereFit]:
         """
         Fit one sphere candidate.
         """
@@ -354,7 +359,7 @@ class CylinderFitAdapter(ShapeFitAdapter):
 
     def fit(
         self, points: np.ndarray, parameters: ShapeFitParameters
-    ) -> CylinderFit | None:
+    ) -> Optional[CylinderFit]:
         """
         Fit one cylinder candidate.
         """
@@ -460,7 +465,7 @@ class CuboidFitAdapter(ShapeFitAdapter):
 
     def fit(
         self, points: np.ndarray, parameters: ShapeFitParameters
-    ) -> CuboidFit | None:
+    ) -> Optional[CuboidFit]:
         """
         Fit one cuboid candidate.
         """
