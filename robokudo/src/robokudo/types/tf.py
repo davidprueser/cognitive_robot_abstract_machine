@@ -12,8 +12,6 @@ The module supports:
 * Parent-child frame relationships
 """
 
-from __future__ import annotations
-
 from dataclasses import dataclass, field
 from typing_extensions import List
 from builtin_interfaces.msg import Time

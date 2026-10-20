@@ -5,8 +5,6 @@ This module provides an annotator for visualizing camera viewpoints and referenc
 in 3D space using Open3D.
 """
 
-from __future__ import annotations
-
 import open3d as o3d
 from py_trees.common import Status
 

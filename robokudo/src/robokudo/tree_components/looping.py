@@ -1,4 +1,3 @@
-from __future__ import annotations
 from py_trees.decorators import Condition
 
 

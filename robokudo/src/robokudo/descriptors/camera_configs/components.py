@@ -1,4 +1,3 @@
-from __future__ import annotations
 from dataclasses import dataclass, field
 
 from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix

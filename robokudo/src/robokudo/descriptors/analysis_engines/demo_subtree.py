@@ -1,4 +1,3 @@
-from __future__ import annotations
 from robokudo.annotators.cluster_color import ClusterColorAnnotator
 from robokudo.annotators.cluster_color_histogram import ClusterColorHistogramAnnotator
 from robokudo.annotators.cluster_position import ClusterPositionAnnotator

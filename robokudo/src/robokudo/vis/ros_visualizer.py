@@ -11,8 +11,6 @@ It handles:
 * Image format conversion
 """
 
-from __future__ import annotations
-
 import cv2
 import numpy as np
 from cv_bridge import CvBridge

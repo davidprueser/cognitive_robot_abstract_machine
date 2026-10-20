@@ -13,8 +13,6 @@ This module provides utilities for resolving file paths in ROS packages.
     * logging
 """
 
-from __future__ import annotations
-
 from pathlib import Path
 
 from ament_index_python.packages import get_package_share_directory

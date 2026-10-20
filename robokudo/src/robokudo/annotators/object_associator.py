@@ -1,4 +1,3 @@
-from __future__ import annotations
 from py_trees.common import Status
 from typing_extensions import List, Set, Optional
 

@@ -8,8 +8,6 @@ of perception pipelines based on the current query state.
 Original implementation by Malte Huerkamp.
 """
 
-from __future__ import annotations
-
 from py_trees.composites import Composite, Sequence
 from robokudo_msgs.action import Query
 from typing_extensions import Any, Callable, Dict, Optional

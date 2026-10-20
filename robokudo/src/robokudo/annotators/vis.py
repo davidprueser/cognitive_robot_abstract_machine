@@ -18,8 +18,6 @@ The module is used for:
 * Output buffer management
 """
 
-from __future__ import annotations
-
 from py_trees.blackboard import Blackboard
 from py_trees.common import Status
 

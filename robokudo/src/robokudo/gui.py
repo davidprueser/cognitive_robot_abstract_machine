@@ -6,8 +6,6 @@ pipelines. The behaviors can be used to trigger redrawing of annotator outputs a
 manage pipeline visualization state.
 """
 
-from __future__ import annotations
-
 import logging
 
 from py_trees.common import Status

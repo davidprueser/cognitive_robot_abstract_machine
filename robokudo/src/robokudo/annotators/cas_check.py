@@ -12,8 +12,6 @@ The annotators follow these principles:
    For RUNNING status checks, use CASCondition from cas_condition.py instead.
 """
 
-from __future__ import annotations
-
 import functools
 
 from py_trees.common import Status

@@ -11,8 +11,6 @@ It handles:
 * Window management
 """
 
-from __future__ import annotations
-
 import logging
 
 import open3d as o3d  # this import creates a SIGINT during unit test execution....

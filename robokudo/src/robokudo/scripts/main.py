@@ -246,6 +246,7 @@ def main() -> None:
     # If you have a custom version of `setup_with_descendants`, call it:
     setup_with_descendants_rk(ae_root)
 
+
     try:
         # 9. Start ticking the Behavior Tree
         run_ae(ae_name=args.ae, ae_root=ae_root, tickrate=args.tickrate)

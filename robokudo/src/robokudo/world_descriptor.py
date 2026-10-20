@@ -5,8 +5,6 @@ This module provides classes for describing a world with predefined objects and 
 It builds semantic_digital_twin entities into a shared World instance.
 """
 
-from __future__ import annotations
-
 from dataclasses import dataclass, field
 from pathlib import Path
 

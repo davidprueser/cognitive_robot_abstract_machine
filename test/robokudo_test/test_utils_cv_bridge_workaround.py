@@ -1,4 +1,3 @@
-from __future__ import annotations
 import numpy as np
 import pytest
 from sensor_msgs.msg import Image

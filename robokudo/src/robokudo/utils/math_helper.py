@@ -7,8 +7,6 @@ This module provides utilities for 3D geometric calculations.
 RoboKudo Team
 """
 
-from __future__ import annotations
-
 from robokudo.utils.transform import get_rotation_matrix_from_q
 from typing_extensions import Iterable, Optional, Tuple, List
 import numpy as np

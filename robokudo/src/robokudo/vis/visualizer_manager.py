@@ -10,8 +10,6 @@ using different visualization backends. It coordinates:
 * Pipeline data synchronization
 """
 
-from __future__ import annotations
-
 import copy
 import logging
 from timeit import default_timer

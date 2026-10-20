@@ -11,8 +11,6 @@ This module provides an annotator for:
    The pipeline will remain in RUNNING state until triggered.
 """
 
-from __future__ import annotations
-
 from py_trees.blackboard import Blackboard
 from py_trees.common import Status
 

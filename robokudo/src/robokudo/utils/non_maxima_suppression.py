@@ -9,8 +9,6 @@ This module provides NMS implementations for filtering overlapping bounding boxe
 :Created:     2023-02-02
 """
 
-from __future__ import annotations
-
 from typing_extensions import Tuple, List
 
 # pylint: disable=invalid-name

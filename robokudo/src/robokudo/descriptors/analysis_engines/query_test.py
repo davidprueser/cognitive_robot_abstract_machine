@@ -11,8 +11,6 @@ Features:
 - Uses a feedback mechanism to report progress dynamically.
 """
 
-from __future__ import annotations
-
 from queue import Queue
 
 from py_trees.blackboard import Blackboard

@@ -16,8 +16,6 @@ serving as a starting point for more complex video processing applications.
     modified to use other video sources by changing the device parameter.
 """
 
-from __future__ import annotations
-
 from robokudo.analysis_engine import AnalysisEngineInterface
 
 from robokudo.annotators.collection_reader import CollectionReaderAnnotator

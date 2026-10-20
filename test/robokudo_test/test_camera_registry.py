@@ -1,4 +1,3 @@
-from __future__ import annotations
 from robokudo.descriptors.camera_configs.config_kinect_robot import KinectCameraConfig
 from robokudo.descriptors.camera_configs.config_mongodb_playback import (
     MongoCameraConfig,

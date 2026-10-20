@@ -18,8 +18,6 @@ grasping it.
     other change.
 """
 
-from __future__ import annotations
-
 from robokudo.analysis_engine import AnalysisEngineInterface
 from robokudo.annotators.cluster_pose_bb import ClusterPoseBBAnnotator
 from robokudo.annotators.collection_reader import CollectionReaderAnnotator

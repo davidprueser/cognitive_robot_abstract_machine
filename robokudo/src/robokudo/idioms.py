@@ -12,8 +12,6 @@ The module provides:
 * Reusable behavior combinations
 """
 
-from __future__ import annotations
-
 from py_trees.composites import Sequence
 
 from robokudo.behaviours.action_server_checks import ActionServerPresentAndDone

@@ -4,8 +4,6 @@ General methods to access the current World.
 Reasoning about alternate world states is done in the corresponding Annotators.
 """
 
-from __future__ import annotations
-
 import numpy as np
 
 from robokudo.cas import CAS

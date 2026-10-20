@@ -19,7 +19,6 @@ The module is primarily used for:
 # thanks to simon
 # https://github.com/SemRoCo/giskardpy/blob/devel/src/giskardpy/tree/composites/better_parallel.py
 
-from __future__ import annotations
 from py_trees.composites import Parallel as OriginalParallel
 from py_trees.behaviour import Behaviour
 from py_trees.common import Status
