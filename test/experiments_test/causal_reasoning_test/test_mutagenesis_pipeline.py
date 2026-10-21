@@ -109,10 +109,10 @@ def _evidence_for(molecule: MutagenesisMolecule, circuit) -> dict:
         "MutagenesisMolecule.logp": molecule.logp,
         "MutagenesisMolecule.lumo": molecule.lumo,
         "MutagenesisMoleculeAggregations.double_bond_count()": (
-            aggregations.double_bond_count()
+            aggregations.value_of(MutagenesisMoleculeAggregations.double_bond_count)
         ),
         "MutagenesisMoleculeAggregations.aromatic_bond_count()": (
-            aggregations.aromatic_bond_count()
+            aggregations.value_of(MutagenesisMoleculeAggregations.aromatic_bond_count)
         ),
     }
     return {

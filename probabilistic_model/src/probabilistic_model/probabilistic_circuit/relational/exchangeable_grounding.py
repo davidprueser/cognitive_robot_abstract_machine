@@ -9,13 +9,12 @@ import itertools
 from dataclasses import dataclass, field, replace
 
 import numpy as np
-from random_events.product_algebra import Event
+from random_events.interval import closed
+from random_events.product_algebra import Event, SimpleEvent
 from sortedcontainers import SortedSet
-from typing_extensions import TYPE_CHECKING, Any, Generic, Optional, TypeVar
+from typing_extensions import TYPE_CHECKING, Any, Generic, Iterable, Optional, TypeVar
 
-from krrood.parametrization.feature_extraction.aggregations import (
-    compute_aggregation_statistics,
-)
+from krrood.entity_query_language.operators.aggregators import AggregationBounds
 from krrood.patterns.subclass_safe_generic import SubClassSafeGeneric
 from probabilistic_model.probabilistic_model import PartialPointType
 from probabilistic_model.probabilistic_circuit.groundable_circuit import (
@@ -26,6 +25,8 @@ from probabilistic_model.probabilistic_circuit.groundable_circuit import (
 )
 from probabilistic_model.probabilistic_circuit.relational.exceptions import (
     CircuitNotFittedError,
+    HavingConstrainsUnmodeledStatisticsError,
+    ImpossibleStatisticsError,
     InvalidMonteCarloSampleCountError,
     PartCircuitGroundingFailedError,
     UndeterminedLatentsNotModeledError,
@@ -535,6 +536,119 @@ class ExchangeablePartGrounder(Generic[NodeType], SubClassSafeGeneric):
         return values
 
 
+# %% what a query states about the aggregation statistics
+
+
+@dataclass
+class StatedStatistics:
+    """
+    What a grounding query states about the aggregation statistics a relational circuit
+    models as latent variables.
+    """
+
+    latent_variables: SortedSet[Variable]
+    """
+    The aggregation statistics the relational circuit models.
+    """
+
+    bounds: dict[Variable, AggregationBounds]
+    """
+    The closed range each statistic lies in, as far as the query states the aggregated
+    values.
+    """
+
+    having_event: Event | None = None
+    """
+    The event the having conditions of the query restrict the statistics to, if the
+    query has any.
+    """
+
+    def determined_values_of(self, variables: Iterable[Variable]) -> PartialPointType:
+        """
+        :param variables: Aggregation statistics.
+        :return: The value of each of them the query determines.
+        """
+        return {
+            variable: self.bounds[variable].lower
+            for variable in variables
+            if variable in self.bounds and self.bounds[variable].is_exact
+        }
+
+    def undetermined_among(self, variables: Iterable[Variable]) -> SortedSet[Variable]:
+        """
+        :param variables: Aggregation statistics.
+        :return: Those of them the query leaves undetermined.
+        """
+        determined = self.determined_values_of(variables)
+        return SortedSet(
+            variable for variable in variables if variable not in determined
+        )
+
+    @property
+    def region(self) -> Event | None:
+        """
+        :return: The event restricting the undetermined statistics to their bounds and
+            to the having conditions, or ``None`` if nothing restricts them.
+        :raises HavingConstrainsUnmodeledStatisticsError: If the having conditions
+            constrain statistics the relational circuit does not model.
+        :raises ImpossibleStatisticsError: If the stated statistics violate the having
+            conditions.
+        """
+        undetermined = self.undetermined_among(self.latent_variables)
+        is_bounded = any(
+            self.bounds[variable] != AggregationBounds.unbounded
+            for variable in undetermined
+            if variable in self.bounds
+        )
+        if self.having_event is None and not is_bounded:
+            return None
+        restricted = self.stated_event
+        if self.having_event is not None:
+            restricted = self._restricted_by_having_conditions_(restricted)
+        if not undetermined:
+            return None
+        return restricted.marginal(undetermined)
+
+    @property
+    def stated_event(self) -> Event:
+        """
+        :return: The event restricting every statistic to its bounds.
+        """
+        return SimpleEvent.from_data(
+            {
+                variable: (
+                    closed(self.bounds[variable].lower, self.bounds[variable].upper)
+                    if variable in self.bounds
+                    else variable.domain
+                )
+                for variable in self.latent_variables
+            }
+        ).as_composite_set()
+
+    def _restricted_by_having_conditions_(self, stated: Event) -> Event:
+        """
+        :param stated: The event restricting every statistic to its bounds.
+        :return: The part of the event the having conditions hold in.
+        :raises HavingConstrainsUnmodeledStatisticsError: If the having conditions
+            constrain statistics the relational circuit does not model.
+        :raises ImpossibleStatisticsError: If the having conditions hold nowhere in the
+            event.
+        """
+        unmodeled = [
+            variable
+            for variable in self.having_event.variables
+            if variable not in self.latent_variables
+        ]
+        if unmodeled:
+            raise HavingConstrainsUnmodeledStatisticsError(unmodeled)
+        restricted = stated & self.having_event.fill_missing_variables_pure(
+            self.latent_variables
+        )
+        if restricted.is_empty():
+            raise ImpossibleStatisticsError(stated)
+        return restricted
+
+
 # %% grounding a relational circuit
 
 
@@ -567,16 +681,34 @@ class RelationalGrounding:
         relational_circuit = self.relational_circuit
         if relational_circuit.class_probabilistic_circuit is None:
             raise CircuitNotFittedError()
-        circuit = relational_circuit.class_probabilistic_circuit.__deepcopy__()
-        instance = query.construct_instance()
+        statistics = relational_circuit.statistics_stated_by(query)
+        circuit = self.class_circuit_within(statistics)
         for (
             exchangeable_part_name,
             template,
         ) in relational_circuit.exchangeable_distribution_templates.items():
             self.part_grounder(
-                circuit, exchangeable_part_name, template, query, instance
+                circuit, exchangeable_part_name, template, query, statistics
             ).ground(self.grounding_mode)
         return circuit
+
+    def class_circuit_within(self, statistics: StatedStatistics) -> GroundableCircuit:
+        """
+        :param statistics: What the grounding query states about the aggregation
+            statistics.
+        :return: A copy of the class circuit, truncated to the region the query
+            restricts the undetermined statistics to.
+        :raises ImpossibleStatisticsError: If the class circuit assigns that region no
+            probability.
+        """
+        class_circuit = self.relational_circuit.class_probabilistic_circuit
+        region = statistics.region
+        if region is None:
+            return class_circuit.__deepcopy__()
+        truncated, _ = class_circuit.truncated(region)
+        if truncated is None:
+            raise ImpossibleStatisticsError(region)
+        return truncated
 
     def part_grounder(
         self,
@@ -584,30 +716,22 @@ class RelationalGrounding:
         exchangeable_part_name: str,
         template: ExchangeableDistributionTemplate,
         query: Match,
-        instance: Any,
+        statistics: StatedStatistics,
     ) -> ExchangeablePartGrounder:
         """
         :param circuit: The working class circuit.
         :param exchangeable_part_name: Field name of the exchangeable relation.
         :param template: The fitted template of the relation.
         :param query: The grounding query.
-        :param instance: The instance constructed from the query.
+        :param statistics: What the grounding query states about the aggregation
+            statistics.
         :return: The grounder of the part, with the templates of its child objects
             grounded.
         """
-        aggregation_statistics = compute_aggregation_statistics(
-            instance, exchangeable_part_name, template.latent_variables
+        determined_statistics = statistics.determined_values_of(
+            template.latent_variables
         )
-        determined_statistics = {
-            variable: value
-            for variable, value in aggregation_statistics.items()
-            if self._is_concrete_statistic(variable, value)
-        }
-        undetermined_latents = SortedSet(
-            variable
-            for variable in template.latent_variables
-            if variable not in determined_statistics
-        )
+        undetermined_latents = statistics.undetermined_among(template.latent_variables)
         nested_grounding = replace(
             self, relational_circuit=template.template_distribution
         )
@@ -621,13 +745,3 @@ class RelationalGrounding:
             undetermined_latents=undetermined_latents,
             monte_carlo_sample_count=self.relational_circuit.monte_carlo_sample_count,
         )
-
-    @staticmethod
-    def _is_concrete_statistic(variable: Variable, value: Any) -> bool:
-        """
-        :param variable: The latent variable the value belongs to.
-        :param value: The observed aggregation value, either a concrete point or a range.
-        :return: Whether the value designates exactly one element of the variable's
-            domain.
-        """
-        return variable.make_value(value).is_singleton()

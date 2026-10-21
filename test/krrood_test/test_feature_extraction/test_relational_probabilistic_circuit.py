@@ -736,11 +736,10 @@ def test_exact_grounding_preserves_correlation_with_the_retained_latent(
     point) into conditioning, which always failed and silently fell back to grounding
     every branch from the same unconditioned distribution -- and even after fixing that,
     a single, undifferentiated partition branch was treated as trivially valid instead
-    of being rejected, discarding the correlation either way.
-    P(objects[0].type=CHAIR | do(chair_count=1)) and P(objects[0].type=CHAIR |
-    do(chair_count=3)) must therefore differ, reflecting chair_count=1 rooms never
-    having their first object be a chair and chair_count=3 rooms always having it be
-    one.
+    of being rejected, discarding the correlation either way. P(objects[0].type=CHAIR |
+    do(chair_count=1)) and P(objects[0].type=CHAIR | do(chair_count=3)) must therefore
+    differ, reflecting chair_count=1 rooms never having their first object be a chair
+    and chair_count=3 rooms always having it be one.
     """
     np.random.seed(0)
     grounded = correlated_relational_probabilistic_circuit.ground(
@@ -1549,7 +1548,7 @@ def _buildings() -> list[SceneBuilding]:
             floors=[
                 SceneFloor(
                     rooms=[
-                        _room(float(room), [SceneObjectType.CHAIR] * (2 + floor))
+                        _room(float(room), [SceneObjectType.CHAIR] * (1 + room + floor))
                         for room in range(2)
                     ]
                 )

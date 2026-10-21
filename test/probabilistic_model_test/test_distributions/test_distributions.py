@@ -377,3 +377,19 @@ class EventCompatibleForTruncationTestCase(unittest.TestCase):
             }
         ).as_composite_set()
         self.assertTrue(event_compatible_for_truncation_with_singletons(event))
+
+
+# %% deserialized symbolic distributions
+
+
+def test_deserialized_symbolic_distribution_truncates_to_a_symbol_it_never_saw():
+    x = Symbolic(name="x", domain=Set.from_iterable(TestEnum))
+    model = SymbolicDistribution(
+        variable=x, probabilities=MissingDict(float, {hash(TestEnum.A): 1.0})
+    )
+    deserialized = from_json(to_json(model))
+    whole_domain = SimpleEvent.from_data({x: x.domain}).as_composite_set()
+
+    truncated, probability = deserialized.truncated(whole_domain)
+
+    assert probability == 1.0

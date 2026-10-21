@@ -4,7 +4,15 @@ from typing import Self
 import pytest
 from typing_extensions import List
 
-from krrood.entity_query_language.factories import variable
+from krrood.entity_query_language.factories import (
+    a,
+    count,
+    entity,
+    flat_variable,
+    variable,
+)
+from krrood.entity_query_language.operators.aggregators import AggregationBounds
+from krrood.entity_query_language.query.query import Query
 from krrood.parametrization.feature_extraction.aggregations import (
     AggregationStatistic,
     aggregation_statistic,
@@ -13,13 +21,13 @@ from krrood.parametrization.feature_extraction.aggregations import (
 from krrood.parametrization.feature_extraction.exceptions import (
     InvalidAggregatedFieldError,
     MissingFieldNameError,
+    StatisticValueTypeNotDeclared,
 )
 from krrood.parametrization.feature_extraction.feature_extractor import (
     FeatureExtractor,
 )
 from krrood.entity_query_language.core.mapped_variable import Call
 from krrood.patterns.role import Role
-from random_events.interval import SimpleInterval, Bound
 from ..dataset.ormatic_interface import *  # type: ignore
 from ..dataset.example_classes import (
     SceneObject,
@@ -35,17 +43,31 @@ from ..dataset.example_classes import (
 
 @pytest.fixture
 def example_scenario():
-    obj1 = SceneObject(type=SceneObjectType.TABLE)
-    obj2 = SceneObject(type=SceneObjectType.CHAIR)
-    obj3 = SceneObject(type=...)
-    obj4 = SceneObject(type=...)
-    obj5 = SceneObject(type=...)
     room = SceneRoom(
         position=KRROODPosition(0, 0, 0),
         orientation=KRROODOrientation(0, 0, 0, 1),
-        objects=[obj1, obj2, obj3, obj4, obj5],
+        objects=[
+            SceneObject(type=SceneObjectType.TABLE),
+            SceneObject(type=SceneObjectType.CHAIR),
+            SceneObject(type=SceneObjectType.CHAIR),
+            SceneObject(type=SceneObjectType.CHAIR),
+            SceneObject(type=SceneObjectType.TABLE),
+        ],
     )
     return room
+
+
+@pytest.fixture
+def partially_stated_room():
+    return a(SceneRoom)(
+        objects=[
+            a(SceneObject)(type=SceneObjectType.TABLE),
+            a(SceneObject)(type=SceneObjectType.CHAIR),
+            a(SceneObject)(type=...),
+            a(SceneObject)(type=...),
+            a(SceneObject)(type=...),
+        ]
+    )
 
 
 def test_single_aggregation(example_scenario):
@@ -57,12 +79,7 @@ def test_single_aggregation(example_scenario):
     assert aggregation_features == aggregations
     values = aggregation_instance.apply_mapping()
     assert len(aggregations) == 3
-    closed = Bound.CLOSED
-    assert values == {
-        "chair_count": SimpleInterval.from_data(1, 4, closed, closed),
-        "table_count": SimpleInterval.from_data(1, 4, closed, closed),
-        "total_count": 5,
-    }
+    assert values == {"chair_count": 3, "table_count": 2, "total_count": 5}
 
 
 def test_feature_extraction_with_aggregation_statistics(example_scenario):
@@ -100,14 +117,61 @@ def test_multiple_exchangeable_parts():
     assert extractor.apply_mapping(scene) == [1, 1, 2, 2]
 
 
-def test_aggregation_count_values(example_scenario):
-    room = example_scenario
-    aggregation_cls = get_aggregation_class(type(room))
-    aggregation_instance = aggregation_cls(role_taker=room, field_name="objects")
-    values = aggregation_instance.apply_mapping()
-    assert values["chair_count"] == SimpleInterval.from_data(
-        1, 4, Bound.CLOSED, Bound.CLOSED
-    )
+def test_statistic_bounds_stated_by_a_query(partially_stated_room):
+    bounds = SceneRoomAggregations.bounds_stated_by(partially_stated_room, "objects")
+
+    feature_name = {
+        statistic: SceneRoomAggregations.symbolic_feature_of(statistic)._name_
+        for statistic in SceneRoomAggregations.aggregation_features_of_field("objects")
+    }
+    assert bounds == {
+        feature_name[SceneRoomAggregations.chair_count]: AggregationBounds(
+            lower=1, upper=4
+        ),
+        feature_name[SceneRoomAggregations.table_count]: AggregationBounds(
+            lower=1, upper=4
+        ),
+        feature_name[SceneRoomAggregations.total_count]: AggregationBounds(
+            lower=5, upper=5
+        ),
+    }
+
+
+def test_statistic_value_type_is_read_from_its_query_annotation():
+    assert SceneRoomAggregations.value_type_of("chair_count") is int
+
+
+def test_statistic_without_a_declared_value_type_is_refused():
+    @dataclass
+    class Owner:
+        items: List[SceneObject]
+
+    @dataclass(eq=False)
+    class UndeclaredValueTypeAggregations(AggregationStatistic[Owner]):
+        @aggregation_statistic(variable(Owner).items)
+        def item_count(self) -> Query:
+            return entity(count(flat_variable(self.items)))
+
+    with pytest.raises(StatisticValueTypeNotDeclared):
+        UndeclaredValueTypeAggregations.value_type_of("item_count")
+
+
+def test_the_statistic_defining_an_aggregation_is_found():
+    room = variable(SceneRoom, [])
+    object_type = flat_variable(room.objects).type
+    aggregation = entity(count(object_type)).where(object_type == SceneObjectType.CHAIR)
+
+    statistic = SceneRoomAggregations.statistic_defining(aggregation)
+
+    assert statistic is SceneRoomAggregations.chair_count
+
+
+def test_an_aggregation_no_statistic_defines_has_no_statistic():
+    room = variable(SceneRoom, [])
+    object_type = flat_variable(room.objects).type
+    aggregation = entity(count(object_type)).where(object_type != SceneObjectType.CHAIR)
+
+    assert SceneRoomAggregations.statistic_defining(aggregation) is None
 
 
 def test_only_marked_methods_are_statistics():
@@ -118,8 +182,8 @@ def test_only_marked_methods_are_statistics():
     @dataclass(eq=False)
     class PartiallyMarkedAggregations(AggregationStatistic[Owner]):
         @aggregation_statistic(variable(Owner).items)
-        def marked_statistic(self) -> int:
-            return 1
+        def marked_statistic(self) -> Query[int]:
+            return entity(count(flat_variable(self.items)))
 
         def unmarked_helper(self) -> int:
             return 2
@@ -143,14 +207,14 @@ def test_registry_is_isolated_between_unrelated_subclasses():
     @dataclass(eq=False)
     class AggregationsA(AggregationStatistic[OwnerA]):
         @aggregation_statistic(variable(OwnerA).items)
-        def count_a(self) -> int:
-            return len(self.items)
+        def count_a(self) -> Query[int]:
+            return entity(count(flat_variable(self.items)))
 
     @dataclass(eq=False)
     class AggregationsB(AggregationStatistic[OwnerB]):
         @aggregation_statistic(variable(OwnerB).items)
-        def count_b(self) -> int:
-            return len(self.items)
+        def count_b(self) -> Query[int]:
+            return entity(count(flat_variable(self.items)))
 
     owner_a = OwnerA(items=[SceneObject(type=SceneObjectType.TABLE)])
     owner_b = OwnerB(items=[SceneObject(type=SceneObjectType.CHAIR)])
@@ -169,8 +233,8 @@ def test_inherited_statistics_are_visible_in_subclass():
     @dataclass(eq=False)
     class BaseAggregations(AggregationStatistic[Owner]):
         @aggregation_statistic(variable(Owner).items)
-        def base_stat(self) -> int:
-            return len(self.items)
+        def base_stat(self) -> Query[int]:
+            return entity(count(flat_variable(self.items)))
 
     @dataclass(eq=False)
     class DerivedAggregations(BaseAggregations):
@@ -188,14 +252,14 @@ def test_own_registry_contains_only_directly_defined_methods():
     @dataclass(eq=False)
     class BaseAggregations(AggregationStatistic[Owner]):
         @aggregation_statistic(variable(Owner).items)
-        def base_stat(self) -> int:
-            return len(self.items)
+        def base_stat(self) -> Query[int]:
+            return entity(count(flat_variable(self.items)))
 
     @dataclass(eq=False)
     class DerivedAggregations(BaseAggregations):
         @aggregation_statistic(variable(Owner).items)
-        def derived_stat(self) -> int:
-            return 0
+        def derived_stat(self) -> Query[int]:
+            return entity(count(flat_variable(self.items)))
 
     own_names = {f.__name__ for f in DerivedAggregations.aggregation_registry["items"]}
     assert own_names == {"derived_stat"}

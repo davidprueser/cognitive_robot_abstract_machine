@@ -15,6 +15,7 @@ import itertools
 from dataclasses import dataclass, field
 
 import pandas as pd
+from sortedcontainers import SortedSet
 from typing_extensions import (
     TYPE_CHECKING,
     Any,
@@ -30,10 +31,17 @@ from krrood.ormatic.data_access_objects.dao import (
     get_dao_schema,
 )
 from krrood.ormatic.data_access_objects.helper import get_data_access_object_class
+from krrood.entity_query_language.factories import and_
+from krrood.parametrization.exceptions import (
+    HavingConditionHasNoRandomEventRepresentation,
+)
 from krrood.parametrization.feature_extraction.aggregations import (
-    compute_aggregation_statistics,
+    get_aggregation_class,
 )
 from krrood.parametrization.feature_extraction.feature_extractor import FeatureExtractor
+from krrood.parametrization.random_events_translator import (
+    HavingExpressionToRandomEventTranslator,
+)
 from krrood.patterns.field_metadata import JSONMetadata
 
 if TYPE_CHECKING:
@@ -58,6 +66,7 @@ from probabilistic_model.probabilistic_circuit.relational.exchangeable_grounding
     GroundedPartTemplate,
     GroundingMode,
     RelationalGrounding,
+    StatedStatistics,
 )
 from probabilistic_model.probabilistic_circuit.relational.part_learning_methods import (
     PartLearningMethods,
@@ -414,19 +423,20 @@ class RelationalProbabilisticCircuit:
     def query_shape(self, query: Match) -> Hashable:
         """
         :param query: A query this circuit is grounded for.
-        :return: What the structure of the grounding depends on: the aggregation
-            statistics and query parts of every exchangeable relation. Queries of the
-            same shape are grounded into circuits that differ only in the names of their
-            variables and, for sampled statistics, in the samples.
+        :return: What the structure of the grounding depends on: the having conditions,
+            and the bounds of the aggregation statistics and the query parts of every
+            exchangeable relation. Queries of the same shape are grounded into circuits
+            that differ only in the names of their variables and, for sampled
+            statistics, in the samples.
         """
-        instance = query.construct_instance()
-        return tuple(
+        statistics = self.statistics_stated_by(query)
+        return statistics.having_event, tuple(
             (
                 exchangeable_part_name,
                 frozenset(
-                    compute_aggregation_statistics(
-                        instance, exchangeable_part_name, template.latent_variables
-                    ).items()
+                    (variable, statistics.bounds[variable])
+                    for variable in template.latent_variables
+                    if variable in statistics.bounds
                 ),
                 tuple(
                     template.template_distribution.query_shape(part)
@@ -435,6 +445,44 @@ class RelationalProbabilisticCircuit:
             )
             for exchangeable_part_name, template in self.exchangeable_distribution_templates.items()
         )
+
+    def statistics_stated_by(self, query: Match) -> StatedStatistics:
+        """
+        :param query: A query this circuit is grounded for.
+        :return: What the query states about the aggregation statistics of every
+            exchangeable relation, through the parts it gives and its having
+            conditions.
+        :raises HavingConditionHasNoRandomEventRepresentation: If the query has having
+            conditions but its class declares no aggregation statistics.
+        """
+        aggregation_class = get_aggregation_class(query._type_)
+        latent_variables = SortedSet(
+            variable
+            for template in self.exchangeable_distribution_templates.values()
+            for variable in template.latent_variables
+        )
+        bounds = (
+            {}
+            if aggregation_class is None
+            else {
+                variable: bounds_by_name[variable.name]
+                for exchangeable_part_name, template in self.exchangeable_distribution_templates.items()
+                for bounds_by_name in [
+                    aggregation_class.bounds_stated_by(query, exchangeable_part_name)
+                ]
+                for variable in template.latent_variables
+                if variable.name in bounds_by_name
+            }
+        )
+        if not query._having_conditions_:
+            return StatedStatistics(latent_variables, bounds)
+        having_conditions = and_(*query._having_conditions_)
+        if aggregation_class is None:
+            raise HavingConditionHasNoRandomEventRepresentation(having_conditions)
+        having_event = HavingExpressionToRandomEventTranslator(
+            having_conditions, aggregation_class
+        ).translate()
+        return StatedStatistics(latent_variables, bounds, having_event)
 
     def ground(
         self,

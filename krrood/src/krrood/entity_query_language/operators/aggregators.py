@@ -1,12 +1,14 @@
 """
 This module defines aggregator functions for the Entity Query Language.
 
-It contains classes for counting, summing, averaging, and finding
-extreme values in query results.
+It contains classes for counting, summing, averaging, and finding extreme values in
+query results.
 """
 
 from __future__ import annotations
 
+import builtins
+import math
 import numbers
 import statistics
 import uuid
@@ -32,11 +34,13 @@ from krrood.entity_query_language.core.base_expressions import (
     Selectable,
 )
 from krrood.entity_query_language.exceptions import (
+    AggregatorHasNoBounds,
     NestedAggregationError,
     InvalidChildType,
 )
 from krrood.entity_query_language.utils import T
 from krrood.entity_query_language.core.mapped_variable import CanBehaveLikeAVariable
+from krrood.ormatic.utils import classproperty
 
 if TYPE_CHECKING:
     from krrood.entity_query_language.query.query import Entity
@@ -49,22 +53,145 @@ IntOrFloat = int | float
 A type representing a number, which can be either an integer or a float.
 """
 
+# %% bounds of an aggregation over partially known values
+
+
+@dataclass
+class PartiallyKnownValues:
+    """
+    The values an aggregation ranges over, as far as a description of them states them.
+    """
+
+    included_values: list[Any] = field(default_factory=list)
+    """
+    The stated values that are certainly aggregated.
+    """
+
+    possibly_included_values: list[Any] = field(default_factory=list)
+    """
+    The stated values that are aggregated only if a condition the description leaves
+    open holds.
+    """
+
+    unstated_included_count: int = 0
+    """
+    How many values are certainly aggregated without being stated.
+    """
+
+    unstated_possibly_included_count: int = 0
+    """
+    How many values are aggregated only if a condition the description leaves open
+    holds, without being stated.
+    """
+
+    is_size_unstated: bool = False
+    """
+    Whether the description leaves the number of values open, so any number of further
+    unstated values may be aggregated.
+    """
+
+    def add(self, value: Any, is_certainly_included: bool) -> None:
+        """
+        Record one more value the aggregation ranges over.
+
+        :param value: The value, or ``...`` when it is not stated.
+        :param is_certainly_included: Whether the value is aggregated regardless of any
+            condition left open.
+        """
+        if value is ... and is_certainly_included:
+            self.unstated_included_count += 1
+        elif value is ...:
+            self.unstated_possibly_included_count += 1
+        elif is_certainly_included:
+            self.included_values.append(value)
+        else:
+            self.possibly_included_values.append(value)
+
+    @property
+    def may_include_unstated_values(self) -> bool:
+        """
+        :return: Whether a value the description does not state may be aggregated.
+        """
+        return (
+            self.unstated_included_count > 0
+            or self.unstated_possibly_included_count > 0
+            or self.is_size_unstated
+        )
+
+    @property
+    def may_be_empty(self) -> bool:
+        """
+        :return: Whether the aggregation may range over no value at all.
+        """
+        return not self.included_values and self.unstated_included_count == 0
+
+    @property
+    def is_empty(self) -> bool:
+        """
+        :return: Whether the aggregation certainly ranges over no value at all.
+        """
+        return (
+            self.may_be_empty
+            and not self.possibly_included_values
+            and not self.may_include_unstated_values
+        )
+
+
+@dataclass(frozen=True)
+class AggregationBounds:
+    """
+    The closed range the result of an aggregation lies in.
+    """
+
+    lower: Any
+    """
+    The smallest result the aggregation may have.
+    """
+
+    upper: Any
+    """
+    The largest result the aggregation may have.
+    """
+
+    @classproperty
+    def unbounded(cls) -> AggregationBounds:
+        """
+        :return: The bounds of a result that may be any number.
+        """
+        return cls(lower=-math.inf, upper=math.inf)
+
+    @property
+    def is_exact(self) -> bool:
+        """
+        :return: Whether the bounds leave exactly one result.
+        """
+        return self.lower == self.upper
+
+    def including(self, value: Any) -> AggregationBounds:
+        """
+        :param value: A result the aggregation may also have.
+        :return: The smallest bounds that hold these bounds and the value.
+        """
+        return AggregationBounds(
+            lower=builtins.min(self.lower, value), upper=builtins.max(self.upper, value)
+        )
+
 
 @dataclass(eq=False, repr=False)
 class Aggregator(UnaryExpression, CanBehaveLikeAVariable[T], ABC):
     """
     Base class for aggregators.
 
-    Aggregators are unary selectable expressions that take a single
-    expression as a child. They aggregate the results of the child
-    expression and evaluate to either a single value or a set of
-    aggregated  values for each group when `grouped_by()` is used.
+    Aggregators are unary selectable expressions that take a single expression as a
+    child. They aggregate the results of the child expression and evaluate to either a
+    single value or a set of aggregated  values for each group when `grouped_by()` is
+    used.
     """
 
     _distinct_: bool = field(kw_only=True, default=False)
     """
-    Whether to consider only distinct values from the child results when
-    applying the aggregation function.
+    Whether to consider only distinct values from the child results when applying the
+    aggregation function.
     """
 
     def __post_init__(self):
@@ -75,11 +202,11 @@ class Aggregator(UnaryExpression, CanBehaveLikeAVariable[T], ABC):
 
     def evaluate(self, backend: Optional[QueryBackend] = None) -> Iterator[T]:
         """
-        Wrap the aggregator in an entity and evaluate it (i.e., make a query
-        with this aggregator as the selected expression and evaluate it.).
+        Wrap the aggregator in an entity and evaluate it (i.e., make a query with this
+        aggregator as the selected expression and evaluate it.).
 
-        :param backend: The query backend to evaluate with; forwarded to
-            the wrapping entity.
+        :param backend: The query backend to evaluate with; forwarded to the wrapping
+            entity.
         :return: An iterator over the aggregator results.
         """
         from krrood.entity_query_language.query.query import Entity
@@ -121,6 +248,28 @@ class Aggregator(UnaryExpression, CanBehaveLikeAVariable[T], ABC):
         :return: Bindings containing the aggregated result.
         """
         ...
+
+    def bounds_of(self, values: PartiallyKnownValues) -> AggregationBounds:
+        """
+        :param values: The values this aggregation ranges over, as far as they are
+            stated.
+        :return: The closed range the result of this aggregation lies in.
+        :raises AggregatorHasNoBounds: If this aggregation is distinct, or its result
+            cannot be bounded.
+        """
+        if self._distinct_:
+            raise AggregatorHasNoBounds(self)
+        return self._bounds_of_values_(values)
+
+    def _bounds_of_values_(self, values: PartiallyKnownValues) -> AggregationBounds:
+        """
+        :param values: The values this aggregation ranges over, as far as they are
+            stated, counted with repetition.
+        :return: The closed range the result of this aggregation lies in.
+        :raises AggregatorHasNoBounds: If the result of this aggregation cannot be
+            bounded.
+        """
+        raise AggregatorHasNoBounds(self)
 
     @property
     def _source_root_(self) -> Optional[Any]:
@@ -173,6 +322,17 @@ class Count(Aggregator[T]):
         else:
             yield {self._id_: len(child_result.value)}
 
+    def _bounds_of_values_(self, values: PartiallyKnownValues) -> AggregationBounds:
+        lower = len(values.included_values) + values.unstated_included_count
+        if values.is_size_unstated:
+            return AggregationBounds(lower=lower, upper=math.inf)
+        return AggregationBounds(
+            lower=lower,
+            upper=lower
+            + len(values.possibly_included_values)
+            + values.unstated_possibly_included_count,
+        )
+
 
 @dataclass(eq=False, repr=False)
 class CountAll(Count[T]):
@@ -189,14 +349,14 @@ class CountAll(Count[T]):
 
     _child_: Optional[GroupedBy] = field(init=False, default=None)
     """
-    Always ``None``; the count of all rows per group is supplied by the grouping rather than by
-    aggregating a child expression.
+    Always ``None``; the count of all rows per group is supplied by the grouping rather
+    than by aggregating a child expression.
     """
 
     def _evaluate__(self, sources: OperationResult) -> Iterator[OperationResult]:
         """
-        Surface the per-group row count that the grouping already bound to this aggregator's
-        identifier.
+        Surface the per-group row count that the grouping already bound to this
+        aggregator's identifier.
         """
         yield OperationResult(sources.bindings, self)
 
@@ -204,12 +364,11 @@ class CountAll(Count[T]):
 @dataclass(eq=False, repr=False)
 class CountRange(Count[T]):
     """
-    Count concrete matches and return an ``int`` when there is no uncertainty,
-    or a closed ``SimpleInterval`` when ``...`` (Ellipsis) values exist in the
-    variable's domain.
+    Count concrete matches and return an ``int`` when there is no uncertainty, or a
+    closed ``SimpleInterval`` when ``...`` (Ellipsis) values exist in the variable's
+    domain.
 
-    If the domain contains no Ellipsis values a plain ``int`` is
-    returned.
+    If the domain contains no Ellipsis values a plain ``int`` is returned.
     """
 
     _original_child_: Optional[Selectable[T]] = field(init=False, default=None)
@@ -222,13 +381,11 @@ class CountRange(Count[T]):
         self, child_result: OperationResult
     ) -> Iterator[Bindings]:
         """
-        Count concrete matches and yield an ``int`` when the count is certain,
-        or a closed ``SimpleInterval`` when ellipsis values introduce
-        uncertainty.
+        Count concrete matches and yield an ``int`` when the count is certain, or a
+        closed ``SimpleInterval`` when ellipsis values introduce uncertainty.
 
         :param child_result: The result from the child expression.
-        :return: Bindings containing the count or the uncertainty
-            interval.
+        :return: Bindings containing the count or the uncertainty interval.
         """
         values = child_result.value
         ellipsis_in_result = sum(1 for value in values if value is ...)
@@ -254,11 +411,10 @@ class CountRange(Count[T]):
 
     def _count_ellipsis_in_domain_(self) -> int:
         """
-        Count the number of ellipsis values in the original child expression's
-        domain.
+        Count the number of ellipsis values in the original child expression's domain.
 
-        :return: The number of ellipsis values in the domain, or zero if
-            there is no child.
+        :return: The number of ellipsis values in the domain, or zero if there is no
+            child.
         """
         if self._original_child_ is None:
             return 0
@@ -272,11 +428,11 @@ class CountRange(Count[T]):
 @dataclass(eq=False, repr=False)
 class EntityAggregator(Aggregator[T], ABC):
     """
-    Entity aggregators are aggregators where the child (the entity to be
-    aggregated) is a selectable expression.
+    Entity aggregators are aggregators where the child (the entity to be aggregated) is
+    a selectable expression.
 
-    Also, If given, make use of the key function to extract the value to
-    be aggregated from the child result.
+    Also, If given, make use of the key function to extract the value to be aggregated
+    from the child result.
     """
 
     _child_: Selectable[T]
@@ -323,6 +479,35 @@ class EntityAggregator(Aggregator[T], ABC):
         """
         ...
 
+    def _bounds_of_values_(self, values: PartiallyKnownValues) -> AggregationBounds:
+        """
+        An aggregation over no value results in :attr:`_default_value_`; without one,
+        its result is left unbounded.
+        """
+        if values.is_empty:
+            if self._default_value_ is None:
+                return AggregationBounds.unbounded
+            return AggregationBounds(
+                lower=self._default_value_, upper=self._default_value_
+            )
+        bounds = self._bounds_over_some_values_(values)
+        if values.may_be_empty and self._default_value_ is not None:
+            return bounds.including(self._default_value_)
+        return bounds
+
+    def _bounds_over_some_values_(
+        self, values: PartiallyKnownValues
+    ) -> AggregationBounds:
+        """
+        :param values: The values this aggregation ranges over, as far as they are
+            stated, of which at least one is aggregated.
+        :return: The closed range the result of this aggregation over at least one
+            value lies in.
+        :raises AggregatorHasNoBounds: If the result of this aggregation cannot be
+            bounded.
+        """
+        raise AggregatorHasNoBounds(self)
+
 
 @dataclass(eq=False, repr=False)
 class Sum(EntityAggregator[numbers.Number]):
@@ -343,6 +528,27 @@ class Sum(EntityAggregator[numbers.Number]):
     ) -> Iterator[IntOrFloat]:
         yield sum(result)
 
+    def _bounds_over_some_values_(
+        self, values: PartiallyKnownValues
+    ) -> AggregationBounds:
+        if values.may_include_unstated_values:
+            return AggregationBounds.unbounded
+        certain_sum = sum(values.included_values)
+        possible_values = values.possibly_included_values
+        negative_values = [value for value in possible_values if value < 0]
+        positive_values = [value for value in possible_values if value > 0]
+        lower = (
+            certain_sum + sum(negative_values)
+            if values.included_values or negative_values
+            else builtins.min(possible_values)
+        )
+        upper = (
+            certain_sum + sum(positive_values)
+            if values.included_values or positive_values
+            else builtins.max(possible_values)
+        )
+        return AggregationBounds(lower=lower, upper=upper)
+
 
 @dataclass(eq=False, repr=False)
 class Average(Sum):
@@ -356,14 +562,50 @@ class Average(Sum):
         for sum_value in super().aggregation_function(result):
             yield sum_value / len(result)
 
+    def _bounds_over_some_values_(
+        self, values: PartiallyKnownValues
+    ) -> AggregationBounds:
+        """
+        The average is smallest when it takes the smallest possibly included values and
+        largest when it takes the largest ones.
+        """
+        if values.may_include_unstated_values:
+            return AggregationBounds.unbounded
+        ascending_values = sorted(values.possibly_included_values)
+        averages = [
+            *self._averages_adding_(values.included_values, ascending_values),
+            *self._averages_adding_(values.included_values, ascending_values[::-1]),
+        ]
+        return AggregationBounds(
+            lower=builtins.min(averages), upper=builtins.max(averages)
+        )
+
+    @staticmethod
+    def _averages_adding_(
+        included_values: list[IntOrFloat], added_values: list[IntOrFloat]
+    ) -> Iterator[float]:
+        """
+        :param included_values: The values every average takes.
+        :param added_values: The values added one after another.
+        :return: The average of the included values and of every leading run of the
+            added values, leaving out the average of no value.
+        """
+        total = sum(included_values)
+        count = len(included_values)
+        if count:
+            yield total / count
+        for value in added_values:
+            total += value
+            count += 1
+            yield total / count
+
 
 @dataclass(eq=False, repr=False)
 class Extreme(EntityAggregator[T], ABC):
     """
     Find and return the extreme value among the child results.
 
-    If given, make use of the key function to extract the value to be
-    compared.
+    If given, make use of the key function to extract the value to be compared.
     """
 
     def _apply_aggregation_function_and_get_bindings_(
@@ -380,12 +622,31 @@ class Max(Extreme[T]):
     """
     Find and return the maximum value among the child results.
 
-    If given, make use of the key function to extract the value to be
-    compared.
+    If given, make use of the key function to extract the value to be compared.
     """
 
     def aggregation_function(self, values: Iterable) -> Iterator[T]:
         yield max(values, key=self._key_function_)
+
+    def _bounds_over_some_values_(
+        self, values: PartiallyKnownValues
+    ) -> AggregationBounds:
+        if values.may_include_unstated_values:
+            lower = (
+                builtins.max(values.included_values)
+                if values.included_values
+                else -math.inf
+            )
+            return AggregationBounds(lower=lower, upper=math.inf)
+        lower = (
+            builtins.max(values.included_values)
+            if values.included_values
+            else builtins.min(values.possibly_included_values)
+        )
+        upper = builtins.max(
+            [*values.included_values, *values.possibly_included_values]
+        )
+        return AggregationBounds(lower=lower, upper=upper)
 
 
 @dataclass(eq=False, repr=False)
@@ -393,12 +654,31 @@ class Min(Extreme[T]):
     """
     Find and return the minimum value among the child results.
 
-    If given, make use of the key function to extract the value to be
-    compared.
+    If given, make use of the key function to extract the value to be compared.
     """
 
     def aggregation_function(self, values: Iterable) -> Iterator[T]:
         yield min(values, key=self._key_function_)
+
+    def _bounds_over_some_values_(
+        self, values: PartiallyKnownValues
+    ) -> AggregationBounds:
+        if values.may_include_unstated_values:
+            upper = (
+                builtins.min(values.included_values)
+                if values.included_values
+                else math.inf
+            )
+            return AggregationBounds(lower=-math.inf, upper=upper)
+        lower = builtins.min(
+            [*values.included_values, *values.possibly_included_values]
+        )
+        upper = (
+            builtins.min(values.included_values)
+            if values.included_values
+            else builtins.max(values.possibly_included_values)
+        )
+        return AggregationBounds(lower=lower, upper=upper)
 
 
 @dataclass(eq=False, repr=False)
@@ -421,8 +701,7 @@ class Mode(Extreme[T]):
     """
     Find and return the mode value among the child results.
 
-    Same as {py:class}`MultiMode`, but only returns the first mode value
-    found.
+    Same as {py:class}`MultiMode`, but only returns the first mode value found.
     """
 
     def aggregation_function(self, values: Iterable) -> Iterator[T]:

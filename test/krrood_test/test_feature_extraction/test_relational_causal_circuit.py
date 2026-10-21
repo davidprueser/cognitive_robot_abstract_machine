@@ -386,12 +386,12 @@ def test_fit_stratifies_the_class_circuit_by_every_given_variable(
         ),
     )
     model.fit(many_chair_count_rooms)
-    joint_values = {
-        (
-            SceneRoomAggregations(role_taker=room).chair_count(),
-            SceneRoomAggregations(role_taker=room).table_count(),
-        )
+    statistic_values = [
+        SceneRoomAggregations(role_taker=room, field_name="objects").apply_mapping()
         for room in many_chair_count_rooms
+    ]
+    joint_values = {
+        (values["chair_count"], values["table_count"]) for values in statistic_values
     }
     assert _root_partition_count(model.class_probabilistic_circuit) == len(joint_values)
 

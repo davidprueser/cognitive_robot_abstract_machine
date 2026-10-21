@@ -265,6 +265,12 @@ class Match(
     `where` method.
     """
 
+    _having_conditions_: list[ConditionType] = field(init=False, default_factory=list)
+    """
+    The conditions that have been applied to this instance using the :meth:`having`
+    method.
+    """
+
     _has_been_called: bool = field(init=False, default=False)
     """
     Flag indicating whether the match instance has been called with keyword arguments.
@@ -665,9 +671,13 @@ class Match(
         """
         Constrain the grouped results of the lowered query.
 
+        The conditions are also kept on the match itself, since grounding a generative
+        model reads them from the pattern rather than from the lowered query.
+
         :param conditions: The conditions a group must satisfy.
         :return: This match.
         """
+        self._having_conditions_.extend(conditions)
         self._symbolic_expression_.having(*conditions)
         return self
 

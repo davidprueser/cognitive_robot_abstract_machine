@@ -4,12 +4,15 @@ import pytest
 
 from krrood.entity_query_language.factories import a
 from krrood.entity_query_language.operators.causal import cause
-from krrood.patterns.exceptions import KeywordNamesNoFactoryParameter
+from krrood.patterns.exceptions import (
+    KeywordNamesNoFactoryParameter,
+    UnderspecifiedArgumentError,
+)
 from krrood.patterns import factory_and_kwargs
 from krrood.patterns.factory_and_kwargs import HasFactoryAndKwargs
 
 from ..dataset.derived_attributes import Rectangle
-from ..dataset.example_classes import KRROODPosition
+from ..dataset.example_classes import KRROODPose, KRROODPosition, KRROODPositions
 
 
 def record_keywords(**keywords: float) -> dict[str, float]:
@@ -95,3 +98,31 @@ def test_repeated_construction_reads_the_factory_signature_once(monkeypatch):
     rectangle.construct_instance()
     rectangle.construct_instance()
     assert signature_reads == [make_rectangle]
+
+
+# %% arguments left underspecified
+
+
+def test_constructing_with_an_underspecified_argument_is_refused():
+    position = a(KRROODPosition)(x=1.0, y=..., z=3.0)
+
+    with pytest.raises(UnderspecifiedArgumentError):
+        position.construct_instance()
+
+
+def test_constructing_with_an_underspecified_nested_argument_is_refused():
+    pose = a(KRROODPose)(
+        position=a(KRROODPosition)(x=1.0, y=..., z=3.0), orientation=None
+    )
+
+    with pytest.raises(UnderspecifiedArgumentError):
+        pose.construct_instance()
+
+
+def test_constructing_with_an_underspecified_element_is_refused():
+    positions = a(KRROODPositions)(
+        positions=[KRROODPosition(1.0, 2.0, 3.0), ...], some_strings=["a"]
+    )
+
+    with pytest.raises(UnderspecifiedArgumentError):
+        positions.construct_instance()

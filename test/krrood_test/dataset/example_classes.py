@@ -20,8 +20,9 @@ from krrood.entity_query_language.factories import (
     variable,
     count,
     entity,
-    count_range,
+    flat_variable,
 )
+from krrood.entity_query_language.query.query import Query
 from krrood.ormatic.data_access_objects.alternative_mappings import (
     AlternativeMapping,
     T,
@@ -920,38 +921,27 @@ class SceneObjectAggregationBase(AggregationStatistic[TSceneObjectHolder]):
     """
 
     @aggregation_statistic(variable(SceneRoom).objects)
-    def chair_count(self) -> int:
+    def chair_count(self) -> Query[int]:
         """
         Count of CHAIR-type objects.
         """
-        type_var = variable(SceneObject, self.objects).type
-        [cou] = (
-            entity(count_range(type_var))
-            .where(type_var == SceneObjectType.CHAIR)
-            .tolist()
-        )
-        return cou
+        object_type = flat_variable(self.objects).type
+        return entity(count(object_type)).where(object_type == SceneObjectType.CHAIR)
 
     @aggregation_statistic(variable(SceneRoom).objects)
-    def table_count(self) -> int:
+    def table_count(self) -> Query[int]:
         """
         Count of TABLE-type objects.
         """
-        type_var = variable(SceneObject, self.objects).type
-        [cou] = (
-            entity(count_range(type_var))
-            .where(type_var == SceneObjectType.TABLE)
-            .tolist()
-        )
-        return cou
+        object_type = flat_variable(self.objects).type
+        return entity(count(object_type)).where(object_type == SceneObjectType.TABLE)
 
     @aggregation_statistic(variable(SceneRoom).objects)
-    def total_count(self) -> int:
+    def total_count(self) -> Query[int]:
         """
         Total number of objects.
         """
-        [cou] = count(variable(SceneObject, self.objects)).tolist()
-        return cou
+        return entity(count(flat_variable(self.objects)))
 
 
 @dataclass(eq=False)
@@ -971,12 +961,11 @@ class SceneWithExchangeablePartsAggregations(
     """
 
     @aggregation_statistic(variable(SceneWithExchangeableParts).rooms)
-    def room_count(self) -> int:
+    def room_count(self) -> Query[int]:
         """
         Total number of rooms.
         """
-        [cou] = count(variable(SceneRoom, self.rooms)).tolist()
-        return cou
+        return entity(count(flat_variable(self.rooms)))
 
 
 @dataclass
@@ -1011,12 +1000,11 @@ class SceneFloorAggregations(AggregationStatistic[SceneFloor]):
     """
 
     @aggregation_statistic(variable(SceneFloor).rooms)
-    def room_count(self) -> int:
+    def room_count(self) -> Query[int]:
         """
         Total number of rooms on the floor.
         """
-        [cou] = count(variable(SceneRoom, self.rooms)).tolist()
-        return cou
+        return entity(count(flat_variable(self.rooms)))
 
 
 @dataclass(eq=False)
@@ -1026,12 +1014,11 @@ class SceneBuildingAggregations(AggregationStatistic[SceneBuilding]):
     """
 
     @aggregation_statistic(variable(SceneBuilding).floors)
-    def floor_count(self) -> int:
+    def floor_count(self) -> Query[int]:
         """
         Total number of floors in the building.
         """
-        [cou] = count(variable(SceneFloor, self.floors)).tolist()
-        return cou
+        return entity(count(flat_variable(self.floors)))
 
 
 # %% Relational causal experiment (skill-confounded grasp attempts)
@@ -1080,21 +1067,19 @@ class PickingRobotAggregations(AggregationStatistic[PickingRobot]):
     """
 
     @aggregation_statistic(variable(PickingRobot).attempts)
-    def success_count(self) -> int:
+    def success_count(self) -> Query[int]:
         """
         Count of successful grasp attempts.
         """
-        grasped_var = variable(GraspAttempt, self.attempts).grasped
-        [result] = entity(count_range(grasped_var)).where(grasped_var == True).tolist()
-        return result
+        grasped = flat_variable(self.attempts).grasped
+        return entity(count(grasped)).where(grasped == True)
 
     @aggregation_statistic(variable(PickingRobot).attempts)
-    def total_count(self) -> int:
+    def total_count(self) -> Query[int]:
         """
         Total number of grasp attempts.
         """
-        [result] = count(variable(GraspAttempt, self.attempts)).tolist()
-        return result
+        return entity(count(flat_variable(self.attempts)))
 
 
 class RobotStation(Enum):
@@ -1137,13 +1122,12 @@ class StationedPickingRobotAggregations(AggregationStatistic[StationedPickingRob
     """
 
     @aggregation_statistic(variable(StationedPickingRobot).attempts)
-    def success_count(self) -> int:
+    def success_count(self) -> Query[int]:
         """
         Count of successful grasp attempts.
         """
-        grasped_var = variable(GraspAttempt, self.attempts).grasped
-        [result] = entity(count_range(grasped_var)).where(grasped_var == True).tolist()
-        return result
+        grasped = flat_variable(self.attempts).grasped
+        return entity(count(grasped)).where(grasped == True)
 
 
 @dataclass

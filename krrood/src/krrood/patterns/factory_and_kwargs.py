@@ -6,7 +6,10 @@ from functools import lru_cache
 from typing_extensions import Callable, Dict, Any, Generic, Iterator, TypeVar
 
 from krrood.adapters.json_serializer import list_like_classes
-from krrood.patterns.exceptions import KeywordNamesNoFactoryParameter
+from krrood.patterns.exceptions import (
+    KeywordNamesNoFactoryParameter,
+    UnderspecifiedArgumentError,
+)
 
 T = TypeVar("T")
 
@@ -39,11 +42,11 @@ class HasFactoryAndKwargs(Generic[T]):
         or :meth:`_is_kept_out_of_construction_` says the keyword means something other
         than a constructor argument.
 
-        ..note:: This method may work with ellipsis, but it's not guaranteed to work with all types.
-
         :return: The constructed object.
         :raises KeywordNamesNoFactoryParameter: If a keyword argument names no parameter
             of :attr:`_factory_` and is not kept out of construction.
+        :raises UnderspecifiedArgumentError: If an argument, at any depth, is still
+            ``...`` and so has to be sampled before anything can be constructed.
         """
         constructed_kwargs = {}
         for key, value in self._kwargs_.items():
@@ -55,12 +58,12 @@ class HasFactoryAndKwargs(Generic[T]):
                 )
             if isinstance(value, list_like_classes):
                 constructed_kwargs[key] = type(value)(
-                    self._recurse_construct_instance_and_get_value(element)
+                    self._recurse_construct_instance_and_get_value(key, element)
                     for element in value
                 )
             else:
                 constructed_kwargs[key] = (
-                    self._recurse_construct_instance_and_get_value(value)
+                    self._recurse_construct_instance_and_get_value(key, value)
                 )
         return self._factory_(**constructed_kwargs)
 
@@ -114,13 +117,20 @@ class HasFactoryAndKwargs(Generic[T]):
         """
         return False
 
-    def _recurse_construct_instance_and_get_value(self, value: Any):
+    def _recurse_construct_instance_and_get_value(
+        self, keyword: str, value: Any
+    ) -> Any:
         """
         Recursively construct an instance and return it.
 
+        :param keyword: The keyword argument the value is given for.
         :param value: The value to construct.
         :return: The constructed instance.
+        :raises UnderspecifiedArgumentError: If the value, or an argument of it, is
+            still ``...``.
         """
+        if value is ...:
+            raise UnderspecifiedArgumentError(factory=self._factory_, keyword=keyword)
         if isinstance(value, HasFactoryAndKwargs):
             return value.construct_instance()
         return value

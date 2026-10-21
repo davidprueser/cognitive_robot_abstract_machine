@@ -1,16 +1,18 @@
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass
 
-import numpy as np
-
 from experiments.shelf_generation_experiments.shelf_schema import (
-    RelationalCircuitExperimentObject2D,
     RelationalCircuitExperimentShelf,
     RelationalCircuitExperimentShelfLayer,
 )
-from krrood.entity_query_language.factories import count, variable
+from krrood.entity_query_language.factories import (
+    count,
+    entity,
+    flat_variable,
+    variable,
+)
+from krrood.entity_query_language.query.query import Query
 from krrood.parametrization.feature_extraction.aggregations import (
     AggregationStatistic,
     aggregation_statistic,
@@ -26,19 +28,11 @@ class RelationalCircuitExperimentShelfLayerAggregations(
     """
 
     @aggregation_statistic(variable(RelationalCircuitExperimentShelfLayer).objects)
-    def total_count(self) -> int:
+    def total_count(self) -> Query[int]:
         """
         Number of objects placed on the shelf layer.
-
-        ..note:: The variable is declared over the *element* type. Naming the
-            owning type instead matches nothing and counts zero, which is silent:
-            the statistic still appears in the fitted model, so the layer and its
-            objects merely end up independent.
         """
-        [object_count] = count(
-            variable(RelationalCircuitExperimentObject2D, self.objects)
-        ).tolist()
-        return object_count
+        return entity(count(flat_variable(self.objects)))
 
 
 @dataclass(eq=False)
@@ -54,11 +48,8 @@ class RelationalCircuitExperimentShelfAggregations(
     """
 
     @aggregation_statistic(variable(RelationalCircuitExperimentShelf).layers)
-    def layer_count(self) -> int:
+    def layer_count(self) -> Query[int]:
         """
         Number of layers the shelf has.
         """
-        [count_of_layers] = count(
-            variable(RelationalCircuitExperimentShelfLayer, self.layers)
-        ).tolist()
-        return count_of_layers
+        return entity(count(flat_variable(self.layers)))
