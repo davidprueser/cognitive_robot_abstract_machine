@@ -305,7 +305,7 @@ class CommonAnalysisStructureCheckConfigurationError(
         )
 
     def suggest_correction(self) -> str:
-        return "pass a callable via the 'func' parameter."
+        return "pass a callable via the 'function' parameter."
 
 
 @dataclass

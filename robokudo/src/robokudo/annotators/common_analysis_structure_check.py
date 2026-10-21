@@ -26,7 +26,7 @@ from robokudo.exceptions import (
 from robokudo.types.scene import ObjectHypothesis
 
 
-class CommonAnalysisStructureCheckFunc(BaseAnnotator):
+class CommonAnalysisStructureCheckFunction(BaseAnnotator):
     """
     Function-based common analysis structure condition checker.
 
@@ -41,38 +41,38 @@ class CommonAnalysisStructureCheckFunc(BaseAnnotator):
 
     def __init__(
         self,
-        name: str = "CommonAnalysisStructureCheckFunc",
-        func: Optional[Callable[[CommonAnalysisStructure], bool]] = None,
-        raise_with_str: str = "",
+        name: str = "CommonAnalysisStructureCheckFunction",
+        function: Optional[Callable[[CommonAnalysisStructure], bool]] = None,
+        failure_message: str = "",
     ) -> None:
         """
         Initialize the common analysis structure condition checker.
 
         :param name: Name of this node in the behavior tree
-        :param func: Function that evaluates common analysis structure conditions, must return bool
-        :param raise_with_str: Error message to raise on failure, empty string disables
+        :param function: Function that evaluates common analysis structure conditions, must return bool
+        :param failure_message: Error message to raise on failure, empty string disables
             raising
-        :raises CommonAnalysisStructureCheckConfigurationError: If func is None
+        :raises CommonAnalysisStructureCheckConfigurationError: If function is None
         """
-        super(CommonAnalysisStructureCheckFunc, self).__init__(name=name)
-        if func is None:
+        super(CommonAnalysisStructureCheckFunction, self).__init__(name=name)
+        if function is None:
             raise CommonAnalysisStructureCheckConfigurationError(component_name=name)
-        self.func = func
-        self.raise_with_str = raise_with_str
+        self.function = function
+        self.failure_message = failure_message
 
     def update(self) -> Status:
         """
         Check the common analysis structure condition.
 
         :return: SUCCESS if condition is True, FAILURE if False
-        :raises CommonAnalysisStructureCheckFailed: If raise_with_str is set and condition is False
+        :raises CommonAnalysisStructureCheckFailed: If failure_message is set and condition is False
         """
         common_analysis_structure = self.get_common_analysis_structure()
-        if self.func(common_analysis_structure):
+        if self.function(common_analysis_structure):
             return Status.SUCCESS
         else:
-            if self.raise_with_str != "":
-                raise CommonAnalysisStructureCheckFailed(reason=self.raise_with_str)
+            if self.failure_message != "":
+                raise CommonAnalysisStructureCheckFailed(reason=self.failure_message)
             else:
                 return Status.FAILURE
 
@@ -84,7 +84,7 @@ def any_of_type_present(
     Check if any annotations of a specific type exist in the common analysis structure.
 
     :param annotation_type: Type of annotation to check for
-    :param common_analysis_structure: Common Analysis System instance
+    :param common_analysis_structure: Common analysis structure instance
     :return: True if at least one annotation exists, False otherwise
     """
     annotations = common_analysis_structure.filter_annotations_by_type(annotation_type)
@@ -92,12 +92,12 @@ def any_of_type_present(
 
 
 class CommonAnalysisStructureCheckAnnotationTypeExists(
-    CommonAnalysisStructureCheckFunc
+    CommonAnalysisStructureCheckFunction
 ):
     """
     Check for existence of specific annotation types.
 
-    Specialized CommonAnalysisStructureCheckFunc that:
+    Specialized CommonAnalysisStructureCheckFunction that:
 
     * Checks for presence of specific annotation types
     * Returns SUCCESS if at least one annotation exists
@@ -108,24 +108,24 @@ class CommonAnalysisStructureCheckAnnotationTypeExists(
         self,
         name: str = "CommonAnalysisStructureCheckAnnotationTypeExists",
         annotation_type: Optional[Type] = None,
-        raise_with_str: str = "",
+        failure_message: str = "",
     ) -> None:
         """
         Initialize annotation type checker.
 
         :param name: Name of this node in the behavior tree
         :param annotation_type: Type of annotation to check for
-        :param raise_with_str: Error message to raise on failure, empty string disables
+        :param failure_message: Error message to raise on failure, empty string disables
             raising. This is useful in scenarios where you want to raise an error which
             will be sent via the Query Interface to the caller.
         """
-        func = functools.partial(any_of_type_present, annotation_type)
+        function = functools.partial(any_of_type_present, annotation_type)
         super(CommonAnalysisStructureCheckAnnotationTypeExists, self).__init__(
-            name=name, func=func, raise_with_str=raise_with_str
+            name=name, function=function, failure_message=failure_message
         )
 
 
-class CommonAnalysisStructureCheckOHExists(
+class CommonAnalysisStructureCheckObjectHypothesisExists(
     CommonAnalysisStructureCheckAnnotationTypeExists
 ):
     """
@@ -140,16 +140,16 @@ class CommonAnalysisStructureCheckOHExists(
 
     def __init__(
         self,
-        name: str = "CommonAnalysisStructureCheckOHExists",
-        raise_with_str: str = "",
+        name: str = "CommonAnalysisStructureCheckObjectHypothesisExists",
+        failure_message: str = "",
     ) -> None:
         """
         Initialize ObjectHypothesis checker.
 
         :param name: Name of this node in the behavior tree
-        :param raise_with_str: Error message to raise on failure, empty string disables
+        :param failure_message: Error message to raise on failure, empty string disables
             raising
         """
-        super(CommonAnalysisStructureCheckOHExists, self).__init__(
-            name=name, annotation_type=ObjectHypothesis, raise_with_str=raise_with_str
+        super(CommonAnalysisStructureCheckObjectHypothesisExists, self).__init__(
+            name=name, annotation_type=ObjectHypothesis, failure_message=failure_message
         )

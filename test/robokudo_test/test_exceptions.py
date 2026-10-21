@@ -135,10 +135,10 @@ class TestRoboKudoExceptions:
 
     def test_common_analysis_structure_check_configuration_error_message(self) -> None:
         exception = CommonAnalysisStructureCheckConfigurationError(
-            component_name="CommonAnalysisStructureCheckFunc"
+            component_name="CommonAnalysisStructureCheckFunction"
         )
 
-        assert "CommonAnalysisStructureCheckFunc needs a check function" in str(
+        assert "CommonAnalysisStructureCheckFunction needs a check function" in str(
             exception
         )
 
