@@ -7,7 +7,7 @@ from typing_extensions import TYPE_CHECKING, Any, Iterable, List, Union
 
 from robokudo.types.annotation import PositionAnnotation
 from robokudo.types.tf import Pose
-from robokudo.utils.non_maxima_suppression import _iou
+from robokudo.utils.non_maxima_suppression import _intersection_over_union
 
 if TYPE_CHECKING:
     import numpy.typing as npt
@@ -18,7 +18,7 @@ if TYPE_CHECKING:
         ColorHistogram,
         SemanticColor,
     )
-    from robokudo.types.cv import ImageROI, Rect
+    from robokudo.types.cv import ImageRegionOfInterest, Rectangle
 
 
 class FeatureComparator:
@@ -148,7 +148,9 @@ class HistogramComparator(FeatureComparator):
         :returns: A similarity score between 0.0 (completely different) and 1.0 (identical).
         """
         return abs(
-            cv2.compareHist(query_value.hist, object_value.hist, cv2.HISTCMP_CORREL)
+            cv2.compareHist(
+                query_value.histogram, object_value.histogram, cv2.HISTCMP_CORREL
+            )
         )
 
 
@@ -246,23 +248,27 @@ class AdditionalDataComparator(FeatureComparator):
 class RegionOfInterestComparator(FeatureComparator):
     """Extended `FeatureComparator` that computes similarity based on overlap percentage between query and object values."""
 
-    def compute_similarity(self, query_value: Rect, object_value: Rect) -> float:
-        """Computes the similarity of two Region of Interests by calculating their IoU.
+    def compute_similarity(
+        self, query_value: Rectangle, object_value: Rectangle
+    ) -> float:
+        """Computes the similarity of two Region of Interests by calculating their intersection over union.
 
         :param query_value: The rectangle to use as a baseline for comparison.
         :param object_value: The rectangle to compare against `query_value`.
         :returns: A similarity score between 0.0 (no overlap) and 1.0 (100% overlap).
         """
-        return _iou(query_value.get_corner_points(), object_value.get_corner_points())
+        return _intersection_over_union(
+            query_value.get_corner_points(), object_value.get_corner_points()
+        )
 
 
 class MaskComparator(FeatureComparator):
-    """Extended `FeatureComparator` that computes the IoU of two masks."""
+    """Extended `FeatureComparator` that computes the intersection over union of two masks."""
 
     def compute_similarity(
         self, query_value: npt.NDArray, object_value: npt.NDArray
     ) -> float:
-        """Computes the similarity of two masks by calculating their IoU.
+        """Computes the similarity of two masks by calculating their intersection over union.
 
         :param query_value: The mask to use as a baseline for comparison.
         :param object_value: The mask to compare against `query_value`.
@@ -278,32 +284,32 @@ class MaskComparator(FeatureComparator):
 
 
 class ImageRegionOfInterestComparator(FeatureComparator):
-    """Extended `FeatureComparator` that computes the IoU of two images regions of interest."""
+    """Extended `FeatureComparator` that computes the intersection over union of two images regions of interest."""
 
     def __init__(self, weight: float = 1.0) -> None:
         super().__init__(weight)
 
         self.region_of_interest_comparator = RegionOfInterestComparator(weight=1.0)
-        """Comparator to compute the IoU of two images regions of interest."""
+        """Comparator to compute the intersection over union of two images regions of interest."""
 
         self.mask_comparator = MaskComparator(weight=1.0)
-        """Comparator to compute the IoU of two image masks."""
+        """Comparator to compute the intersection over union of two image masks."""
 
     def compute_similarity(
-        self, query_value: ImageROI, object_value: ImageROI
+        self, query_value: ImageRegionOfInterest, object_value: ImageRegionOfInterest
     ) -> float:
-        """Computes the similarity of two ImageROI annotations by calculating the average IoU of both bounding boxes and masks.
+        """Computes the similarity of two ImageRegionOfInterest annotations by calculating the average intersection over union of both bounding boxes and masks.
 
-        :param query_value: The ImageROI to use as a baseline for comparison.
-        :param object_value: The ImageROI to compare against `query_value`.
+        :param query_value: The ImageRegionOfInterest to use as a baseline for comparison.
+        :param object_value: The ImageRegionOfInterest to compare against `query_value`.
         :returns: A similarity score between 0.0 (no overlap) and 1.0 (100% overlap).
         """
-        query_region_of_interest = query_value.roi
-        object_region_of_interest = object_value.roi
+        query_rectangle = query_value.rectangle
+        object_rectangle = object_value.rectangle
 
         region_of_interest_similarity = (
             self.region_of_interest_comparator.compute_similarity(
-                query_region_of_interest, object_region_of_interest
+                query_rectangle, object_rectangle
             )
         )
 
@@ -312,16 +318,16 @@ class ImageRegionOfInterestComparator(FeatureComparator):
 
         # Crop masks to roi if needed
         if query_mask.shape[:2] != (
-            query_region_of_interest.height,
-            query_region_of_interest.width,
+            query_rectangle.height,
+            query_rectangle.width,
         ):
-            xyxy = query_region_of_interest.get_corner_points()
+            xyxy = query_rectangle.get_corner_points()
             query_mask = query_mask[xyxy[1] : xyxy[3], xyxy[0] : xyxy[2]]
         if object_mask.shape[:2] != (
-            object_region_of_interest.height,
-            object_region_of_interest.width,
+            object_rectangle.height,
+            object_rectangle.width,
         ):
-            xyxy = object_region_of_interest.get_corner_points()
+            xyxy = object_rectangle.get_corner_points()
             object_mask = object_mask[xyxy[1] : xyxy[3], xyxy[0] : xyxy[2]]
 
         # Pad the masks to be the same shape, fill new areas with zeros

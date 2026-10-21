@@ -17,12 +17,12 @@ The pipeline implements the following functionality:
 """
 
 from robokudo.analysis_engine import AnalysisEngineInterface
-from robokudo.idioms import pipeline_init
+from robokudo.idioms import pipeline_initialization
 from robokudo.pipeline import Pipeline
 from robokudo.annotators.collection_reader import CollectionReaderAnnotator
 from robokudo.annotators.image_preprocessor import ImagePreprocessorAnnotator
 from robokudo.annotators.object_hypothesis_visualizer import ObjectHypothesisVisualizer
-from robokudo.descriptors.factories.cr_descriptor_factory import (
+from robokudo.descriptors.factories.collection_reader_descriptor_factory import (
     CollectionReaderDescriptorFactory,
 )
 
@@ -68,15 +68,15 @@ class AnalysisEngine(AnalysisEngineInterface):
             Make sure to store some annotated data in the MongoDB database
             before running this pipeline, or it will not display anything.
         """
-        cr_storage_config = CollectionReaderDescriptorFactory.create_descriptor(
-            "mongo", db_name="store_with_annotations"
+        storage_reader_descriptor = CollectionReaderDescriptorFactory.create_descriptor(
+            "mongo", database_name="store_with_annotations"
         )
 
         seq = Pipeline("StoragePipeline")
         seq.add_children(
             [
-                pipeline_init(),
-                CollectionReaderAnnotator(descriptor=cr_storage_config),
+                pipeline_initialization(),
+                CollectionReaderAnnotator(descriptor=storage_reader_descriptor),
                 ImagePreprocessorAnnotator("ImagePreprocessor"),
                 ObjectHypothesisVisualizer(),
             ]

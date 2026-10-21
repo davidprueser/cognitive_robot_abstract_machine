@@ -29,10 +29,10 @@ from robokudo.annotators.pointcloud_cluster_extractor import PointCloudClusterEx
 from robokudo.annotators.pointcloud_crop import PointcloudCropAnnotator
 from robokudo.annotators.query import QueryAnnotator, QueryReply
 
-from robokudo.idioms import pipeline_init
+from robokudo.idioms import pipeline_initialization
 from robokudo.pipeline import Pipeline
 from robokudo.behaviours.action_server_checks import ActionServerCheck
-from robokudo.descriptors.factories.cr_descriptor_factory import (
+from robokudo.descriptors.factories.collection_reader_descriptor_factory import (
     CollectionReaderDescriptorFactory,
 )
 
@@ -90,14 +90,16 @@ class AnalysisEngine(AnalysisEngineInterface):
 
         :return: The configured pipeline for query processing
         """
-        cr_storage_config = CollectionReaderDescriptorFactory.create_descriptor("mongo")
+        storage_reader_descriptor = CollectionReaderDescriptorFactory.create_descriptor(
+            "mongo"
+        )
 
         seq = Pipeline("StoragePipeline")
         seq.add_children(
             [
-                pipeline_init(),
+                pipeline_initialization(),
                 QueryAnnotator(),
-                CollectionReaderAnnotator(descriptor=cr_storage_config),
+                CollectionReaderAnnotator(descriptor=storage_reader_descriptor),
                 ImagePreprocessorAnnotator("ImagePreprocessor"),
                 PointcloudCropAnnotator(),
                 PlaneAnnotator(),

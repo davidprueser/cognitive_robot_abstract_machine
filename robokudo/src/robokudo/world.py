@@ -10,7 +10,7 @@ from robokudo.common_analysis_structure import CommonAnalysisStructure
 from robokudo.types.scene import ObjectHypothesis
 from robokudo.utils.annotator_helper import get_camera_to_world_transform_matrix
 from robokudo.utils.transform import (
-    get_transform_matrix_from_q,
+    get_transform_matrix_from_quaternion,
     get_quaternion_from_transform_matrix,
     get_translation_from_transform_matrix,
 )
@@ -45,9 +45,9 @@ this.world_entity_tracker = WorldEntityWithIDKwargsTracker.from_world(this.world
 RoboKudo's central entity tracker.
 """
 
-_rk_world_lock = Lock()
+_robokudo_world_lock = Lock()
 """
-Lock for safe creation of the central SemDT World and entity tracker.
+Lock for safe creation of the central semantic digital twin World and entity tracker.
 """
 
 _tracked_objects: Dict[UUID, ObjectBeliefState] = {}
@@ -62,13 +62,13 @@ def get_world_entity_tracker() -> WorldEntityWithIDKwargsTracker:
     return this.world_entity_tracker
 
 
-def init_world_with_entity_tracker() -> WorldEntityWithIDKwargsTracker:
+def initialize_world_with_entity_tracker() -> WorldEntityWithIDKwargsTracker:
     """
     Initialize the world and entity tracker and return the entity tracker.
 
     :return: The newly created entity tracker instance.
     """
-    with _rk_world_lock:
+    with _robokudo_world_lock:
         unsafe_clear_world()
         this.world_entity_tracker = WorldEntityWithIDKwargsTracker.from_world(
             world_instance()
@@ -76,7 +76,7 @@ def init_world_with_entity_tracker() -> WorldEntityWithIDKwargsTracker:
     return this.world_entity_tracker
 
 
-def init_world_entity_tracker_from_world(
+def initialize_world_entity_tracker_from_world(
     world: World,
 ) -> WorldEntityWithIDKwargsTracker:
     """
@@ -84,7 +84,7 @@ def init_world_entity_tracker_from_world(
 
     :return: The newly created entity tracker instance.
     """
-    with _rk_world_lock:
+    with _robokudo_world_lock:
         this.world_entity_tracker = WorldEntityWithIDKwargsTracker.from_world(world)
     return this.world_entity_tracker
 
@@ -99,7 +99,7 @@ def world_instance() -> World:
     :return: A singleton-like World instance.
     """
     if this.world is None:
-        with _rk_world_lock:
+        with _robokudo_world_lock:
             # Check again with lock
             if this.world is None:
                 this.unsafe_clear_world()
@@ -115,7 +115,7 @@ def set_world(world: World) -> None:
 
     :param world: The new world state.
     """
-    with _rk_world_lock:
+    with _robokudo_world_lock:
         this.unsafe_set_world(world=world)
 
 
@@ -125,7 +125,7 @@ def unsafe_set_world(world: World) -> None:
 
     .. warning::
         Always acquire the lock manually before calling this method. Take a look at `this.set_world()` or
-        `this.init_world_with_entity_tracker()` for example.
+        `this.initialize_world_with_entity_tracker()` for example.
 
     :param world: The new world state to set.
     """
@@ -136,7 +136,7 @@ def clear_world() -> None:
     """
     Clear the world state by instantiating a new World.
     """
-    with _rk_world_lock:
+    with _robokudo_world_lock:
         this.unsafe_clear_world()
 
 
@@ -269,27 +269,29 @@ def _get_world_body_from_common_analysis_structure(
     return robokudo_world.get_body_by_name(PrefixedName(name=world_frame))
 
 
-def _create_world_origin_and_scale_from_latest_bbox(
+def _create_world_origin_and_scale_from_latest_bounding_box(
     object_belief: ObjectBeliefState,
     common_analysis_structure: CommonAnalysisStructure,
     world_body: Body,
 ) -> tuple[HomogeneousTransformationMatrix, Scale] | None:
     """
-    Convert the latest camera-frame bbox into a world-frame SemDT origin and scale.
+    Convert the latest camera-frame bbox into a world-frame semantic digital twin origin and scale.
     """
-    bb = object_belief.latest_bounding_box_3d
-    if bb is None:
+    bounding_box = object_belief.latest_bounding_box_3d
+    if bounding_box is None:
         return None
 
-    pose_mat = get_transform_matrix_from_q(bb.pose.rotation, bb.pose.translation)
+    pose_matrix = get_transform_matrix_from_quaternion(
+        bounding_box.pose.rotation, bounding_box.pose.translation
+    )
 
     camera_to_world_transform = get_camera_to_world_transform_matrix(
         common_analysis_structure
     )
-    pose_in_world_mat = np.matmul(camera_to_world_transform, pose_mat)
+    pose_in_world_matrix = np.matmul(camera_to_world_transform, pose_matrix)
 
-    rotation = list(get_quaternion_from_transform_matrix(pose_in_world_mat))
-    translation = list(get_translation_from_transform_matrix(pose_in_world_mat))
+    rotation = list(get_quaternion_from_transform_matrix(pose_in_world_matrix))
+    translation = list(get_translation_from_transform_matrix(pose_in_world_matrix))
 
     object_belief_body = object_belief.body
     origin = HomogeneousTransformationMatrix.from_xyz_quaternion(
@@ -304,11 +306,13 @@ def _create_world_origin_and_scale_from_latest_bbox(
         child_frame=object_belief_body,
     )
 
-    scale = Scale(x=bb.x_length, y=bb.y_length, z=bb.z_length)
+    scale = Scale(
+        x=bounding_box.x_length, y=bounding_box.y_length, z=bounding_box.z_length
+    )
     return origin, scale
 
 
-def _update_belief_body_from_latest_bbox(
+def _update_belief_body_from_latest_bounding_box(
     object_belief: ObjectBeliefState,
     common_analysis_structure: CommonAnalysisStructure,
     robokudo_world: World,
@@ -317,9 +321,9 @@ def _update_belief_body_from_latest_bbox(
     replace_existing_visuals: bool,
 ) -> None:
     """
-    Update the SemDT body origin and box geometry from the latest bbox.
+    Update the semantic digital twin body origin and box geometry from the latest bbox.
     """
-    origin_and_scale = _create_world_origin_and_scale_from_latest_bbox(
+    origin_and_scale = _create_world_origin_and_scale_from_latest_bounding_box(
         object_belief=object_belief,
         common_analysis_structure=common_analysis_structure,
         world_body=world_body,
@@ -373,7 +377,7 @@ def add_object_hypothesis_as_belief_state(
         )
         robokudo_world.add_connection(world_T_object_belief)
 
-    _update_belief_body_from_latest_bbox(
+    _update_belief_body_from_latest_bounding_box(
         object_belief=object_belief,
         common_analysis_structure=common_analysis_structure,
         robokudo_world=robokudo_world,
@@ -410,7 +414,7 @@ def update_belief_state_with_object_hypothesis(
     if world_body is None:
         return
 
-    _update_belief_body_from_latest_bbox(
+    _update_belief_body_from_latest_bounding_box(
         object_belief=object_belief,
         common_analysis_structure=common_analysis_structure,
         robokudo_world=robokudo_world,

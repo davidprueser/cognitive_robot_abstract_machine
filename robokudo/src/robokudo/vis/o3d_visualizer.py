@@ -17,7 +17,7 @@ import open3d as o3d  # this import creates a SIGINT during unit test execution.
 from typing_extensions import Any, Dict, List, Optional, Union
 
 from robokudo.annotators.core import BaseAnnotator
-from robokudo.defs import PACKAGE_NAME
+from robokudo.definitions import PACKAGE_NAME
 from robokudo.vis.visualizer import Visualizer
 
 
@@ -206,17 +206,22 @@ class Viewer3D(object):
 
         # local method to add a single geometry. either based on the geometry being fully
         # defined with a dict or being a plain geometry object
-        def add(g: Union[o3d.geometry.PointCloud, Dict, List], n: int) -> None:
+        def add(
+            geometry: Union[o3d.geometry.PointCloud, Dict, List], geometry_number: int
+        ) -> None:
             # Skip empty point clouds as they generate errors during the update
-            if isinstance(g, o3d.geometry.PointCloud) and len(g.points) == 0:
+            if (
+                isinstance(geometry, o3d.geometry.PointCloud)
+                and len(geometry.points) == 0
+            ):
                 return
 
-            if isinstance(g, dict):
-                self.main_vis.add_geometry(g)
-                name = g["name"]
+            if isinstance(geometry, dict):
+                self.main_vis.add_geometry(geometry)
+                name = geometry["name"]
             else:
-                name = "Object " + str(n)
-                self.main_vis.add_geometry(name, g)
+                name = "Object " + str(geometry_number)
+                self.main_vis.add_geometry(name, geometry)
 
             self.visualized_geometries.append(name)
 
@@ -225,13 +230,13 @@ class Viewer3D(object):
         def add_all(
             geometries_to_add: Union[o3d.geometry.Geometry, Dict, List],
         ) -> None:
-            n = 1
+            geometry_number = 1
             if isinstance(geometries_to_add, list):
-                for g in geometries_to_add:
-                    add(g, n)
-                    n += 1
+                for geometry in geometries_to_add:
+                    add(geometry, geometry_number)
+                    geometry_number += 1
             elif geometries_to_add is not None:
-                add(geometries_to_add, n)
+                add(geometries_to_add, geometry_number)
 
         if self.first_cloud:
 
@@ -259,8 +264,8 @@ class Viewer3D(object):
         else:
 
             def update_with_cloud() -> None:
-                for vg in self.visualized_geometries:
-                    self.main_vis.remove_geometry(vg)
+                for visualized_geometry in self.visualized_geometries:
+                    self.main_vis.remove_geometry(visualized_geometry)
                 self.visualized_geometries = []
 
                 add_all(geometries)

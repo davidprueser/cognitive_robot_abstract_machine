@@ -141,17 +141,17 @@ class ModuleLoader:
             loaded_module = importlib.import_module(import_path)
         return loaded_module
 
-    def load_ae(
+    def load_analysis_engine(
         self, ros_package_name: str, module_name: str
     ) -> AnalysisEngineInterface:
         """
-        Load an Analysis Engine (AE).
+        Load an Analysis Engine (analysis engine).
 
         Expects a class `AnalysisEngine` in the loaded module.
                 The ROS package must be in the same workspace with path structure:
                 ``$package_path/src/robokudo_example_package/descriptors/analysis_engines/``
 
-                :param ros_package_name: Name of ROS package containing AE
+                :param ros_package_name: Name of ROS package containing analysis engine
                 :param module_name: Name of analysis engine module
                 :return: Root of loaded analysis engine
         """
@@ -159,8 +159,8 @@ class ModuleLoader:
         loaded_module = self._load_module(ros_package_name, module_type, module_name)
 
         # e.g. the module should define: class AnalysisEngine: ...
-        loaded_ae = loaded_module.AnalysisEngine()
-        return loaded_ae
+        loaded_analysis_engine = loaded_module.AnalysisEngine()
+        return loaded_analysis_engine
 
     def load_annotator(self, ros_package_name: str, module_name: str) -> ModuleType:
         """
@@ -192,13 +192,13 @@ class ModuleLoader:
 
         module_type = RobokudoModuleType.CameraConfig
         loaded_module = self._load_module(ros_package_name, module_type, module_name)
-        for name, obj in loaded_module.__dict__.items():
+        for name, member in loaded_module.__dict__.items():
             if (
-                isinstance(obj, type)
-                and issubclass(obj, BaseCameraConfig)
-                and obj != BaseCameraConfig
+                isinstance(member, type)
+                and issubclass(member, BaseCameraConfig)
+                and member != BaseCameraConfig
             ):
-                return obj()
+                return member()
         return None
         # return loaded_module.CameraConfig()
 
@@ -282,7 +282,7 @@ class ModuleLoader:
         self,
         ros_package_name: str,
         module_type: RobokudoModuleType,
-        dir_name: str,
+        directory_name: str,
         file_extension: Optional[str] = None,
     ) -> List[str]:  # pragma: no cover
         """
@@ -301,7 +301,7 @@ class ModuleLoader:
 
         :param ros_package_name: Name of ROS package
         :param module_type: Type of module to search
-        :param dir_name: Name of directory to search
+        :param directory_name: Name of directory to search
         :param file_extension: Optional file extension filter
         :return: List of paths to matching files
         """

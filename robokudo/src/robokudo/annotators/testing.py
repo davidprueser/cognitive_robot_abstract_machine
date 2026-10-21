@@ -51,16 +51,18 @@ class SlowAnnotator(ThreadedAnnotator):
     * Visual feedback testing
     """
 
-    def __init__(self, name: str = "SlowAnnotator", sleep_in_s: float = 1.0) -> None:
+    def __init__(
+        self, name: str = "SlowAnnotator", sleep_in_seconds: float = 1.0
+    ) -> None:
         """
         Initialize the slow annotator.
 
         :param name: Name of the annotator instance
-        :param sleep_in_s: Sleep duration in seconds
+        :param sleep_in_seconds: Sleep duration in seconds
         """
         super().__init__(name)
 
-        self.sleep_in_s = sleep_in_s
+        self.sleep_in_seconds = sleep_in_seconds
         """Sleep duration in seconds"""
 
     def compute(self) -> Status:
@@ -97,7 +99,7 @@ class SlowAnnotator(ThreadedAnnotator):
         vis = cv2.rectangle(vis, (400, 400), (650, 650), (0, 0, 255), 2)
         self.get_annotator_output_structure().set_image(vis)
 
-        time.sleep(self.sleep_in_s)  # in s
+        time.sleep(self.sleep_in_seconds)  # in s
 
         self.robokudo_logger.debug(
             "%s.compute(): Stop doing the heavy stuff" % self.__class__.__name__
@@ -115,11 +117,13 @@ class EmptyAnnotator(BaseAnnotator):
     Used for testing visualization and output handling.
     """
 
-    def __init__(self, name: str = "EmptyAnnotator", sleep_in_s: float = 1) -> None:
+    def __init__(
+        self, name: str = "EmptyAnnotator", sleep_in_seconds: float = 1
+    ) -> None:
         """Initialize the empty annotator.
 
         :param name: Annotator name
-        :param sleep_in_s: Sleep duration in seconds
+        :param sleep_in_seconds: Sleep duration in seconds
         """
         super().__init__(name)
 
@@ -347,7 +351,7 @@ class ScopedAnnotator(BaseAnnotator):
         This method:
 
         * Retrieves data based on the analysis scope
-        * Determines the processing mode (OH or Scene analysis)
+        * Determines the processing mode (object hypothesis or Scene analysis)
         * Processes object hypotheses if present
         * Handles scene-level analysis otherwise
 
@@ -364,11 +368,11 @@ class ScopedAnnotator(BaseAnnotator):
 
         # Your Annotator now has to decide which kinds of data it expects and how it would process them
         if ObjectHypothesis in data_to_analyze:
-            print(f"Annotator is in OH-Analysis mode")
+            print(f"Annotator is in object hypothesis-Analysis mode")
             object_hypotheses = data_to_analyze[ObjectHypothesis]
             for object_hypothesis in object_hypotheses:
                 assert isinstance(object_hypothesis, ObjectHypothesis)
-                print(f"OH ID: {object_hypothesis.id}")
+                print(f"object hypothesis ID: {object_hypothesis.id}")
         else:
             print(f"Annotator is in Scene-Analysis mode")
             cloud = data_to_analyze[CommonAnalysisStructureViews.CLOUD]

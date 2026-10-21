@@ -19,10 +19,10 @@ from robokudo.behaviours.clear_annotator_outputs import ClearAnnotatorOutputs
 from robokudo.behaviours.clear_errors import ClearErrors
 
 
-def non_query_pipeline_init() -> Sequence:
+def non_query_pipeline_initialization() -> Sequence:
     """
-    Same as pipeline_init(), but without waiting for the query-related actions to
-    complete. This is the behavior which was used before Dec'25 in RK by default.
+    Same as pipeline_initialization(), but without waiting for the query-related actions to
+    complete. This is the behavior which was used before Dec'25 in RoboKudo by default.
 
     :return: A sequence behavior containing initialization steps
     """
@@ -37,7 +37,7 @@ def non_query_pipeline_init() -> Sequence:
     return seq
 
 
-def pipeline_init() -> Sequence:
+def pipeline_initialization() -> Sequence:
     """
     This method returns a Behaviour/Composite node which hosts different nodes to reset
     and prepare internal datastructures properly before the next iteration can start. It

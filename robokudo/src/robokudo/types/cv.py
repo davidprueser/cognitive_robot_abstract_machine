@@ -60,13 +60,13 @@ class Points3D(Type):
 
 
 @dataclass(kw_only=True)
-class Rect(Type):
+class Rectangle(Type):
     """2D rectangle representation.
 
     Defines a rectangle by its top-left corner position and dimensions.
     """
 
-    pos: Point2D = field(default_factory=Point2D)
+    position: Point2D = field(default_factory=Point2D)
     """
     Top-left corner position
     """
@@ -82,7 +82,9 @@ class Rect(Type):
     """
 
     @classmethod
-    def from_corner_points(cls, x1: float, y1: float, x2: float, y2: float) -> Rect:
+    def from_corner_points(
+        cls, x1: float, y1: float, x2: float, y2: float
+    ) -> Rectangle:
         """
         :param x1: Horizontal coordinate of the top-left corner.
         :param y1: Vertical coordinate of the top-left corner.
@@ -91,15 +93,22 @@ class Rect(Type):
         :return: The rectangle between the pixels containing the two corners.
         """
         left, top, right, bottom = int(x1), int(y1), int(x2), int(y2)
-        return cls(pos=Point2D(x=left, y=top), width=right - left, height=bottom - top)
+        return cls(
+            position=Point2D(x=left, y=top), width=right - left, height=bottom - top
+        )
 
     def get_corner_points(self) -> Tuple[int, int, int, int]:
         """Get the rectangle as a tuple of (x1, y1, x2, y2)."""
-        return self.pos.x, self.pos.y, self.pos.x + self.width, self.pos.y + self.height
+        return (
+            self.position.x,
+            self.position.y,
+            self.position.x + self.width,
+            self.position.y + self.height,
+        )
 
     def as_tuple(self) -> Tuple[int, int, int, int]:
         """Get the rectangle as a tuple of (x, y, w, h)."""
-        return self.pos.x, self.pos.y, self.width, self.height
+        return self.position.x, self.position.y, self.width, self.height
 
 
 @dataclass(kw_only=True)
@@ -133,13 +142,13 @@ class ColorToDepthRatio:
         """
         return Point2D(x=int(x * self.horizontal), y=int(y * self.vertical))
 
-    def depth_region(self, region: Rect) -> Rect:
+    def depth_region(self, region: Rectangle) -> Rectangle:
         """
         :param region: A region in color image pixels.
         :return: The depth image pixels covering the same region.
         """
         left, top, right, bottom = region.get_corner_points()
-        return Rect.from_corner_points(
+        return Rectangle.from_corner_points(
             x1=left * self.horizontal,
             y1=top * self.vertical,
             x2=right * self.horizontal,
@@ -156,7 +165,7 @@ class ColorToDepthRatio:
 
 
 @dataclass(kw_only=True)
-class ImageROI(Type):
+class ImageRegionOfInterest(Type):
     """Image region of interest.
 
     Defines a region of interest in an image using:
@@ -169,7 +178,7 @@ class ImageROI(Type):
     Binary opencv mask image
     """
 
-    roi: Rect = field(default_factory=Rect)
+    rectangle: Rectangle = field(default_factory=Rectangle)
     """
     Rectangular region of interest
     """

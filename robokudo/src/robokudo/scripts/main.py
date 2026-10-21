@@ -30,12 +30,12 @@ from typing_extensions import TYPE_CHECKING
 
 # RoboKudo imports
 from robokudo.annotators.query import QueryActionServer
-from robokudo.defs import LOGGING_IDENTIFIER_MAIN_EXECUTABLE, PACKAGE_NAME
+from robokudo.definitions import LOGGING_IDENTIFIER_MAIN_EXECUTABLE, PACKAGE_NAME
 from robokudo.garden import grow_tree
 from robokudo.identifier import BlackboardIdentifier
 from robokudo.utils.logging_configuration import configure_logging
 from robokudo.utils.module_loader import ModuleLoader
-from robokudo.utils.tree import setup_with_descendants_rk
+from robokudo.utils.tree import setup_with_descendants_robokudo
 from robokudo.vis.cv_visualizer import CVVisualizer
 from robokudo.vis.ros_visualizer import AllAnnotatorROSVisualizer, SharedROSVisualizer
 
@@ -46,16 +46,16 @@ if TYPE_CHECKING:
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
 
 
-def run_ae(
-    ae_name: str,
-    ae_root: BehaviourTree,
+def run_analysis_engine(
+    analysis_engine_name: str,
+    analysis_engine_root: BehaviourTree,
     tickrate: int = 20,
 ) -> None:
     """
-    Run an Analysis Engine (AE) by periodically ticking the Behavior Tree.
+    Run an Analysis Engine (analysis engine) by periodically ticking the Behavior Tree.
     """
     logger = logging.getLogger(LOGGING_IDENTIFIER_MAIN_EXECUTABLE)
-    logger.info(f"Running AE named '{ae_name}'...")
+    logger.info(f"Running analysis engine named '{analysis_engine_name}'...")
 
     blackboard = Blackboard()
     blackboard.set("common_analysis_structure", None)
@@ -66,19 +66,19 @@ def run_ae(
         try:
             logger.debug(f"--------- Tick {tick_count} ---------")
             start = timer()
-            ae_root.tick()
+            analysis_engine_root.tick()
             end = timer()
             logger.debug(f"Tick took {end - start:.4f} seconds")
             if (
-                ae_root.root.children
-                and ae_root.root.children[0].status == Status.FAILURE
+                analysis_engine_root.root.children
+                and analysis_engine_root.root.children[0].status == Status.FAILURE
             ):
                 # If your top-level child fails, maybe shut down
                 rclpy.shutdown()
                 return False
             tick_count += 1
-        except Exception as e:
-            logger.error(f"Exception: {e}")
+        except Exception as exception:
+            logger.error(f"Exception: {exception}")
             logger.error("Traceback:\n" + traceback.format_exc())
         return True
 
@@ -121,7 +121,7 @@ def main() -> None:
         nargs="?",
         const=1,
         default=PACKAGE_NAME,
-        help="ROS package name containing the AE (default: robokudo).",
+        help="ROS package name containing the analysis engine (default: robokudo).",
     )
     parser.add_argument(
         "_headless", action="store_true", help="If set, runs without a GUI."
@@ -174,8 +174,10 @@ def main() -> None:
     # 3. Logging setup
     logger = logging.getLogger(LOGGING_IDENTIFIER_MAIN_EXECUTABLE)
 
-    log_cfg_file = ModuleLoader.get_module_path(PACKAGE_NAME) / "logging_levels.yaml"
-    configure_logging(logging_config_file_name=str(log_cfg_file))
+    logging_configuration_file = (
+        ModuleLoader.get_module_path(PACKAGE_NAME) / "logging_levels.yaml"
+    )
+    configure_logging(logging_config_file_name=str(logging_configuration_file))
 
     # 4. Create a main ROS node
     node_name = PACKAGE_NAME + args.nodesuffix
@@ -204,31 +206,35 @@ def main() -> None:
 
     # 6. Start executors in separate threads
     executor_main = SingleThreadedExecutor()
-    executor_asrv = (
+    action_server_executor = (
         MultiThreadedExecutor()
     )  # Necessary to handle long-running goals AND incoming preempts
 
     executor_main.add_node(node1)
-    executor_asrv.add_node(query_action_server)
+    action_server_executor.add_node(query_action_server)
 
-    def spin_executor(exec_: rclpy.Executor) -> None:
+    def spin_executor(executor: rclpy.Executor) -> None:
         try:
-            exec_.spin()
+            executor.spin()
         except KeyboardInterrupt:
             pass
 
     thread_main = Thread(target=spin_executor, args=(executor_main,), daemon=True)
-    thread_asrv = Thread(target=spin_executor, args=(executor_asrv,), daemon=True)
+    action_server_thread = Thread(
+        target=spin_executor, args=(action_server_executor,), daemon=True
+    )
     thread_main.start()
-    thread_asrv.start()
+    action_server_thread.start()
 
-    # 7. Dynamically load the requested Analysis Engine (AE) using the **refactored** ModuleLoader
+    # 7. Dynamically load the requested Analysis Engine (analysis engine) using the **refactored** ModuleLoader
     loader = ModuleLoader()
-    logger.info(f"Loading AE '{args.ae}' from package '{args.ros_pkg}'...")
-    loaded_ae = loader.load_ae(ros_package_name=args.ros_pkg, module_name=args.ae)
+    logger.info(f"Loading analysis engine '{args.ae}' from package '{args.ros_pkg}'...")
+    loaded_analysis_engine = loader.load_analysis_engine(
+        ros_package_name=args.ros_pkg, module_name=args.ae
+    )
 
-    # 8. Build your Behavior Tree from the loaded AE
-    #    (Assuming loaded_ae.implementation() returns a py_trees root or something similar)
+    # 8. Build your Behavior Tree from the loaded analysis engine
+    #    (Assuming loaded_analysis_engine.implementation() returns a py_trees root or something similar)
     visualizer_types = None
     if args.no3d:
         visualizer_types = [
@@ -236,29 +242,33 @@ def main() -> None:
             SharedROSVisualizer,
             AllAnnotatorROSVisualizer,
         ]
-    ae_root = grow_tree(
-        loaded_ae.implementation(),
+    analysis_engine_root = grow_tree(
+        loaded_analysis_engine.implementation(),
         node=node1,
         include_gui=not args.headless,
         visualizer_types=visualizer_types,
     )
 
     # If you have a custom version of `setup_with_descendants`, call it:
-    setup_with_descendants_rk(ae_root)
+    setup_with_descendants_robokudo(analysis_engine_root)
 
     try:
         # 9. Start ticking the Behavior Tree
-        run_ae(ae_name=args.ae, ae_root=ae_root, tickrate=args.tickrate)
+        run_analysis_engine(
+            analysis_engine_name=args.ae,
+            analysis_engine_root=analysis_engine_root,
+            tickrate=args.tickrate,
+        )
     except KeyboardInterrupt:
         logger.info("Keyboard interrupt received; shutting down.")
     finally:
         # 10. Shutdown executors cleanly
         executor_main.shutdown()
-        executor_asrv.shutdown()
+        action_server_executor.shutdown()
 
         # 11. Wait for shutdown
         thread_main.join()
-        thread_asrv.join()
+        action_server_thread.join()
 
         # 12. Clean up nodes
         node_registry.clear(node1)

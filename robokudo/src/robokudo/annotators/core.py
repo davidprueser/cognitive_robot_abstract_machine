@@ -50,7 +50,7 @@ from robokudo.common_analysis_structure import (
     CommonAnalysisStructure,
     CommonAnalysisStructureViews,
 )
-from robokudo.defs import PACKAGE_NAME
+from robokudo.definitions import PACKAGE_NAME
 from robokudo.types.core import Annotation
 from robokudo.utils.tree import find_parent_of_type
 
@@ -308,7 +308,7 @@ class BaseAnnotator(Behaviour):
         )
         annotator_output_pipeline_map_buffer.map[
             self.get_parent_pipeline().name
-        ].init_annotator(self.name)
+        ].initialize_annotator(self.name)
 
     def get_class_name(self) -> str:
         """

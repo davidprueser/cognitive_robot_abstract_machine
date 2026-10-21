@@ -10,16 +10,18 @@ from __future__ import annotations
 
 from robokudo.analysis_engine import AnalysisEngineInterface
 from robokudo.annotators.cluster_color import ClusterColorAnnotator
-from robokudo.annotators.cluster_pose_bb import ClusterPoseBBAnnotator
+from robokudo.annotators.cluster_pose_bounding_box import (
+    ClusterPoseBoundingBoxAnnotator,
+)
 from robokudo.annotators.collection_reader import CollectionReaderAnnotator
 from robokudo.annotators.image_preprocessor import ImagePreprocessorAnnotator
 from robokudo.annotators.plane import PlaneAnnotator
 from robokudo.annotators.pointcloud_cluster_extractor import PointCloudClusterExtractor
 from robokudo.annotators.pointcloud_crop import PointcloudCropAnnotator
-from robokudo.descriptors.factories.cr_descriptor_factory import (
+from robokudo.descriptors.factories.collection_reader_descriptor_factory import (
     CollectionReaderDescriptorFactory,
 )
-from robokudo.idioms import pipeline_init
+from robokudo.idioms import pipeline_initialization
 from robokudo.pipeline import Pipeline
 
 
@@ -38,14 +40,14 @@ class AnalysisEngine(AnalysisEngineInterface):
         pipeline = Pipeline("SemDTRayTracerPipeline")
         pipeline.add_children(
             [
-                pipeline_init(),
+                pipeline_initialization(),
                 CollectionReaderAnnotator(descriptor=raytracer_config),
                 ImagePreprocessorAnnotator("ImagePreprocessor"),
                 PointcloudCropAnnotator(),
                 PlaneAnnotator(descriptor=plane_descriptor),
                 PointCloudClusterExtractor(),
                 ClusterColorAnnotator(),
-                ClusterPoseBBAnnotator(),
+                ClusterPoseBoundingBoxAnnotator(),
             ]
         )
         return pipeline

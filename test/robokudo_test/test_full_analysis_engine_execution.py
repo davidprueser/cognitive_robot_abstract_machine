@@ -8,10 +8,10 @@ import pytest
 from robokudo.types.cv import ColorToDepthRatio
 from robokudo import world as robokudo_world
 import robokudo.common_analysis_structure
-import robokudo.defs
+import robokudo.definitions
 import robokudo.descriptors.camera_configs.config_filereader_playback
 import robokudo.descriptors.camera_configs.config_mongodb_playback
-import robokudo.descriptors.camera_configs.config_semdt_raytracer
+import robokudo.descriptors.camera_configs.config_semantic_digital_twin_raytracer
 import robokudo.io.file_reader_interface
 import robokudo.io.semantic_digital_twin_raytracer_camera_interface
 import robokudo.io.storage_reader_interface
@@ -22,7 +22,9 @@ import robokudo.types.scene
 import robokudo.utils.data_downloader
 import robokudo.utils.tree_execution
 from robokudo.annotators.cluster_color import ClusterColorAnnotator
-from robokudo.annotators.cluster_pose_bb import ClusterPoseBBAnnotator
+from robokudo.annotators.cluster_pose_bounding_box import (
+    ClusterPoseBoundingBoxAnnotator,
+)
 from robokudo.annotators.collection_reader import CollectionReaderAnnotator
 from robokudo.annotators.image_preprocessor import ImagePreprocessorAnnotator
 from robokudo.annotators.plane import PlaneAnnotator
@@ -30,7 +32,7 @@ from robokudo.annotators.pointcloud_cluster_extractor import PointCloudClusterEx
 from robokudo.annotators.pointcloud_crop import PointcloudCropAnnotator
 from robokudo.annotators.semantic_world_connector import SemanticDigitalTwinConnector
 from robokudo.annotators.shape_estimator import ShapeEstimatorAnnotator
-from robokudo.descriptors.factories.cr_descriptor_factory import (
+from robokudo.descriptors.factories.collection_reader_descriptor_factory import (
     CollectionReaderDescriptorFactory,
 )
 from robokudo.world_descriptor import PredefinedObject
@@ -46,21 +48,22 @@ if TYPE_CHECKING:
 @pytest.fixture
 def clean_semantic_world() -> Iterator[None]:
     robokudo_world.get_object_belief_states().clear()
-    robokudo_world.init_world_with_entity_tracker()
+    robokudo_world.initialize_world_with_entity_tracker()
     yield
     robokudo_world.get_object_belief_states().clear()
-    robokudo_world.init_world_with_entity_tracker()
+    robokudo_world.initialize_world_with_entity_tracker()
 
 
 class TestFullAnalysisEngineExecution(object):
     def test_run_simple_analysis_engine_successfully(self, node: Node) -> None:
         # rclpy.init()
-        # node = Node(robokudo.defs.TEST_ROS_NODE_NAME)
+        # node = Node(robokudo.definitions.TEST_ROS_NODE_NAME)
 
         file_reader_descriptor = CollectionReaderDescriptorFactory.create_descriptor(
             "file_reader",
             loop=False,
-            target_dir=robokudo.utils.data_downloader.test_data_path() / Path("data"),
+            target_directory=robokudo.utils.data_downloader.test_data_path()
+            / Path("data"),
             kinect_height_fix_mode=True,
             color_to_depth_ratio=ColorToDepthRatio(horizontal=0.5, vertical=0.5),
             static_camera_transform_enabled=True,
@@ -105,7 +108,8 @@ class TestFullAnalysisEngineExecution(object):
         file_reader_descriptor = CollectionReaderDescriptorFactory.create_descriptor(
             "file_reader",
             loop=False,
-            target_dir=robokudo.utils.data_downloader.test_data_path() / Path("data"),
+            target_directory=robokudo.utils.data_downloader.test_data_path()
+            / Path("data"),
             kinect_height_fix_mode=True,
             color_to_depth_ratio=ColorToDepthRatio(horizontal=0.5, vertical=0.5),
             static_camera_transform_enabled=True,
@@ -130,7 +134,7 @@ class TestFullAnalysisEngineExecution(object):
                 PointcloudCropAnnotator(descriptor=point_cloud_crop_config),
                 PlaneAnnotator(),
                 PointCloudClusterExtractor(),
-                ClusterPoseBBAnnotator(),
+                ClusterPoseBoundingBoxAnnotator(),
                 SemanticDigitalTwinConnector(),
             ]
         )
@@ -310,7 +314,7 @@ class TestFullAnalysisEngineExecution(object):
                 PlaneAnnotator(descriptor=plane_descriptor),
                 PointCloudClusterExtractor(descriptor=cluster_descriptor),
                 ClusterColorAnnotator(),
-                ClusterPoseBBAnnotator(),
+                ClusterPoseBoundingBoxAnnotator(),
                 ShapeEstimatorAnnotator(descriptor=shape_descriptor),
             ]
         )
@@ -386,7 +390,7 @@ class TestFullAnalysisEngineExecution(object):
                 PlaneAnnotator(descriptor=plane_descriptor),
                 PointCloudClusterExtractor(descriptor=cluster_descriptor),
                 ClusterColorAnnotator(),
-                ClusterPoseBBAnnotator(),
+                ClusterPoseBoundingBoxAnnotator(),
             ]
         )
 

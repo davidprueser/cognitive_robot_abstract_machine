@@ -9,7 +9,7 @@ from py_trees.behaviour import Behaviour
 from py_trees.blackboard import Blackboard
 from py_trees.common import Status
 
-import robokudo.defs as defs
+import robokudo.definitions as definitions
 import robokudo.utils.tree
 from robokudo.exceptions import ParentPipelineMissing
 from robokudo.pipeline import Pipeline
@@ -27,7 +27,7 @@ class ClearAnnotatorOutputs(Behaviour):
     """
 
     robokudo_logger: logging.Logger = field(
-        default_factory=lambda: logging.getLogger(defs.PACKAGE_NAME),
+        default_factory=lambda: logging.getLogger(definitions.PACKAGE_NAME),
         init=False,
         repr=False,
     )

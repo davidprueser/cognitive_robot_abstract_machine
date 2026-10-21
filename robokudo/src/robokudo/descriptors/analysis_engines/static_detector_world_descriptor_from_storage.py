@@ -17,7 +17,7 @@ from robokudo.annotators.static_object_detector import (
 from robokudo.annotators.world_descriptor_bootstrap import (
     WorldDescriptorBootstrapAnnotator,
 )
-from robokudo.descriptors.factories.cr_descriptor_factory import (
+from robokudo.descriptors.factories.collection_reader_descriptor_factory import (
     CollectionReaderDescriptorFactory,
 )
 
@@ -46,7 +46,7 @@ class AnalysisEngine(robokudo.analysis_engine.AnalysisEngineInterface):
         pipeline = robokudo.pipeline.Pipeline("StoragePipeline")
         pipeline.add_children(
             [
-                robokudo.idioms.pipeline_init(),
+                robokudo.idioms.pipeline_initialization(),
                 CollectionReaderAnnotator(descriptor=storage_reader_descriptor),
                 WorldDescriptorBootstrapAnnotator(descriptor=bootstrap),
                 ImagePreprocessorAnnotator("ImagePreprocessor"),

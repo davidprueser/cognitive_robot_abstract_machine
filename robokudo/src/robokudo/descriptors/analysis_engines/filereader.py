@@ -33,7 +33,7 @@ from robokudo.types.cv import ColorToDepthRatio
 from robokudo.annotators.plane import PlaneAnnotator
 from robokudo.annotators.pointcloud_cluster_extractor import PointCloudClusterExtractor
 from robokudo.annotators.pointcloud_crop import PointcloudCropAnnotator
-from robokudo.descriptors.factories.cr_descriptor_factory import (
+from robokudo.descriptors.factories.collection_reader_descriptor_factory import (
     CollectionReaderDescriptorFactory,
 )
 
@@ -86,27 +86,27 @@ class AnalysisEngine(AnalysisEngineInterface):
             Make sure the robokudo_test_data repository is cloned and available
             in your ROS workspace before running this pipeline.
         """
-        cr_fr_config = CollectionReaderDescriptorFactory.create_descriptor(
+        file_reader_descriptor = CollectionReaderDescriptorFactory.create_descriptor(
             "file_reader",
             loop=True,
             target_ros_package="robokudo_test_data",
-            target_dir="data",
+            target_directory="data",
             kinect_height_fix_mode=True,
             color_to_depth_ratio=ColorToDepthRatio(horizontal=0.5, vertical=0.5),
         )
 
         # Restrict FOV of pointcloud to robustly get only one object
-        pc_crop_config = PointcloudCropAnnotator.Descriptor()
-        pc_crop_config.parameters.min_x = -0.3
-        pc_crop_config.parameters.max_x = 0.3
+        point_cloud_crop_config = PointcloudCropAnnotator.Descriptor()
+        point_cloud_crop_config.parameters.min_x = -0.3
+        point_cloud_crop_config.parameters.max_x = 0.3
 
         seq = Pipeline("FileReaderPipeline")
         seq.add_children(
             [
                 ClearAnnotatorOutputs(),
-                CollectionReaderAnnotator(descriptor=cr_fr_config),
+                CollectionReaderAnnotator(descriptor=file_reader_descriptor),
                 ImagePreprocessorAnnotator("ImagePreprocessor"),
-                PointcloudCropAnnotator(descriptor=pc_crop_config),
+                PointcloudCropAnnotator(descriptor=point_cloud_crop_config),
                 PlaneAnnotator(),
                 PointCloudClusterExtractor(),
             ]

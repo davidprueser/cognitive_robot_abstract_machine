@@ -15,15 +15,15 @@ class TestUtilsModuleLoader(object):
         ("non_existent_package", "non_existent_module.py"),
     ]
 
-    def test_load_ae(self, module_loader: ModuleLoader) -> None:
-        assert module_loader.load_ae("robokudo", "demo.py")
+    def test_load_analysis_engine(self, module_loader: ModuleLoader) -> None:
+        assert module_loader.load_analysis_engine("robokudo", "demo.py")
 
     @pytest.mark.parametrize(["package_name", "module_name"], invalid_modules)
-    def test_load_ae_invalid_input(
+    def test_load_analysis_engine_invalid_input(
         self, module_loader: ModuleLoader, package_name: str, module_name: str
     ) -> None:
         assert pytest.raises(
-            ImportError, module_loader.load_ae, package_name, module_name
+            ImportError, module_loader.load_analysis_engine, package_name, module_name
         )
 
     def test_load_annotator(self, module_loader: ModuleLoader) -> None:

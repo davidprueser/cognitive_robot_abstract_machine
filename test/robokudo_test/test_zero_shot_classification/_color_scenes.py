@@ -58,10 +58,10 @@ def object_hypothesis(x: int, y: int, width: int, height: int) -> ObjectHypothes
     :return: An object hypothesis covering the given image region.
     """
     hypothesis = ObjectHypothesis()
-    hypothesis.roi.roi.pos.x = x
-    hypothesis.roi.roi.pos.y = y
-    hypothesis.roi.roi.width = width
-    hypothesis.roi.roi.height = height
+    hypothesis.region_of_interest.rectangle.position.x = x
+    hypothesis.region_of_interest.rectangle.position.y = y
+    hypothesis.region_of_interest.rectangle.width = width
+    hypothesis.region_of_interest.rectangle.height = height
     return hypothesis
 
 

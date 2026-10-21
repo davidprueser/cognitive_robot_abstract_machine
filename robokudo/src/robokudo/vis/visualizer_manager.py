@@ -19,7 +19,7 @@ from py_trees.behaviour import Behaviour
 from py_trees.blackboard import Blackboard
 from typing_extensions import Dict, List, Optional, Type
 
-from robokudo.defs import PACKAGE_NAME
+from robokudo.definitions import PACKAGE_NAME
 from robokudo.pipeline import Pipeline
 from robokudo.vis.cv_visualizer import CVVisualizer
 from robokudo.vis.o3d_visualizer import O3DVisualizer
@@ -86,10 +86,10 @@ class VisualizationManager(Behaviour):
         # TODO Handle shared visualization context - Not all Visualizers need one!
         shared_state = Visualizer.SharedState()
         visualizers = [
-            visclass.new_visualizer_instance(
+            visualizer_class.new_visualizer_instance(
                 pipeline=pipeline, shared_visualizer_state=shared_state
             )
-            for visclass in self.visualizer_types
+            for visualizer_class in self.visualizer_types
         ]
         self.visualizers[pipeline.name] = visualizers
 

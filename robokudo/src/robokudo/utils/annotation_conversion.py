@@ -17,7 +17,7 @@ from typing_extensions import TYPE_CHECKING, Type, Optional, TypeVar, Generic
 
 from robokudo_msgs.msg import ShapeSize
 from robokudo.utils.annotator_helper import transform_pose_from_camera_to_world
-from robokudo.defs import PACKAGE_NAME
+from robokudo.definitions import PACKAGE_NAME
 from robokudo.common_analysis_structure import CommonAnalysisStructureViews
 from robokudo.types.annotation import (
     PoseAnnotation,

@@ -168,10 +168,10 @@ def _classification(hypothesis: ObjectHypothesis) -> Classification:
 
 def _hypothesis_at(x: int, y: int, width: int, height: int) -> ObjectHypothesis:
     hypothesis = ObjectHypothesis()
-    hypothesis.roi.roi.pos.x = x
-    hypothesis.roi.roi.pos.y = y
-    hypothesis.roi.roi.width = width
-    hypothesis.roi.roi.height = height
+    hypothesis.region_of_interest.rectangle.position.x = x
+    hypothesis.region_of_interest.rectangle.position.y = y
+    hypothesis.region_of_interest.rectangle.width = width
+    hypothesis.region_of_interest.rectangle.height = height
     return hypothesis
 
 
@@ -291,9 +291,9 @@ def test_hypothesis_region_is_detection_bounding_box(
 
     annotator.compute()
 
-    assert _only_hypothesis(annotator).roi.roi.get_corner_points() == tuple(
-        scene.cup_corners()
-    )
+    assert _only_hypothesis(
+        annotator
+    ).region_of_interest.rectangle.get_corner_points() == tuple(scene.cup_corners())
 
 
 def test_person_detection_becomes_human_hypothesis(
@@ -363,7 +363,7 @@ def test_mask_fills_bounding_box_without_precision_mode(
 
     x1, y1, x2, y2 = scene.cup_corners()
     np.testing.assert_array_equal(
-        _only_hypothesis(annotator).roi.mask,
+        _only_hypothesis(annotator).region_of_interest.mask,
         np.full((y2 - y1, x2 - x1), YoloAnnotator.mask_foreground, dtype=np.uint8),
     )
 
@@ -394,7 +394,8 @@ def test_precision_mode_mask_is_segmentation_of_detection(
     annotator.compute()
 
     np.testing.assert_array_equal(
-        _only_hypothesis(annotator).roi.mask, _segmented_cup_mask(model_loader, scene)
+        _only_hypothesis(annotator).region_of_interest.mask,
+        _segmented_cup_mask(model_loader, scene),
     )
 
 
@@ -408,7 +409,10 @@ def test_precision_mode_erosion_shrinks_segmentation(
 
     annotator.compute()
 
-    eroded = _only_hypothesis(annotator).roi.mask == YoloAnnotator.mask_foreground
+    eroded = (
+        _only_hypothesis(annotator).region_of_interest.mask
+        == YoloAnnotator.mask_foreground
+    )
     segmented = (
         _segmented_cup_mask(model_loader, scene) == YoloAnnotator.mask_foreground
     )
@@ -482,8 +486,13 @@ def test_region_detected_on_smaller_depth_resolution_is_in_color_pixels(
 
     hypothesis = _only_hypothesis(annotator)
     x1, y1, x2, y2 = scene.cup_corners()
-    assert hypothesis.roi.roi.get_corner_points() == (x1, y1, x2, y2)
-    assert hypothesis.roi.mask.shape == (y2 - y1, x2 - x1)
+    assert hypothesis.region_of_interest.rectangle.get_corner_points() == (
+        x1,
+        y1,
+        x2,
+        y2,
+    )
+    assert hypothesis.region_of_interest.mask.shape == (y2 - y1, x2 - x1)
 
 
 # %% existing hypotheses

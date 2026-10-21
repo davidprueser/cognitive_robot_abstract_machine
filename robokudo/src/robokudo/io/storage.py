@@ -51,14 +51,14 @@ class Storage:
     common_analysis_structure_view_codecs = CommonAnalysisStructureViewCodecRegistry()
 
     @staticmethod
-    def is_blacklisted(obj: Any) -> bool:
+    def is_blacklisted(value: Any) -> bool:
         """
         Check if an object is of a blacklisted type.
 
-        :param obj: Object to check
+        :param value: Object to check
         :return: True if object type is blacklisted, False otherwise
         """
-        return isinstance(obj, Storage.BLACKLISTED_TYPES)
+        return isinstance(value, Storage.BLACKLISTED_TYPES)
 
     @staticmethod
     def instantiate_mongo_client() -> MongoClient:
@@ -86,15 +86,15 @@ class Storage:
         better compatibility across pymongo versions and simpler cursor management.
         """
 
-        def __init__(self, db_name: str) -> None:
+        def __init__(self, database_name: str) -> None:
             """
             Initialize the list reader.
 
-            :param db_name: Name of the MongoDB database
+            :param database_name: Name of the MongoDB database
             """
             client = Storage.instantiate_mongo_client()
 
-            self.db_reader = client[db_name]
+            self.database_reader = client[database_name]
             """
             MongoDB database instance.
             """
@@ -115,7 +115,7 @@ class Storage:
             Clears and reloads all documents from the database.
             """
             self.data.clear()
-            for data in self.db_reader.cas.find():
+            for data in self.database_reader.cas.find():
                 self.data.append(data)
             self.index = 0 if self.data else None
 
@@ -139,13 +139,13 @@ class Storage:
             self.index += 1
             return data
 
-    def __init__(self, db_name: str) -> None:
+    def __init__(self, database_name: str) -> None:
         """
         Initialize the storage interface.
 
-        :param db_name: Name of the MongoDB database
+        :param database_name: Name of the MongoDB database
         """
-        self.db_name = db_name
+        self.database_name = database_name
         """
         Name of the MongoDB database.
         """
@@ -153,7 +153,7 @@ class Storage:
         """
         MongoDB client connection.
         """
-        self.db: Database = self.client[db_name]
+        self.database: Database = self.client[database_name]
         """
         MongoDB database instance.
         """
@@ -162,7 +162,7 @@ class Storage:
         """
         Drop the entire database.
         """
-        self.client.drop_database(self.db_name)
+        self.client.drop_database(self.database_name)
 
     @staticmethod
     def encode_view_document(view_name: str, view_value: Any) -> Dict[str, Any]:
@@ -203,7 +203,9 @@ class Storage:
                 view_name=view_name,
                 view_value=view_value,
             )
-            result = self.db[Storage.VIEW_COLLECTION_NAME].insert_one(view_document)
+            result = self.database[Storage.VIEW_COLLECTION_NAME].insert_one(
+                view_document
+            )
             if not result.acknowledged:
                 raise RuntimeError(
                     f'Mongo DB error when trying to store view "{view_name}".'
@@ -231,7 +233,7 @@ class Storage:
         ].items():
             if expected_view_name in excluded_view_names:
                 continue
-            view_document = self.db[Storage.VIEW_COLLECTION_NAME].find_one(
+            view_document = self.database[Storage.VIEW_COLLECTION_NAME].find_one(
                 {"_id": view_id}
             )
             if not view_document:
@@ -312,4 +314,4 @@ class Storage:
         :param common_analysis_structure_dict: Dictionary representation of a common analysis structure
         :return: MongoDB ObjectId of the stored common analysis structure document
         """
-        return self.db.cas.insert_one(common_analysis_structure_dict)
+        return self.database.cas.insert_one(common_analysis_structure_dict)

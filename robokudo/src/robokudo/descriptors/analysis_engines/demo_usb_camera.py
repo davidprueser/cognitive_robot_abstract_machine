@@ -21,9 +21,9 @@ from robokudo.analysis_engine import AnalysisEngineInterface
 from robokudo.annotators.collection_reader import CollectionReaderAnnotator
 from robokudo.annotators.object_hypothesis_visualizer import ObjectHypothesisVisualizer
 
-from robokudo.idioms import pipeline_init
+from robokudo.idioms import pipeline_initialization
 from robokudo.pipeline import Pipeline
-from robokudo.descriptors.factories.cr_descriptor_factory import (
+from robokudo.descriptors.factories.collection_reader_descriptor_factory import (
     CollectionReaderDescriptorFactory,
 )
 
@@ -86,7 +86,7 @@ class AnalysisEngine(AnalysisEngineInterface):
         seq = Pipeline("RWPipeline")
         seq.add_children(
             [
-                pipeline_init(),
+                pipeline_initialization(),
                 CollectionReaderAnnotator(descriptor=cv_config),
                 ObjectHypothesisVisualizer(),
             ]

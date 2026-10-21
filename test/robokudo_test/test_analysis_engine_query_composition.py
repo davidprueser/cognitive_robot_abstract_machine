@@ -31,7 +31,7 @@ from robokudo.descriptors.analysis_engines.stretch_demo import (
 from robokudo.descriptors.analysis_engines.tiago_demo import (
     AnalysisEngine as TiagoDemoAnalysisEngine,
 )
-from robokudo.descriptors.factories.cr_descriptor_factory import (
+from robokudo.descriptors.factories.collection_reader_descriptor_factory import (
     CollectionReaderDescriptorFactory,
 )
 from robokudo.pipeline import Pipeline

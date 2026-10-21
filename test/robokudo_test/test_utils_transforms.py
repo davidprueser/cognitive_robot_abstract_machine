@@ -9,7 +9,7 @@ from robokudo.utils.transform import (
     get_transform_matrix_from_pose,
     get_transform_matrix,
     get_transform_matrix_from_translation,
-    get_transform_matrix_from_q,
+    get_transform_matrix_from_quaternion,
     get_quaternion_from_rotation_matrix,
     get_quaternion_from_transform_matrix,
     get_translation_from_transform_matrix,
@@ -189,12 +189,12 @@ class TestUtilsTransforms(object):
         ROTATION_CASES,
         indirect=["transform_matrix"],
     )
-    def test_get_transform_matrix_from_q_valid_rotations(
+    def test_get_transform_matrix_from_quaternion_valid_rotations(
         self,
         transform_matrix: np.ndarray,
         quaternion: tuple[float, float, float, float],
     ) -> None:
-        matrix = get_transform_matrix_from_q(
+        matrix = get_transform_matrix_from_quaternion(
             np.array(quaternion), np.array([0.0, 0.0, 0.0])
         )
         assert np.allclose(
@@ -202,10 +202,10 @@ class TestUtilsTransforms(object):
         ), "matrix should not change during conversion"
 
     @pytest.mark.parametrize("translation", TRANSLATION_CASES)
-    def test_get_transform_matrix_from_q_valid_translations(
+    def test_get_transform_matrix_from_quaternion_valid_translations(
         self, translation: tuple[float, float, float]
     ) -> None:
-        matrix = get_transform_matrix_from_q(
+        matrix = get_transform_matrix_from_quaternion(
             np.array([0.0, 0.0, 0.0, 1.0]), translation
         )
         assert np.all(
@@ -215,10 +215,10 @@ class TestUtilsTransforms(object):
             matrix[:3, 3] == translation
         ), "translation should not change during conversion"
 
-    def test_get_transform_matrix_from_q_invalid_quaternion(self) -> None:
+    def test_get_transform_matrix_from_quaternion_invalid_quaternion(self) -> None:
         assert pytest.raises(
             ValueError,
-            get_transform_matrix_from_q,
+            get_transform_matrix_from_quaternion,
             np.array([0.0, 0.0, 0.0, 0.0]),
             np.array([0.0, 0.0, 0.0]),
         )

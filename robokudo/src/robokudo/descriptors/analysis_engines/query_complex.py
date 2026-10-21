@@ -3,7 +3,7 @@ from py_trees.composites import Selector, Sequence
 from py_trees.decorators import Inverter
 
 from robokudo.analysis_engine import AnalysisEngineInterface
-from robokudo.idioms import pipeline_init
+from robokudo.idioms import pipeline_initialization
 from robokudo.pipeline import Pipeline
 from robokudo.annotators.cluster_color import ClusterColorAnnotator
 from robokudo.annotators.collection_reader import CollectionReaderAnnotator
@@ -17,7 +17,7 @@ from robokudo.annotators.query import (
     GenerateQueryResult,
 )
 from robokudo.behaviours.action_server_checks import ActionServerNoPreemptRequest
-from robokudo.descriptors.factories.cr_descriptor_factory import (
+from robokudo.descriptors.factories.collection_reader_descriptor_factory import (
     CollectionReaderDescriptorFactory,
 )
 
@@ -61,7 +61,7 @@ class AnalysisEngine(AnalysisEngineInterface):
 
         seq.add_children(
             [
-                pipeline_init(),
+                pipeline_initialization(),
                 QueryAnnotator(),
                 conditional_selector,
                 GenerateQueryResult(),

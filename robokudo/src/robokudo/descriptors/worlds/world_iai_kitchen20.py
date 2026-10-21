@@ -1,6 +1,10 @@
 from pathlib import Path
 
-from robokudo.world_descriptor import BaseWorldDescriptor, ObjectSpec, RegionSpec
+from robokudo.world_descriptor import (
+    BaseWorldDescriptor,
+    ObjectSpecification,
+    RegionSpecification,
+)
 from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
 from semantic_digital_twin.world_description.geometry import Scale
 
@@ -19,7 +23,7 @@ class WorldDescriptor(BaseWorldDescriptor):
         )
 
         object_specs = [
-            ObjectSpec(
+            ObjectSpecification(
                 name="cereal",
                 box_scale=Scale(0.10, 0.20, 0.30),
                 pose=HomogeneousTransformationMatrix.from_xyz_rpy(
@@ -30,7 +34,7 @@ class WorldDescriptor(BaseWorldDescriptor):
                     yaw=0.3,
                 ),
             ),
-            ObjectSpec(
+            ObjectSpecification(
                 name="milk",
                 mesh_path=milk_path,
                 pose=HomogeneousTransformationMatrix.from_xyz_rpy(
@@ -40,7 +44,7 @@ class WorldDescriptor(BaseWorldDescriptor):
         ]
 
         region_specs = [
-            RegionSpec(
+            RegionSpecification(
                 name="kitchen_island",
                 box_scale=Scale(1.0, 2.5, 0.85),
                 pose=HomogeneousTransformationMatrix.from_xyz_rpy(

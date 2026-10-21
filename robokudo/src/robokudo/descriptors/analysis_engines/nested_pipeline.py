@@ -17,7 +17,7 @@ The pipeline implements the following functionality:
     processing flows using nested pipelines and conditional execution.
 """
 
-from robokudo.descriptors.factories.cr_descriptor_factory import (
+from robokudo.descriptors.factories.collection_reader_descriptor_factory import (
     CollectionReaderDescriptorFactory,
 )
 from robokudo.analysis_engine import AnalysisEngineInterface
@@ -82,8 +82,8 @@ class AnalysisEngine(AnalysisEngineInterface):
         """
         kinect_config = CollectionReaderDescriptorFactory.create_descriptor("kinect")
 
-        second_seq = Sequence(name="Belief State Pipeline", memory=True)
-        second_seq.add_children(
+        second_sequence = Sequence(name="Belief State Pipeline", memory=True)
+        second_sequence.add_children(
             [
                 TickCounter(
                     name="Preprocessing Annotator",
@@ -100,7 +100,7 @@ class AnalysisEngine(AnalysisEngineInterface):
         )
         condition = Condition(
             name="Belief State Complete",
-            child=second_seq,
+            child=second_sequence,
             status=Status.SUCCESS,
         )
 

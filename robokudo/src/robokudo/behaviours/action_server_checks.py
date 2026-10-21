@@ -19,7 +19,7 @@ from py_trees.common import Status
 from py_trees.behaviour import Behaviour
 from py_trees.blackboard import Blackboard
 
-from robokudo.defs import PACKAGE_NAME
+from robokudo.definitions import PACKAGE_NAME
 from robokudo.identifier import BlackboardIdentifier
 from robokudo.utils.error_handling import (
     catch_and_raise_to_blackboard,
@@ -163,17 +163,17 @@ class AbortGoal(Behaviour):
     """
 
     def __init__(
-        self, name: str = "AbortGoal", msg: str = "Goal has been aborted"
+        self, name: str = "AbortGoal", message: str = "Goal has been aborted"
     ) -> None:
         """
         Initialize the AbortGoal behavior.
 
         :param name: Name of the behavior node, defaults to "AbortGoal"
-        :param msg: Error message for goal abortion, defaults to "Goal has been aborted"
+        :param message: Error message for goal abortion, defaults to "Goal has been aborted"
         """
         super().__init__(name=name)
 
-        self.msg: str = msg
+        self.message: str = message
         """
         Error message for goal abortion.
         """
@@ -189,7 +189,7 @@ class AbortGoal(Behaviour):
         :raises Exception: Always raises an exception with the abort message
         :return: Never returns due to exception
         """
-        raise Exception(self.msg)
+        raise Exception(self.message)
 
 
 class RunningUntilExceptionHandled(Behaviour):
@@ -204,19 +204,19 @@ class RunningUntilExceptionHandled(Behaviour):
     def __init__(
         self,
         name: str = "RunningUntilExceptionHandled",
-        msg: str = "Running Until Exception Handled",
+        message: str = "Running Until Exception Handled",
     ) -> None:
         """
         Initialize the RunningUntilExceptionHandled behavior.
 
         :param name: Name of the behavior node, defaults to
             "RunningUntilExceptionHandled"
-        :param msg: Status message for waiting state, defaults to "Running Until
+        :param message: Status message for waiting state, defaults to "Running Until
             Exception Handled"
         """
         super().__init__(name=name)
 
-        self.msg: str = msg
+        self.message: str = message
         """
         Status message for waiting state.
         """

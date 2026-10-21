@@ -27,7 +27,7 @@ from robokudo.types.scene import ObjectHypothesis
 from robokudo.utils.cv_helper import get_scaled_color_image_for_depth_image
 from robokudo.utils.o3d_helper import scale_o3d_camera_intrinsics
 from robokudo.utils.transform import (
-    get_transform_matrix_from_q,
+    get_transform_matrix_from_quaternion,
     get_translation_from_transform_matrix,
     get_quaternion_from_transform_matrix,
 )
@@ -51,18 +51,18 @@ def transform_pose_from_camera_to_world(
     :return: Transformed pose in world coordinates
     :raises AssertionError: If camera-to-world transform not in common analysis structure
     """
-    pose_mat = get_transform_matrix_from_q(pose.rotation, pose.translation)
+    pose_matrix = get_transform_matrix_from_quaternion(pose.rotation, pose.translation)
 
     camera_to_world_transform = get_camera_to_world_transform_matrix(
         common_analysis_structure
     )
 
-    pose_in_world_mat = np.matmul(camera_to_world_transform, pose_mat)
+    pose_in_world_matrix = np.matmul(camera_to_world_transform, pose_matrix)
 
     new_pose = PoseAnnotation()
-    new_pose.rotation = list(get_quaternion_from_transform_matrix(pose_in_world_mat))
+    new_pose.rotation = list(get_quaternion_from_transform_matrix(pose_in_world_matrix))
     new_pose.translation = list(
-        get_translation_from_transform_matrix(pose_in_world_mat)
+        get_translation_from_transform_matrix(pose_in_world_matrix)
     )
     new_pose.source = pose.source
 
@@ -82,17 +82,19 @@ def transform_pose_from_world_to_camera(
     :return: Transformed pose in camera coordinates
     :raises AssertionError: If camera-to-world transform not in common analysis structure
     """
-    pose_mat = get_transform_matrix_from_q(pose.rotation, pose.translation)
+    pose_matrix = get_transform_matrix_from_quaternion(pose.rotation, pose.translation)
     world_to_camera_transform = get_world_to_camera_transform_matrix(
         common_analysis_structure
     )
 
-    pose_in_camera_mat = np.matmul(world_to_camera_transform, pose_mat)
+    pose_in_camera_matrix = np.matmul(world_to_camera_transform, pose_matrix)
 
     new_pose = PoseAnnotation()
-    new_pose.rotation = list(get_quaternion_from_transform_matrix(pose_in_camera_mat))
+    new_pose.rotation = list(
+        get_quaternion_from_transform_matrix(pose_in_camera_matrix)
+    )
     new_pose.translation = list(
-        get_translation_from_transform_matrix(pose_in_camera_mat)
+        get_translation_from_transform_matrix(pose_in_camera_matrix)
     )
 
     return new_pose
@@ -184,35 +186,55 @@ def get_world_to_camera_transform_matrix(
 
 
 def draw_bounding_boxes_from_object_hypotheses(
-    img: npt.NDArray,
+    image: npt.NDArray,
     object_hypotheses: List[ObjectHypothesis],
     text_function: Callable[[ObjectHypothesis], str],
 ) -> None:
     """
     Draw bounding boxes for object hypotheses on the image.
 
-    Draws rectangles and labels for each object hypothesis ROI.
+    Draws rectangles and labels for each object hypothesis region of interest.
 
-    :param img: Input image to draw on
+    :param image: Input image to draw on
     :param object_hypotheses: List of object hypotheses
     :param text_function: Function to generate label text from hypothesis
     """
-    for oh in object_hypotheses:
-        if not isinstance(oh, ObjectHypothesis):
+    for object_hypothesis in object_hypotheses:
+        if not isinstance(object_hypothesis, ObjectHypothesis):
             continue
 
-        oh_roi = oh.roi.roi
-        upper_left = (oh_roi.pos.x, oh_roi.pos.y)
-        upper_left_text = (oh_roi.pos.x, oh_roi.pos.y - 5)
+        object_hypothesis_region_of_interest = (
+            object_hypothesis.region_of_interest.rectangle
+        )
+        upper_left = (
+            object_hypothesis_region_of_interest.position.x,
+            object_hypothesis_region_of_interest.position.y,
+        )
+        upper_left_text = (
+            object_hypothesis_region_of_interest.position.x,
+            object_hypothesis_region_of_interest.position.y - 5,
+        )
 
         font = cv2.FONT_HERSHEY_COMPLEX
-        img = cv2.putText(
-            img, text_function(oh), upper_left_text, font, 0.5, (0, 0, 255), 1, 2
+        image = cv2.putText(
+            image,
+            text_function(object_hypothesis),
+            upper_left_text,
+            font,
+            0.5,
+            (0, 0, 255),
+            1,
+            2,
         )
-        img = cv2.rectangle(
-            img,
+        image = cv2.rectangle(
+            image,
             upper_left,
-            (oh_roi.pos.x + oh_roi.width, oh_roi.pos.y + oh_roi.height),
+            (
+                object_hypothesis_region_of_interest.position.x
+                + object_hypothesis_region_of_interest.width,
+                object_hypothesis_region_of_interest.position.y
+                + object_hypothesis_region_of_interest.height,
+            ),
             (0, 0, 255),
             2,
         )
@@ -255,7 +277,7 @@ def get_color_image(annotator: BaseAnnotator) -> npt.NDArray:
     :param annotator: Annotator to get image from
     :return: The resized color image.
     """
-    img = annotator.get_common_analysis_structure().get_copy(
+    image = annotator.get_common_analysis_structure().get_copy(
         CommonAnalysisStructureViews.COLOR_IMAGE
     )
     resized_color = None
@@ -263,14 +285,14 @@ def get_color_image(annotator: BaseAnnotator) -> npt.NDArray:
     if annotator.descriptor.parameters.global_with_depth:
         try:
             resized_color = get_scaled_color_image_for_depth_image(
-                annotator.get_common_analysis_structure(), img
+                annotator.get_common_analysis_structure(), image
             )
-        except ColorToDepthRatioMissing as e:  # pylint: disable=invalid-name
+        except ColorToDepthRatioMissing as exception:  # pylint: disable=invalid-name
             annotator.robokudo_logger.error(
-                f"No color to depth ratio set by your camera driver! Can't preprocess: {e}"
+                f"No color to depth ratio set by your camera driver! Can't preprocess: {exception}"
             )
     else:
-        resized_color = img
+        resized_color = image
 
     return resized_color
 

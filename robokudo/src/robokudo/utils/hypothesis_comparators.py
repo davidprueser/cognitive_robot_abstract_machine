@@ -3,7 +3,7 @@ from typing_extensions import Dict, Type, Union, Callable, TypeVar, Generic, Any
 
 from robokudo.common_analysis_structure import CommonAnalysisStructure
 from robokudo.types.core import Annotation, Type as RoboKudoType
-from robokudo.types.cv import ImageROI
+from robokudo.types.cv import ImageRegionOfInterest
 from robokudo.types.scene import AnalyzableAnnotation, ObjectHypothesis
 from robokudo.utils.comparator_factories import FeatureComparatorFactory
 from robokudo.utils.comparators import FeatureComparator
@@ -102,10 +102,12 @@ class ObjectHypothesisComparator(HypothesisComparator[ObjectHypothesis]):
         total_similarity = 0.0
 
         # Compare region of interest?
-        if ImageROI in self.type_comparators:
-            image_region_of_interest_comparator = self.type_comparators[ImageROI]
+        if ImageRegionOfInterest in self.type_comparators:
+            image_region_of_interest_comparator = self.type_comparators[
+                ImageRegionOfInterest
+            ]
             similarity = image_region_of_interest_comparator.compute_similarity(
-                hypothesis1.roi, hypothesis2.roi
+                hypothesis1.region_of_interest, hypothesis2.region_of_interest
             )
             total_weight += image_region_of_interest_comparator.weight
             total_similarity += similarity * image_region_of_interest_comparator.weight

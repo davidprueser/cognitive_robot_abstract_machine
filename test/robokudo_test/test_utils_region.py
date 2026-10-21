@@ -7,7 +7,7 @@ from robokudo.utils.region import (
     region_oriented_bounding_box_in_camera_coordinates,
     region_pose_annotation,
 )
-from robokudo.world_descriptor import BaseWorldDescriptor, RegionSpec
+from robokudo.world_descriptor import BaseWorldDescriptor, RegionSpecification
 from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
 from semantic_digital_twin.world_description.geometry import Scale
 from semantic_digital_twin.world_description.world_entity import Region
@@ -22,7 +22,7 @@ class TestUtilsRegion:
     def world_and_region(self) -> tuple[World, Region]:
         world_descriptor = BaseWorldDescriptor()
         root = world_descriptor.world.root
-        region_specification = RegionSpec(
+        region_specification = RegionSpecification(
             name="test_region",
             box_scale=Scale(1.0, 2.0, 3.0),
             pose=HomogeneousTransformationMatrix.from_xyz_quaternion(

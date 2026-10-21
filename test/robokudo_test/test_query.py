@@ -1,6 +1,6 @@
 from __future__ import annotations
 from robokudo.types.cv import ColorToDepthRatio
-from robokudo.descriptors.factories.cr_descriptor_factory import (
+from robokudo.descriptors.factories.collection_reader_descriptor_factory import (
     CollectionReaderDescriptorFactory,
 )
 import multiprocessing
@@ -13,7 +13,7 @@ import pytest
 from action_msgs.msg import GoalStatus
 
 import robokudo.common_analysis_structure
-import robokudo.defs
+import robokudo.definitions
 import robokudo.descriptors.camera_configs.config_filereader_playback
 import robokudo.descriptors.camera_configs.config_mongodb_playback
 import robokudo.garden
@@ -55,7 +55,7 @@ def query_simple_pipeline(node: Node) -> tuple[Sequence, Status]:
     file_reader_descriptor = CollectionReaderDescriptorFactory.create_descriptor(
         "file_reader",
         loop=True,
-        target_dir=robokudo.utils.data_downloader.test_data_path() / Path("data"),
+        target_directory=robokudo.utils.data_downloader.test_data_path() / Path("data"),
         kinect_height_fix_mode=True,
         color_to_depth_ratio=ColorToDepthRatio(horizontal=0.5, vertical=0.5),
     )
@@ -68,7 +68,7 @@ def query_simple_pipeline(node: Node) -> tuple[Sequence, Status]:
     seq = Pipeline("TestPipeline")
     seq.add_children(
         [
-            robokudo.idioms.pipeline_init(),
+            robokudo.idioms.pipeline_initialization(),
             QueryAnnotator(),
             CollectionReaderAnnotator(descriptor=file_reader_descriptor),
             ImagePreprocessorAnnotator("ImagePreprocessor"),

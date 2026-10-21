@@ -19,13 +19,13 @@ The pipeline implements the following functionality:
 
 from robokudo.analysis_engine import AnalysisEngineInterface
 from robokudo.pipeline import Pipeline
-from robokudo.idioms import pipeline_init
+from robokudo.idioms import pipeline_initialization
 from robokudo.annotators.collection_reader import CollectionReaderAnnotator
 from robokudo.annotators.image_preprocessor import ImagePreprocessorAnnotator
 from robokudo.annotators.plane import PlaneAnnotator
 from robokudo.annotators.pointcloud_cluster_extractor import PointCloudClusterExtractor
 from robokudo.annotators.pointcloud_crop import PointcloudCropAnnotator
-from robokudo.descriptors.factories.cr_descriptor_factory import (
+from robokudo.descriptors.factories.collection_reader_descriptor_factory import (
     CollectionReaderDescriptorFactory,
 )
 
@@ -83,18 +83,18 @@ class AnalysisEngine(AnalysisEngineInterface):
             and slow processing simulation, which can be useful for debugging.
         """
         kinect_config = CollectionReaderDescriptorFactory.create_descriptor(
-            "kinect_wo_tf"
+            "kinect_without_transform"
         )
 
         seq = Pipeline("RWPipeline")
         seq.add_children(
             [
-                pipeline_init(),
+                pipeline_initialization(),
                 CollectionReaderAnnotator(descriptor=kinect_config),
                 ImagePreprocessorAnnotator("ImagePreprocessor"),
                 PointcloudCropAnnotator(),
                 PlaneAnnotator(),
-                # SlowAnnotator(sleep_in_s=3),
+                # SlowAnnotator(sleep_in_seconds=3),
                 PointCloudClusterExtractor(),
                 # ClusterColorAnnotator(),
                 # ClusterColorHistogramAnnotator(),

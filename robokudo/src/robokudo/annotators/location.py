@@ -107,13 +107,15 @@ class LocationAnnotator(ThreadedAnnotator):
         :param object_hypotheses: List of object hypotheses to check
         """
         runtime_world = robokudo_world.world_instance()
-        obb = region_oriented_bounding_box_in_camera_coordinates(
+        oriented_bounding_box = region_oriented_bounding_box_in_camera_coordinates(
             runtime_world, region, world_to_camera_transform_matrix
         )
         for object_hypothesis in object_hypotheses:
             # Extract the indices of an object that lies inside the region
-            object_indices = obb.get_point_indices_within_bounding_box(
-                object_hypothesis.points.points
+            object_indices = (
+                oriented_bounding_box.get_point_indices_within_bounding_box(
+                    object_hypothesis.points.points
+                )
             )
             # Total number of object indices
             total_indices = len(object_hypothesis.points.points)

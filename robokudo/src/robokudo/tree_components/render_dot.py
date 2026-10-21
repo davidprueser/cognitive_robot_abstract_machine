@@ -39,7 +39,7 @@ def render_now(behaviour: Union[RenderTreeToDot, RenderTreeToDotDecorator]) -> N
     """
     start_timer = default_timer()
 
-    if behaviour.create_dir_for_path and behaviour.path:
+    if behaviour.create_directory_for_path and behaviour.path:
         Path(behaviour.path).mkdir(parents=True, exist_ok=True)
 
     # Go up until we find the root
@@ -78,7 +78,7 @@ class RenderTreeToDot(Behaviour):
         self.counter: int = 0
         """Number of renders performed"""
 
-        self.create_dir_for_path: bool = True
+        self.create_directory_for_path: bool = True
         """Whether to create output directory"""
 
         self.executor: ThreadPoolExecutor = ThreadPoolExecutor(max_workers=10)
@@ -134,7 +134,7 @@ class RenderTreeToDotDecorator(Decorator):
         self.counter: int = 0
         """Number of renders performed"""
 
-        self.create_dir_for_path: bool = True
+        self.create_directory_for_path: bool = True
         """Whether to create output directory"""
 
         self.executor: ThreadPoolExecutor = ThreadPoolExecutor(max_workers=10)

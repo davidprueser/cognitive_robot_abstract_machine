@@ -158,25 +158,30 @@ class FileReaderInterface(CameraInterface):
                     f"Please adjust your camera config."
                 )
             else:
-                target_dir_path = package_path.joinpath(camera_config.target_dir)
-                if not target_dir_path.exists() or not target_dir_path.is_dir():
+                target_directory_path = package_path.joinpath(
+                    camera_config.target_directory
+                )
+                if (
+                    not target_directory_path.exists()
+                    or not target_directory_path.is_dir()
+                ):
                     raise Exception(
-                        f"{str(target_dir_path)} is not existing or not a directory."
+                        f"{str(target_directory_path)} is not existing or not a directory."
                     )
 
-                self.target_dir: str = str(target_dir_path)
+                self.target_directory: str = str(target_directory_path)
                 """Target directory path as string"""
 
-                self.target_dir_path: pathlib.PurePath = target_dir_path
+                self.target_directory_path: pathlib.PurePath = target_directory_path
                 """Target directory as Path object"""
         else:
-            if not camera_config.target_dir:
+            if not camera_config.target_directory:
                 raise Exception(
-                    f"FileReaderInterface: target_ros_package AND target_dir not properly set. Check CameraConfig"
+                    f"FileReaderInterface: target_ros_package AND target_directory not properly set. Check CameraConfig"
                 )
 
-            self.target_dir: str = camera_config.target_dir
-            self.target_dir_path: Path = Path(self.target_dir)
+            self.target_directory: str = camera_config.target_directory
+            self.target_directory_path: Path = Path(self.target_directory)
 
         if hasattr(camera_config, "filename_prefix"):
             self.filename_prefix = camera_config.filename_prefix
@@ -192,7 +197,8 @@ class FileReaderInterface(CameraInterface):
 
         # Matching all files with the set prefix and the timestamp
         file_paths_found = [
-            x for x in sorted(self.target_dir_path.glob(f"{self.filename_prefix}*"))
+            x
+            for x in sorted(self.target_directory_path.glob(f"{self.filename_prefix}*"))
         ]
 
         # Insert files into self.loaded_data and self.loaded_paths, hashed by the timestamp in the filename
@@ -227,8 +233,8 @@ class FileReaderInterface(CameraInterface):
                     raise Exception(f"OpenCV couldn't read {str(file_path)}")
                 self.loaded_data[matched_timestamp][matched_data_type] = data
             elif matched_data_type == CommonAnalysisStructureViews.CAMERA_INFO:
-                with open(str(file_path)) as fp:
-                    camera_info_json = json.load(fp)
+                with open(str(file_path)) as file:
+                    camera_info_json = json.load(file)
                     self.loaded_data[matched_timestamp][matched_data_type] = (
                         ros_camera_info_from_dict(camera_info_json)
                     )

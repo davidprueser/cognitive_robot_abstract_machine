@@ -38,7 +38,7 @@ from typing_extensions import Any, Optional, Type
 
 from robokudo.annotators.core import BaseAnnotator
 from robokudo.common_analysis_structure import CommonAnalysisStructureViews
-from robokudo.defs import LOGGING_IDENTIFIER_QUERY, PACKAGE_NAME
+from robokudo.definitions import LOGGING_IDENTIFIER_QUERY, PACKAGE_NAME
 from robokudo.identifier import BlackboardIdentifier
 from robokudo.types.annotation import (
     BoundingBox3DAnnotation,
@@ -179,7 +179,7 @@ class QueryFeedback(BaseAnnotator):
 
     def update(self) -> Status:
         self.robokudo_logger.debug(f"{self.__class__.__name__}.update()")
-        QueryHandler.send_feedback_str(self.feedback_string)
+        QueryHandler.send_feedback_string(self.feedback_string)
 
         return Status.SUCCESS
 
@@ -221,7 +221,7 @@ class QueryFeedbackAndCount(BaseAnnotator):
 
     def update(self) -> Status:
         self.robokudo_logger.debug(f"{self.__class__.__name__}.update()")
-        QueryHandler.send_feedback_str(f"Count: {self.i}")
+        QueryHandler.send_feedback_string(f"Count: {self.i}")
         self.i = self.i + 1
         if self.i > self.count_until:
             self.i = 0

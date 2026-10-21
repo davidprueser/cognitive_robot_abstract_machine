@@ -29,7 +29,7 @@ from typing_extensions import Any, Dict, List, Optional
 
 
 @dataclass
-class ObjectSpec:
+class ObjectSpecification:
     """
     Data structure to define typical object properties for predefined objects.
 
@@ -48,7 +48,7 @@ class ObjectSpec:
 
 
 @dataclass
-class RegionSpec:
+class RegionSpecification:
     """
     Data structure to define typical properties for predefined regions.
 
@@ -99,10 +99,10 @@ class BaseWorldDescriptor:
         """
         Shift mesh origin to the center of its local bounding box.
         """
-        bb = mesh.local_frame_bounding_box
-        center_x = (bb.min_x + bb.max_x) / 2
-        center_y = (bb.min_y + bb.max_y) / 2
-        center_z = (bb.min_z + bb.max_z) / 2
+        bounding_box = mesh.local_frame_bounding_box
+        center_x = (bounding_box.min_x + bounding_box.max_x) / 2
+        center_y = (bounding_box.min_y + bounding_box.max_y) / 2
+        center_z = (bounding_box.min_z + bounding_box.max_z) / 2
         mesh.origin = HomogeneousTransformationMatrix.from_xyz_rpy(
             -center_x, -center_y, -center_z, 0, 0, 0
         )
@@ -114,46 +114,48 @@ class BaseWorldDescriptor:
         connections: Dict[str, Connection6DoF] = {}
 
         with self.world.modify_world():
-            for spec in specs:
+            for specification in specs:
                 shapes: List[Any] = []
                 collision: ShapeCollection
 
-                if spec.mesh_path is not None:
+                if specification.mesh_path is not None:
                     mesh = Mesh(
                         origin=HomogeneousTransformationMatrix(),
-                        filename=str(spec.mesh_path),
+                        filename=str(specification.mesh_path),
                     )
-                    if spec.center_mesh:
+                    if specification.center_mesh:
                         self._center_mesh_origin(mesh)
                     box = mesh.local_frame_bounding_box.as_shape()
                     shapes = [box, mesh]
                     collision = ShapeCollection([box])
                 else:
-                    if spec.box_scale is not None:
-                        box = Box(scale=spec.box_scale, color=spec.color)
+                    if specification.box_scale is not None:
+                        box = Box(
+                            scale=specification.box_scale, color=specification.color
+                        )
                         shapes = [box]
                         collision = ShapeCollection([box])
                     elif (
-                        spec.cylinder_width is not None
-                        and spec.cylinder_height is not None
+                        specification.cylinder_width is not None
+                        and specification.cylinder_height is not None
                     ):
                         cylinder = Cylinder(
-                            width=float(spec.cylinder_width),
-                            height=float(spec.cylinder_height),
-                            color=spec.color,
+                            width=float(specification.cylinder_width),
+                            height=float(specification.cylinder_height),
+                            color=specification.color,
                         )
                         shapes = [cylinder]
                         collision = ShapeCollection([cylinder])
                     else:
                         raise ValueError(
                             (
-                                f"ObjectSpec {spec.name} requires mesh_path, box_scale, "
+                                f"ObjectSpecification {specification.name} requires mesh_path, box_scale, "
                                 "or cylinder_width+cylinder_height."
                             )
                         )
 
                 body = Body(
-                    name=PrefixedName(name=spec.name),
+                    name=PrefixedName(name=specification.name),
                     visual=ShapeCollection(shapes),
                     collision=collision,
                 )
@@ -162,17 +164,17 @@ class BaseWorldDescriptor:
                 )
                 self.world.add_connection(connection)
                 self.world.add_semantic_annotation(PredefinedObject(body=body))
-                connections[spec.name] = connection
+                connections[specification.name] = connection
 
         # Set origins in a separate modification block so FK is compiled first
         with self.world.modify_world():
-            for spec in specs:
-                connections[spec.name].origin = spec.pose
+            for specification in specs:
+                connections[specification.name].origin = specification.pose
 
         return connections
 
     def build_regions(
-        self, root: Body, specs: List[RegionSpec]
+        self, root: Body, specs: List[RegionSpecification]
     ) -> Dict[str, Connection6DoF]:
         """
         Create regions and connections from region specs.
@@ -180,20 +182,22 @@ class BaseWorldDescriptor:
         connections: Dict[str, Connection6DoF] = {}
 
         with self.world.modify_world():
-            for spec in specs:
-                box = Box(scale=spec.box_scale, color=spec.color)
-                region = Region(name=PrefixedName(name=spec.name))
+            for specification in specs:
+                box = Box(scale=specification.box_scale, color=specification.color)
+                region = Region(name=PrefixedName(name=specification.name))
                 area = ShapeCollection()
                 area.reference_frame = region
                 area.append(box)
                 region.area = area
 
                 parent = root
-                if spec.parent_name is not None:
-                    parent_candidates = self.world.get_bodies_by_name(spec.parent_name)
+                if specification.parent_name is not None:
+                    parent_candidates = self.world.get_bodies_by_name(
+                        specification.parent_name
+                    )
                     if len(parent_candidates) == 0:
                         raise ValueError(
-                            f"RegionSpec {spec.name} references unknown parent_name '{spec.parent_name}'."
+                            f"RegionSpecification {specification.name} references unknown parent_name '{specification.parent_name}'."
                         )
                     parent = parent_candidates[0]
 
@@ -201,12 +205,12 @@ class BaseWorldDescriptor:
                     parent=parent, child=region, world=self.world
                 )
                 self.world.add_connection(connection)
-                connections[spec.name] = connection
+                connections[specification.name] = connection
 
         # Set origins in a separate modification block so FK is compiled first
         with self.world.modify_world():
-            for spec in specs:
-                connections[spec.name].origin = spec.pose
+            for specification in specs:
+                connections[specification.name].origin = specification.pose
 
         return connections
 

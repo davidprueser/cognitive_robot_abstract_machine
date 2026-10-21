@@ -52,8 +52,13 @@ class WorldVisualizer(robokudo.annotators.core.ThreadedAnnotator):
         )
         if shape_collection is None or len(shape_collection) == 0:
             return None
-        bb = shape_collection.as_bounding_box_collection_in_frame(body).bounding_box()
-        return np.array([bb.scale.x, bb.scale.y, bb.scale.z], dtype=float)
+        bounding_box = shape_collection.as_bounding_box_collection_in_frame(
+            body
+        ).bounding_box()
+        return np.array(
+            [bounding_box.scale.x, bounding_box.scale.y, bounding_box.scale.z],
+            dtype=float,
+        )
 
     @robokudo.utils.error_handling.catch_and_raise_to_blackboard
     def compute(self) -> py_trees.common.Status:
@@ -69,9 +74,9 @@ class WorldVisualizer(robokudo.annotators.core.ThreadedAnnotator):
                     self.get_common_analysis_structure()
                 )
             )
-        except KeyError as err:
+        except KeyError as error:
             self.robokudo_logger.warning(
-                f"Couldn't find viewpoint in the common analysis structure: {err}"
+                f"Couldn't find viewpoint in the common analysis structure: {error}"
             )
             return py_trees.common.Status.FAILURE
 
@@ -90,19 +95,23 @@ class WorldVisualizer(robokudo.annotators.core.ThreadedAnnotator):
                     continue
                 world_T_body = body.global_pose.to_np()
                 camera_T_body = world_to_camera_transform @ world_T_body
-                obb = robokudo.utils.o3d_helper.get_obb_from_size_and_transform(
+                oriented_bounding_box = robokudo.utils.o3d_helper.get_oriented_bounding_box_from_size_and_transform(
                     size, camera_T_body
                 )
-                visualized_geometries.append({"name": str(body.name), "geometry": obb})
+                visualized_geometries.append(
+                    {"name": str(body.name), "geometry": oriented_bounding_box}
+                )
 
         if self.descriptor.parameters.visualize_regions:
             regions = runtime_world.get_kinematic_structure_entity_by_type(Region)
             for region in regions:
-                obb = region_oriented_bounding_box_in_camera_coordinates(
-                    runtime_world, region, world_to_camera_transform
+                oriented_bounding_box = (
+                    region_oriented_bounding_box_in_camera_coordinates(
+                        runtime_world, region, world_to_camera_transform
+                    )
                 )
                 visualized_geometries.append(
-                    {"name": str(region.name), "geometry": obb}
+                    {"name": str(region.name), "geometry": oriented_bounding_box}
                 )
 
         visualized_geometries.append({"name": "cloud", "geometry": cloud})

@@ -142,11 +142,11 @@ class OpenCVCameraWithoutDepthInterface(CameraInterface):
         # read current frame
         if self._backup_color is None:
             # read ether current video/stream frame or first/only image
-            retval, color = self.video_capture.retrieve(flag=self.device_driver_flag)
+            retrieved, color = self.video_capture.retrieve(flag=self.device_driver_flag)
         else:
             # load last/only image
             color = self._backup_color
-            retval = True
+            retrieved = True
 
         self.robokudo_logger.debug(
             "loaded frame {} of {}".format(
@@ -158,7 +158,7 @@ class OpenCVCameraWithoutDepthInterface(CameraInterface):
         self._has_new_data = False
         self._backup_color = None
 
-        if not retval:
+        if not retrieved:
             # frame not available
             return
             # raise IOError("Could not retrieve frame from stream/file.")
@@ -187,7 +187,7 @@ class OpenCVCameraWithoutDepthInterface(CameraInterface):
                 self._loop_counter = self._loop_counter - 1
 
         # stabilise contrast/brightness
-        if self.camera_config.normalize_rgb:
+        if self.camera_config.normalize_red_green_blue:
             cv2.normalize(color, color, 0, 255, cv2.NORM_MINMAX)
 
         # update additional (fake) data

@@ -48,7 +48,7 @@ if TYPE_CHECKING:
     import numpy.typing as npt
 
 
-class ClusterPoseBBAnnotator(BaseAnnotator):
+class ClusterPoseBoundingBoxAnnotator(BaseAnnotator):
     """3D pose estimation using oriented bounding boxes.
 
     This annotator:
@@ -70,7 +70,7 @@ class ClusterPoseBBAnnotator(BaseAnnotator):
             """Parameters for configuring pose estimation."""
 
             def __init__(self) -> None:
-                self.align_x_axis_by_max_bbox_extent: bool = False
+                self.align_x_axis_by_max_bounding_box_extent: bool = False
                 """
                 Whether to align x-axis with longest box side.
                 
@@ -87,8 +87,8 @@ class ClusterPoseBBAnnotator(BaseAnnotator):
 
     def __init__(
         self,
-        name: str = "ClusterPoseBBAnnotator",
-        descriptor: ClusterPoseBBAnnotator.Descriptor | None = None,
+        name: str = "ClusterPoseBoundingBoxAnnotator",
+        descriptor: ClusterPoseBoundingBoxAnnotator.Descriptor | None = None,
     ) -> None:
         """Initialize the pose estimator.
 
@@ -98,7 +98,7 @@ class ClusterPoseBBAnnotator(BaseAnnotator):
         super().__init__(name, descriptor)
         self.robokudo_logger.debug("%s.__init__()" % self.__class__.__name__)
 
-    def adjust_bb_orientation_by_bb_size(
+    def adjust_bounding_box_orientation_by_bounding_box_size(
         self, pose_orientation: npt.NDArray, bounding_box_extents: List
     ) -> Tuple[npt.NDArray, List]:
         """Align bounding box axes with extent dimensions.
@@ -114,22 +114,23 @@ class ClusterPoseBBAnnotator(BaseAnnotator):
         :return: Tuple of (aligned orientation matrix, reordered extents)
         """
 
-        # We want to rearrange the axes of the BB by its extents.
+        # We want to rearrange the axes of the bounding box by its extents.
         # Let's create a list that contains indices of the bounding box extents, but in sorted order (descending)
-        bounding_box_extents_sorted_with_idx = [
+        bounding_box_extents_sorted_with_index = [
             index
             for index, number in sorted(
                 enumerate(bounding_box_extents), key=lambda x: x[1], reverse=True
             )
         ]
 
-        # Adjust BB extents such that they correspond to the new order
+        # Adjust bounding box extents such that they correspond to the new order
         new_bounding_box_extents = [
-            bounding_box_extents[idx] for idx in bounding_box_extents_sorted_with_idx
+            bounding_box_extents[index]
+            for index in bounding_box_extents_sorted_with_index
         ]
         return (
             construct_rotation_matrix(
-                pose_orientation, bounding_box_extents_sorted_with_idx
+                pose_orientation, bounding_box_extents_sorted_with_index
             ),
             new_bounding_box_extents,
         )
@@ -180,9 +181,9 @@ class ClusterPoseBBAnnotator(BaseAnnotator):
                     cluster_cloud,
                     transform_inplace=True,
                 )
-            except Exception as e:
+            except Exception as exception:
                 self.robokudo_logger.warning(
-                    f"Couldn't find camera viewpoint in the CommonAnalysisStructure.Fail. Error: {e}"
+                    f"Couldn't find camera viewpoint in the CommonAnalysisStructure.Fail. Error: {exception}"
                 )
                 return Status.FAILURE
 
@@ -196,18 +197,20 @@ class ClusterPoseBBAnnotator(BaseAnnotator):
 
             # Calculate 2d point set by ignoring z-axis for every row in the cluster points
             # Multiply by 1000 to create image coordinates from meters
-            cluster_cloud_mat_2d = (
+            cluster_cloud_matrix_2d = (
                 numpy.asarray(cluster_cloud_in_world.points)[:, 0:2] * 1000
             ).astype(numpy.int32)
-            rect_center2d, rect_size, rect_angle = cv2.minAreaRect(cluster_cloud_mat_2d)
+            rectangle_center_2d, rectangle_size, rectangle_angle = cv2.minAreaRect(
+                cluster_cloud_matrix_2d
+            )
 
-            # rect size idx 0 = width
-            if rect_size[0] < rect_size[1]:
-                rect_angle += 90
-                new_rect_size = (rect_size[1], rect_size[0])
-                rect_size = new_rect_size
+            # rect size index 0 = width
+            if rectangle_size[0] < rectangle_size[1]:
+                rectangle_angle += 90
+                new_rectangle_size = (rectangle_size[1], rectangle_size[0])
+                rectangle_size = new_rectangle_size
 
-            bb_size = numpy.asarray(rect_size) / 1000.0
+            bounding_box_size = numpy.asarray(rectangle_size) / 1000.0
 
             translation_in_world = (
                 (max_x + min_x) / 2,
@@ -215,11 +218,15 @@ class ClusterPoseBBAnnotator(BaseAnnotator):
                 (max_z + min_z) / 2,
             )
 
-            sinA = math.sin(rect_angle / 180.0 * math.pi)
-            cosA = math.cos(rect_angle / 180.0 * math.pi)
+            sine_of_angle = math.sin(rectangle_angle / 180.0 * math.pi)
+            cosine_of_angle = math.cos(rectangle_angle / 180.0 * math.pi)
 
             # Rotation around z (up-axis in world coordinates)
-            rotation_matrix_in_world = [[cosA, -sinA, 0], [sinA, cosA, 0], [0, 0, 1]]
+            rotation_matrix_in_world = [
+                [cosine_of_angle, -sine_of_angle, 0],
+                [sine_of_angle, cosine_of_angle, 0],
+                [0, 0, 1],
+            ]
 
             # We've now got the cluster translation and rotation in world coordinates.
             # Transform back to sensor coordinates
@@ -236,13 +243,17 @@ class ClusterPoseBBAnnotator(BaseAnnotator):
             )
             cluster_translation_in_camera = cluster_transform_in_camera[:3, 3]
             cluster_rotation_in_camera = cluster_transform_in_camera[:3, :3]
-            bounding_box_extents = [bb_size[0], bb_size[1], max_z - min_z]
+            bounding_box_extents = [
+                bounding_box_size[0],
+                bounding_box_size[1],
+                max_z - min_z,
+            ]
 
             # We've finished calculating the transformation and size of the bounding box.
             # If the pose shall be aligned w.r.t the bbox extents, call the corresponding method
-            if self.descriptor.parameters.align_x_axis_by_max_bbox_extent:
+            if self.descriptor.parameters.align_x_axis_by_max_bounding_box_extent:
                 aligned_orientation, aligned_extents = (
-                    self.adjust_bb_orientation_by_bb_size(
+                    self.adjust_bounding_box_orientation_by_bounding_box_size(
                         pose_orientation=cluster_rotation_in_camera,
                         bounding_box_extents=bounding_box_extents,
                     )
@@ -272,27 +283,27 @@ class ClusterPoseBBAnnotator(BaseAnnotator):
             pose_annotation.source = type(self).__name__
             object_hypothesis.annotations.append(pose_annotation)
 
-            # Generate a BB from the cluster info for visualization
-            cluster_obb = o3d.geometry.OrientedBoundingBox(
+            # Generate a bounding box from the cluster info for visualization
+            cluster_oriented_bounding_box = o3d.geometry.OrientedBoundingBox(
                 center=cluster_translation_in_camera,
                 R=cluster_rotation_in_camera,
                 extent=numpy.array(bounding_box_extents),
             )
-            cluster_obb.color = (
+            cluster_oriented_bounding_box.color = (
                 self.descriptor.parameters.bounding_box_visualization_color
             )
 
-            rk_bb = BoundingBox3DAnnotation()
-            rk_bb.x_length = bounding_box_extents[0]
-            rk_bb.y_length = bounding_box_extents[1]
-            rk_bb.z_length = bounding_box_extents[2]
-            rk_bb.pose.translation = cluster_translation_in_camera
-            rk_bb.pose.rotation = pose_annotation.rotation
-            rk_bb.source = type(self).__name__
+            bounding_box_annotation = BoundingBox3DAnnotation()
+            bounding_box_annotation.x_length = bounding_box_extents[0]
+            bounding_box_annotation.y_length = bounding_box_extents[1]
+            bounding_box_annotation.z_length = bounding_box_extents[2]
+            bounding_box_annotation.pose.translation = cluster_translation_in_camera
+            bounding_box_annotation.pose.rotation = pose_annotation.rotation
+            bounding_box_annotation.source = type(self).__name__
 
-            object_hypothesis.annotations.append(rk_bb)
+            object_hypothesis.annotations.append(bounding_box_annotation)
 
-            geometries_to_visualize.append(cluster_obb)
+            geometries_to_visualize.append(cluster_oriented_bounding_box)
 
         # Visualization
         vis_geometries = [

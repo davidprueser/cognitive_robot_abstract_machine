@@ -119,19 +119,19 @@ class ClusterPositionAnnotator(BaseAnnotator):
                 continue
 
             if self.descriptor.parameters.analysis_scope == annotation.CloudAnnotation:
-                o_clouds: List[annotation.CloudAnnotation] = (
+                object_clouds: List[annotation.CloudAnnotation] = (
                     CommonAnalysisStructure.filter_by_type(
                         annotation.CloudAnnotation,
                         object_hypothesis.annotations,
                     )
                 )
-                if len(o_clouds) == 0:
+                if len(object_clouds) == 0:
                     self.robokudo_logger.warning(
                         "CloudAnnotation mode, but no CloudAnnotation found on object"
                     )
                     continue
 
-                cluster_cloud = o_clouds[0].points
+                cluster_cloud = object_clouds[0].points
             else:
                 cluster_cloud = object_hypothesis.points
             centroid, covariance = cluster_cloud.compute_mean_and_covariance()

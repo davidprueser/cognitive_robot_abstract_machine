@@ -22,7 +22,7 @@ from robokudo.annotators.human_and_pose import HumanAndPoseAnnotator, PoseKeypoi
 from robokudo.common_analysis_structure import CommonAnalysisStructureViews
 from robokudo.types.annotation import Classification, CloudAnnotation
 from robokudo.types.core import Annotation
-from robokudo.types.cv import Rect
+from robokudo.types.cv import Rectangle
 from robokudo.types.human import KeypointAnnotation, KeypointKind
 from robokudo.types.scene import HumanHypothesis
 from ._black_wall_scene import BlackWallScene
@@ -108,13 +108,13 @@ class PersonScene(BlackWallScene):
             keypoints=self.person_keypoints(),
         )
 
-    def person_box_in(self, image: np.ndarray) -> Rect:
+    def person_box_in(self, image: np.ndarray) -> Rectangle:
         """
         :return: The box of the person in pixels of the given image.
         """
-        return Rect.from_corner_points(*self.person_box.corners_in(image))
+        return Rectangle.from_corner_points(*self.person_box.corners_in(image))
 
-    def person_box_shrunk_by(self, fraction: float) -> Rect:
+    def person_box_shrunk_by(self, fraction: float) -> Rectangle:
         """
         :param fraction: Fraction of its width and height the box is shrunk by around
             its center.
@@ -123,11 +123,11 @@ class PersonScene(BlackWallScene):
         box = self.person_box_in(self.color_image())
         horizontal_margin = box.width * fraction / 2
         vertical_margin = box.height * fraction / 2
-        return Rect.from_corner_points(
-            x1=box.pos.x + horizontal_margin,
-            y1=box.pos.y + vertical_margin,
-            x2=box.pos.x + box.width - horizontal_margin,
-            y2=box.pos.y + box.height - vertical_margin,
+        return Rectangle.from_corner_points(
+            x1=box.position.x + horizontal_margin,
+            y1=box.position.y + vertical_margin,
+            x2=box.position.x + box.width - horizontal_margin,
+            y2=box.position.y + box.height - vertical_margin,
         )
 
     def descriptor(self) -> HumanAndPoseAnnotator.Descriptor:
@@ -227,7 +227,7 @@ def _keypoints_of_kind(
     return keypoints
 
 
-def _area(box: Rect) -> int:
+def _area(box: Rectangle) -> int:
     """
     :return: The number of pixels inside the box.
     """
@@ -310,7 +310,7 @@ def test_hypothesis_region_is_person_bounding_box(
 
     annotator.compute()
 
-    assert _only_hypothesis(annotator).roi.roi == (
+    assert _only_hypothesis(annotator).region_of_interest.rectangle == (
         scene.person_box_in(scene.color_image())
     )
 
@@ -405,7 +405,7 @@ def test_shrinking_narrows_hypothesis_region_around_its_center(
 
     annotator.compute()
 
-    assert _only_hypothesis(annotator).roi.roi == (
+    assert _only_hypothesis(annotator).region_of_interest.rectangle == (
         scene.person_box_shrunk_by(descriptor.parameters.shrink_bounding_box)
     )
 
@@ -420,7 +420,7 @@ def test_shrink_as_annotation_without_depth_shrinks_region(
 
     annotator.compute()
 
-    assert _only_hypothesis(annotator).roi.roi == (
+    assert _only_hypothesis(annotator).region_of_interest.rectangle == (
         scene.person_box_shrunk_by(descriptor.parameters.shrink_bounding_box)
     )
 
@@ -468,7 +468,9 @@ def test_shrunk_cloud_is_added_as_annotation_when_requested(
 
     hypothesis = _only_hypothesis(annotator)
     (shrunk_cloud,) = _annotations_of_type(hypothesis, CloudAnnotation)
-    assert hypothesis.roi.roi == (scene.person_box_in(scene.color_image()))
+    assert hypothesis.region_of_interest.rectangle == (
+        scene.person_box_in(scene.color_image())
+    )
     assert len(shrunk_cloud.points.points) == _area(
         scene.person_box_shrunk_by(descriptor.parameters.shrink_bounding_box)
     )
@@ -484,7 +486,9 @@ def test_shrink_as_annotation_without_shrinking_keeps_box_and_adds_no_cloud(
     annotator.compute()
 
     hypothesis = _only_hypothesis(annotator)
-    assert hypothesis.roi.roi == (scene.person_box_in(scene.color_image()))
+    assert hypothesis.region_of_interest.rectangle == (
+        scene.person_box_in(scene.color_image())
+    )
     assert _annotations_of_type(hypothesis, CloudAnnotation) == []
 
 

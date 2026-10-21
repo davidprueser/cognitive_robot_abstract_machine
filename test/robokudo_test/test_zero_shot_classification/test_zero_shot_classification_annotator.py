@@ -161,7 +161,7 @@ def test_object_hypothesis_scope_classifies_each_hypothesis_by_its_region() -> N
 def test_object_hypothesis_scope_skips_hypotheses_rejected_by_filter() -> None:
     descriptor = _object_hypothesis_descriptor()
     rejected_object = object_hypothesis(x=0, y=0, width=10, height=10)
-    descriptor.parameters.filter_fn = (
+    descriptor.parameters.filter_function = (
         lambda hypothesis: hypothesis is not rejected_object
     )
     annotator = _annotator_in_pipeline(descriptor, two_color_scene())

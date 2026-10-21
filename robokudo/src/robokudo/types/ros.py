@@ -138,7 +138,7 @@ class CameraInfo(Type):
     Vertical binning factor
     """
 
-    region_of_interest: RegionOfInterest = field(default_factory=RegionOfInterest)
+    roi: RegionOfInterest = field(default_factory=RegionOfInterest)
     """
     Region of interest
     """

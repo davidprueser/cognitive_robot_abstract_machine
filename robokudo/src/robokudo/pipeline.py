@@ -27,7 +27,7 @@ from typing_extensions import Any, List, Optional
 import robokudo.annotators.core
 import robokudo.annotators.outputs
 import robokudo.common_analysis_structure as common_analysis_structure
-import robokudo.defs as defs
+import robokudo.definitions as definitions
 import robokudo.utils.tree
 
 
@@ -68,7 +68,7 @@ class Pipeline(Sequence):
         """
         Timer for measuring pipeline execution time.
         """
-        self.robokudo_logger = logging.getLogger(defs.PACKAGE_NAME)
+        self.robokudo_logger = logging.getLogger(definitions.PACKAGE_NAME)
         """
         Logger instance for this pipeline.
         """
@@ -108,8 +108,8 @@ class Pipeline(Sequence):
             )
 
         annotators = self.get_annotators()
-        for a in annotators:
-            a.add_self_to_annotator_output_structure()
+        for annotator in annotators:
+            annotator.add_self_to_annotator_output_structure()
         annotator_output_pipeline_map_buffer.map[self.name].redraw = True
         return True
 

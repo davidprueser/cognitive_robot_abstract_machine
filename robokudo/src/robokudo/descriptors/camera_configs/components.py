@@ -101,5 +101,5 @@ class RGBDComponent(DepthComponent, ColorComponent):
     axes for a 640x480 depth image next to a 1280x960 color image.
     """
 
-    hi_res_mode: bool = False
+    high_resolution_mode: bool = False
     """Setting this to true will apply some workarounds to match the depth data to RGB on the Kinect."""

@@ -23,7 +23,7 @@ from robokudo.common_analysis_structure import CommonAnalysisStructureViews
 from robokudo.pipeline import Pipeline
 from robokudo.types.annotation import Classification
 from robokudo.types.scene import ObjectHypothesis
-from robokudo.utils.cv_helper import crop_image_roi
+from robokudo.utils.cv_helper import crop_image_region_of_interest
 
 # %% NumPy image inputs
 
@@ -63,7 +63,7 @@ def numpy_image_annotator(
     return annotator
 
 
-def test_detector_receives_rgb_numpy_image(
+def test_detector_receives_red_green_blue_numpy_image(
     numpy_image_annotator: OpenVocabularyObjectDetectionAnnotator,
 ) -> None:
     """
@@ -96,7 +96,7 @@ def test_target_sizes_use_numpy_image_height_and_width(
     torch.testing.assert_close(target_sizes, torch.Tensor([image.shape[:2]]))
 
 
-def test_mask_predictor_receives_original_bgr_numpy_image(
+def test_mask_predictor_receives_original_blue_green_red_numpy_image(
     numpy_image_annotator: OpenVocabularyObjectDetectionAnnotator,
 ) -> None:
     """
@@ -185,8 +185,10 @@ def test_precision_mask_preserves_color_coordinates(
         )[0]
     )
     numpy.testing.assert_array_equal(
-        object_hypothesis.roi.mask,
-        crop_image_roi(expected_mask, object_hypothesis.roi),
+        object_hypothesis.region_of_interest.mask,
+        crop_image_region_of_interest(
+            expected_mask, object_hypothesis.region_of_interest
+        ),
     )
 
 
@@ -234,7 +236,9 @@ def test_precision_bounding_box_uses_segment_anything_mask_color_coordinates(
             ObjectHypothesis
         )[0]
     )
-    assert object_hypothesis.roi.roi.as_tuple() == expected_rectangle
+    assert (
+        object_hypothesis.region_of_interest.rectangle.as_tuple() == expected_rectangle
+    )
 
 
 # %% Detection and mask operations
@@ -269,7 +273,7 @@ def test_detect_objects_creates_classified_hypotheses_without_publishing(
     )
     assert classification.confidence == result[DetectionResultField.SCORES][0].item()
     assert classification.source == annotator.get_class_name()
-    assert hypotheses[0].roi.roi.get_corner_points() == tuple(
+    assert hypotheses[0].region_of_interest.rectangle.get_corner_points() == tuple(
         result[DetectionResultField.BOXES][0].tolist()
     )
     assert annotator.get_common_analysis_structure().annotations == []
@@ -316,13 +320,13 @@ def test_predict_mask_returns_full_color_resolution_byte_mask(
         )
     ),
 )
-def test_visualize_objects_draws_roi_mask_without_mutating_source(
+def test_visualize_objects_draws_region_of_interest_mask_without_mutating_source(
     precision_mask_annotator: OpenVocabularyObjectDetectionAnnotator,
     mask_index: int,
     color: Color,
 ) -> None:
     """
-    Render foreground pixels in the object ROI on a separate image.
+    Render foreground pixels in the object region of interest on a separate image.
     """
     annotator = precision_mask_annotator
     image = annotator.get_common_analysis_structure().get(
@@ -334,8 +338,12 @@ def test_visualize_objects_draws_roi_mask_without_mutating_source(
 
     visualization = annotator.visualize_objects(image, hypotheses * (mask_index + 1))
 
-    foreground = object_hypothesis.roi.mask == numpy.iinfo(numpy.uint8).max
-    image_region = crop_image_roi(visualization, object_hypothesis.roi)
+    foreground = (
+        object_hypothesis.region_of_interest.mask == numpy.iinfo(numpy.uint8).max
+    )
+    image_region = crop_image_region_of_interest(
+        visualization, object_hypothesis.region_of_interest
+    )
     numpy.testing.assert_array_equal(
         image_region[foreground] / numpy.iinfo(numpy.uint8).max,
         numpy.broadcast_to(color.to_rgb()[::-1], image_region[foreground].shape),

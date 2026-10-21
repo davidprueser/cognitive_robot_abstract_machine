@@ -86,7 +86,7 @@ class PlaneAnnotator(ThreadedAnnotator):
                 self.distance_threshold: float = 0.02
                 """"""
 
-                self.num_iterations: int = 50
+                self.number_of_iterations: int = 50
                 """"""
 
                 self.random_seed: Optional[int] = None
@@ -155,7 +155,7 @@ class PlaneAnnotator(ThreadedAnnotator):
             plane_model, inliers = cloud.segment_plane(
                 distance_threshold=self.descriptor.parameters.distance_threshold,
                 ransac_n=3,
-                num_iterations=self.descriptor.parameters.num_iterations,
+                num_iterations=self.descriptor.parameters.number_of_iterations,
             )
 
         [a, b, c, d] = plane_model

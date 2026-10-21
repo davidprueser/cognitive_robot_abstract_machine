@@ -76,21 +76,22 @@ class AnnotationStorageWriter(BaseAnnotator):
             serialize_annotations(self.get_common_analysis_structure().annotations)
         )
 
-        dir_path = os.path.join(self.descriptor.parameters.basic_path, self.name)
+        directory_path = os.path.join(self.descriptor.parameters.basic_path, self.name)
 
         # increase count
         self.counter += 1
 
-        if self.counter == 0 and os.path.exists(dir_path):
-            shutil.rmtree(dir_path)
+        if self.counter == 0 and os.path.exists(directory_path):
+            shutil.rmtree(directory_path)
 
-        os.makedirs(dir_path, exist_ok=True)
+        os.makedirs(directory_path, exist_ok=True)
 
         json_path = os.path.join(
-            dir_path, "{}.{}".format(self.counter, self.descriptor.parameters.suffix)
+            directory_path,
+            "{}.{}".format(self.counter, self.descriptor.parameters.suffix),
         )
-        with open(json_path, "w") as f:
-            f.write(json_data_string)
+        with open(json_path, "w") as file:
+            file.write(json_data_string)
 
         end_timer = default_timer()
         self.feedback_message = f"Processing took {(end_timer - start_timer):.4f}s"
@@ -163,8 +164,8 @@ class AnnotationPublisherWriter(BaseAnnotator):
         # publish encoded data
         if self.pub is None:
             raise RuntimeError("Publisher is not initialized. Call setup() first.")
-        msg = String(data=json_data_string)
-        self.pub.publish(msg)
+        message = String(data=json_data_string)
+        self.pub.publish(message)
 
         end_timer = default_timer()
         self.feedback_message = f"Processing took {(end_timer - start_timer):.4f}s"

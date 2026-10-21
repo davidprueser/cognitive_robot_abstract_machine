@@ -34,11 +34,14 @@ from robokudo.exceptions import (
     PointCloudTooSmallForClustering,
 )
 from robokudo.types.annotation import Plane
-from robokudo.types.cv import ImageROI
+from robokudo.types.cv import ImageRegionOfInterest
 from robokudo.types.scene import ObjectHypothesis
 from robokudo.utils.annotator_helper import draw_bounding_boxes_from_object_hypotheses
 from robokudo.utils.error_handling import catch_and_raise_to_blackboard
-from robokudo.utils.o3d_helper import concatenate_clouds, put_obb_on_target_obb
+from robokudo.utils.o3d_helper import (
+    concatenate_clouds,
+    put_oriented_bounding_box_on_target_oriented_bounding_box,
+)
 from robokudo.utils.transform import get_transform_matrix
 
 if TYPE_CHECKING:
@@ -55,7 +58,7 @@ def generate_region_of_interest_with_mask_from_points(
     pointcloud_camera_intrinsics: o3d.camera.PinholeCameraIntrinsic,
     cloud: o3d.geometry.PointCloud,
     color_to_depth_ratio: ColorToDepthRatio,
-) -> Tuple[ImageROI, npt.NDArray]:
+) -> Tuple[ImageRegionOfInterest, npt.NDArray]:
     """Generate region of interest and mask from projected point cloud points.
 
     Projects 3D points to image plane and creates:
@@ -85,17 +88,17 @@ def generate_region_of_interest_with_mask_from_points(
 
     full_mask = np.zeros((image_height, image_width), np.uint8)
     full_mask[y_scaled, x_scaled] = 255
-    region_of_interest = ImageROI()
-    region_of_interest.roi.pos.x = x_scaled.min()
-    region_of_interest.roi.pos.y = y_scaled.min()
-    region_of_interest.roi.width = x_scaled.max() - x_scaled.min()
-    region_of_interest.roi.height = y_scaled.max() - y_scaled.min()
+    region_of_interest = ImageRegionOfInterest()
+    region_of_interest.rectangle.position.x = x_scaled.min()
+    region_of_interest.rectangle.position.y = y_scaled.min()
+    region_of_interest.rectangle.width = x_scaled.max() - x_scaled.min()
+    region_of_interest.rectangle.height = y_scaled.max() - y_scaled.min()
 
     region_of_interest.mask = full_mask[
-        region_of_interest.roi.pos.y : region_of_interest.roi.pos.y
-        + region_of_interest.roi.height,
-        region_of_interest.roi.pos.x : region_of_interest.roi.pos.x
-        + region_of_interest.roi.width,
+        region_of_interest.rectangle.position.y : region_of_interest.rectangle.position.y
+        + region_of_interest.rectangle.height,
+        region_of_interest.rectangle.position.x : region_of_interest.rectangle.position.x
+        + region_of_interest.rectangle.width,
     ]
     region_of_interest.mask = cv2.dilate(
         region_of_interest.mask, DILATION_KERNEL, iterations=1
@@ -264,8 +267,10 @@ class PointCloudClusterExtractor(ThreadedAnnotator):
             ]
         )
 
-        on_plane_oriented_bounding_box = put_obb_on_target_obb(
-            above_plane_oriented_bounding_box, plane_oriented_bounding_box
+        on_plane_oriented_bounding_box = (
+            put_oriented_bounding_box_on_target_oriented_bounding_box(
+                above_plane_oriented_bounding_box, plane_oriented_bounding_box
+            )
         )
         on_plane_cloud = outlier_cloud.crop(on_plane_oriented_bounding_box)
         on_plane_cloud_indices = (
@@ -404,7 +409,7 @@ class PointCloudClusterExtractor(ThreadedAnnotator):
             object_hypothesis.point_indices = [cluster_indices_in_outlier_cloud]
 
             object_hypothesis.id = str(cluster_index)
-            object_hypothesis.roi, full_mask_cluster = (
+            object_hypothesis.region_of_interest, full_mask_cluster = (
                 generate_region_of_interest_with_mask_from_points(
                     image_height=height,
                     image_width=width,
@@ -598,7 +603,7 @@ class NaivePointCloudClusterExtractor(ThreadedAnnotator):
             object_hypothesis.point_indices = [cluster_indices]
 
             object_hypothesis.id = str(cluster_index)
-            object_hypothesis.roi, full_mask_cluster = (
+            object_hypothesis.region_of_interest, full_mask_cluster = (
                 generate_region_of_interest_with_mask_from_points(
                     image_height=height,
                     image_width=width,

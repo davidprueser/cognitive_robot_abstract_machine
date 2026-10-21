@@ -30,11 +30,11 @@ from robokudo.utils.annotator_helper import draw_bounding_boxes_from_object_hypo
 from robokudo.utils.error_handling import catch_and_raise_to_blackboard
 from robokudo.utils.o3d_helper import (
     draw_mesh_wireframe_on_image,
-    draw_wireframe_of_obb_into_image,
+    draw_wireframe_of_oriented_bounding_box_into_image,
     trimesh_to_o3d_mesh,
 )
 from robokudo.utils.type_conversion import (
-    get_o3d_obb_from_bounding_box_annotation,
+    get_o3d_oriented_bounding_box_from_bounding_box_annotation,
     get_transform_matrix_from_pose_annotation,
 )
 
@@ -223,11 +223,13 @@ class ObjectHypothesisVisualizer(BaseAnnotator):
                 )
             )
             for bounding_box_annotation in bounding_box_annotations:
-                oriented_bounding_box = get_o3d_obb_from_bounding_box_annotation(
-                    bounding_box_annotation
+                oriented_bounding_box = (
+                    get_o3d_oriented_bounding_box_from_bounding_box_annotation(
+                        bounding_box_annotation
+                    )
                 )
                 visualized_geometries.append(oriented_bounding_box)
-                draw_wireframe_of_obb_into_image(
+                draw_wireframe_of_oriented_bounding_box_into_image(
                     self.get_common_analysis_structure(),
                     visualization_image,
                     oriented_bounding_box,

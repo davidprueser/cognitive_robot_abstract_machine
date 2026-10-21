@@ -56,7 +56,7 @@ class ZeroShotClassificationAnnotator(ThreadedAnnotator, ABC):
                 * CommonAnalysisStructureViews.COLOR_IMAGE: Analyze the entire color image at once.
                 * ObjectHypothesis: Analyze each object hypothesis individually.
                 """
-                self.filter_fn: Callable[[ObjectHypothesis], bool] | None = None
+                self.filter_function: Callable[[ObjectHypothesis], bool] | None = None
                 """
                 An optional filter function used to filter object hypotheses before
                 analyzing them.
@@ -84,7 +84,7 @@ class ZeroShotClassificationAnnotator(ThreadedAnnotator, ABC):
         """
 
     @staticmethod
-    def _rgb_image(color_image: npt.NDArray[np.uint8]) -> Image.Image:
+    def _red_green_blue_image(color_image: npt.NDArray[np.uint8]) -> Image.Image:
         """
         :param color_image: A color image in the BGR channel order of the common analysis structure.
         :return: The color image in the RGB channel order :meth:`classify` expects.
@@ -98,17 +98,17 @@ class ZeroShotClassificationAnnotator(ThreadedAnnotator, ABC):
         :param color_image: The color image to analyze.
         :return: The py_trees status.
         """
-        classifications = self.classify([self._rgb_image(color_image)])[0]
+        classifications = self.classify([self._red_green_blue_image(color_image)])[0]
         self.get_common_analysis_structure().annotations.extend(classifications)
 
-        visualization_img = color_image.copy()
+        visualization_image = color_image.copy()
 
         self.robokudo_logger.info("Image Classification Results:")
         self.robokudo_logger.info("Label \t\t Score")
         for i, classification in enumerate(classifications):
             text = f"{classification.confidence:.2f} /{classification.classname}"
-            visualization_img = cv2.putText(
-                visualization_img,
+            visualization_image = cv2.putText(
+                visualization_image,
                 text,
                 (10, 40 + 20 * i),
                 self.visualization_font,
@@ -123,7 +123,7 @@ class ZeroShotClassificationAnnotator(ThreadedAnnotator, ABC):
                 f"confidence\t {classification.confidence:.4f}"
             )
 
-        self.get_annotator_output_structure().set_image(visualization_img)
+        self.get_annotator_output_structure().set_image(visualization_image)
         return Status.SUCCESS
 
     def _analyze_object_hypotheses(self, color_image: npt.NDArray[np.uint8]) -> Status:
@@ -133,30 +133,37 @@ class ZeroShotClassificationAnnotator(ThreadedAnnotator, ABC):
         :param color_image: The color image to use for analyzation.
         :return: The py_trees status.
         """
-        ohs: list[
+        object_hypotheses: list[
             ObjectHypothesis
         ] = self.get_common_analysis_structure().filter_annotations_by_type(
             ObjectHypothesis
         )
-        if len(ohs) == 0:
+        if len(object_hypotheses) == 0:
             self.robokudo_logger.info("Found 0 object hypotheses to analyze")
             return Status.SUCCESS
 
-        if self.descriptor.parameters.filter_fn is not None:
-            ohs = list(filter(self.descriptor.parameters.filter_fn, ohs))
+        if self.descriptor.parameters.filter_function is not None:
+            object_hypotheses = list(
+                filter(self.descriptor.parameters.filter_function, object_hypotheses)
+            )
 
-            if len(ohs) == 0:
+            if len(object_hypotheses) == 0:
                 self.robokudo_logger.info("All object hypotheses were filtered out")
                 return Status.SUCCESS
 
         # Create per-object image crop
-        rgb_image = self._rgb_image(color_image)
-        cropped_images = [rgb_image.crop(oh.roi.roi.get_corner_points()) for oh in ohs]
+        red_green_blue_image = self._red_green_blue_image(color_image)
+        cropped_images = [
+            red_green_blue_image.crop(
+                object_hypothesis.region_of_interest.rectangle.get_corner_points()
+            )
+            for object_hypothesis in object_hypotheses
+        ]
 
-        visualization_img = color_image.copy()
+        visualization_image = color_image.copy()
 
         for object_hypothesis, classifications in zip(
-            ohs, self.classify(cropped_images)
+            object_hypotheses, self.classify(cropped_images)
         ):
             self.robokudo_logger.info(
                 f"Classification results for Object hypothesis ID: '{object_hypothesis.id}'"
@@ -167,12 +174,14 @@ class ZeroShotClassificationAnnotator(ThreadedAnnotator, ABC):
                 f"{best_classification.confidence:.4f} / "
                 f"{best_classification.classname}"
             )
-            x1, y1, x2, y2 = object_hypothesis.roi.roi.get_corner_points()
-            visualization_img = cv2.rectangle(
-                visualization_img, (x1, y1), (x2, y2), (255, 255, 255), 2
+            x1, y1, x2, y2 = (
+                object_hypothesis.region_of_interest.rectangle.get_corner_points()
             )
-            visualization_img = cv2.putText(
-                visualization_img,
+            visualization_image = cv2.rectangle(
+                visualization_image, (x1, y1), (x2, y2), (255, 255, 255), 2
+            )
+            visualization_image = cv2.putText(
+                visualization_image,
                 text,
                 (x1, y1 - 20),
                 self.visualization_font,
@@ -189,7 +198,7 @@ class ZeroShotClassificationAnnotator(ThreadedAnnotator, ABC):
                     f"with confidence {classification.confidence:.4f}"
                 )
 
-        self.get_annotator_output_structure().set_image(visualization_img)
+        self.get_annotator_output_structure().set_image(visualization_image)
         return Status.SUCCESS
 
     def compute(self) -> Status:

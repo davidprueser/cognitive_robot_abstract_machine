@@ -26,18 +26,18 @@ from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
 
 def _make_hypothesis(
     *,
-    roi: tuple[int, int, int, int] = (10, 15, 20, 25),
+    region_of_interest: tuple[int, int, int, int] = (10, 15, 20, 25),
     translation: tuple[float, float, float] = (0.0, 0.0, 1.0),
     source: str = "test_source",
 ) -> ObjectHypothesis:
     hypothesis = ObjectHypothesis()
 
-    x, y, width, height = roi
-    hypothesis.roi.roi.pos.x = x
-    hypothesis.roi.roi.pos.y = y
-    hypothesis.roi.roi.width = width
-    hypothesis.roi.roi.height = height
-    hypothesis.roi.mask = np.ones((height, width), dtype=np.uint8)
+    x, y, width, height = region_of_interest
+    hypothesis.region_of_interest.rectangle.position.x = x
+    hypothesis.region_of_interest.rectangle.position.y = y
+    hypothesis.region_of_interest.rectangle.width = width
+    hypothesis.region_of_interest.rectangle.height = height
+    hypothesis.region_of_interest.mask = np.ones((height, width), dtype=np.uint8)
 
     pose = PoseAnnotation()
     pose.source = source
@@ -45,14 +45,14 @@ def _make_hypothesis(
     pose.rotation = [0.0, 0.0, 0.0, 1.0]
     hypothesis.annotations.append(pose)
 
-    bbox = BoundingBox3DAnnotation()
-    bbox.source = source
-    bbox.pose.translation = list(translation)
-    bbox.pose.rotation = [0.0, 0.0, 0.0, 1.0]
-    bbox.x_length = 0.1
-    bbox.y_length = 0.2
-    bbox.z_length = 0.3
-    hypothesis.annotations.append(bbox)
+    bounding_box = BoundingBox3DAnnotation()
+    bounding_box.source = source
+    bounding_box.pose.translation = list(translation)
+    bounding_box.pose.rotation = [0.0, 0.0, 0.0, 1.0]
+    bounding_box.x_length = 0.1
+    bounding_box.y_length = 0.2
+    bounding_box.z_length = 0.3
+    hypothesis.annotations.append(bounding_box)
 
     return hypothesis
 
@@ -70,18 +70,20 @@ def _attach_connector_to_pipeline(
 def _set_camera_to_world_transform(
     common_analysis_structure: CommonAnalysisStructure,
     *,
-    pos_x: float = 0.0,
-    pos_y: float = 0.0,
-    pos_z: float = 0.0,
+    position_x: float = 0.0,
+    position_y: float = 0.0,
+    position_z: float = 0.0,
 ) -> None:
-    sem_world = robokudo_world.world_instance()
-    world_body = sem_world.get_body_by_name(common_analysis_structure.world_frame)
-    camera_body = sem_world.get_body_by_name(common_analysis_structure.camera_frame)
+    semantic_world = robokudo_world.world_instance()
+    world_body = semantic_world.get_body_by_name(common_analysis_structure.world_frame)
+    camera_body = semantic_world.get_body_by_name(
+        common_analysis_structure.camera_frame
+    )
     common_analysis_structure.camera_to_world_transform = (
         HomogeneousTransformationMatrix.from_xyz_quaternion(
-            pos_x=pos_x,
-            pos_y=pos_y,
-            pos_z=pos_z,
+            pos_x=position_x,
+            pos_y=position_y,
+            pos_z=position_z,
             quat_x=0.0,
             quat_y=0.0,
             quat_z=0.0,
@@ -109,9 +111,9 @@ def connector() -> SemanticDigitalTwinConnector:
 
 
 @pytest.fixture
-def semdt_common_analysis_structure() -> CommonAnalysisStructure:
+def semantic_digital_twin_common_analysis_structure() -> CommonAnalysisStructure:
     robokudo_world.get_object_belief_states().clear()
-    robokudo_world.init_world_with_entity_tracker()
+    robokudo_world.initialize_world_with_entity_tracker()
     robokudo_world.setup_world_for_camera_frame(
         world_frame="map", camera_frame="camera"
     )
@@ -124,22 +126,22 @@ def semdt_common_analysis_structure() -> CommonAnalysisStructure:
     yield common_analysis_structure
 
     robokudo_world.get_object_belief_states().clear()
-    robokudo_world.init_world_with_entity_tracker()
+    robokudo_world.initialize_world_with_entity_tracker()
 
 
 class TestSemanticDigitalTwinConnector:
     def test_no_existing_beliefs_creates_belief_for_each_hypothesis(
         self,
         connector: SemanticDigitalTwinConnector,
-        semdt_common_analysis_structure: CommonAnalysisStructure,
+        semantic_digital_twin_common_analysis_structure: CommonAnalysisStructure,
     ) -> None:
         hypotheses = [
-            _make_hypothesis(roi=(5, 5, 10, 10)),
-            _make_hypothesis(roi=(25, 25, 10, 10)),
+            _make_hypothesis(region_of_interest=(5, 5, 10, 10)),
+            _make_hypothesis(region_of_interest=(25, 25, 10, 10)),
         ]
 
         associated_hypotheses = connector.associate_hypotheses_with_beliefs(
-            hypotheses, [], semdt_common_analysis_structure
+            hypotheses, [], semantic_digital_twin_common_analysis_structure
         )
 
         assert [hypothesis for hypothesis, _ in associated_hypotheses] == hypotheses
@@ -155,28 +157,32 @@ class TestSemanticDigitalTwinConnector:
     def test_high_similarity_updates_match_and_creates_beliefs_for_unmatched_hypotheses(
         self,
         connector: SemanticDigitalTwinConnector,
-        semdt_common_analysis_structure: CommonAnalysisStructure,
+        semantic_digital_twin_common_analysis_structure: CommonAnalysisStructure,
     ) -> None:
         previous_hypothesis = _make_hypothesis(translation=(0.0, 0.0, 1.0))
         existing_belief = connector.associate_hypotheses_with_beliefs(
-            [previous_hypothesis], [], semdt_common_analysis_structure
+            [previous_hypothesis], [], semantic_digital_twin_common_analysis_structure
         )[0][1]
         assert len(_stamped_world_poses(previous_hypothesis)) == 1
 
-        _set_camera_to_world_transform(semdt_common_analysis_structure, pos_x=1.0)
+        _set_camera_to_world_transform(
+            semantic_digital_twin_common_analysis_structure, position_x=1.0
+        )
         # Same world pose as the previous hypothesis, seen from a translated camera.
         matched_hypothesis = _make_hypothesis(
-            roi=(10, 10, 12, 12), translation=(-1.0, 0.0, 1.0)
+            region_of_interest=(10, 10, 12, 12), translation=(-1.0, 0.0, 1.0)
         )
         unmatched_hypothesis = _make_hypothesis(
-            roi=(80, 80, 12, 12), translation=(2.0, 0.0, 1.0)
+            region_of_interest=(80, 80, 12, 12), translation=(2.0, 0.0, 1.0)
         )
-        _attach_connector_to_pipeline(connector, semdt_common_analysis_structure)
+        _attach_connector_to_pipeline(
+            connector, semantic_digital_twin_common_analysis_structure
+        )
 
         associated_hypotheses = connector.associate_hypotheses_with_beliefs(
             [matched_hypothesis, unmatched_hypothesis],
             [existing_belief],
-            semdt_common_analysis_structure,
+            semantic_digital_twin_common_analysis_structure,
         )
 
         assert len(robokudo_world.get_object_belief_states()) == 2
@@ -188,18 +194,22 @@ class TestSemanticDigitalTwinConnector:
     def test_low_similarity_assignment_creates_new_belief_instead_of_updating(
         self,
         connector: SemanticDigitalTwinConnector,
-        semdt_common_analysis_structure: CommonAnalysisStructure,
+        semantic_digital_twin_common_analysis_structure: CommonAnalysisStructure,
     ) -> None:
         previous_hypothesis = _make_hypothesis()
         existing_belief = connector.associate_hypotheses_with_beliefs(
-            [previous_hypothesis], [], semdt_common_analysis_structure
+            [previous_hypothesis], [], semantic_digital_twin_common_analysis_structure
         )[0][1]
         hypothesis = _make_hypothesis(translation=(5.0, 0.0, 1.0))
         connector.descriptor.parameters.confidence_threshold = 0.99
-        _attach_connector_to_pipeline(connector, semdt_common_analysis_structure)
+        _attach_connector_to_pipeline(
+            connector, semantic_digital_twin_common_analysis_structure
+        )
 
         associated_hypotheses = connector.associate_hypotheses_with_beliefs(
-            [hypothesis], [existing_belief], semdt_common_analysis_structure
+            [hypothesis],
+            [existing_belief],
+            semantic_digital_twin_common_analysis_structure,
         )
 
         assert len(robokudo_world.get_object_belief_states()) == 2
@@ -222,7 +232,7 @@ class TestSemanticDigitalTwinConnector:
     def test_update_reads_common_analysis_structure_associates_beliefs_and_publishes_visualization(
         self,
         connector: SemanticDigitalTwinConnector,
-        semdt_common_analysis_structure: CommonAnalysisStructure,
+        semantic_digital_twin_common_analysis_structure: CommonAnalysisStructure,
     ) -> None:
         blackboard = Blackboard()
         blackboard.set(
@@ -232,10 +242,12 @@ class TestSemanticDigitalTwinConnector:
         pipeline = Pipeline("SemanticWorldConnectorTestPipeline")
         pipeline.add_child(connector)
         pipeline.setup()
-        pipeline.common_analysis_structure = semdt_common_analysis_structure
+        pipeline.common_analysis_structure = (
+            semantic_digital_twin_common_analysis_structure
+        )
 
         color_image = np.zeros((80, 100, 3), dtype=np.uint8)
-        hypothesis = _make_hypothesis(roi=(20, 25, 30, 20))
+        hypothesis = _make_hypothesis(region_of_interest=(20, 25, 30, 20))
         pipeline.common_analysis_structure.set(
             CommonAnalysisStructureViews.COLOR_IMAGE, color_image
         )

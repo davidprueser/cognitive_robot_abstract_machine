@@ -3,10 +3,10 @@ from robokudo.annotators.cluster_color import ClusterColorAnnotator
 from robokudo.annotators.collection_reader import CollectionReaderAnnotator
 from robokudo.annotators.image_preprocessor import ImagePreprocessorAnnotator
 from robokudo.annotators.yolo_annotator import YoloAnnotator
-from robokudo.descriptors.factories.cr_descriptor_factory import (
+from robokudo.descriptors.factories.collection_reader_descriptor_factory import (
     CollectionReaderDescriptorFactory,
 )
-from robokudo.idioms import pipeline_init
+from robokudo.idioms import pipeline_initialization
 from robokudo.pipeline import Pipeline
 
 
@@ -29,7 +29,9 @@ class AnalysisEngine(AnalysisEngineInterface):
 
         :return: The configured pipeline
         """
-        cr_storage_config = CollectionReaderDescriptorFactory.create_descriptor("mongo")
+        storage_reader_descriptor = CollectionReaderDescriptorFactory.create_descriptor(
+            "mongo"
+        )
 
         yolo_descriptor = YoloAnnotator.Descriptor()
         yolo_descriptor.parameters.pretrained_model = "yolov8m.pt"
@@ -39,8 +41,8 @@ class AnalysisEngine(AnalysisEngineInterface):
         seq = Pipeline("StoragePipeline")
         seq.add_children(
             [
-                pipeline_init(),
-                CollectionReaderAnnotator(descriptor=cr_storage_config),
+                pipeline_initialization(),
+                CollectionReaderAnnotator(descriptor=storage_reader_descriptor),
                 ImagePreprocessorAnnotator("ImagePreprocessor"),
                 YoloAnnotator(descriptor=yolo_descriptor),
                 ClusterColorAnnotator(),

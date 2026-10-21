@@ -54,7 +54,7 @@ class FileWriter(BaseAnnotator):
             """
 
             def __init__(self) -> None:
-                self.target_dir: str = "/tmp/"
+                self.target_directory: str = "/tmp/"
                 """Directory to store files in"""
 
                 self.filename_prefix: str = "rk_"
@@ -78,15 +78,17 @@ class FileWriter(BaseAnnotator):
 
         self.robokudo_logger.debug("%s.__init__()" % self.__class__.__name__)
         self.robokudo_logger.debug(
-            f"Writing files to {self.descriptor.parameters.target_dir}"
+            f"Writing files to {self.descriptor.parameters.target_directory}"
         )
-        self.target_dir_path: Path = Path(self.descriptor.parameters.target_dir)
+        self.target_directory_path: Path = Path(
+            self.descriptor.parameters.target_directory
+        )
 
-        if self.target_dir_path.exists() and self.target_dir_path.is_dir():
+        if self.target_directory_path.exists() and self.target_directory_path.is_dir():
             self.initialized = True
         else:
             self.robokudo_logger.error(
-                f"{self.descriptor.parameters.target_dir} is not existing or not a directory"
+                f"{self.descriptor.parameters.target_directory} is not existing or not a directory"
             )
 
     def generate_full_file_path_(
@@ -105,11 +107,11 @@ class FileWriter(BaseAnnotator):
         :param file_extension: File extension without dot (e.g. "jpg")
         :return: A string with the full path according to our naming scheme.
         """
-        fn_prefix = self.descriptor.parameters.filename_prefix
+        filename_prefix = self.descriptor.parameters.filename_prefix
         timestamp = self.get_common_analysis_structure().timestamp
         return str(
-            self.target_dir_path.joinpath(
-                f"{fn_prefix}{str(timestamp)}_{common_analysis_structure_view}.{file_extension}"
+            self.target_directory_path.joinpath(
+                f"{filename_prefix}{str(timestamp)}_{common_analysis_structure_view}.{file_extension}"
             )
         )
 
@@ -168,8 +170,8 @@ class FileWriter(BaseAnnotator):
                 )
             ),
             "w",
-        ) as fp:
-            json.dump(camera_info_dict, fp)
+        ) as file:
+            json.dump(camera_info_dict, file)
 
         end_timer = default_timer()
         self.feedback_message = f"Processing took {(end_timer - start_timer):.4f}s"

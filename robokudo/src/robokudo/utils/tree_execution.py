@@ -29,7 +29,7 @@ from rclpy.node import Node
 from typing_extensions import TYPE_CHECKING, Optional
 
 from robokudo.garden import grow_tree
-from robokudo.utils.tree import setup_with_descendants_rk
+from robokudo.utils.tree import setup_with_descendants_robokudo
 from robokudo.identifier import BlackboardIdentifier
 
 if TYPE_CHECKING:
@@ -38,7 +38,7 @@ if TYPE_CHECKING:
     from robokudo.annotators.query import QueryActionServer
     from robokudo.common_analysis_structure import CommonAnalysisStructure
 
-_T = TypeVar("_T")
+_Result = TypeVar("_T")
 
 
 def _query_is_active() -> bool:
@@ -54,11 +54,11 @@ def _query_is_active() -> bool:
 
 
 def _tick_tree_until(
-    ae_root: BehaviourTree,
+    analysis_engine_root: BehaviourTree,
     node: Node,
-    stop_condition: Callable[[int], Optional[_T]],
+    stop_condition: Callable[[int], Optional[_Result]],
     tick_rate: int,
-) -> Optional[_T]:
+) -> Optional[_Result]:
     """
     Tick an already setup tree until ``stop_condition`` returns a result.
     """
@@ -82,7 +82,7 @@ def _tick_tree_until(
         # Spin only these nodes until we're done; don't touch global rclpy lifecycle.
         while result is None and rclpy.ok(context=node.context):
             tick_started_at = time.monotonic()
-            ae_root.tick()
+            analysis_engine_root.tick()
             tick_count += 1
             result = stop_condition(tick_count)
 
@@ -127,11 +127,11 @@ def run_tree_once(
     :param tick_rate: Rate to tick tree in Hz, defaults to 5
     :return: Final tree status (SUCCESS/FAILURE) or None if timed out
     """
-    ae_root = grow_tree(tree, node, include_gui=include_gui, run_once=True)
-    setup_with_descendants_rk(ae_root)
+    analysis_engine_root = grow_tree(tree, node, include_gui=include_gui, run_once=True)
+    setup_with_descendants_robokudo(analysis_engine_root)
 
-    assert isinstance(ae_root.root, OneShot)
-    one_shot = ae_root.root
+    assert isinstance(analysis_engine_root.root, OneShot)
+    one_shot = analysis_engine_root.root
 
     def stop_condition(tick_count: int) -> Optional[Status]:
         if tick_count >= max_iterations:
@@ -144,7 +144,7 @@ def run_tree_once(
             return one_shot.status
         return None
 
-    return _tick_tree_until(ae_root, node, stop_condition, tick_rate)
+    return _tick_tree_until(analysis_engine_root, node, stop_condition, tick_rate)
 
 
 def run_tree_until_successful_common_analysis_structure_count(
@@ -173,8 +173,10 @@ def run_tree_until_successful_common_analysis_structure_count(
     if expected_common_analysis_structure_count == 0:
         return []
 
-    ae_root = grow_tree(tree, node, include_gui=include_gui, run_once=False)
-    setup_with_descendants_rk(ae_root)
+    analysis_engine_root = grow_tree(
+        tree, node, include_gui=include_gui, run_once=False
+    )
+    setup_with_descendants_robokudo(analysis_engine_root)
 
     seen_common_analysis_structure_ids = set()
     successful_common_analysis_structure_instances = []
@@ -209,7 +211,7 @@ def run_tree_until_successful_common_analysis_structure_count(
 
         return None
 
-    result = _tick_tree_until(ae_root, node, stop_condition, tick_rate)
+    result = _tick_tree_until(analysis_engine_root, node, stop_condition, tick_rate)
     return (
         result if result is not None else successful_common_analysis_structure_instances
     )

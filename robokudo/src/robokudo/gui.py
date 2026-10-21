@@ -13,7 +13,7 @@ from py_trees.behaviour import Behaviour
 from py_trees.blackboard import Blackboard
 
 from robokudo.pipeline import Pipeline
-from robokudo.defs import PACKAGE_NAME
+from robokudo.definitions import PACKAGE_NAME
 
 
 class SetPipelineRedraw(Behaviour):

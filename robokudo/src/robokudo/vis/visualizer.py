@@ -18,7 +18,7 @@ from py_trees.blackboard import Blackboard
 from typing_extensions import Any, List, Optional, Set, Type, TYPE_CHECKING
 
 from robokudo.annotators.outputs import AnnotatorOutputs
-from robokudo.defs import PACKAGE_NAME
+from robokudo.definitions import PACKAGE_NAME
 from robokudo.pipeline import Pipeline
 
 if TYPE_CHECKING:

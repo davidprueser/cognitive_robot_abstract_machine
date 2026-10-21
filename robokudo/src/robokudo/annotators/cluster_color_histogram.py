@@ -4,7 +4,7 @@ This module provides an annotator for:
 
 * Calculating 2D color histograms for object hypotheses
 * Analyzing hue and saturation distributions
-* Supporting masked ROI analysis
+* Supporting masked region of interest analysis
 * Optional visualization of histogram plots
 
 The module uses:
@@ -34,19 +34,19 @@ from typing_extensions import List, Optional, Tuple, TYPE_CHECKING
 
 from robokudo.annotators.cluster_color import Color
 from robokudo.common_analysis_structure import CommonAnalysisStructureViews
-from robokudo.types.cv import Rect
+from robokudo.types.cv import Rectangle
 
 if TYPE_CHECKING:
     import numpy.typing as npt
 
 
 class ClusterColorHistogramAnnotator(BaseAnnotator):
-    """Hue and saturation histogram analysis for object hypotheses with RGB ROI and Mask.
+    """Hue and saturation histogram analysis for object hypotheses with RGB region of interest and Mask.
 
     This annotator:
 
     * Calculates 2D histograms of hue and saturation
-    * Processes masked ROIs from object hypotheses
+    * Processes masked regions of interest from object hypotheses
     * Normalizes histogram distributions
     * Optionally generates visualization plots
 
@@ -61,7 +61,7 @@ class ClusterColorHistogramAnnotator(BaseAnnotator):
             """Parameters for configuring histogram calculation."""
 
             def __init__(self) -> None:
-                self.histogram_cols: int = 16
+                self.histogram_columns: int = 16
                 """Number of histogram columns (hue bins)"""
 
                 self.histogram_rows: int = 16
@@ -106,10 +106,10 @@ class ClusterColorHistogramAnnotator(BaseAnnotator):
             CommonAnalysisStructureViews.COLOR_IMAGE
         )
 
-        visualization_img = self.create_color_histogram_annotations(color)
+        visualization_image = self.create_color_histogram_annotations(color)
 
-        if visualization_img is None:  # no plots have been generated?
-            visualization_img = copy.deepcopy(color)
+        if visualization_image is None:  # no plots have been generated?
+            visualization_image = copy.deepcopy(color)
 
         # 3D Visualization
         vis_geometries = [
@@ -117,7 +117,7 @@ class ClusterColorHistogramAnnotator(BaseAnnotator):
         ]
 
         self.get_annotator_output_structure().set_geometries(vis_geometries)
-        self.get_annotator_output_structure().set_image(visualization_img)
+        self.get_annotator_output_structure().set_image(visualization_image)
 
         end_timer = default_timer()
         self.feedback_message = f"Processing took {(end_timer - start_timer):.4f}s"
@@ -128,7 +128,7 @@ class ClusterColorHistogramAnnotator(BaseAnnotator):
     ) -> Optional[npt.NDArray]:
         """Calculate 2D color histograms for object hypotheses.
 
-        For each object hypothesis with a valid ROI mask:
+        For each object hypothesis with a valid region of interest mask:
 
         * Extracts color image region and mask
         * Converts to HSV color space
@@ -152,63 +152,64 @@ class ClusterColorHistogramAnnotator(BaseAnnotator):
         if self.descriptor.parameters.generate_plot_output:
             plot_columns = 3
             cluster_count = len(object_hypotheses)
-            fig, axes = plt.subplots(
+            figure, axes = plt.subplots(
                 nrows=math.ceil(cluster_count / plot_columns), ncols=plot_columns
             )
-            fig.tight_layout()
+            figure.tight_layout()
             axes1d = axes.ravel()
 
         for object_hypothesis in object_hypotheses:
-            if object_hypothesis.roi.mask is None:
+            if object_hypothesis.region_of_interest.mask is None:
                 continue
 
-            roi = object_hypothesis.roi.roi
+            rectangle = object_hypothesis.region_of_interest.rectangle
 
-            cluster_color_img = color[
-                roi.pos.y : roi.pos.y + roi.height, roi.pos.x : roi.pos.x + roi.width
+            cluster_color_image = color[
+                rectangle.position.y : rectangle.position.y + rectangle.height,
+                rectangle.position.x : rectangle.position.x + rectangle.width,
             ]
 
-            cluster_mask = object_hypothesis.roi.mask
+            cluster_mask = object_hypothesis.region_of_interest.mask
 
-            color_height, color_width, color_dim = cluster_color_img.shape
+            color_height, color_width, color_channel_count = cluster_color_image.shape
             mask_height, mask_width = cluster_mask.shape
 
             assert color_height == mask_height
             assert color_width == mask_width
 
             # Convert to HSV_FULL. FULL is important, # because otherwise you just get H=0...180
-            cluster_hsv_color_img = cv2.cvtColor(
-                cluster_color_img, cv2.COLOR_BGR2HSV_FULL
+            cluster_hsv_color_image = cv2.cvtColor(
+                cluster_color_image, cv2.COLOR_BGR2HSV_FULL
             )
 
             # Generate the actual histogram
-            hist_size = [
-                self.descriptor.parameters.histogram_cols,
+            histogram_size = [
+                self.descriptor.parameters.histogram_columns,
                 self.descriptor.parameters.histogram_rows,
             ]
             histogram_2d = cv2.calcHist(
-                [cluster_hsv_color_img],
+                [cluster_hsv_color_image],
                 [0, 1],
                 cluster_mask,
-                histSize=hist_size,
+                histSize=histogram_size,
                 ranges=[0, 256, 0, 256],
             )
             normalized_histogram2d = histogram_2d / histogram_2d.sum()
 
             color_histogram_annotation = ColorHistogram()
             color_histogram_annotation.normalized = True
-            color_histogram_annotation.hist = normalized_histogram2d
+            color_histogram_annotation.histogram = normalized_histogram2d
             object_hypothesis.annotations.append(color_histogram_annotation)
 
             # Add the histogram to the plot if desired
             if self.descriptor.parameters.generate_plot_output:
-                p = axes1d[cluster_index].imshow(
+                histogram_image = axes1d[cluster_index].imshow(
                     normalized_histogram2d, interpolation="nearest"
                 )
                 axes1d[cluster_index].set_title(
-                    f"HS(V) hist cluster={cluster_index}", fontdict={"fontsize": 8}
+                    f"HS(V) histogram cluster={cluster_index}", fontdict={"fontsize": 8}
                 )
-                axes1d[cluster_index].set_ylabel("sat")
+                axes1d[cluster_index].set_ylabel("saturation")
                 axes1d[cluster_index].set_xlabel("hue")
 
             cluster_index += 1
@@ -216,11 +217,11 @@ class ClusterColorHistogramAnnotator(BaseAnnotator):
         # Draw the final result containing all plots if desired
         if self.descriptor.parameters.generate_plot_output:
             # https://stackoverflow.com/questions/43099734/combining-cv2-imshow-with-matplotlib-plt-show-in-real-time/43101480
-            fig.canvas.draw()
+            figure.canvas.draw()
             # Matplotlib >= 3.10 removed tostring_rgb(); buffer_rgba() is the supported Agg buffer API.
-            img = np.asarray(fig.canvas.buffer_rgba())
-            img = cv2.cvtColor(img, cv2.COLOR_RGBA2BGR)
+            image = np.asarray(figure.canvas.buffer_rgba())
+            image = cv2.cvtColor(image, cv2.COLOR_RGBA2BGR)
             plt.cla()  # cleanup figures
-            return img
+            return image
 
         return None

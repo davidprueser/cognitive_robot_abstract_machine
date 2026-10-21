@@ -54,11 +54,13 @@ class StorageReaderInterface(CameraInterface):
         """
         super().__init__(camera_config)
 
-        self.storage: Storage = Storage(camera_config.db_name)
+        self.storage: Storage = Storage(camera_config.database_name)
         """
         MongoDB storage interface.
         """
-        self.reader: Storage.ListReader = self.storage.ListReader(camera_config.db_name)
+        self.reader: Storage.ListReader = self.storage.ListReader(
+            camera_config.database_name
+        )
         """
         List-based reader for MongoDB data.
         """
@@ -166,7 +168,7 @@ class StorageReaderInterface(CameraInterface):
         if view_id is None:
             return
 
-        view_document = self.storage.db[Storage.VIEW_COLLECTION_NAME].find_one(
+        view_document = self.storage.database[Storage.VIEW_COLLECTION_NAME].find_one(
             {"_id": view_id}
         )
         if not view_document:
@@ -174,7 +176,7 @@ class StorageReaderInterface(CameraInterface):
                 f"Couldn't find view '{CommonAnalysisStructureViews.CAMERA_TO_WORLD_TRANSFORM}' with id={view_id}."
             )
 
-        # Non-SemDT transform payloads are left to the regular codec path.
+        # Non-semantic digital twin transform payloads are left to the regular codec path.
         if view_document["serializer_id"] != "semdt_homogeneous_transform_v1":
             decoded_view_name, decoded_view_value = Storage.decode_view_document(
                 view_document

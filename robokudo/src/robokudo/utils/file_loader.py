@@ -27,12 +27,12 @@ class FileLoader:
 
     .. code-block:: python
 
-        pkg_path = FileLoader.get_ros_pkg_path('my_package')
+        pkg_path = FileLoader.get_ros_package_path('my_package')
         file_path = FileLoader.get_path_to_file_in_ros_package('my_package', 'config/params.yaml')
     """
 
     @staticmethod
-    def get_ros_pkg_path(ros_package_name: str) -> Path:
+    def get_ros_package_path(ros_package_name: str) -> Path:
         """
         Get a Path object to a ROS2 package given the name
 
@@ -46,7 +46,7 @@ class FileLoader:
 
         .. code-block:: python
 
-            pkg_path = loader.get_ros_pkg_path('my_package')
+            pkg_path = loader.get_ros_package_path('my_package')
             assert pkg_path.exists()
         """
         try:
@@ -82,9 +82,11 @@ class FileLoader:
             The relative_path should NOT start with '/' to avoid being treated
             as an absolute path by pathlib.Path.joinpath()
         """
-        ros_pkg_path = FileLoader.get_ros_pkg_path(ros_package_name=ros_package_name)
+        ros_package_path = FileLoader.get_ros_package_path(
+            ros_package_name=ros_package_name
+        )
 
-        full_path = ros_pkg_path.joinpath(relative_path)
+        full_path = ros_package_path.joinpath(relative_path)
         if not full_path.exists():
             raise OSError(f"The desired path {full_path} doesn't exist.")
 

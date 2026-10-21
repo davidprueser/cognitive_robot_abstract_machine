@@ -45,7 +45,7 @@ class ObjectHypothesisQueryMatcher:
         self.query_matchers = [
             QueryAttributeMatcher(
                 requested_values=lambda requested_object: requested_object.uid,
-                matches=self.matches_uid,
+                matches=self.matches_unique_identifier,
             ),
             QueryAttributeMatcher(
                 requested_values=lambda requested_object: requested_object.type,
@@ -165,7 +165,7 @@ class ObjectHypothesisQueryMatcher:
                 return False
         return True
 
-    def matches_uid(
+    def matches_unique_identifier(
         self, object_hypothesis: ObjectHypothesis, requested_values: Any
     ) -> bool:
         """
@@ -283,7 +283,7 @@ class QueryHandler(object):
     """
 
     @staticmethod
-    def init_feedback_queue() -> None:
+    def initialize_feedback_queue() -> None:
         """
         Initializes the feedback queue on the Blackboard.
         """
@@ -301,7 +301,7 @@ class QueryHandler(object):
         """
         Retrieves and returns the feedback queue from the Blackboard.
         """
-        QueryHandler.init_feedback_queue()
+        QueryHandler.initialize_feedback_queue()
 
         blackboard = Blackboard()
         return blackboard.get(BlackboardIdentifier.QUERY_FEEDBACK)
@@ -317,15 +317,15 @@ class QueryHandler(object):
         feedback_queue.put(feedback)
 
     @staticmethod
-    def send_feedback_str(feedback_string: str) -> None:
+    def send_feedback_string(feedback_string: str) -> None:
         """
         Add a simple string to the feedback to the feedback queue, ready to be sent.
 
         :param feedback_string: The string to send as feedback.
         """
-        feedback_msg = Query.Feedback()
-        feedback_msg.feedback = feedback_string
-        QueryHandler.send_feedback(feedback_msg)
+        feedback_message = Query.Feedback()
+        feedback_message.feedback = feedback_string
+        QueryHandler.send_feedback(feedback_message)
 
     @staticmethod
     def send_answer(result: Query.Result) -> None:

@@ -398,10 +398,10 @@ class ImageClusterExtractor(BaseAnnotator):
                 # Calculate bounding rectangle for the current contour
                 x, y, width, height = cv2.boundingRect(contour)
                 # Set region of interest attributes for the ObjectHypothesis
-                object_hypothesis.roi.roi.pos.x = x
-                object_hypothesis.roi.roi.pos.y = y
-                object_hypothesis.roi.roi.width = width
-                object_hypothesis.roi.roi.height = height
+                object_hypothesis.region_of_interest.rectangle.position.x = x
+                object_hypothesis.region_of_interest.rectangle.position.y = y
+                object_hypothesis.region_of_interest.rectangle.width = width
+                object_hypothesis.region_of_interest.rectangle.height = height
 
                 # TODO Generate proper Masks
 
@@ -424,14 +424,16 @@ class ImageClusterExtractor(BaseAnnotator):
 
         for object_hypothesis in object_hypotheses:
             assert isinstance(object_hypothesis, ObjectHypothesis)
-            object_hypothesis_region_of_interest = object_hypothesis.roi.roi
+            object_hypothesis_region_of_interest = (
+                object_hypothesis.region_of_interest.rectangle
+            )
             upper_left = (
-                object_hypothesis_region_of_interest.pos.x,
-                object_hypothesis_region_of_interest.pos.y,
+                object_hypothesis_region_of_interest.position.x,
+                object_hypothesis_region_of_interest.position.y,
             )
             upper_left_text = (
-                object_hypothesis_region_of_interest.pos.x,
-                object_hypothesis_region_of_interest.pos.y - 5,
+                object_hypothesis_region_of_interest.position.x,
+                object_hypothesis_region_of_interest.position.y - 5,
             )
 
             font = cv2.FONT_HERSHEY_COMPLEX
@@ -449,9 +451,9 @@ class ImageClusterExtractor(BaseAnnotator):
                 visualization_image,
                 upper_left,
                 (
-                    object_hypothesis_region_of_interest.pos.x
+                    object_hypothesis_region_of_interest.position.x
                     + object_hypothesis_region_of_interest.width,
-                    object_hypothesis_region_of_interest.pos.y
+                    object_hypothesis_region_of_interest.position.y
                     + object_hypothesis_region_of_interest.height,
                 ),
                 (0, 0, 255),

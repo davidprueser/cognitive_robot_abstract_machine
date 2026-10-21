@@ -17,7 +17,7 @@ from robokudo.utils.tree import (
     find_root,
     fix_parent_relationship_of_childs,
     setup_with_descendants_on_behavior,
-    setup_with_descendants_rk,
+    setup_with_descendants_robokudo,
     behavior_iterate_except_type,
 )
 
@@ -273,7 +273,7 @@ class TestUtilsTree:
 
         assert leaf_behaviour0._setup == False, "only descendants should be setup"
 
-    def test_setup_with_descendants_rk(self) -> None:
+    def test_setup_with_descendants_robokudo(self) -> None:
         leaf_behaviour0 = DummyBehaviour("Behaviour0")
 
         leaf_behaviour1 = DummyBehaviour("Behaviour1")
@@ -293,7 +293,7 @@ class TestUtilsTree:
         )
         tree = BehaviourTree(par1)
 
-        setup_with_descendants_rk(tree)
+        setup_with_descendants_robokudo(tree)
 
         for child in children:
             assert child._setup == True

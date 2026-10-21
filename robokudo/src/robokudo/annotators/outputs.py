@@ -49,12 +49,12 @@ class AnnotatorOutputStruct:
         self.render_next_time = True
         """Whether the outputs should be rendered on the next GUI update. Defaults to True for the first run."""
 
-    def set_image(self, img: npt.NDArray[np.uint8]) -> None:
+    def set_image(self, image: npt.NDArray[np.uint8]) -> None:
         """Set the image in this AnnotatorOutputStruct and instruct the GUI to render it next time.
 
-        :param img: The image to be displayed on the next GUI update.
+        :param image: The image to be displayed on the next GUI update.
         """
-        self.image = img
+        self.image = image
         self.render_next_time = True
 
     def set_geometries(self, geometries: List[Dict[str, Any]]) -> None:
@@ -86,7 +86,7 @@ class AnnotatorOutputs:
         self.redraw = True
         """Whether the outputs should be redrawn on the next GUI update."""
 
-    def init_annotator(self, annotator_name: str) -> None:
+    def initialize_annotator(self, annotator_name: str) -> None:
         """Initialize the output structure for an annotator.
 
         :param annotator_name: Name of the annotator
@@ -96,7 +96,7 @@ class AnnotatorOutputs:
     def clear_outputs(self) -> None:
         annotator_names = [key for key in self.outputs]
         for name in annotator_names:
-            self.init_annotator(name)
+            self.initialize_annotator(name)
 
 
 class AnnotatorOutputPerPipelineMap:

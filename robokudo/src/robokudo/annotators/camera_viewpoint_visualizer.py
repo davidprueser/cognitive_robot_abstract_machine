@@ -52,9 +52,9 @@ class CameraViewpointVisualizer(BaseAnnotator):
                     self.get_common_analysis_structure()
                 )
             )
-        except KeyError as err:
+        except KeyError as error:
             self.robokudo_logger.warning(
-                f"Couldn't find viewpoint in the common analysis structure: {err}"
+                f"Couldn't find viewpoint in the common analysis structure: {error}"
             )
             return Status.FAILURE
 

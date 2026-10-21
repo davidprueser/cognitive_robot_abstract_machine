@@ -45,13 +45,13 @@ class FilterAnnotator(BaseAnnotator):
             """Parameter container for filter configuration."""
 
             def __init__(self) -> None:
-                self.func: Optional[Callable] = None
+                self.function: Optional[Callable] = None
                 """Filter function to apply"""
 
-                self.func_args: Optional[Tuple] = None
+                self.function_arguments: Optional[Tuple] = None
                 """Positional arguments for filter function"""
 
-                self.func_kwargs: Optional[Dict] = None
+                self.function_keyword_arguments: Optional[Dict] = None
                 """Keyword arguments for filter function"""
 
         # overwrite the parameters explicitly to enable auto-completion
@@ -79,17 +79,21 @@ class FilterAnnotator(BaseAnnotator):
 
         :return: SUCCESS status
         """
-        func = self.descriptor.parameters.func
+        function = self.descriptor.parameters.function
 
-        if func:
-            func_args = self.descriptor.parameters.func_args or []
-            func_kwargs = self.descriptor.parameters.func_kwargs or {}
+        if function:
+            function_arguments = self.descriptor.parameters.function_arguments or []
+            function_keyword_arguments = (
+                self.descriptor.parameters.function_keyword_arguments or {}
+            )
 
             temporary_annotations = self.get_common_analysis_structure().annotations
             temporary_annotations = [
                 annotation
                 for annotation in temporary_annotations
-                if func(annotation, *func_args, **func_kwargs)
+                if function(
+                    annotation, *function_arguments, **function_keyword_arguments
+                )
             ]
             self.get_common_analysis_structure().annotations = temporary_annotations
 

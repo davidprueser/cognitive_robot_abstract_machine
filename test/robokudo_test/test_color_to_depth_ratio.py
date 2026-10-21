@@ -7,7 +7,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from robokudo.types.cv import ColorToDepthRatio, Point2D, Rect
+from robokudo.types.cv import ColorToDepthRatio, Point2D, Rectangle
 
 
 @pytest.fixture
@@ -39,9 +39,9 @@ def test_depth_pixel_truncates_to_containing_pixel(
 
 
 def test_depth_region_scales_each_corner(half_resolution: ColorToDepthRatio) -> None:
-    region = Rect.from_corner_points(x1=4, y1=8, x2=10, y2=20)
+    region = Rectangle.from_corner_points(x1=4, y1=8, x2=10, y2=20)
 
-    assert half_resolution.depth_region(region) == Rect.from_corner_points(
+    assert half_resolution.depth_region(region) == Rectangle.from_corner_points(
         x1=2, y1=2, x2=5, y2=5
     )
 

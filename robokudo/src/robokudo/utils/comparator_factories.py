@@ -16,7 +16,7 @@ from robokudo.types.annotation import (
 )
 from robokudo.types.core import Annotation
 from robokudo.types.core import Type as RoboKudoType
-from robokudo.types.cv import ImageROI, Rect
+from robokudo.types.cv import ImageRegionOfInterest, Rectangle
 from robokudo.types.tf import (
     Pose,
     Position,
@@ -60,8 +60,8 @@ class FeatureComparatorFactory:
     """
 
     type_comparators: Dict[Type[RoboKudoType], Type[FeatureComparator]] = {
-        Rect: RegionOfInterestComparator,
-        ImageROI: ImageRegionOfInterestComparator,
+        Rectangle: RegionOfInterestComparator,
+        ImageRegionOfInterest: ImageRegionOfInterestComparator,
         Position: TranslationComparator,
         StampedPosition: TranslationComparator,
         Pose: PoseComparator,

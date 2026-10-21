@@ -9,7 +9,7 @@ from robokudo.types.annotation import (
     SemanticColor,
     PositionAnnotation,
 )
-from robokudo.types.cv import Rect, ImageROI, Point2D
+from robokudo.types.cv import Rectangle, ImageRegionOfInterest, Point2D
 from robokudo.types.tf import Pose
 from robokudo.utils.comparators import (
     TranslationComparator,
@@ -213,10 +213,10 @@ class TestUtilsComparators(object):
         )
 
         query_color_histogram = ColorHistogram()
-        query_color_histogram.hist = query_histogram.astype(np.float32)
+        query_color_histogram.histogram = query_histogram.astype(np.float32)
 
         object_color_histogram = ColorHistogram()
-        object_color_histogram.hist = object_histogram.astype(np.float32)
+        object_color_histogram.histogram = object_histogram.astype(np.float32)
 
         similarity = comparator.compute_similarity(
             query_color_histogram, object_color_histogram
@@ -295,15 +295,15 @@ class TestUtilsComparators(object):
         object_value: tuple[int, int, int, int],
         expected_similarity: float,
     ) -> None:
-        query_rectangle = Rect()
-        query_rectangle.pos.x = query_value[0]
-        query_rectangle.pos.y = query_value[1]
+        query_rectangle = Rectangle()
+        query_rectangle.position.x = query_value[0]
+        query_rectangle.position.y = query_value[1]
         query_rectangle.width = query_value[2]
         query_rectangle.height = query_value[3]
 
-        object_rectangle = Rect()
-        object_rectangle.pos.x = object_value[0]
-        object_rectangle.pos.y = object_value[1]
+        object_rectangle = Rectangle()
+        object_rectangle.position.x = object_value[0]
+        object_rectangle.position.y = object_value[1]
         object_rectangle.width = object_value[2]
         object_rectangle.height = object_value[3]
 
@@ -416,68 +416,68 @@ class TestUtilsComparators(object):
         ["query_value", "object_value", "expected_similarity"],
         [
             (
-                ImageROI(
-                    roi=Rect(pos=Point2D(x=0, y=0), width=2, height=2),
+                ImageRegionOfInterest(
+                    rectangle=Rectangle(position=Point2D(x=0, y=0), width=2, height=2),
                     mask=np.array([[1.0, 0.0], [0.0, 0.0]]),
                 ),
-                ImageROI(
-                    roi=Rect(pos=Point2D(x=0, y=0), width=2, height=2),
+                ImageRegionOfInterest(
+                    rectangle=Rectangle(position=Point2D(x=0, y=0), width=2, height=2),
                     mask=np.array([[1.0, 0.0], [0.0, 0.0]]),
                 ),
                 1.0,
             ),  # Positions and masks are identical
             (
-                ImageROI(
-                    roi=Rect(pos=Point2D(x=0, y=0), width=2, height=2),
+                ImageRegionOfInterest(
+                    rectangle=Rectangle(position=Point2D(x=0, y=0), width=2, height=2),
                     mask=np.array([[1.0, 0.0], [0.0, 0.0]]),
                 ),
-                ImageROI(
-                    roi=Rect(pos=Point2D(x=3, y=3), width=2, height=2),
+                ImageRegionOfInterest(
+                    rectangle=Rectangle(position=Point2D(x=3, y=3), width=2, height=2),
                     mask=np.array([[0.0, 1.0], [0.0, 0.0]]),
                 ),
                 0.0,
             ),  # Roi and mask have no similarity
             (
-                ImageROI(
-                    roi=Rect(pos=Point2D(x=0, y=0), width=2, height=2),
+                ImageRegionOfInterest(
+                    rectangle=Rectangle(position=Point2D(x=0, y=0), width=2, height=2),
                     mask=np.array([[1.0, 0.0], [0.0, 0.0]]),
                 ),
-                ImageROI(
-                    roi=Rect(pos=Point2D(x=3, y=3), width=2, height=2),
+                ImageRegionOfInterest(
+                    rectangle=Rectangle(position=Point2D(x=3, y=3), width=2, height=2),
                     mask=np.array([[1.0, 0.0], [0.0, 0.0]]),
                 ),
                 0.5,
             ),  # Masks are identical, position is not
             (
-                ImageROI(
-                    roi=Rect(pos=Point2D(x=0, y=0), width=2, height=2),
+                ImageRegionOfInterest(
+                    rectangle=Rectangle(position=Point2D(x=0, y=0), width=2, height=2),
                     mask=np.array([[1.0, 0.0], [0.0, 0.0]]),
                 ),
-                ImageROI(
-                    roi=Rect(pos=Point2D(x=0, y=0), width=2, height=2),
+                ImageRegionOfInterest(
+                    rectangle=Rectangle(position=Point2D(x=0, y=0), width=2, height=2),
                     mask=np.array([[0.0, 1.0], [0.0, 0.0]]),
                 ),
                 0.5,
             ),  # Positions are identical, masks are not
             # Tests for full image masks
             (
-                ImageROI(
-                    roi=Rect(pos=Point2D(x=0, y=0), width=1, height=1),
+                ImageRegionOfInterest(
+                    rectangle=Rectangle(position=Point2D(x=0, y=0), width=1, height=1),
                     mask=np.array([[1.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]]),
                 ),
-                ImageROI(
-                    roi=Rect(pos=Point2D(x=0, y=0), width=1, height=1),
+                ImageRegionOfInterest(
+                    rectangle=Rectangle(position=Point2D(x=0, y=0), width=1, height=1),
                     mask=np.array([[1.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]]),
                 ),
                 1.0,
             ),  # Positions and masks are identical
             (
-                ImageROI(
-                    roi=Rect(pos=Point2D(x=0, y=0), width=1, height=1),
+                ImageRegionOfInterest(
+                    rectangle=Rectangle(position=Point2D(x=0, y=0), width=1, height=1),
                     mask=np.array([[1.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]]),
                 ),
-                ImageROI(
-                    roi=Rect(pos=Point2D(x=2, y=2), width=1, height=1),
+                ImageRegionOfInterest(
+                    rectangle=Rectangle(position=Point2D(x=2, y=2), width=1, height=1),
                     mask=np.array([[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 1.0]]),
                 ),
                 0.5,

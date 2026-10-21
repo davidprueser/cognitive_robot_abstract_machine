@@ -71,7 +71,7 @@ class ByteTrackAnnotator(BaseAnnotator):
 
         regions_of_interest_xyxy = np.array(
             [
-                object_hypothesis.roi.roi.get_corner_points()
+                object_hypothesis.region_of_interest.rectangle.get_corner_points()
                 for object_hypothesis in object_hypotheses
             ]
         )
@@ -88,7 +88,10 @@ class ByteTrackAnnotator(BaseAnnotator):
             ),  # Default confidence
         }
 
-        masks = [object_hypothesis.roi.mask for object_hypothesis in object_hypotheses]
+        masks = [
+            object_hypothesis.region_of_interest.mask
+            for object_hypothesis in object_hypotheses
+        ]
         masks = list(filter(lambda mask: mask is not None, masks))
         if len(masks) == len(regions_of_interest_xyxy):
             camera_intrinsic: o3d.cuda.pybind.camera.PinholeCameraIntrinsic = (

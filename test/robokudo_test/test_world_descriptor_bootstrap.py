@@ -12,7 +12,7 @@ from semantic_digital_twin.world_description.world_entity import Region
 
 class TestWorldDescriptorBootstrapAnnotator:
     def test_augment_world_keeps_existing_frame_references(self) -> None:
-        robokudo_world.init_world_with_entity_tracker()
+        robokudo_world.initialize_world_with_entity_tracker()
         robokudo_world.setup_world_for_camera_frame(
             world_frame="map", camera_frame="camera"
         )
@@ -61,7 +61,7 @@ class TestWorldDescriptorBootstrapAnnotator:
         assert "kitchen_island" in region_names
 
     def test_update_is_idempotent_for_same_world_instance(self) -> None:
-        robokudo_world.init_world_with_entity_tracker()
+        robokudo_world.initialize_world_with_entity_tracker()
         annotator = WorldDescriptorBootstrapAnnotator()
 
         first = annotator.update()

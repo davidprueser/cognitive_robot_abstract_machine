@@ -27,7 +27,7 @@ from robokudo.annotators.query import QueryAnnotator
 from robokudo.behaviours.action_server_checks import ActionServerNoPreemptRequest
 from robokudo.common_analysis_structure import CommonAnalysisStructureViews
 from robokudo.identifier import BlackboardIdentifier
-from robokudo.idioms import pipeline_init
+from robokudo.idioms import pipeline_initialization
 from robokudo.pipeline import Pipeline
 
 
@@ -59,9 +59,9 @@ class PrintNumbers(BaseAnnotator):
             self.result_string += f"{self.current_number}, "
 
             # Add feedback message
-            feedback_msg = Query.Feedback()
-            feedback_msg.feedback = f"Processing number: {self.result_string}"
-            feedback_queue.put(feedback_msg)
+            feedback_message = Query.Feedback()
+            feedback_message.feedback = f"Processing number: {self.result_string}"
+            feedback_queue.put(feedback_message)
 
             self.current_number += 1
             return Status.RUNNING
@@ -125,7 +125,7 @@ class AnalysisEngine(AnalysisEngineInterface):
         seq = Pipeline("OPExperiments")
         seq.add_children(
             [
-                pipeline_init(),  # Initialize the pipeline
+                pipeline_initialization(),  # Initialize the pipeline
                 QueryAnnotator(),  # Handle incoming queries
                 conditional_selector,  # Preemption-aware task execution
             ]

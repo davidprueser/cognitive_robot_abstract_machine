@@ -30,15 +30,15 @@ class QueryBasedScheduler(
 
     :ivar tasks: Dictionary mapping task identifiers to behavior trees
     :type tasks: dict
-    :ivar filter_fn: Function that maps queries to task identifiers
-    :type filter_fn: Callable[[QueryGoal], str]
+    :ivar filter_function: Function that maps queries to task identifiers
+    :type filter_function: Callable[[QueryGoal], str]
     """
 
     def __init__(
         self,
         name: str = "QueryBasedScheduler",
         tasks: Optional[Dict[str, Composite]] = None,
-        filter_fn: Optional[Callable[[Query.Goal], str]] = None,
+        filter_function: Optional[Callable[[Query.Goal], str]] = None,
     ) -> None:
         """
         Initialize the query-based scheduler.
@@ -48,7 +48,7 @@ class QueryBasedScheduler(
 
         :param name: Name of the scheduler node
         :param tasks: Dictionary mapping task IDs to behavior trees
-        :param: filter_fn a callable/function which returns a string with the identifier
+        :param: filter_function a callable/function which returns a string with the identifier
             of the subtree to include. This function will receive the CommonAnalysisStructureViews.QUERY and
             can then decide which subtree identifier is the desired one.
         """
@@ -56,7 +56,7 @@ class QueryBasedScheduler(
         if tasks is None:
             tasks = dict()
         self.tasks: Dict[str, Composite] = tasks
-        self.filter_fn: Optional[Callable[[Query.Goal], str]] = filter_fn
+        self.filter_function: Optional[Callable[[Query.Goal], str]] = filter_function
 
     def setup(self, **kwargs: Any) -> bool:
         """
@@ -72,7 +72,7 @@ class QueryBasedScheduler(
 
         This method:
         * Gets the current query from common analysis structure
-        * Uses filter_fn to determine which task to run
+        * Uses filter_function to determine which task to run
         * Creates a new sequence with the selected task
 
         :return: New job sequence containing selected task, or None if no task found
@@ -86,7 +86,7 @@ class QueryBasedScheduler(
             CommonAnalysisStructureViews.QUERY
         )
 
-        task_key = self.filter_fn(query)
+        task_key = self.filter_function(query)
         self.robokudo_logger.info(f"Running perception task: {task_key}")
 
         if task_key not in self.tasks.keys():

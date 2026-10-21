@@ -20,7 +20,7 @@ from py_trees.common import Status
 from py_trees.composites import Sequence
 from typing_extensions import List, Optional
 
-from robokudo.defs import PACKAGE_NAME
+from robokudo.definitions import PACKAGE_NAME
 from robokudo.utils.error_handling import catch_and_raise_to_blackboard
 from robokudo.utils.tree import (
     add_child_to_parent,
@@ -149,7 +149,7 @@ class IterativeTaskScheduler(TaskSchedulerBase):
         """List of subtrees to cycle through"""
 
         # Save a reference to the initial job with all the possible sub-behaviours
-        self.idx: int = 0
+        self.index: int = 0
         """Current index in tree_list"""
 
     def setup(self, timeout: float) -> bool:
@@ -177,13 +177,13 @@ class IterativeTaskScheduler(TaskSchedulerBase):
         assert len(self.tree_list) > 0
 
         new_job = Sequence(name="Task", memory=True)
-        new_subtree = self.tree_list[self.idx]
+        new_subtree = self.tree_list[self.index]
         add_child_to_parent(new_job, new_subtree)
         fix_parent_relationship_of_childs(new_job)
 
-        if self.idx < len(self.tree_list) - 1:
-            self.idx += 1
+        if self.index < len(self.tree_list) - 1:
+            self.index += 1
         else:
-            self.idx = 0
+            self.index = 0
 
         return new_job

@@ -132,9 +132,9 @@ class RegionFilter(ThreadedAnnotator):
             world_to_camera_transform = get_world_to_camera_transform_matrix(
                 self.get_common_analysis_structure()
             )
-        except KeyError as err:
+        except KeyError as error:
             self.robokudo_logger.warning(
-                f"Couldn't find viewpoint in the common analysis structure: {err}"
+                f"Couldn't find viewpoint in the common analysis structure: {error}"
             )
             return Status.FAILURE
 
@@ -145,14 +145,18 @@ class RegionFilter(ThreadedAnnotator):
             # RegionHypothetis for this specific region
             region_hypothesis = RegionHypothesis()
 
-            obb = region_oriented_bounding_box_in_camera_coordinates(
+            oriented_bounding_box = region_oriented_bounding_box_in_camera_coordinates(
                 runtime_world, region, world_to_camera_transform
             )
             region_hypothesis.annotations.append(region_pose_annotation(region))
 
             # To avoid copying the whole points per region into a new cloud, we'll only collect and save
             # the indices of matching points
-            region_indices = obb.get_point_indices_within_bounding_box(cloud.points)
+            region_indices = (
+                oriented_bounding_box.get_point_indices_within_bounding_box(
+                    cloud.points
+                )
+            )
             filtered_indices.update(region_indices)
 
             # Update the indices which belong to the region and save the cloud and name of region in RegionHypothesis
@@ -164,7 +168,9 @@ class RegionFilter(ThreadedAnnotator):
             region_hypothesis.name = str(region.name)
             self.get_common_analysis_structure().annotations.append(region_hypothesis)
 
-            visualized_geometries.append({"name": str(region.name), "geometry": obb})
+            visualized_geometries.append(
+                {"name": str(region.name), "geometry": oriented_bounding_box}
+            )
 
         # Place the filtered PointCloud into the common analysis structure, overwriting the previous one
         filtered_cloud = cloud.select_by_index(list(filtered_indices))

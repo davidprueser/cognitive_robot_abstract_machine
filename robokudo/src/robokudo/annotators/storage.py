@@ -47,7 +47,7 @@ class StorageWriter(BaseAnnotator):
             """Parameter container for storage configuration."""
 
             def __init__(self) -> None:
-                self.db_name: str = "rk_scenes"
+                self.database_name: str = "rk_scenes"
                 """Database name"""
 
                 self.drop_database_on_storage: bool = True
@@ -68,7 +68,7 @@ class StorageWriter(BaseAnnotator):
         """
         super().__init__(name, descriptor)
         self.robokudo_logger.debug("%s.__init__()" % self.__class__.__name__)
-        self.storage = Storage(self.descriptor.parameters.db_name)
+        self.storage = Storage(self.descriptor.parameters.database_name)
         self.storage_preparation_completed: bool = False
         """
         Whether storage setup has already run for this writer.
@@ -125,8 +125,8 @@ class StorageWriter(BaseAnnotator):
         )
 
         payload = snapshot.to_json()
-        json_str = json.dumps(payload)
-        flat_common_analysis_structure["world"] = json_str
+        json_string = json.dumps(payload)
+        flat_common_analysis_structure["world"] = json_string
 
         # step 1: persist each view
         self.storage.store_views_in_mongo(flat_common_analysis_structure)

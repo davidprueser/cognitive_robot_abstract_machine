@@ -11,6 +11,6 @@ class OrbbecCameraConfig(OrbbecCameraConfig):
     Configuration class for the OrbBec Astra camera without transform lookup.
     """
 
-    registry_name: ClassVar[str] = "orbbec_wo_tf"
+    registry_name: ClassVar[str] = "orbbec_without_transform"
 
     lookup_viewpoint: bool = False

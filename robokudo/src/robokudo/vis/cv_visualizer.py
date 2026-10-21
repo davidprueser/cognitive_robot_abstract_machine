@@ -83,19 +83,19 @@ class CVVisualizer(Visualizer, Visualizer.Observer):
             self.update_output = False
             # 2D imshow output
 
-            img = None
+            image = None
             if active_annotator_instance.name not in annotator_outputs.outputs:
                 # We do not yet have visual output set up for this annotator
                 # This might happen in dynamic perception pipelines, where annotators have not been set up
                 # during construction of the tree AND don't generate image outputs.
                 # Create an empty image to show in the visualizer
                 # print(f"No visual output for annotator {active_annotator_instance.name}")
-                img = np.zeros((640, 480, 3), dtype="uint8")
+                image = np.zeros((640, 480, 3), dtype="uint8")
             else:
-                img = annotator_outputs.outputs[active_annotator_instance.name].image
+                image = annotator_outputs.outputs[active_annotator_instance.name].image
 
-            img_with_annotator_text = cv2.putText(
-                img,
+            image_with_annotator_text = cv2.putText(
+                image,
                 active_annotator_instance.name,
                 (15, 15),
                 cv2.FONT_HERSHEY_SIMPLEX,
@@ -109,10 +109,10 @@ class CVVisualizer(Visualizer, Visualizer.Observer):
             # print(f"Window title: {window_title}")
             cv2.namedWindow(window_title)
             cv2.setMouseCallback(window_title, self.mouse_callback_cv)
-            cv2.imshow(window_title, img_with_annotator_text)
+            cv2.imshow(window_title, image_with_annotator_text)
 
     def mouse_callback_cv(
-        self, event: int, x: int, y: int, flags: int, param: Any
+        self, event: int, x: int, y: int, flags: int, parameter: Any
     ) -> None:
         """
         Mouse callback for the 2D Visualizer.
@@ -123,14 +123,14 @@ class CVVisualizer(Visualizer, Visualizer.Observer):
         :param x: X coordinate of mouse event
         :param y: Y coordinate of mouse event
         :param flags: OpenCV event flags
-        :param param: Additional parameters (unused)
+        :param parameter: Additional parameters (unused)
         """
         if event == cv2.EVENT_LBUTTONDBLCLK:
             print(f"2D Visualizer double-clicked at ({x},{y})")
 
         vis_state: Visualizer.SharedState = self.shared_visualizer_state
         active_annotator_instance: BaseAnnotator = vis_state.active_annotator
-        active_annotator_instance.mouse_callback(event, x, y, flags, param)
+        active_annotator_instance.mouse_callback(event, x, y, flags, parameter)
 
     def window_title(self) -> str:
         """

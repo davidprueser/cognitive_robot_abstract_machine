@@ -142,17 +142,17 @@ class CollectionReaderAnnotator(BaseAnnotator):
         if self.start_timer is None:
             self.start_timer = timer()
 
-        all_crs_have_data = True
+        all_collection_readers_have_data = True
         for collection_reader in self.collection_readers:
-            all_crs_have_data = (
-                all_crs_have_data
+            all_collection_readers_have_data = (
+                all_collection_readers_have_data
                 & collection_reader.parameters.camera_interface.has_new_data()
             )
 
-        if all_crs_have_data:
+        if all_collection_readers_have_data:
             self.iterations_since_last_data = 0
             self.robokudo_logger.debug(
-                "%s.update(): All CRs have new data! Creating a new common analysis structure."
+                "%s.update(): All collection readers have new data! Creating a new common analysis structure."
                 % self.__class__.__name__
             )
             end_timer = timer()

@@ -12,7 +12,7 @@ from py_trees.blackboard import Blackboard
 from rclpy.node import Node
 from semantic_digital_twin.adapters.ros.node_registry import ROSNodeRegistry
 
-import robokudo.defs
+import robokudo.definitions
 from robokudo.annotators.outputs import AnnotatorOutputPerPipelineMap
 from robokudo.descriptors.camera_configs.config_mongodb_playback import (
     MongoCameraConfig,
@@ -64,7 +64,7 @@ class MongoStoragePreservationCheck:
             port=int(os.getenv("RK_MONGO_PORT", 27017)),
             serverSelectionTimeoutMS=self.connection_timeout_milliseconds,
         )
-        database_name = MongoCameraConfig().db_name
+        database_name = MongoCameraConfig().database_name
         try:
             if database_name not in mongo_client.list_database_names():
                 return MongoStorageSnapshot(
@@ -135,7 +135,7 @@ def ros_default() -> Iterator[None]:
 @pytest.fixture
 def node(ros_default: None) -> Iterator[Node]:
     node_registry = ROSNodeRegistry()
-    ros_node = Node(robokudo.defs.TEST_ROS_NODE_NAME)
+    ros_node = Node(robokudo.definitions.TEST_ROS_NODE_NAME)
     node_registry.register(ros_node)
     yield ros_node
     node_registry.clear(ros_node)

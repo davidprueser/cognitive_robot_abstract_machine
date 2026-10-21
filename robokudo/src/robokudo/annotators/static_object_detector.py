@@ -31,7 +31,7 @@ from robokudo.types.annotation import (
     Classification,
     PoseAnnotation,
 )
-from robokudo.types.cv import ImageROI, Point2D, Rect
+from robokudo.types.cv import ImageRegionOfInterest, Point2D, Rectangle
 from robokudo.types.scene import ObjectHypothesis
 from robokudo.types.tf import Pose
 from robokudo.utils.annotator_helper import (
@@ -39,15 +39,15 @@ from robokudo.utils.annotator_helper import (
     scale_camera_intrinsics,
 )
 from robokudo.utils.cv_helper import (
-    clamp_bounding_rect,
+    clamp_bounding_rectangle,
     get_scaled_color_image_for_depth_image,
-    rect_outside_image,
+    rectangle_outside_image,
 )
 from robokudo.utils.error_handling import catch_and_raise_to_blackboard
 from robokudo.utils.o3d_helper import (
-    get_2d_bounding_rect_from_3d_bb,
-    get_cloud_from_rgb_depth_and_mask,
-    get_obb_from_size_and_transform,
+    get_2d_bounding_rectangle_from_3d_bounding_box,
+    get_cloud_from_color_depth_and_mask,
+    get_oriented_bounding_box_from_size_and_transform,
 )
 from robokudo.utils.transform import (
     get_quaternion_from_rotation_matrix,
@@ -174,16 +174,25 @@ class StaticObjectDetectorAnnotator(BaseAnnotator):
             )
         )
         # Use the non-scaled bounding box coordinates relative to the color image
-        object_hypothesis.roi.roi.pos.x = self.descriptor.parameters.bounding_box_x
-        object_hypothesis.roi.roi.pos.y = self.descriptor.parameters.bounding_box_y
-        object_hypothesis.roi.roi.width = self.descriptor.parameters.bounding_box_width
-        object_hypothesis.roi.roi.height = (
+        object_hypothesis.region_of_interest.rectangle.position.x = (
+            self.descriptor.parameters.bounding_box_x
+        )
+        object_hypothesis.region_of_interest.rectangle.position.y = (
+            self.descriptor.parameters.bounding_box_y
+        )
+        object_hypothesis.region_of_interest.rectangle.width = (
+            self.descriptor.parameters.bounding_box_width
+        )
+        object_hypothesis.region_of_interest.rectangle.height = (
             self.descriptor.parameters.bounding_box_height
         )
         if self.descriptor.parameters.create_mask:
-            object_hypothesis.roi.mask = (
+            object_hypothesis.region_of_interest.mask = (
                 np.ones(
-                    (object_hypothesis.roi.roi.height, object_hypothesis.roi.roi.width),
+                    (
+                        object_hypothesis.region_of_interest.rectangle.height,
+                        object_hypothesis.region_of_interest.rectangle.width,
+                    ),
                     dtype=np.uint8,
                 )
                 * 255
@@ -271,10 +280,10 @@ class StaticObjectDetectorAnnotator(BaseAnnotator):
 
         # Calculate Bounding Box and resulting 2D Image Corner points based on pose in camera coordinates
 
-        oriented_bounding_box = get_obb_from_size_and_transform(
+        oriented_bounding_box = get_oriented_bounding_box_from_size_and_transform(
             bounding_box_size, bounding_box_transform_in_camera
         )
-        corner_points = get_2d_bounding_rect_from_3d_bb(
+        corner_points = get_2d_bounding_rectangle_from_3d_bounding_box(
             self.get_common_analysis_structure(), oriented_bounding_box
         )
 
@@ -289,22 +298,22 @@ class StaticObjectDetectorAnnotator(BaseAnnotator):
             .shape[1]
         )
 
-        if rect_outside_image(corner_points, image_width, image_height):
+        if rectangle_outside_image(corner_points, image_width, image_height):
             self.robokudo_logger.info(
                 f"region of interest of object {self._body_name(body)} would be completely out of camera frame. Skipping ..."
             )
             return None
 
-        corner_points = clamp_bounding_rect(
+        corner_points = clamp_bounding_rectangle(
             corner_points, image_width=image_width, image_height=image_height
         )
 
-        region_of_interest = ImageROI()
-        region_of_interest.roi.pos.x = corner_points[0]
-        region_of_interest.roi.pos.y = corner_points[1]
-        region_of_interest.roi.width = corner_points[2]
-        region_of_interest.roi.height = corner_points[3]
-        object_hypothesis.roi = region_of_interest
+        region_of_interest = ImageRegionOfInterest()
+        region_of_interest.rectangle.position.x = corner_points[0]
+        region_of_interest.rectangle.position.y = corner_points[1]
+        region_of_interest.rectangle.width = corner_points[2]
+        region_of_interest.rectangle.height = corner_points[3]
+        object_hypothesis.region_of_interest = region_of_interest
         object_hypothesis.points = self.cloud.crop(oriented_bounding_box)
 
         object_translation_in_camera = list(
@@ -486,14 +495,16 @@ class StaticObjectDetectorAnnotator(BaseAnnotator):
 
         for object_hypothesis in object_hypotheses:
             assert isinstance(object_hypothesis, ObjectHypothesis)
-            object_hypothesis_region_of_interest = object_hypothesis.roi.roi
+            object_hypothesis_region_of_interest = (
+                object_hypothesis.region_of_interest.rectangle
+            )
             upper_left = (
-                object_hypothesis_region_of_interest.pos.x,
-                object_hypothesis_region_of_interest.pos.y,
+                object_hypothesis_region_of_interest.position.x,
+                object_hypothesis_region_of_interest.position.y,
             )
             upper_left_text = (
-                object_hypothesis_region_of_interest.pos.x,
-                object_hypothesis_region_of_interest.pos.y - 5,
+                object_hypothesis_region_of_interest.position.x,
+                object_hypothesis_region_of_interest.position.y - 5,
             )
 
             font = cv2.FONT_HERSHEY_COMPLEX
@@ -511,9 +522,9 @@ class StaticObjectDetectorAnnotator(BaseAnnotator):
                 visualization_image,
                 upper_left,
                 (
-                    object_hypothesis_region_of_interest.pos.x
+                    object_hypothesis_region_of_interest.position.x
                     + object_hypothesis_region_of_interest.width,
-                    object_hypothesis_region_of_interest.pos.y
+                    object_hypothesis_region_of_interest.position.y
                     + object_hypothesis_region_of_interest.height,
                 ),
                 (0, 0, 255),
@@ -578,8 +589,8 @@ class StaticObjectDetectorAnnotator(BaseAnnotator):
         :return: The colored point cloud of the depth measurements inside the box.
         """
         parameters = self.descriptor.parameters
-        box = Rect(
-            pos=Point2D(x=parameters.bounding_box_x, y=parameters.bounding_box_y),
+        box = Rectangle(
+            position=Point2D(x=parameters.bounding_box_x, y=parameters.bounding_box_y),
             width=parameters.bounding_box_width,
             height=parameters.bounding_box_height,
         )
@@ -591,7 +602,7 @@ class StaticObjectDetectorAnnotator(BaseAnnotator):
         )
         mask = np.zeros_like(self.depth, dtype=np.uint8)
         mask[top:bottom, left:right] = 255
-        return get_cloud_from_rgb_depth_and_mask(
+        return get_cloud_from_color_depth_and_mask(
             color_in_red_green_blue,
             self.depth,
             mask,

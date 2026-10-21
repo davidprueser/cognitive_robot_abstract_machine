@@ -18,7 +18,7 @@ from robokudo.common_analysis_structure import CommonAnalysisStructureViews
 from robokudo.types.annotation import PoseAnnotation
 from robokudo.types.scene import ObjectHypothesis
 from robokudo.utils.error_handling import catch_and_raise_to_blackboard
-from robokudo.utils.transform import get_transform_matrix_from_q
+from robokudo.utils.transform import get_transform_matrix_from_quaternion
 
 
 class ObjectPoseVisualizer(BaseAnnotator):
@@ -77,7 +77,7 @@ class ObjectPoseVisualizer(BaseAnnotator):
                     cluster_frame = o3d.geometry.TriangleMesh.create_coordinate_frame(
                         size=0.2
                     )
-                    pose_transform = get_transform_matrix_from_q(
+                    pose_transform = get_transform_matrix_from_quaternion(
                         np.asarray(object_hypothesis_annotation.rotation),
                         np.asarray(object_hypothesis_annotation.translation),
                     )

@@ -33,20 +33,20 @@ class CameraConfigRegistry:
             package.__path__, prefix=f"{package_name}."
         ):
             module = importlib.import_module(module_name)
-            for name, obj in module.__dict__.items():
+            for name, member in module.__dict__.items():
                 if (
-                    isinstance(obj, type)
-                    and issubclass(obj, BaseCameraConfig)
-                    and obj != BaseCameraConfig
+                    isinstance(member, type)
+                    and issubclass(member, BaseCameraConfig)
+                    and member != BaseCameraConfig
                 ):
                     if (
-                        obj.registry_name in cls._registry
-                        and obj != cls._registry[obj.registry_name]
+                        member.registry_name in cls._registry
+                        and member != cls._registry[member.registry_name]
                     ):
                         raise ValueError(
-                            f"Conflicting registry types for key {obj.registry_name}: {cls._registry[obj.registry_name]} and {obj}"
+                            f"Conflicting registry types for key {member.registry_name}: {cls._registry[member.registry_name]} and {member}"
                         )
-                    cls._registry[obj.registry_name] = obj
+                    cls._registry[member.registry_name] = member
 
     @classmethod
     def create_config(cls, config_type: str, **kwargs: Any) -> Any:

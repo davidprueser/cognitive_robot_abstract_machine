@@ -18,7 +18,7 @@ from robokudo.types.annotation import (
     StampedPoseAnnotation,
 )
 from robokudo.types.belief_state import ObjectBeliefState
-from robokudo.types.cv import ImageROI
+from robokudo.types.cv import ImageRegionOfInterest
 from robokudo.types.scene import ObjectHypothesis
 from robokudo.utils.annotator_helper import (
     draw_bounding_boxes_from_object_hypotheses,
@@ -29,7 +29,7 @@ from robokudo.world import world_instance
 
 
 class SemanticDigitalTwinConnector(ThreadedAnnotator):
-    """An annotator that synchronizes the current state of the world with the semdt."""
+    """An annotator that synchronizes the current state of the world with the semantic digital twin."""
 
     class Descriptor(BaseAnnotator.Descriptor):
         class Parameters:
@@ -52,13 +52,13 @@ class SemanticDigitalTwinConnector(ThreadedAnnotator):
 
         self.object_comparator = (
             ObjectHypothesisComparator(self.get_common_analysis_structure)
-            .with_comparator_for(ImageROI, weight=0.2)
+            .with_comparator_for(ImageRegionOfInterest, weight=0.2)
             .with_comparator_for(StampedPoseAnnotation, weight=0.4)
             .with_comparator_for(BoundingBox3DAnnotation, weight=0.4)
         )
 
     def compute(self) -> Status:
-        """Synchronise the current RoboKudo state with the current semdt state."""
+        """Synchronise the current RoboKudo state with the current semantic digital twin state."""
         start_timer = default_timer()
 
         common_analysis_structure = self.get_common_analysis_structure()
@@ -164,12 +164,12 @@ class SemanticDigitalTwinConnector(ThreadedAnnotator):
     ) -> np.ndarray:
         """Create a negative-similarity cost matrix for Hungarian assignment."""
         cost_matrix = np.full((len(object_hypotheses), len(object_beliefs)), 1e9)
-        for hypothesis_idx, object_hypothesis in enumerate(object_hypotheses):
-            for belief_idx, object_belief in enumerate(object_beliefs):
+        for hypothesis_index, object_hypothesis in enumerate(object_hypotheses):
+            for belief_index, object_belief in enumerate(object_beliefs):
                 similarity = self.object_comparator.compute_similarity(
                     object_hypothesis, object_belief.latest_hypothesis
                 )
-                cost_matrix[hypothesis_idx][belief_idx] = -similarity
+                cost_matrix[hypothesis_index][belief_index] = -similarity
         return cost_matrix
 
     def apply_assignment(
@@ -185,10 +185,10 @@ class SemanticDigitalTwinConnector(ThreadedAnnotator):
         associated_hypotheses: list[tuple[ObjectHypothesis, ObjectBeliefState]] = []
         threshold = self.descriptor.parameters.confidence_threshold
 
-        for hypothesis_idx, belief_idx in zip(hypothesis_indices, belief_indices):
-            object_hypothesis = object_hypotheses[hypothesis_idx]
-            object_belief = object_beliefs[belief_idx]
-            similarity = -cost_matrix[hypothesis_idx, belief_idx]
+        for hypothesis_index, belief_index in zip(hypothesis_indices, belief_indices):
+            object_hypothesis = object_hypotheses[hypothesis_index]
+            object_belief = object_beliefs[belief_index]
+            similarity = -cost_matrix[hypothesis_index, belief_index]
 
             if similarity > threshold:
                 world.update_belief_state_with_object_hypothesis(
@@ -227,8 +227,8 @@ class SemanticDigitalTwinConnector(ThreadedAnnotator):
         """Create object beliefs for hypotheses not returned by Hungarian assignment."""
         unmatched_hypotheses = [
             object_hypothesis
-            for hypothesis_idx, object_hypothesis in enumerate(object_hypotheses)
-            if hypothesis_idx not in matched_hypothesis_indices
+            for hypothesis_index, object_hypothesis in enumerate(object_hypotheses)
+            if hypothesis_index not in matched_hypothesis_indices
         ]
         # Hungarian assignment only pairs min(len(hypotheses), len(beliefs)); extras start new beliefs.
         return self.create_new_beliefs_for_hypotheses(
@@ -236,38 +236,42 @@ class SemanticDigitalTwinConnector(ThreadedAnnotator):
         )
 
     def log_world_state(self) -> None:
-        """Log a compact summary of the current SemDT world contents."""
+        """Log a compact summary of the current semantic digital twin world contents."""
         robokudo_world = world_instance()
         self.robokudo_logger.debug(
-            f"SemDT \nKS Entities: {len(robokudo_world.kinematic_structure_entities)}\nViews: {len(robokudo_world.semantic_annotations)}\nConnections: {len(robokudo_world.connections)}"
+            f"semantic digital twin \nKS Entities: {len(robokudo_world.kinematic_structure_entities)}\nViews: {len(robokudo_world.semantic_annotations)}\nConnections: {len(robokudo_world.connections)}"
         )
 
     def create_association_visualization(
         self,
         associated_hypotheses: list[tuple[ObjectHypothesis, ObjectBeliefState]],
     ) -> None:
-        """Publish a 2D image showing which SemDT UUID each hypothesis maps to."""
+        """Publish a 2D image showing which semantic digital twin UUID each hypothesis maps to."""
         common_analysis_structure = self.get_common_analysis_structure()
         if not common_analysis_structure.contains(
             CommonAnalysisStructureViews.COLOR_IMAGE
         ):
             return
 
-        visualization_img = common_analysis_structure.get_copy(
+        visualization_image = common_analysis_structure.get_copy(
             CommonAnalysisStructureViews.COLOR_IMAGE
         )
-        object_hypotheses = [oh for oh, _ in associated_hypotheses]
+        object_hypotheses = [
+            object_hypothesis for object_hypothesis, _ in associated_hypotheses
+        ]
         labels_by_hypothesis_id = {
-            id(oh): self.get_object_belief_label(object_belief)
-            for oh, object_belief in associated_hypotheses
+            id(object_hypothesis): self.get_object_belief_label(object_belief)
+            for object_hypothesis, object_belief in associated_hypotheses
         }
 
         draw_bounding_boxes_from_object_hypotheses(
-            visualization_img,
+            visualization_image,
             object_hypotheses,
-            lambda oh: labels_by_hypothesis_id.get(id(oh), "unassociated"),
+            lambda object_hypothesis: labels_by_hypothesis_id.get(
+                id(object_hypothesis), "unassociated"
+            ),
         )
-        self.get_annotator_output_structure().set_image(visualization_img)
+        self.get_annotator_output_structure().set_image(visualization_image)
 
     @staticmethod
     def get_object_belief_label(object_belief: ObjectBeliefState) -> str:

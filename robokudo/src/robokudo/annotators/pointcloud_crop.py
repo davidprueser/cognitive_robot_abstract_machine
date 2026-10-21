@@ -131,10 +131,10 @@ class PointcloudCropAnnotator(BaseAnnotator):
                 cloud = transform_cloud_from_camera_to_world(
                     self.get_common_analysis_structure(), cloud
                 )
-            except Exception as e:
+            except Exception as exception:
                 self.robokudo_logger.warning(
                     f"Couldn't find camera viewpoint in the common analysis structure and relative_to_world is true. "
-                    f"Fail. Error: {e}"
+                    f"Fail. Error: {exception}"
                 )
                 return Status.FAILURE
 
@@ -143,7 +143,7 @@ class PointcloudCropAnnotator(BaseAnnotator):
         #
         assert isinstance(cloud, o3d.geometry.PointCloud)
 
-        abb = o3d.geometry.AxisAlignedBoundingBox(
+        axis_aligned_bounding_box = o3d.geometry.AxisAlignedBoundingBox(
             [
                 self.descriptor.parameters.min_x,
                 self.descriptor.parameters.min_y,
@@ -156,7 +156,7 @@ class PointcloudCropAnnotator(BaseAnnotator):
             ],
         )
 
-        cropped_cloud = cloud.crop(abb)
+        cropped_cloud = cloud.crop(axis_aligned_bounding_box)
 
         # Transform cloud back to camera coordinates if it has been transformed to world before
         if self.descriptor.parameters.relative_to_world:
@@ -178,7 +178,7 @@ class PointcloudCropAnnotator(BaseAnnotator):
             self.color,
             pointcloud_camera_intrinsics,
             mask_scale_factor=mask_scale,
-            crop_to_ref=True,
+            crop_to_reference=True,
         )
         combined_mask_color = cv2.addWeighted(self.color, 0.5, mask, 0.5, 0)
         self.get_annotator_output_structure().set_image(combined_mask_color)

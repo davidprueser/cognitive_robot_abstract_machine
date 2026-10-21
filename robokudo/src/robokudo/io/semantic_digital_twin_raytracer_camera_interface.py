@@ -35,8 +35,8 @@ from semantic_digital_twin.world_description.connections import Connection6DoF
 from semantic_digital_twin.world_description.world_entity import Body
 
 if TYPE_CHECKING:
-    from robokudo.descriptors.camera_configs.config_semdt_raytracer import (
-        SemDTRayTracerCameraConfig,
+    from robokudo.descriptors.camera_configs.config_semantic_digital_twin_raytracer import (
+        SemanticDigitalTwinRayTracerCameraConfig,
     )
 
 
@@ -53,7 +53,7 @@ class SemanticDigitalTwinRayTracerCameraInterface(CameraInterface):
         semantic digital twin ray tracer renders from a camera-link-like frame.
     """
 
-    def __init__(self, camera_config: SemDTRayTracerCameraConfig) -> None:
+    def __init__(self, camera_config: SemanticDigitalTwinRayTracerCameraConfig) -> None:
         """
         Initialize the camera interface.
 
@@ -387,7 +387,7 @@ class SemanticDigitalTwinRayTracerCameraInterface(CameraInterface):
         :param field_of_view: Camera field of view.
         :return: BGR image and optional RGB-to-object-name color map.
         """
-        color_mode = str(self.camera_config.rgb_mode).strip().lower()
+        color_mode = str(self.camera_config.color_mode).strip().lower()
         if color_mode == "trimesh":
             trimesh_image = self._try_render_trimesh_color_image(
                 ray_tracer=ray_tracer,
@@ -481,7 +481,7 @@ class SemanticDigitalTwinRayTracerCameraInterface(CameraInterface):
         return np.array(
             [
                 int(np.clip(round(color.R * 255.0), 0, 255)),
-                int(np.clip(round(color.G * 255.0), 0, 255)),
+                int(np.clip(round(color.GeometryType * 255.0), 0, 255)),
                 int(np.clip(round(color.B * 255.0), 0, 255)),
             ],
             dtype=np.uint8,

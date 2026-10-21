@@ -10,16 +10,16 @@ from robokudo_msgs.action import Query
 
 
 class TestUtilsQuery:
-    def test_init_feedback_queue(self) -> None:
+    def test_initialize_feedback_queue(self) -> None:
         blackboard = Blackboard()
 
-        QueryHandler.init_feedback_queue()
+        QueryHandler.initialize_feedback_queue()
 
         feedback_queue = blackboard.get(BlackboardIdentifier.QUERY_FEEDBACK)
         assert feedback_queue is not None
         assert isinstance(feedback_queue, queue.Queue)
 
-        QueryHandler.init_feedback_queue()
+        QueryHandler.initialize_feedback_queue()
 
         second_feedback_queue = blackboard.get(BlackboardIdentifier.QUERY_FEEDBACK)
         assert second_feedback_queue is not None
@@ -45,7 +45,7 @@ class TestUtilsQuery:
 
     def test_send_feedback_string(self) -> None:
         feedback = "Test Feedback"
-        QueryHandler.send_feedback_str(feedback_string=feedback)
+        QueryHandler.send_feedback_string(feedback_string=feedback)
 
         feedback_queue = Blackboard().get(BlackboardIdentifier.QUERY_FEEDBACK)
         feedback_item = feedback_queue.get()

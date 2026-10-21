@@ -4,9 +4,9 @@ from pathlib import Path
 
 from robokudo.world_descriptor import (
     BaseWorldDescriptor,
-    ObjectSpec,
+    ObjectSpecification,
     PredefinedObject,
-    RegionSpec,
+    RegionSpecification,
 )
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
@@ -43,7 +43,7 @@ class WorldDescriptor(BaseWorldDescriptor):
         milk_mesh_path = object_mesh_directory / "milk.stl"
 
         object_specs = [
-            ObjectSpec(
+            ObjectSpecification(
                 name="table",
                 box_scale=Scale(1.20, 0.80, table_thickness),
                 color=Color(0.65, 0.58, 0.48, 1.0),
@@ -54,7 +54,7 @@ class WorldDescriptor(BaseWorldDescriptor):
                     reference_frame=root,
                 ),
             ),
-            ObjectSpec(
+            ObjectSpecification(
                 name="box_red",
                 box_scale=Scale(0.10, 0.08, 0.10),
                 color=Color(0.83, 0.20, 0.20, 1.0),
@@ -65,7 +65,7 @@ class WorldDescriptor(BaseWorldDescriptor):
                     reference_frame=root,
                 ),
             ),
-            ObjectSpec(
+            ObjectSpecification(
                 name="box_blue",
                 box_scale=Scale(0.08, 0.08, 0.14),
                 color=Color(0.22, 0.37, 0.82, 1.0),
@@ -80,7 +80,7 @@ class WorldDescriptor(BaseWorldDescriptor):
         ]
 
         region_specs = [
-            RegionSpec(
+            RegionSpecification(
                 name="table_surface_region",
                 box_scale=Scale(1.00, 0.60, 0.03),
                 color=Color(0.10, 0.70, 0.30, 0.20),

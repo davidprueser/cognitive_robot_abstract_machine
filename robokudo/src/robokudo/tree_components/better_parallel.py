@@ -138,14 +138,14 @@ class Parallel(OriginalParallel):
                 yield node
         # new_status = Status.SUCCESS if self.policy == common.ParallelPolicy.SUCCESS_ON_ALL else Status.RUNNING
         new_status = Status.RUNNING
-        if any([c.status == Status.FAILURE for c in self.children]):
+        if any([child.status == Status.FAILURE for child in self.children]):
             new_status = Status.FAILURE
         else:
             if isinstance(self.policy, ParallelPolicy.SuccessOnAll):
-                if all([c.status == Status.SUCCESS for c in self.children]):
+                if all([child.status == Status.SUCCESS for child in self.children]):
                     new_status = Status.SUCCESS
             elif isinstance(self.policy, ParallelPolicy.SuccessOnOne):
-                if any([c.status == Status.SUCCESS for c in self.children]):
+                if any([child.status == Status.SUCCESS for child in self.children]):
                     new_status = Status.SUCCESS
         # special case composite - this parallel may have children that are still running
         # so if the parallel itself has reached a final status, then these running children

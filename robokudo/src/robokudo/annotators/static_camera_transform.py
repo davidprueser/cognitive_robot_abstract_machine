@@ -43,13 +43,13 @@ class StaticCameraTransformAnnotator(BaseAnnotator):
         start_timer = default_timer()
 
         common_analysis_structure = self.get_common_analysis_structure()
-        params = self.descriptor.parameters
+        parameters = self.descriptor.parameters
 
         CameraInterface.store_camera_to_world_transform_in_common_analysis_structure(
             common_analysis_structure=common_analysis_structure,
-            world_frame=params.world_frame,
-            camera_frame=params.camera_frame,
-            world_T_camera=params.world_T_camera,
+            world_frame=parameters.world_frame,
+            camera_frame=parameters.camera_frame,
+            world_T_camera=parameters.world_T_camera,
         )
 
         end_timer = default_timer()

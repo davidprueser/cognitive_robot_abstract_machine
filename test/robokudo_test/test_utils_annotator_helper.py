@@ -371,10 +371,10 @@ class TestUtilsAnnotatorHelper(object):
         image = np.zeros((100, 100, 3), dtype=np.uint8)
 
         object_hypothesis = ObjectHypothesis()
-        object_hypothesis.roi.roi.pos.x = 10
-        object_hypothesis.roi.roi.pos.y = 10
-        object_hypothesis.roi.roi.width = 20
-        object_hypothesis.roi.roi.height = 20
+        object_hypothesis.region_of_interest.rectangle.position.x = 10
+        object_hypothesis.region_of_interest.rectangle.position.y = 10
+        object_hypothesis.region_of_interest.rectangle.width = 20
+        object_hypothesis.region_of_interest.rectangle.height = 20
 
         def text_function(object_hypothesis: ObjectHypothesis) -> str:
             return "Test Label"

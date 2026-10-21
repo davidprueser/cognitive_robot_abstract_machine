@@ -21,7 +21,7 @@ from robokudo.descriptors.camera_configs.config_mongodb_playback import (
 from robokudo.exceptions import StoredCameraTransformFrameMetadataMissing
 from robokudo.io.storage import Storage
 from robokudo.io.storage_reader_interface import StorageReaderInterface
-from robokudo.types.cv import ImageROI
+from robokudo.types.cv import ImageRegionOfInterest
 from robokudo.types.scene import ObjectHypothesis
 from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
 from typing_extensions import TYPE_CHECKING
@@ -114,7 +114,7 @@ def create_camera_intrinsic() -> o3d.camera.PinholeCameraIntrinsic:
 
 class TestStorage:
     def test_drop_database(self, storage_instance: Storage) -> None:
-        database_name = storage_instance.db_name
+        database_name = storage_instance.database_name
         storage_instance.drop_database()
 
         # Verify the database no longer exists
@@ -155,7 +155,7 @@ class TestStorage:
         assert result.acknowledged
 
         # Retrieve the stored common analysis structure
-        retrieved_common_analysis_structure = storage_instance.db.cas.find_one(
+        retrieved_common_analysis_structure = storage_instance.database.cas.find_one(
             {"_id": result.inserted_id}
         )
         assert retrieved_common_analysis_structure is not None
@@ -177,11 +177,11 @@ class TestStorage:
         object_hypothesis = ObjectHypothesis()
         object_hypothesis.source = "test_storage"
         object_hypothesis.id = 1
-        object_hypothesis.roi = ImageROI()
-        object_hypothesis.roi.roi.pos.x = 1
-        object_hypothesis.roi.roi.pos.y = 2
-        object_hypothesis.roi.roi.width = 20
-        object_hypothesis.roi.roi.height = 40
+        object_hypothesis.region_of_interest = ImageRegionOfInterest()
+        object_hypothesis.region_of_interest.rectangle.position.x = 1
+        object_hypothesis.region_of_interest.rectangle.position.y = 2
+        object_hypothesis.region_of_interest.rectangle.width = 20
+        object_hypothesis.region_of_interest.rectangle.height = 40
         object_hypothesis.points = create_point_cloud()
 
         common_analysis_structure_data.annotations.append(object_hypothesis)
@@ -209,8 +209,8 @@ class TestStorage:
         assert result.acknowledged
 
         # Retrieve the stored common analysis structure
-        retrieved_common_analysis_structure_record = storage_instance.db.cas.find_one(
-            {"_id": result.inserted_id}
+        retrieved_common_analysis_structure_record = (
+            storage_instance.database.cas.find_one({"_id": result.inserted_id})
         )
         assert retrieved_common_analysis_structure_record is not None
         assert (
@@ -265,17 +265,20 @@ class TestStorage:
         assert object_hypothesis.source == retrieved_object_hypothesis.source
         assert object_hypothesis.id == retrieved_object_hypothesis.id
         assert (
-            object_hypothesis.roi.roi.pos.x == retrieved_object_hypothesis.roi.roi.pos.x
+            object_hypothesis.region_of_interest.rectangle.position.x
+            == retrieved_object_hypothesis.region_of_interest.rectangle.position.x
         )
         assert (
-            object_hypothesis.roi.roi.pos.y == retrieved_object_hypothesis.roi.roi.pos.y
+            object_hypothesis.region_of_interest.rectangle.position.y
+            == retrieved_object_hypothesis.region_of_interest.rectangle.position.y
         )
         assert (
-            object_hypothesis.roi.roi.width == retrieved_object_hypothesis.roi.roi.width
+            object_hypothesis.region_of_interest.rectangle.width
+            == retrieved_object_hypothesis.region_of_interest.rectangle.width
         )
         assert (
-            object_hypothesis.roi.roi.height
-            == retrieved_object_hypothesis.roi.roi.height
+            object_hypothesis.region_of_interest.rectangle.height
+            == retrieved_object_hypothesis.region_of_interest.rectangle.height
         )
 
         # Compare PointCloud
@@ -301,8 +304,8 @@ class TestStorage:
         )
         assert result.acknowledged
 
-        retrieved_common_analysis_structure_record = storage_instance.db.cas.find_one(
-            {"_id": result.inserted_id}
+        retrieved_common_analysis_structure_record = (
+            storage_instance.database.cas.find_one({"_id": result.inserted_id})
         )
         assert retrieved_common_analysis_structure_record is not None
         assert (
@@ -339,8 +342,8 @@ class TestStorage:
         )
         assert result.acknowledged
 
-        retrieved_common_analysis_structure_record = storage_instance.db.cas.find_one(
-            {"_id": result.inserted_id}
+        retrieved_common_analysis_structure_record = (
+            storage_instance.database.cas.find_one({"_id": result.inserted_id})
         )
         assert retrieved_common_analysis_structure_record is not None
         assert "extra_views" not in retrieved_common_analysis_structure_record
@@ -397,8 +400,8 @@ class TestStorage:
         )
         assert result.acknowledged
 
-        retrieved_common_analysis_structure_record = storage_instance.db.cas.find_one(
-            {"_id": result.inserted_id}
+        retrieved_common_analysis_structure_record = (
+            storage_instance.database.cas.find_one({"_id": result.inserted_id})
         )
         assert retrieved_common_analysis_structure_record is not None
 
@@ -440,7 +443,7 @@ class TestStorage:
         world_frame = f"map_{uuid.uuid4().hex[:8]}"
         camera_frame = f"camera_{uuid.uuid4().hex[:8]}"
 
-        robokudo_world.init_world_with_entity_tracker()
+        robokudo_world.initialize_world_with_entity_tracker()
         robokudo_world.setup_world_for_camera_frame(
             world_frame=world_frame, camera_frame=camera_frame
         )
@@ -466,11 +469,11 @@ class TestStorage:
         )
         assert result.acknowledged
 
-        retrieved_common_analysis_structure_record = storage_instance.db.cas.find_one(
-            {"_id": result.inserted_id}
+        retrieved_common_analysis_structure_record = (
+            storage_instance.database.cas.find_one({"_id": result.inserted_id})
         )
         assert retrieved_common_analysis_structure_record is not None
-        transform_view_document = storage_instance.db[
+        transform_view_document = storage_instance.database[
             Storage.VIEW_COLLECTION_NAME
         ].find_one(
             {
@@ -509,7 +512,7 @@ class TestStorage:
         stored_world_frame = f"stored_map_{uuid.uuid4().hex[:8]}"
         stored_camera_frame = f"stored_camera_{uuid.uuid4().hex[:8]}"
 
-        robokudo_world.init_world_with_entity_tracker()
+        robokudo_world.initialize_world_with_entity_tracker()
         robokudo_world.setup_world_for_camera_frame(
             world_frame=stored_world_frame,
             camera_frame=stored_camera_frame,
@@ -534,17 +537,17 @@ class TestStorage:
             storage_instance, common_analysis_structure_data
         )
         assert result.acknowledged
-        retrieved_common_analysis_structure_record = storage_instance.db.cas.find_one(
-            {"_id": result.inserted_id}
+        retrieved_common_analysis_structure_record = (
+            storage_instance.database.cas.find_one({"_id": result.inserted_id})
         )
         assert retrieved_common_analysis_structure_record is not None
 
-        robokudo_world.init_world_with_entity_tracker()
+        robokudo_world.initialize_world_with_entity_tracker()
         running_world = robokudo_world.world_instance()
         assert len(running_world.bodies) == 0
 
         reader = StorageReaderInterface(
-            MongoCameraConfig(db_name=storage_instance.db_name)
+            MongoCameraConfig(database_name=storage_instance.database_name)
         )
         retrieved_common_analysis_structure_record["views"] = {}
         storage_instance.load_views_from_mongo_in_common_analysis_structure(

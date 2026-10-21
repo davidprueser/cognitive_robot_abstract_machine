@@ -252,16 +252,21 @@ class OpenVocabularyObjectDetectionAnnotator(
             )
             left, top, right, bottom = box
             object_hypothesis = ObjectHypothesis()
-            object_hypothesis.roi.roi.pos.x = int(left)
-            object_hypothesis.roi.roi.pos.y = int(top)
-            object_hypothesis.roi.roi.width = int(right - left)
-            object_hypothesis.roi.roi.height = int(bottom - top)
+            object_hypothesis.region_of_interest.rectangle.position.x = int(left)
+            object_hypothesis.region_of_interest.rectangle.position.y = int(top)
+            object_hypothesis.region_of_interest.rectangle.width = int(right - left)
+            object_hypothesis.region_of_interest.rectangle.height = int(bottom - top)
             if self.descriptor.parameters.precision_mode:
-                object_hypothesis.roi.mask = self.predict_mask(image, box)
+                object_hypothesis.region_of_interest.mask = self.predict_mask(
+                    image, box
+                )
                 if self.descriptor.parameters.refine_bounding_boxes:
                     self.refine_bounding_box(object_hypothesis)
-                object_hypothesis.roi.mask = robokudo.utils.cv_helper.crop_image_roi(
-                    object_hypothesis.roi.mask, object_hypothesis.roi
+                object_hypothesis.region_of_interest.mask = (
+                    robokudo.utils.cv_helper.crop_image_region_of_interest(
+                        object_hypothesis.region_of_interest.mask,
+                        object_hypothesis.region_of_interest,
+                    )
                 )
             object_hypothesis.annotations.append(
                 robokudo.types.annotation.Classification(
@@ -298,17 +303,23 @@ class OpenVocabularyObjectDetectionAnnotator(
         :param object_hypothesis: Object Hypothesis with a full-image mask; updated in place.
         """
         contours, _ = cv2.findContours(
-            object_hypothesis.roi.mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+            object_hypothesis.region_of_interest.mask,
+            cv2.RETR_EXTERNAL,
+            cv2.CHAIN_APPROX_SIMPLE,
         )
         if not contours:
             return
-        self.robokudo_logger.info(f"Attempting to fix {object_hypothesis.roi.roi}")
+        self.robokudo_logger.info(
+            f"Attempting to fix {object_hypothesis.region_of_interest.rectangle}"
+        )
         left, top, width, height = cv2.boundingRect(contours[0])
-        object_hypothesis.roi.roi.pos.x = int(left)
-        object_hypothesis.roi.roi.pos.y = int(top)
-        object_hypothesis.roi.roi.width = int(width)
-        object_hypothesis.roi.roi.height = int(height)
-        self.robokudo_logger.info(f"After fix: {object_hypothesis.roi.roi}")
+        object_hypothesis.region_of_interest.rectangle.position.x = int(left)
+        object_hypothesis.region_of_interest.rectangle.position.y = int(top)
+        object_hypothesis.region_of_interest.rectangle.width = int(width)
+        object_hypothesis.region_of_interest.rectangle.height = int(height)
+        self.robokudo_logger.info(
+            f"After fix: {object_hypothesis.region_of_interest.rectangle}"
+        )
 
     def visualize_objects(
         self,
@@ -342,10 +353,11 @@ class OpenVocabularyObjectDetectionAnnotator(
             * numpy.iinfo(numpy.uint8).max
         ).astype(numpy.uint8)
         for index, object_hypothesis in enumerate(object_hypotheses):
-            image_region = robokudo.utils.cv_helper.crop_image_roi(
-                visualization, object_hypothesis.roi
+            image_region = robokudo.utils.cv_helper.crop_image_region_of_interest(
+                visualization, object_hypothesis.region_of_interest
             )
-            image_region[object_hypothesis.roi.mask == numpy.iinfo(numpy.uint8).max] = (
-                mask_colors[index % len(mask_colors)]
-            )
+            image_region[
+                object_hypothesis.region_of_interest.mask
+                == numpy.iinfo(numpy.uint8).max
+            ] = mask_colors[index % len(mask_colors)]
         return visualization

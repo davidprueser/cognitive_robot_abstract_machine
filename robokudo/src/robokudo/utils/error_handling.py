@@ -18,7 +18,7 @@ from typing_extensions import Any, Callable, Optional
 
 from robokudo.identifier import BlackboardIdentifier
 
-# robokudo_logger = logging.getLogger(robokudo.defs.PACKAGE_NAME)
+# robokudo_logger = logging.getLogger(robokudo.definitions.PACKAGE_NAME)
 
 
 def raise_to_blackboard(exception: Optional[Exception]) -> None:

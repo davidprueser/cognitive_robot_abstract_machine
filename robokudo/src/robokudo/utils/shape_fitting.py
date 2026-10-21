@@ -211,9 +211,11 @@ def fit_sphere(
         if radius / observed_max_extent > max_radius_to_observed_extent_ratio:
             return None
 
-    bbox_diagonal = float(np.linalg.norm(points.max(axis=0) - points.min(axis=0)))
-    if bbox_diagonal > 1e-9:
-        if radius / bbox_diagonal > max_radius_to_bounding_box_diagonal_ratio:
+    bounding_box_diagonal = float(
+        np.linalg.norm(points.max(axis=0) - points.min(axis=0))
+    )
+    if bounding_box_diagonal > 1e-9:
+        if radius / bounding_box_diagonal > max_radius_to_bounding_box_diagonal_ratio:
             return None
 
         point_centroid = points.mean(axis=0)
@@ -221,7 +223,7 @@ def fit_sphere(
             np.linalg.norm(optimization_result.x[:3] - point_centroid)
         )
         if (
-            center_distance / bbox_diagonal
+            center_distance / bounding_box_diagonal
             > max_center_distance_to_bounding_box_diagonal_ratio
         ):
             return None
@@ -430,17 +432,19 @@ def _build_cylinder_fit_from_parameters(
     if height > constraints.max_height:
         return None
 
-    bbox_diagonal = float(np.linalg.norm(points.max(axis=0) - points.min(axis=0)))
-    if bbox_diagonal > 1e-9:
+    bounding_box_diagonal = float(
+        np.linalg.norm(points.max(axis=0) - points.min(axis=0))
+    )
+    if bounding_box_diagonal > 1e-9:
         if (
-            radius / bbox_diagonal
+            radius / bounding_box_diagonal
             > constraints.max_radius_to_bounding_box_diagonal_ratio
         ):
             return None
         point_centroid = points.mean(axis=0)
         center_distance = float(np.linalg.norm(axis_center - point_centroid))
         if (
-            center_distance / bbox_diagonal
+            center_distance / bounding_box_diagonal
             > constraints.max_axis_center_distance_to_bounding_box_diagonal_ratio
         ):
             return None
@@ -633,10 +637,12 @@ def _fixed_axis_cylinder_passes_geometry_limits(
     """
     Return whether a fixed-axis cylinder passes configured geometry gates.
     """
-    bbox_diagonal = float(np.linalg.norm(points.max(axis=0) - points.min(axis=0)))
-    if bbox_diagonal > 1e-9:
+    bounding_box_diagonal = float(
+        np.linalg.norm(points.max(axis=0) - points.min(axis=0))
+    )
+    if bounding_box_diagonal > 1e-9:
         if (
-            radius / bbox_diagonal
+            radius / bounding_box_diagonal
             > constraints.max_radius_to_bounding_box_diagonal_ratio
         ):
             return False
@@ -644,7 +650,7 @@ def _fixed_axis_cylinder_passes_geometry_limits(
         point_centroid = points.mean(axis=0)
         center_distance = float(np.linalg.norm(axis_center - point_centroid))
         if (
-            center_distance / bbox_diagonal
+            center_distance / bounding_box_diagonal
             > constraints.max_axis_center_distance_to_bounding_box_diagonal_ratio
         ):
             return False
@@ -800,17 +806,21 @@ def _consensus_axis_candidates(
         if initial_radius is None:
             continue
 
-        inlier_ratio, inlier_rmse = _provisional_cylinder_axis_quality(
-            points=points,
-            axis_point=axis_point,
-            axis_direction=axis_direction,
-            radius=initial_radius,
-            distance_threshold=distance_threshold,
+        inlier_ratio, inlier_root_mean_square_error = (
+            _provisional_cylinder_axis_quality(
+                points=points,
+                axis_point=axis_point,
+                axis_direction=axis_direction,
+                radius=initial_radius,
+                distance_threshold=distance_threshold,
+            )
         )
         if inlier_ratio <= 0.0:
             continue
 
-        provisional_candidates.append((axis_direction, inlier_ratio, inlier_rmse))
+        provisional_candidates.append(
+            (axis_direction, inlier_ratio, inlier_root_mean_square_error)
+        )
 
     provisional_candidates.sort(key=lambda candidate: (-candidate[1], candidate[2]))
     return provisional_candidates
@@ -919,10 +929,12 @@ def _is_better_cylinder_fit(
     if inlier_ratio_delta < -1e-4:
         return False
 
-    rmse_delta = candidate_fit.root_mean_square_error - best_fit.root_mean_square_error
-    if rmse_delta < -1e-6:
+    root_mean_square_error_delta = (
+        candidate_fit.root_mean_square_error - best_fit.root_mean_square_error
+    )
+    if root_mean_square_error_delta < -1e-6:
         return True
-    if rmse_delta > 1e-6:
+    if root_mean_square_error_delta > 1e-6:
         return False
     return candidate_fit.score > best_fit.score
 

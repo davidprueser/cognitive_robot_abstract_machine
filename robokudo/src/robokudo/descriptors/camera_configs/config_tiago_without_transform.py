@@ -6,7 +6,7 @@ from robokudo.descriptors.camera_configs.config_tiago import TiagoCameraConfig
 
 
 @dataclass(slots=True)
-class TiagoWoTfCameraConfig(TiagoCameraConfig):
+class TiagoWithoutTransformCameraConfig(TiagoCameraConfig):
     """
     Configuration class for the TIAGo robot's Xtion camera without transform lookup.
 
@@ -19,6 +19,6 @@ class TiagoWoTfCameraConfig(TiagoCameraConfig):
         lookup_viewpoint is set to False by default.
     """
 
-    registry_name: ClassVar[str] = "tiago_wo_tf"
+    registry_name: ClassVar[str] = "tiago_without_transform"
 
     lookup_viewpoint: bool = False
