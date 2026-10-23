@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
-from semantic_digital_twin.exceptions import (
+from semantic_digital_twin.predefined_maps.foyer_and_hallway_ground_floor.exceptions import (
     DoorwayOffOutlineError,
     DoorwayOnOpenEdgeError,
     NonRectilinearOutlineError,

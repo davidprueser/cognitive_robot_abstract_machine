@@ -4,13 +4,16 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from semantic_digital_twin.predefined_maps.hinged_door import HingedDoor, HingeSide
-from semantic_digital_twin.predefined_maps.rectilinear_room import (
+from semantic_digital_twin.predefined_maps.foyer_and_hallway_ground_floor.hinged_door import (
+    HingedDoor,
+    HingeSide,
+)
+from semantic_digital_twin.predefined_maps.foyer_and_hallway_ground_floor.rectilinear_room import (
     Doorway,
     OpenEdge,
     RectilinearRoom,
 )
-from semantic_digital_twin.predefined_maps.sliding_door_elevator import (
+from semantic_digital_twin.predefined_maps.foyer_and_hallway_ground_floor.sliding_door_elevator import (
     SlidingDoorElevator,
 )
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (

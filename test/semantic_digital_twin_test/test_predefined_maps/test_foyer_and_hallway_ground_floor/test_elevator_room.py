@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from semantic_digital_twin.predefined_maps.lab_elevator_room import (
+from semantic_digital_twin.predefined_maps.foyer_and_hallway_ground_floor.elevator_room import (
     LabElevatorRoom,
     lab_corridor_doorway,
 )
