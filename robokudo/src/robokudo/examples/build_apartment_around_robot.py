@@ -4,7 +4,7 @@ for whoever maps the robot's surroundings.
 
 It joins the world Giskard serves, localizes the robot in front of the apartment's shelf
 and builds the apartment around it, with the objects the robot already knows slightly
-misplaced. It then prints every body perception adds to the world::
+misplaced. It then prints every semantic annotation perception adds to the world::
 
     ros2 launch giskardpy_ros giskardpy_pr2_standalone.launch.py
     python -m robokudo.examples.build_apartment_around_robot
@@ -22,7 +22,9 @@ from semantic_digital_twin.adapters.ros.world_fetcher import fetch_world_from_se
 from semantic_digital_twin.adapters.ros.world_synchronizer import WorldSynchronizer
 
 from robokudo.examples.apartment_scene import ApartmentScene
-from robokudo.examples.new_body_reporter import NewBodyReporter
+from robokudo.examples.new_semantic_annotation_reporter import (
+    NewSemanticAnnotationReporter,
+)
 
 # %% entry point
 
@@ -33,13 +35,14 @@ def main(
     report_period: float = 1.0,
 ) -> None:
     """
-    Build the apartment around the robot and report the bodies perception adds until ROS
-    shuts down, as it does on SIGINT and SIGTERM.
+    Build the apartment around the robot and report the semantic annotations perception
+    adds until ROS shuts down, as it does on SIGINT and SIGTERM.
 
     :param odometry_frame: The name of the odometry frame of the robot.
     :param world_discovery_timeout: How long to wait for Giskard to serve its world,
         long enough for it to load the robot.
-    :param report_period: How often, in seconds, to report the bodies not reported yet.
+    :param report_period: How often, in seconds, to report the semantic annotations not
+        reported yet.
     """
     rclpy.init()
     node = rclpy.create_node("apartment_builder")
@@ -55,7 +58,7 @@ def main(
     )
     synchronizer = WorldSynchronizer(node=node, _world=world)
     ApartmentScene().describe(world, odometry_frame=odometry_frame)
-    reporter = NewBodyReporter(world=world)
+    reporter = NewSemanticAnnotationReporter(world=world)
     node.create_timer(report_period, reporter.report)
     print("Built the apartment around the robot. Start RoboKudo now.")
     try:

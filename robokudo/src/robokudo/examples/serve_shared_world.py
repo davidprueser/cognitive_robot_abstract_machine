@@ -3,8 +3,9 @@ Example server of a shared world for RoboKudo to join, standing in for the proce
 executes robot motions.
 
 The world holds only the ``map`` frame. RoboKudo started while it runs fetches it, and
-every object it perceives is added to this world as well; the server prints each body it
-learns about and shows the world in RViz::
+every object it perceives is added to this world as well; the server prints the semantic
+annotation of each and shows the world in RViz, with its tf frames below
+:attr:`SharedWorldServer.tf_frame_prefix` so they never claim the robot's frames::
 
     python -m robokudo.examples.serve_shared_world
     ros2 run robokudo_ros main _ros_pkg=robokudo.examples _ae=shared_world_from_files
@@ -17,6 +18,7 @@ from dataclasses import dataclass, field
 import rclpy
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
+from semantic_digital_twin.adapters.ros.tf_publisher import TfFrameNames, TFPublisher
 from semantic_digital_twin.adapters.ros.visualization.viz_marker import (
     VizMarkerPublisher,
 )
@@ -26,7 +28,9 @@ from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.world_entity import Body
 
-from robokudo.examples.new_body_reporter import NewBodyReporter
+from robokudo.examples.new_semantic_annotation_reporter import (
+    NewSemanticAnnotationReporter,
+)
 
 # %% served world
 
@@ -47,14 +51,19 @@ class SharedWorldServer:
     The name of the root frame of the served world.
     """
 
+    tf_frame_prefix: str = "shared_world/"
+    """
+    Put in front of the tf frame name of every body of :attr:`world`.
+    """
+
     world: World = field(init=False)
     """
     The served world, holding only :attr:`world_frame` until others change it.
     """
 
-    reporter: NewBodyReporter = field(init=False)
+    reporter: NewSemanticAnnotationReporter = field(init=False)
     """
-    Prints the bodies other processes add to the world.
+    Prints the semantic annotations other processes add to the world.
     """
 
     server: FetchWorldServer = field(init=False)
@@ -67,6 +76,12 @@ class SharedWorldServer:
     Keeps the world in sync with the processes that joined.
     """
 
+    tf_publisher: TFPublisher = field(init=False)
+    """
+    Publishes the tf tree of the world, with the root of the world joined to
+    :attr:`world_frame`.
+    """
+
     marker_publisher: VizMarkerPublisher = field(init=False)
     """
     Shows the world in RViz.
@@ -76,15 +91,24 @@ class SharedWorldServer:
         self.world = World()
         with self.world.modify_world():
             self.world.add_body(Body(name=PrefixedName(self.world_frame)))
-        self.reporter = NewBodyReporter(world=self.world)
+        self.reporter = NewSemanticAnnotationReporter(world=self.world)
         self.server = FetchWorldServer(node=self.node, world=self.world)
         self.synchronizer = WorldSynchronizer(node=self.node, _world=self.world)
-        self.marker_publisher = VizMarkerPublisher(_world=self.world, node=self.node)
+        self.tf_publisher = TFPublisher(
+            _world=self.world,
+            node=self.node,
+            frame_names=TfFrameNames(prefix=self.tf_frame_prefix),
+        )
+        self.marker_publisher = VizMarkerPublisher(
+            _world=self.world, node=self.node, tf_publisher=self.tf_publisher
+        )
 
     def close(self) -> None:
         """
-        Stop serving and synchronizing the world.
+        Stop serving, synchronizing and showing the world.
         """
+        self.marker_publisher.stop()
+        self.tf_publisher.stop()
         self.synchronizer.close()
         self.server.close()
 
@@ -96,7 +120,8 @@ def main(report_period: float = 1.0) -> None:
     """
     Serve the world until ROS shuts down, as it does on SIGINT and SIGTERM.
 
-    :param report_period: How often, in seconds, to report the bodies not reported yet.
+    :param report_period: How often, in seconds, to report the semantic annotations not
+        reported yet.
     """
     rclpy.init()
     node = rclpy.create_node("shared_world_server")

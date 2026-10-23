@@ -9,6 +9,7 @@ from abc import ABC, abstractmethod
 from robokudo.analysis_engine import AnalysisEngineInterface
 from robokudo.annotators.cluster_pose_bb import ClusterPoseBBAnnotator
 from robokudo.annotators.collection_reader import CollectionReaderAnnotator
+from robokudo.annotators.core import BaseAnnotator
 from robokudo.annotators.image_preprocessor import ImagePreprocessorAnnotator
 from robokudo.annotators.plane import PlaneAnnotator
 from robokudo.annotators.pointcloud_cluster_extractor import PointCloudClusterExtractor
@@ -38,6 +39,12 @@ class TabletopObjectsEngine(AnalysisEngineInterface, ABC):
         """
         return PointcloudCropAnnotator.Descriptor()
 
+    def object_classifiers(self) -> list[BaseAnnotator]:
+        """
+        :return: The annotators that classify the located objects; none by default.
+        """
+        return []
+
     def implementation(self) -> Pipeline:
         pipeline = Pipeline("TabletopObjectsPipeline")
         pipeline.add_children(
@@ -49,6 +56,7 @@ class TabletopObjectsEngine(AnalysisEngineInterface, ABC):
                 PlaneAnnotator(),
                 PointCloudClusterExtractor(),
                 ClusterPoseBBAnnotator(),
+                *self.object_classifiers(),
             ]
         )
         return pipeline
