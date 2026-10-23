@@ -38,6 +38,26 @@ def elevator(lab_elevator_room_world) -> Elevator:
     return elevator
 
 
+@pytest.fixture()
+def corridor_door_world(lab_elevator_room) -> tuple[World, Room, Door]:
+    world = World.create_with_root_body("map")
+    room = lab_elevator_room.spawn(world, "lab")
+    return world, room, corridor_door(world)
+
+
+def corridor_door(world: World) -> Door:
+    """
+    :return: The only door that does not belong to the elevator.
+    """
+    (elevator,) = world.get_semantic_annotations_by_type(Elevator)
+    (door,) = [
+        door
+        for door in world.get_semantic_annotations_by_type(Door)
+        if door not in elevator.doors
+    ]
+    return door
+
+
 # %% elevator
 
 
@@ -147,6 +167,62 @@ def test_left_wall_doorway_faces_the_corridor_doorway(lab_elevator_room_world):
         key=lambda position: position[0],
     )
     assert left_doorway[1] == pytest.approx(corridor_doorway[1])
+
+
+# %% corridor door
+
+
+def test_corridor_door_stands_in_the_corridor_doorway(lab_elevator_room_world):
+    world, room = lab_elevator_room_world
+    (corridor_aperture,) = [
+        aperture
+        for wall in world.get_semantic_annotations_by_type(Wall)
+        if wall.root.parent_kinematic_structure_entity is room.floor.root
+        for aperture in wall.apertures
+        if world.compute_forward_kinematics_np(room.floor.root, aperture.root)[0, 3]
+        > lab_corridor_doorway().start.to_np()[0]
+    ]
+    assert world.compute_forward_kinematics_np(
+        room.floor.root, corridor_door(world).root
+    ) == pytest.approx(
+        world.compute_forward_kinematics_np(room.floor.root, corridor_aperture.root)
+    )
+
+
+def test_corridor_door_is_as_large_as_the_corridor_doorway(lab_elevator_room):
+    doorway = lab_corridor_doorway()
+    door_scale = lab_elevator_room.corridor_door.scale
+    assert (door_scale.y, door_scale.z) == pytest.approx(
+        (doorway.width, doorway.height)
+    )
+
+
+def test_corridor_door_swings_into_the_room(corridor_door_world):
+    world, room, door = corridor_door_world
+    door.movable_joint.position = door.movable_joint.dof.limits.upper.position
+    door_center = world.compute_forward_kinematics_np(room.floor.root, door.root)
+    below_door_center = Point3(
+        *door_center[:2, 3], -0.01, reference_frame=room.floor.root
+    )
+    assert room.floor.root.collision.as_bounding_box_collection_in_frame(
+        room.floor.root
+    ).contains(below_door_center)
+
+
+def test_opened_corridor_door_stands_at_the_jamb_nearer_the_elevator(
+    lab_elevator_room, corridor_door_world
+):
+    world, room, door = corridor_door_world
+    door.movable_joint.position = door.movable_joint.dof.limits.upper.position
+    door_center = world.compute_forward_kinematics_np(room.floor.root, door.root)
+    jambs = lab_corridor_doorway().start.to_np(), lab_corridor_doorway().end.to_np()
+    nearer_jamb = min(
+        jambs,
+        key=lambda jamb: np.linalg.norm(
+            jamb - lab_elevator_room.elevator_center.to_np()
+        ),
+    )
+    assert door_center[1, 3] == pytest.approx(nearer_jamb[1])
 
 
 def test_wall_beside_the_elevator_shaft_stands_up_to_the_next_corner(
