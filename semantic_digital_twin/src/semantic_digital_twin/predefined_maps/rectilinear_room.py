@@ -135,6 +135,13 @@ class OutlineEdge:
         """
         return np.array([self.direction[1], -self.direction[0]])
 
+    @property
+    def outward_yaw(self) -> float:
+        """
+        :return: The angle from the x-axis to :attr:`outward_normal`, in radians.
+        """
+        return float(np.arctan2(self.outward_normal[1], self.outward_normal[0]))
+
     def distance_along(self, point: Point2) -> float:
         """
         :return: How far ``point`` lies from :attr:`start` in the edge's direction.
@@ -448,7 +455,6 @@ class RectilinearRoom:
             + edge.direction * middle_along_edge
             + edge.outward_normal * self.wall_thickness / 2
         )
-        outward_normal = edge.outward_normal
         wall = Wall.get_annotation_specification(
             name,
             Wall.get_default_root_kinematic_structure_entity_specification(
@@ -465,7 +471,7 @@ class RectilinearRoom:
                 middle[0],
                 middle[1],
                 0,
-                yaw=float(np.arctan2(outward_normal[1], outward_normal[0])),
+                yaw=edge.outward_yaw,
             ),
         )
         for index, doorway in enumerate(

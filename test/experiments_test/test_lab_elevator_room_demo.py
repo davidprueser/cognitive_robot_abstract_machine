@@ -4,6 +4,7 @@ from experiments.lab_elevator_room_demo import (
     create_lab_elevator_room_world,
 )
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
+    Door,
     Elevator,
     Wall,
 )
@@ -33,6 +34,14 @@ def test_elevator_doors_stand_open():
     (elevator,) = world.get_semantic_annotations_by_type(Elevator)
     assert [door.movable_joint.position for door in elevator.doors] == [
         door.movable_joint.dof.limits.upper.position for door in elevator.doors
+    ]
+
+
+def test_every_door_stands_open():
+    world = create_lab_elevator_room_world()
+    doors = world.get_semantic_annotations_by_type(Door)
+    assert [door.movable_joint.position for door in doors] == [
+        door.movable_joint.dof.limits.upper.position for door in doors
     ]
 
 

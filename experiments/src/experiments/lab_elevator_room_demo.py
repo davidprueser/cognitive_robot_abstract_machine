@@ -19,7 +19,7 @@ from semantic_digital_twin.adapters.ros.visualization.viz_marker import (
     VizMarkerPublisher,
 )
 from semantic_digital_twin.predefined_maps.lab_elevator_room import LabElevatorRoom
-from semantic_digital_twin.semantic_annotations.semantic_annotations import Elevator
+from semantic_digital_twin.semantic_annotations.semantic_annotations import Door
 from semantic_digital_twin.world import World
 
 logger = logging.getLogger(__name__)
@@ -37,13 +37,13 @@ Name of the ROS 2 node the demo publishes on.
 
 def create_lab_elevator_room_world() -> World:
     """
-    :return: A world rooted in the map frame holding the lab elevator room, with the
-        elevator doors open.
+    :return: A world rooted in the map frame holding the lab elevator room, with every
+        door open.
     """
     world = World.create_with_root_body(MAP_FRAME)
     LabElevatorRoom().spawn(world, "lab")
-    for elevator in world.get_semantic_annotations_by_type(Elevator):
-        elevator.open()
+    for door in world.get_semantic_annotations_by_type(Door):
+        door.movable_joint.position = door.movable_joint.dof.limits.upper.position
     return world
 
 

@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
+from semantic_digital_twin.predefined_maps.hinged_door import HingedDoor, HingeSide
 from semantic_digital_twin.predefined_maps.rectilinear_room import (
     Doorway,
     OpenEdge,
@@ -13,6 +14,7 @@ from semantic_digital_twin.predefined_maps.sliding_door_elevator import (
     SlidingDoorElevator,
 )
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
+    Door,
     FirstFloor,
     GroundFloor,
     Level,
@@ -84,6 +86,18 @@ def lab_corridor_doorway() -> Doorway:
         right above it.
     """
     return Doorway(start=Point2(9.5, 5.35), end=Point2(9.5, 6.63))
+
+
+def lab_corridor_door() -> HingedDoor:
+    """
+    :return: The door filling the corridor doorway, hinged on the jamb nearer the
+        elevator.
+    """
+    doorway = lab_corridor_doorway()
+    return HingedDoor(
+        scale=Scale(Door.default_scale.x, doorway.width, doorway.height),
+        hinge_side=HingeSide.POSITIVE_Y,
+    )
 
 
 def lab_left_wall_doorway() -> Doorway:
@@ -336,9 +350,10 @@ class LabElevatorRoom:
     """
     World-independent description of the leftmost room of the lab occupancy grid map
     (``lab_map``, 0.05 m per cell): its walls and floor as traced from the map, its two
-    doorways, the open side to the staircase left of the elevator, an elevator filling
-    the shaft in the middle of the top wall, the first-floor walkway in front of the
-    elevator, looking down into the room, and the hallway beyond the corridor doorway.
+    doorways, a door in the corridor doorway, the open side to the staircase left of the
+    elevator, an elevator filling the shaft in the middle of the top wall, the walkway
+    on the first floor in front of the elevator, looking down into the room, and the
+    hallway beyond the corridor doorway.
     """
 
     room: RectilinearRoom = field(
@@ -364,6 +379,11 @@ class LabElevatorRoom:
     )
     """
     The walkway on the first floor, in the ground floor outline's frame.
+    """
+
+    corridor_door: HingedDoor = field(default_factory=lab_corridor_door)
+    """
+    The door between the room and the hallway.
     """
 
     hallway: LabHallway = field(default_factory=LabHallway)
@@ -401,6 +421,22 @@ class LabElevatorRoom:
         return HomogeneousTransformationMatrix.from_xyz_rpy(z=self.room.wall_height)
 
     @property
+    def room_T_corridor_door(self) -> HomogeneousTransformationMatrix:
+        """
+        :return: Placement of the corridor door's centre in the room outline's frame,
+            closing the corridor doorway in the middle of its wall and swinging into the
+            room.
+        """
+        doorway = lab_corridor_doorway()
+        edge = self.room.edge_of(doorway)
+        center = (
+            doorway.start.to_np() + doorway.end.to_np()
+        ) / 2 + edge.outward_normal * self.room.wall_thickness / 2
+        return HomogeneousTransformationMatrix.from_xyz_rpy(
+            center[0], center[1], doorway.height / 2, yaw=edge.outward_yaw
+        )
+
+    @property
     def room_T_elevator(self) -> HomogeneousTransformationMatrix:
         """
         :return: Placement of the elevator cabin's centre in the room outline's frame,
@@ -418,8 +454,9 @@ class LabElevatorRoom:
         parent: KinematicStructureEntity | None = None,
     ) -> Room:
         """
-        Materialize this room, its first-floor walkway, its elevator and the hallway in
-        ``world``, with a level annotation for each floor the elevator serves.
+        Materialize this room, its first-floor walkway, its corridor door, its elevator
+        and the hallway in ``world``, with a level annotation for each floor the
+        elevator serves.
 
         :param world: The world the room is added to.
         :param name: Prefix for the names of every entity this room creates.
@@ -433,6 +470,12 @@ class LabElevatorRoom:
             f"{name}_first_storey",
             parent=room.floor.root,
             parent_T_self=self.room_T_first_floor,
+        )
+        self.corridor_door.spawn(
+            world,
+            f"{name}_corridor_door",
+            parent=room.floor.root,
+            parent_T_self=self.room_T_corridor_door,
         )
         self.hallway.spawn(world, f"{name}_hallway", parent)
         self.elevator.spawn(
