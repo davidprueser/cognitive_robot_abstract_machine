@@ -14,6 +14,7 @@ from uuid import UUID
 
 import numpy as np
 from scipy.optimize import linear_sum_assignment
+from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.reasoning.queries import annotation_class_by_label
 from semantic_digital_twin.semantic_annotations.mixins import (
     HasRootBody,
@@ -279,6 +280,12 @@ class PerceivedObjects:
     annotation it names.
     """
 
+    body_name_id_digits: int = 8
+    """
+    How many leading hex digits of the id of a body perception adds follow its class in
+    its name.
+    """
+
     def apply(self, cas: CAS) -> list[UUID | None]:
         """
         Put the objects a finished pipeline pass found into :attr:`world`.
@@ -470,8 +477,9 @@ class PerceivedObjects:
     def _classify(self, known_object: IsPerceivable, detection: Detection) -> None:
         """
         Replace ``known_object`` by the semantic annotation a confident classification
-        of ``detection`` names, if ``known_object`` is a :class:`PerceivedObject`. Any
-        other semantic annotation keeps its class.
+        of ``detection`` names, if ``known_object`` is a :class:`PerceivedObject`, and
+        rename its body after the new annotation if perception named it. Any other
+        semantic annotation keeps its class.
 
         :param known_object: The object ``detection`` was taken as.
         :param detection: The detection.
@@ -485,20 +493,21 @@ class PerceivedObjects:
                 f"although it was classified as {semantic_class.__name__}."
             )
             return
+        annotation = semantic_class(
+            root=known_object.root, class_label=detection.class_label
+        )
         with self.world.modify_world():
             self.world.remove_semantic_annotation(known_object)
-            self.world.add_semantic_annotation(
-                semantic_class(
-                    root=known_object.root, class_label=detection.class_label
-                )
-            )
+            self.world.add_semantic_annotation(annotation)
+            if known_object.root.name == self._name_of(known_object):
+                known_object.root.update_name(self._name_of(annotation))
 
     def _add_object(self, detection: Detection) -> IsPerceivable:
         """
         Add the object ``detection`` saw to :attr:`world`, as a body at its 3D bounding
         box below the world frame of its pass that shows and collides with the shape it
         was seen with, annotated with the semantic annotation a confident classification
-        names, or as a :class:`PerceivedObject`.
+        names, or as a :class:`PerceivedObject`, and named after that annotation.
 
         :param detection: The detection.
         :return: The annotation of the new object.
@@ -507,6 +516,7 @@ class PerceivedObjects:
         body = Body(visual=visual, collision=visual.copy_without_reference_frame())
         semantic_class = self._confident_semantic_class(detection) or PerceivedObject
         annotation = semantic_class(root=body, class_label=detection.class_label)
+        body.name = self._name_of(annotation)
         with self.world.modify_world():
             self.world.add_connection(
                 Connection6DoF.create_with_dofs(
@@ -518,6 +528,18 @@ class PerceivedObjects:
             self.world.add_semantic_annotation(annotation)
         body.parent_connection.origin = detection.pose
         return annotation
+
+    def _name_of(self, annotation: IsPerceivable) -> PrefixedName:
+        """
+        :param annotation: The annotation of an object.
+        :return: The name perception gives the body of ``annotation``: its class label,
+            or the name of its class if it has none, followed by the first
+            :attr:`body_name_id_digits` hex digits of the id of the body.
+        """
+        class_name = annotation.class_label or type(annotation).__name__
+        return PrefixedName(
+            f"{class_name}_{annotation.root.id.hex[: self.body_name_id_digits]}"
+        )
 
     def _confident_semantic_class(
         self, detection: Detection
