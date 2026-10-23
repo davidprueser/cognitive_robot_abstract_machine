@@ -71,7 +71,8 @@ class SemDTRayTracerCameraInterface(CameraInterface):
         CAS.
 
         The scene is a world of its own, the simulated reality the camera sees. The
-        camera is placed in the world perception perceives into at its configured pose.
+        camera is placed in the world perception perceives into at the pose it renders
+        from.
 
         :param cas: CAS that receives rendered camera data and frame metadata.
         :param world: The world perception perceives into.
@@ -82,7 +83,7 @@ class SemDTRayTracerCameraInterface(CameraInterface):
         (
             render_camera_to_world,
             optical_camera_to_world,
-        ) = self._set_camera_pose(scene_world, world_frame_body, camera_body)
+        ) = self._set_camera_pose(scene_world, world_frame_body, camera_body, world)
 
         image_size = int(self.camera_config.resolution)
         resolution = CameraResolution(width=image_size, height=image_size)
@@ -212,26 +213,42 @@ class SemDTRayTracerCameraInterface(CameraInterface):
 
         return world.get_body_by_name(camera_frame)
 
-    def _set_camera_pose(
-        self, world: World, world_frame_body: Body, camera_body: Body
-    ) -> Tuple[HomogeneousTransformationMatrix, HomogeneousTransformationMatrix]:
+    def optical_camera_pose(
+        self, perception_world: World
+    ) -> HomogeneousTransformationMatrix:
         """
-        Apply the configured camera pose to the scene world.
-
-        :param world: Scene world that owns the camera body connection.
-        :param world_frame_body: Reference frame for the configured camera pose.
-        :param camera_body: Camera frame body that receives the configured pose.
-        :return: RayTracer render pose and ROS optical camera pose.
+        :param perception_world: The world perception perceives into.
+        :return: The pose of the camera optical frame (x right, y down, z forward) the
+            scene is rendered from, relative to the world frame of the scene: the
+            configured pose.
         """
-        # Config pose is given in ROS optical-frame convention:
-        # x right, y down, z forward.
-        camera_optical_to_world = HomogeneousTransformationMatrix.from_xyz_rpy(
+        return HomogeneousTransformationMatrix.from_xyz_rpy(
             x=float(self.camera_config.camera_x),
             y=float(self.camera_config.camera_y),
             z=float(self.camera_config.camera_z),
             roll=float(self.camera_config.camera_roll),
             pitch=float(self.camera_config.camera_pitch),
             yaw=float(self.camera_config.camera_yaw),
+        )
+
+    def _set_camera_pose(
+        self,
+        world: World,
+        world_frame_body: Body,
+        camera_body: Body,
+        perception_world: World,
+    ) -> Tuple[HomogeneousTransformationMatrix, HomogeneousTransformationMatrix]:
+        """
+        Move the camera of the scene world to the pose the scene is rendered from.
+
+        :param world: Scene world that owns the camera body connection.
+        :param world_frame_body: Reference frame of the camera pose.
+        :param camera_body: Camera frame body that receives the camera pose.
+        :param perception_world: The world perception perceives into.
+        :return: RayTracer render pose and ROS optical camera pose.
+        """
+        camera_optical_to_world = HomogeneousTransformationMatrix(
+            data=self.optical_camera_pose(perception_world).to_np(),
             reference_frame=world_frame_body,
             child_frame=camera_body,
         )
@@ -543,3 +560,26 @@ class SemDTRayTracerCameraInterface(CameraInterface):
         )
 
         return camera_info, camera_intrinsic
+
+
+class SemDTRayTracerRobotCameraInterface(SemDTRayTracerCameraInterface):
+    """
+    Render RGB-D camera data of a world descriptor's scene from where the world
+    perception perceives into holds a robot's camera.
+
+    The scene stands in for the reality the robot sees: its world frame is taken to be
+    the root of the world perception perceives into, and the robot itself is not part of
+    it.
+    """
+
+    def optical_camera_pose(
+        self, perception_world: World
+    ) -> HomogeneousTransformationMatrix:
+        """
+        :param perception_world: The world perception perceives into.
+        :return: The pose of the camera optical frame the scene is rendered from: where
+            ``perception_world`` holds the robot's camera, relative to its root.
+        """
+        return perception_world.get_body_by_name(
+            self.camera_config.camera_frame
+        ).global_transform
