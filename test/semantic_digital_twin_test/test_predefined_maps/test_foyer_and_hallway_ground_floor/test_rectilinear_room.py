@@ -1,12 +1,12 @@
 import pytest
 
-from semantic_digital_twin.exceptions import (
+from semantic_digital_twin.predefined_maps.foyer_and_hallway_ground_floor.exceptions import (
     DoorwayOffOutlineError,
     DoorwayOnOpenEdgeError,
     NonRectilinearOutlineError,
     OpenEdgeOffOutlineError,
 )
-from semantic_digital_twin.predefined_maps.rectilinear_room import (
+from semantic_digital_twin.predefined_maps.foyer_and_hallway_ground_floor.rectilinear_room import (
     Doorway,
     OpenEdge,
     RectilinearRoom,

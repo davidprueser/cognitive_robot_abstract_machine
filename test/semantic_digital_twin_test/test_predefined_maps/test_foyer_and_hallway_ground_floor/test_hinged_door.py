@@ -1,7 +1,10 @@
 import numpy as np
 import pytest
 
-from semantic_digital_twin.predefined_maps.hinged_door import HingedDoor, HingeSide
+from semantic_digital_twin.predefined_maps.foyer_and_hallway_ground_floor.hinged_door import (
+    HingedDoor,
+    HingeSide,
+)
 from semantic_digital_twin.semantic_annotations.semantic_annotations import Door
 from semantic_digital_twin.world import World
 

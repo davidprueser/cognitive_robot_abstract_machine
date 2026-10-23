@@ -1,6 +1,6 @@
 import pytest
 
-from semantic_digital_twin.predefined_maps.sliding_door_elevator import (
+from semantic_digital_twin.predefined_maps.foyer_and_hallway_ground_floor.sliding_door_elevator import (
     SlidingDoorElevator,
 )
 from semantic_digital_twin.world import World
