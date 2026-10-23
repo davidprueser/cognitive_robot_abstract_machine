@@ -136,20 +136,20 @@ class MultinomialInferenceTestCase(unittest.TestCase):
         )
 
     def test_random_mode(self):
-        mode, probability = self.random_distribution.mode()
-        mode = mode.simple_sets[0]
+        mode = self.random_distribution.mode()
+        most_likely = mode.event.simple_sets[0]
         self.assertAlmostEqual(
-            probability, self.random_distribution.probabilities.max()
+            mode.likelihood, self.random_distribution.probabilities.max()
         )
-        self.assertEqual(mode["X"], self.x.make_value(XEnum.A))
-        self.assertEqual(mode["Y"], self.y.make_value(YEnum.A))
+        self.assertEqual(most_likely["X"], self.x.make_value(XEnum.A))
+        self.assertEqual(most_likely["Y"], self.y.make_value(YEnum.A))
 
     def test_crafted_mode(self):
-        mode, probability = self.crafted_distribution.mode()
-        mode = mode.simple_sets[0]
-        self.assertEqual(probability, self.crafted_distribution.probabilities.max())
-        self.assertEqual(mode["X"], self.x.make_value(XEnum.B))
-        self.assertEqual(mode["Y"], self.x.make_value(YEnum.A))
+        mode = self.crafted_distribution.mode()
+        most_likely = mode.event.simple_sets[0]
+        self.assertEqual(mode.likelihood, self.crafted_distribution.probabilities.max())
+        self.assertEqual(most_likely["X"], self.x.make_value(XEnum.B))
+        self.assertEqual(most_likely["Y"], self.x.make_value(YEnum.A))
 
     def test_likelihood(self):
         # Copy and normalize locally rather than relying on crafted_distribution
@@ -168,7 +168,7 @@ class MultinomialInferenceTestCase(unittest.TestCase):
             (self.x, self.y),
             np.array([[0.1, 0.7, 0.3], [0.7, 0.4, 0.1]]),
         )
-        mode, likelihood = distribution.mode()
+        mode = distribution.mode()
 
         mode_by_hand = (
             SimpleEvent.from_data({self.x: XEnum.A, self.y: YEnum.B}).as_composite_set()
@@ -177,9 +177,9 @@ class MultinomialInferenceTestCase(unittest.TestCase):
             ).as_composite_set()
         )
 
-        self.assertEqual(likelihood, 0.7)
-        self.assertEqual(len(mode.simple_sets), 2)
-        self.assertEqual(mode, mode_by_hand)
+        self.assertEqual(mode.likelihood, 0.7)
+        self.assertEqual(len(mode.event.simple_sets), 2)
+        self.assertEqual(mode.event, mode_by_hand)
 
     def test_crafted_probability(self):
         # Copy first: normalize() mutates in place, and crafted_distribution is a
@@ -221,16 +221,17 @@ class MultinomialInferenceTestCase(unittest.TestCase):
 
     def test_crafted_conditional(self):
         event = SimpleEvent.from_data({self.y: (YEnum.A, YEnum.B)})
-        conditional, probability = self.crafted_distribution.truncated(
-            event.as_composite_set()
+        truncation = self.crafted_distribution.truncated(event.as_composite_set())
+        self.assertAlmostEqual(
+            truncation.distribution.probability(event.as_composite_set()), 1
         )
-        self.assertAlmostEqual(conditional.probability(event.as_composite_set()), 1)
 
         impossible_event = SimpleEvent.from_data({self.y: YEnum.C})
         impossible_event.fill_missing_variables(self.crafted_distribution.variables)
 
         self.assertEqual(
-            conditional.probability(impossible_event.as_composite_set()), 0.0
+            truncation.distribution.probability(impossible_event.as_composite_set()),
+            0.0,
         )
 
     def test_as_probabilistic_circuit(self):

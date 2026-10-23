@@ -549,6 +549,49 @@ class MissingConnectionAxisError(UsageError):
 
 
 @dataclass
+class MissingURDFJointAxisError(UsageError):
+    """
+    Raised when a movable URDF joint declares no axis to move along.
+    """
+
+    joint_name: str
+    """
+    The name of the joint that declares no axis.
+    """
+
+    joint_type: str
+    """
+    The URDF type of the joint.
+    """
+
+    def error_message(self) -> str:
+        return f"The {self.joint_type} URDF joint '{self.joint_name}' declares no axis."
+
+    def suggest_correction(self) -> str:
+        return (
+            'declare the axis the joint moves along with an <axis xyz="..."/> element.'
+        )
+
+
+@dataclass
+class ZeroLengthURDFJointAxisError(UsageError):
+    """
+    Raised when a URDF joint declares an axis of zero length, which names no direction.
+    """
+
+    joint_name: str
+    """
+    The name of the joint whose axis has zero length.
+    """
+
+    def error_message(self) -> str:
+        return f"The URDF joint '{self.joint_name}' declares an axis of zero length."
+
+    def suggest_correction(self) -> str:
+        return "declare a non-zero axis for the joint."
+
+
+@dataclass
 class MimicDofLimitOverwriteError(UsageError):
     """
     Raised when trying to overwrite the limits of a mimic degree of freedom.
