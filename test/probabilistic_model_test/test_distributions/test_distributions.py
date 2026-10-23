@@ -1,3 +1,5 @@
+import copy
+import json
 import sys
 import unittest
 from enum import IntEnum
@@ -69,7 +71,7 @@ class IntegerDistributionTestCase(unittest.TestCase):
         self.assertTrue(all(likelihoods > 0))
 
     def test_copy(self):
-        copied = self.model.__copy__()
+        copied = copy.deepcopy(self.model)
         self.assertEqual(copied, self.model)
         copied.probabilities = MissingDict(float)
         # self.assertNotEqual(copied, self.model)
@@ -120,6 +122,15 @@ class SymbolicDistributionTestCase(unittest.TestCase):
         probabilities[hash(TestEnum.A)] = 7 / 20
         probabilities[hash(TestEnum.B)] = 13 / 20
         self.model = SymbolicDistribution(variable=self.x, probabilities=probabilities)
+
+    def test_a_value_unseen_before_serialization_has_no_probability_after_it(self):
+        """
+        A distribution read back from JSON text keeps giving the values it never saw a
+        probability of zero, as the distribution it was written from does.
+        """
+        deserialized = from_json(json.loads(json.dumps(to_json(self.model))))
+
+        self.assertEqual(deserialized.probabilities[hash(TestEnum.C)], 0.0)
 
     def test_sample(self):
         samples = self.model.sample(100)
