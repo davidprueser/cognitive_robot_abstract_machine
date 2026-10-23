@@ -23,7 +23,7 @@ class HsrHandCameraConfig(
     Camera config for the camera-in-hand on the Toyota HSR robot.
     """
 
-    registry_name: ClassVar[str] = "hsr_handcam"
+    registry_name: ClassVar[str] = "hsr_hand_camera"
 
     rotate_image: str = "90_ccw"
     """Rotate the image cw = clockwise, ccw = counter-clockwise. Possible values: None, 90_{cw, ccw}, 180_{cw, ccw}."""

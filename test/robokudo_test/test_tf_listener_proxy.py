@@ -1,5 +1,12 @@
+from __future__ import annotations
 from robokudo.io import tf_listener_proxy
 from robokudo.io.tf_listener_proxy import TFListenerProxy
+from typing_extensions import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from tf2_ros import Buffer
+    from rclpy.node import Node
+    import pytest
 
 
 class FakeBuffer:
@@ -9,23 +16,25 @@ class FakeBuffer:
 class FakeTransformListener:
     calls = []
 
-    def __init__(self, buffer, node):
+    def __init__(self, buffer: Buffer, node: Node) -> None:
         self.buffer = buffer
         self.node = node
         self.calls.append((buffer, node))
 
 
-def setup_function():
+def setup_function() -> None:
     TFListenerProxy.clear()
     FakeTransformListener.calls.clear()
 
 
-def teardown_function():
+def teardown_function() -> None:
     TFListenerProxy.clear()
     FakeTransformListener.calls.clear()
 
 
-def test_buffer_for_node_reuses_listener_for_same_node(monkeypatch):
+def test_buffer_for_node_reuses_listener_for_same_node(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setattr(tf_listener_proxy, "Buffer", FakeBuffer)
     monkeypatch.setattr(tf_listener_proxy, "TransformListener", FakeTransformListener)
 
@@ -39,7 +48,9 @@ def test_buffer_for_node_reuses_listener_for_same_node(monkeypatch):
     assert FakeTransformListener.calls[0] == (first_buffer, node)
 
 
-def test_buffer_for_node_creates_separate_listeners_per_node(monkeypatch):
+def test_buffer_for_node_creates_separate_listeners_per_node(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setattr(tf_listener_proxy, "Buffer", FakeBuffer)
     monkeypatch.setattr(tf_listener_proxy, "TransformListener", FakeTransformListener)
 
@@ -56,7 +67,9 @@ def test_buffer_for_node_creates_separate_listeners_per_node(monkeypatch):
     ]
 
 
-def test_clear_node_removes_only_that_node_listener(monkeypatch):
+def test_clear_node_removes_only_that_node_listener(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setattr(tf_listener_proxy, "Buffer", FakeBuffer)
     monkeypatch.setattr(tf_listener_proxy, "TransformListener", FakeTransformListener)
 
@@ -75,7 +88,9 @@ def test_clear_node_removes_only_that_node_listener(monkeypatch):
     assert proxy.buffer_for_node(second_node) is second_buffer
 
 
-def test_clear_removes_cached_listeners_from_existing_proxy(monkeypatch):
+def test_clear_removes_cached_listeners_from_existing_proxy(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setattr(tf_listener_proxy, "Buffer", FakeBuffer)
     monkeypatch.setattr(tf_listener_proxy, "TransformListener", FakeTransformListener)
 

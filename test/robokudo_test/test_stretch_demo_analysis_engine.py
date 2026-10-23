@@ -2,6 +2,8 @@
 Tests for the Stretch apartment demo's perception pipeline configuration.
 """
 
+from __future__ import annotations
+
 import numpy as np
 
 from robokudo.annotators.image_cluster_extractor import ImageClusterExtractor
@@ -21,9 +23,15 @@ from test.robokudo_test.test_analysis_engine_query_composition import (
     bounded_build_time,
     install_fake_collection_reader_descriptor,
 )
+from typing_extensions import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import pytest
 
 
-def test_pointcloud_crop_is_narrowed_to_the_target_shelf_layer(monkeypatch):
+def test_pointcloud_crop_is_narrowed_to_the_target_shelf_layer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """
     Without a height-bounded, world-relative crop, the pipeline's wide RealSense field
     of view sees every shelf layer at once and answers a query with one untyped
@@ -47,7 +55,9 @@ def test_pointcloud_crop_is_narrowed_to_the_target_shelf_layer(monkeypatch):
     assert parameters.max_z == TARGET_SHELF_LAYER_MAX_WORLD_Z
 
 
-def test_pipeline_extracts_objects_by_color_not_depth_clustering(monkeypatch):
+def test_pipeline_extracts_objects_by_color_not_depth_clustering(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """
     The target object is glossy enough that the RealSense returns no depth on its face,
     which starves depth-based clustering of points to work with.
@@ -75,7 +85,7 @@ def test_pipeline_extracts_objects_by_color_not_depth_clustering(monkeypatch):
     assert parameters.hsv_max == red_hsv_range["hsv_max"]
 
 
-def test_target_shelf_layer_bounds_are_the_midpoints_to_its_neighbours():
+def test_target_shelf_layer_bounds_are_the_midpoints_to_its_neighbours() -> None:
     """
     The bounds are derived from the apartment demo's own shelf layer heights (0.283m,
     0.63m, 1.265m, 1.613m), targeting the second layer at 0.63m -- pinned here so a
@@ -104,9 +114,9 @@ def shelf_world_footprint_corners() -> np.ndarray:
     center = np.array([0.455 + 0.85 / 2, -0.17])
     yaw = -np.pi / 2
     local_x_extent, local_y_extent = 0.305, 0.85
-    cos_yaw, sin_yaw = np.cos(yaw), np.sin(yaw)
-    local_x_axis_in_world = np.array([cos_yaw, sin_yaw]) * (local_x_extent / 2)
-    local_y_axis_in_world = np.array([-sin_yaw, cos_yaw]) * (local_y_extent / 2)
+    cosine_of_yaw, sin_yaw = np.cos(yaw), np.sin(yaw)
+    local_x_axis_in_world = np.array([cosine_of_yaw, sin_yaw]) * (local_x_extent / 2)
+    local_y_axis_in_world = np.array([-sin_yaw, cosine_of_yaw]) * (local_y_extent / 2)
     return np.array(
         [
             center + sign_x * local_x_axis_in_world + sign_y * local_y_axis_in_world
@@ -116,7 +126,7 @@ def shelf_world_footprint_corners() -> np.ndarray:
     )
 
 
-def test_shelf_lateral_bounds_contain_the_shelfs_actual_world_footprint():
+def test_shelf_lateral_bounds_contain_the_shelfs_actual_world_footprint() -> None:
     """
     The lateral crop bounds must not clip the shelf itself: pinned against the shelf's
     real placement rather than duplicating the literal numbers a second time, so a

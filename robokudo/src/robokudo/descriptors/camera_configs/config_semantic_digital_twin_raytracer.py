@@ -7,9 +7,9 @@ from robokudo.types.cv import ColorToDepthRatio
 
 
 @dataclass(slots=True)
-class SemDTRayTracerCameraConfig(BaseCameraConfig):
+class SemanticDigitalTwinRayTracerCameraConfig(BaseCameraConfig):
     """
-    Configuration for a simulated RGB-D camera backed by SemDT's RayTracer.
+    Configuration for a simulated RGB-D camera backed by semantic digital twin's RayTracer.
     """
 
     registry_name: ClassVar[str] = "semdt_raytracer"
@@ -21,7 +21,7 @@ class SemDTRayTracerCameraConfig(BaseCameraConfig):
     ROS package containing the world descriptor module.
     """
 
-    world_descriptor_name: str = "world_semdt_raytracer_tabletop"
+    world_descriptor_name: str = "world_semantic_digital_twin_raytracer_tabletop"
     """
     Module name in descriptors/worlds that defines class WorldDescriptor.
     """
@@ -35,7 +35,7 @@ class SemDTRayTracerCameraConfig(BaseCameraConfig):
 
     camera_frame: str = "semdt_camera_optical_frame"
     """
-    Name of the camera optical frame in the SemDT world.
+    Name of the camera optical frame in the semantic digital twin world.
     """
 
     camera_x: float = -1.20
@@ -53,7 +53,7 @@ class SemDTRayTracerCameraConfig(BaseCameraConfig):
     Square output resolution in pixels (width == height).
     """
 
-    fov_deg: float = 90.0
+    field_of_view_degrees: float = 90.0
     """
     Symmetric horizontal/vertical field of view in degrees.
     """
@@ -69,7 +69,7 @@ class SemDTRayTracerCameraConfig(BaseCameraConfig):
     Scale factor from RGB image to depth image resolution.
     """
 
-    rgb_mode: str = "semantic"
+    color_mode: str = "semantic"
     """
     RGB rendering mode: 'semantic' or 'trimesh' (falls back to semantic on failure).
     """

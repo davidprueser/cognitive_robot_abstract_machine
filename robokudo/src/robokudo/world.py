@@ -6,11 +6,11 @@ Reasoning about alternate world states is done in the corresponding Annotators.
 
 import numpy as np
 
-from robokudo.cas import CAS
+from robokudo.common_analysis_structure import CommonAnalysisStructure
 from robokudo.types.scene import ObjectHypothesis
 from robokudo.utils.annotator_helper import get_camera_to_world_transform_matrix
 from robokudo.utils.transform import (
-    get_transform_matrix_from_q,
+    get_transform_matrix_from_quaternion,
     get_quaternion_from_transform_matrix,
     get_translation_from_transform_matrix,
 )
@@ -45,9 +45,9 @@ this.world_entity_tracker = WorldEntityWithIDKwargsTracker.from_world(this.world
 RoboKudo's central entity tracker.
 """
 
-_rk_world_lock = Lock()
+_robokudo_world_lock = Lock()
 """
-Lock for safe creation of the central SemDT World and entity tracker.
+Lock for safe creation of the central semantic digital twin World and entity tracker.
 """
 
 _tracked_objects: Dict[UUID, ObjectBeliefState] = {}
@@ -62,13 +62,13 @@ def get_world_entity_tracker() -> WorldEntityWithIDKwargsTracker:
     return this.world_entity_tracker
 
 
-def init_world_with_entity_tracker() -> WorldEntityWithIDKwargsTracker:
+def initialize_world_with_entity_tracker() -> WorldEntityWithIDKwargsTracker:
     """
     Initialize the world and entity tracker and return the entity tracker.
 
     :return: The newly created entity tracker instance.
     """
-    with _rk_world_lock:
+    with _robokudo_world_lock:
         unsafe_clear_world()
         this.world_entity_tracker = WorldEntityWithIDKwargsTracker.from_world(
             world_instance()
@@ -76,7 +76,7 @@ def init_world_with_entity_tracker() -> WorldEntityWithIDKwargsTracker:
     return this.world_entity_tracker
 
 
-def init_world_entity_tracker_from_world(
+def initialize_world_entity_tracker_from_world(
     world: World,
 ) -> WorldEntityWithIDKwargsTracker:
     """
@@ -84,7 +84,7 @@ def init_world_entity_tracker_from_world(
 
     :return: The newly created entity tracker instance.
     """
-    with _rk_world_lock:
+    with _robokudo_world_lock:
         this.world_entity_tracker = WorldEntityWithIDKwargsTracker.from_world(world)
     return this.world_entity_tracker
 
@@ -99,7 +99,7 @@ def world_instance() -> World:
     :return: A singleton-like World instance.
     """
     if this.world is None:
-        with _rk_world_lock:
+        with _robokudo_world_lock:
             # Check again with lock
             if this.world is None:
                 this.unsafe_clear_world()
@@ -115,7 +115,7 @@ def set_world(world: World) -> None:
 
     :param world: The new world state.
     """
-    with _rk_world_lock:
+    with _robokudo_world_lock:
         this.unsafe_set_world(world=world)
 
 
@@ -125,7 +125,7 @@ def unsafe_set_world(world: World) -> None:
 
     .. warning::
         Always acquire the lock manually before calling this method. Take a look at `this.set_world()` or
-        `this.init_world_with_entity_tracker()` for example.
+        `this.initialize_world_with_entity_tracker()` for example.
 
     :param world: The new world state to set.
     """
@@ -136,7 +136,7 @@ def clear_world() -> None:
     """
     Clear the world state by instantiating a new World.
     """
-    with _rk_world_lock:
+    with _robokudo_world_lock:
         this.unsafe_clear_world()
 
 
@@ -185,17 +185,17 @@ def setup_world_for_camera_frame(
     :param world_frame: The name of the world frame.
     :param camera_frame: The name of the camera frame.
     """
-    rk_world = world_instance()
-    world_bodies = rk_world.get_bodies_by_name(name=world_frame)
-    camera_bodies = rk_world.get_bodies_by_name(name=camera_frame)
+    robokudo_world = world_instance()
+    world_bodies = robokudo_world.get_bodies_by_name(name=world_frame)
+    camera_bodies = robokudo_world.get_bodies_by_name(name=camera_frame)
 
     world_body = world_bodies[0] if len(world_bodies) > 0 else None
     camera_body = camera_bodies[0] if len(camera_bodies) > 0 else None
 
-    with rk_world.modify_world():
+    with robokudo_world.modify_world():
         if world_body is None:
             world_body = Body(name=PrefixedName(name=world_frame))
-            rk_world.add_body(world_body)
+            robokudo_world.add_body(world_body)
 
             world_body.visual.append(
                 Mesh.from_trimesh(
@@ -206,7 +206,7 @@ def setup_world_for_camera_frame(
 
         if camera_body is None:
             camera_body = Body(name=PrefixedName(name=camera_frame))
-            rk_world.add_body(camera_body)
+            robokudo_world.add_body(camera_body)
 
             camera_body.visual.append(
                 Mesh.from_trimesh(
@@ -216,14 +216,14 @@ def setup_world_for_camera_frame(
             )
 
         connection_name = PrefixedName(name=f"{camera_frame}_T_{world_frame}")
-        if len(rk_world.get_connections_by_name(connection_name)) == 0:
+        if len(robokudo_world.get_connections_by_name(connection_name)) == 0:
             camera_T_world = Connection6DoF.create_with_dofs(
                 parent=world_body,
                 child=camera_body,
-                world=rk_world,
+                world=robokudo_world,
                 name=connection_name,
             )
-            rk_world.add_connection(camera_T_world)
+            robokudo_world.add_connection(camera_T_world)
 
 
 def update_connection_transform(
@@ -257,35 +257,41 @@ def get_object_belief_states() -> Dict[UUID, ObjectBeliefState]:
     return _tracked_objects
 
 
-def _get_world_body_from_cas(cas: CAS, rk_world: World) -> Body | None:
+def _get_world_body_from_common_analysis_structure(
+    common_analysis_structure: CommonAnalysisStructure, robokudo_world: World
+) -> Body | None:
     """
-    Return the world-frame body referenced by the CAS, if available.
+    Return the world-frame body referenced by the common analysis structure, if available.
     """
-    world_frame = cas.world_frame
+    world_frame = common_analysis_structure.world_frame
     if world_frame is None:
         return None
-    return rk_world.get_body_by_name(PrefixedName(name=world_frame))
+    return robokudo_world.get_body_by_name(PrefixedName(name=world_frame))
 
 
-def _create_world_origin_and_scale_from_latest_bbox(
+def _create_world_origin_and_scale_from_latest_bounding_box(
     object_belief: ObjectBeliefState,
-    cas: CAS,
+    common_analysis_structure: CommonAnalysisStructure,
     world_body: Body,
 ) -> tuple[HomogeneousTransformationMatrix, Scale] | None:
     """
-    Convert the latest camera-frame bbox into a world-frame SemDT origin and scale.
+    Convert the latest camera-frame bbox into a world-frame semantic digital twin origin and scale.
     """
-    bb = object_belief.latest_bbox_3d
-    if bb is None:
+    bounding_box = object_belief.latest_bounding_box_3d
+    if bounding_box is None:
         return None
 
-    pose_mat = get_transform_matrix_from_q(bb.pose.rotation, bb.pose.translation)
+    pose_matrix = get_transform_matrix_from_quaternion(
+        bounding_box.pose.rotation, bounding_box.pose.translation
+    )
 
-    camera_to_world_transform = get_camera_to_world_transform_matrix(cas)
-    pose_in_world_mat = np.matmul(camera_to_world_transform, pose_mat)
+    camera_to_world_transform = get_camera_to_world_transform_matrix(
+        common_analysis_structure
+    )
+    pose_in_world_matrix = np.matmul(camera_to_world_transform, pose_matrix)
 
-    rotation = list(get_quaternion_from_transform_matrix(pose_in_world_mat))
-    translation = list(get_translation_from_transform_matrix(pose_in_world_mat))
+    rotation = list(get_quaternion_from_transform_matrix(pose_in_world_matrix))
+    translation = list(get_translation_from_transform_matrix(pose_in_world_matrix))
 
     object_belief_body = object_belief.body
     origin = HomogeneousTransformationMatrix.from_xyz_quaternion(
@@ -300,24 +306,26 @@ def _create_world_origin_and_scale_from_latest_bbox(
         child_frame=object_belief_body,
     )
 
-    scale = Scale(x=bb.x_length, y=bb.y_length, z=bb.z_length)
+    scale = Scale(
+        x=bounding_box.x_length, y=bounding_box.y_length, z=bounding_box.z_length
+    )
     return origin, scale
 
 
-def _update_belief_body_from_latest_bbox(
+def _update_belief_body_from_latest_bounding_box(
     object_belief: ObjectBeliefState,
-    cas: CAS,
-    rk_world: World,
+    common_analysis_structure: CommonAnalysisStructure,
+    robokudo_world: World,
     world_body: Body,
     world_T_object_belief: Connection6DoF,
     replace_existing_visuals: bool,
 ) -> None:
     """
-    Update the SemDT body origin and box geometry from the latest bbox.
+    Update the semantic digital twin body origin and box geometry from the latest bbox.
     """
-    origin_and_scale = _create_world_origin_and_scale_from_latest_bbox(
+    origin_and_scale = _create_world_origin_and_scale_from_latest_bounding_box(
         object_belief=object_belief,
-        cas=cas,
+        common_analysis_structure=common_analysis_structure,
         world_body=world_body,
     )
     if origin_and_scale is None:
@@ -326,7 +334,7 @@ def _update_belief_body_from_latest_bbox(
     origin, scale = origin_and_scale
     object_belief_body = object_belief.body
 
-    with rk_world.modify_world():
+    with robokudo_world.modify_world():
         if replace_existing_visuals:
             object_belief_body.visual.shapes.clear()
         object_belief_body.visual.append(Box(scale=scale))
@@ -334,7 +342,8 @@ def _update_belief_body_from_latest_bbox(
 
 
 def add_object_hypothesis_as_belief_state(
-    object_hypothesis: ObjectHypothesis, cas: CAS
+    object_hypothesis: ObjectHypothesis,
+    common_analysis_structure: CommonAnalysisStructure,
 ) -> ObjectBeliefState:
     """
     Create a new object belief from the given hypothesis and add it to the world.
@@ -343,10 +352,10 @@ def add_object_hypothesis_as_belief_state(
         This currently assumes that all object hypotheses are rooted in the camera space.
 
     :param object_hypothesis: The object hypothesis to create a belief from.
-    :param cas: The CAS to use for transform lookups.
+    :param common_analysis_structure: The common analysis structure to use for transform lookups.
     :return: The new object belief.
     """
-    rk_world = world_instance()
+    robokudo_world = world_instance()
 
     object_belief = ObjectBeliefState.create_with_new_body().add_hypothesis(
         object_hypothesis
@@ -354,22 +363,24 @@ def add_object_hypothesis_as_belief_state(
     object_belief_body = object_belief.body
     _tracked_objects[object_belief.uuid] = object_belief
 
-    world_body = _get_world_body_from_cas(cas, rk_world)
+    world_body = _get_world_body_from_common_analysis_structure(
+        common_analysis_structure, robokudo_world
+    )
     if world_body is None:
         return object_belief
 
-    with rk_world.modify_world():
+    with robokudo_world.modify_world():
         world_T_object_belief = Connection6DoF.create_with_dofs(
-            world=rk_world,
+            world=robokudo_world,
             parent=world_body,
             child=object_belief_body,
         )
-        rk_world.add_connection(world_T_object_belief)
+        robokudo_world.add_connection(world_T_object_belief)
 
-    _update_belief_body_from_latest_bbox(
+    _update_belief_body_from_latest_bounding_box(
         object_belief=object_belief,
-        cas=cas,
-        rk_world=rk_world,
+        common_analysis_structure=common_analysis_structure,
+        robokudo_world=robokudo_world,
         world_body=world_body,
         world_T_object_belief=world_T_object_belief,
         replace_existing_visuals=False,
@@ -378,7 +389,9 @@ def add_object_hypothesis_as_belief_state(
 
 
 def update_belief_state_with_object_hypothesis(
-    object_belief: ObjectBeliefState, object_hypothesis: ObjectHypothesis, cas: CAS
+    object_belief: ObjectBeliefState,
+    object_hypothesis: ObjectHypothesis,
+    common_analysis_structure: CommonAnalysisStructure,
 ) -> None:
     """
     Update the given object belief state with the object hypothesis.
@@ -388,21 +401,23 @@ def update_belief_state_with_object_hypothesis(
 
     :param object_belief: Object belief state to update.
     :param object_hypothesis: Object hypothesis state to update the belief state with.
-    :param cas: The CAS to use for transform lookups.
+    :param common_analysis_structure: The common analysis structure to use for transform lookups.
     """
-    rk_world = world_instance()
+    robokudo_world = world_instance()
 
     object_belief.add_hypothesis(object_hypothesis)
     object_belief_body = object_belief.body
 
-    world_body = _get_world_body_from_cas(cas, rk_world)
+    world_body = _get_world_body_from_common_analysis_structure(
+        common_analysis_structure, robokudo_world
+    )
     if world_body is None:
         return
 
-    _update_belief_body_from_latest_bbox(
+    _update_belief_body_from_latest_bounding_box(
         object_belief=object_belief,
-        cas=cas,
-        rk_world=rk_world,
+        common_analysis_structure=common_analysis_structure,
+        robokudo_world=robokudo_world,
         world_body=world_body,
         world_T_object_belief=object_belief_body.get_first_parent_connection_of_type(
             Connection6DoF

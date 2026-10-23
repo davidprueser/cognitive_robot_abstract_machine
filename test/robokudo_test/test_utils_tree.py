@@ -1,4 +1,6 @@
+from __future__ import annotations
 from typing import Any
+from typing_extensions import TYPE_CHECKING
 
 import py_trees
 import pytest
@@ -15,25 +17,28 @@ from robokudo.utils.tree import (
     find_root,
     fix_parent_relationship_of_childs,
     setup_with_descendants_on_behavior,
-    setup_with_descendants_rk,
+    setup_with_descendants_robokudo,
     behavior_iterate_except_type,
 )
 
+if TYPE_CHECKING:
+    from py_trees.common import Status
+
 
 class DummyBehaviour(py_trees.behaviour.Behaviour):
-    def __init__(self, name):
+    def __init__(self, name: str) -> None:
         super().__init__(name)
         self._setup = False
 
-    def setup(self, **kwargs: Any):
+    def setup(self, **kwargs: Any) -> None:
         self._setup = True
 
-    def update(self):
+    def update(self) -> Status:
         return py_trees.common.Status.SUCCESS
 
 
 class TestUtilsTree:
-    def test_find_going_upwards_type(self):
+    def test_find_going_upwards_type(self) -> None:
         leaf_behaviour = DummyBehaviour("Behaviour")
         par = py_trees.composites.Parallel(
             "Par", policy=py_trees.common.ParallelPolicy.SuccessOnAll()
@@ -63,7 +68,7 @@ class TestUtilsTree:
         )  # There is no selector. This should return None.
         assert find_parent_of_type(leaf_behaviour, py_trees.composites.Selector) is None
 
-    def test_find_children_with_name(self):
+    def test_find_children_with_name(self) -> None:
         leaf_behaviour = DummyBehaviour("Behaviour")
         par = py_trees.composites.Parallel(
             "Par", policy=py_trees.common.ParallelPolicy.SuccessOnAll()
@@ -90,7 +95,7 @@ class TestUtilsTree:
             is None
         )
 
-    def test_scoped_list_tree(self):
+    def test_scoped_list_tree(self) -> None:
         leaf_behaviour = DummyBehaviour("Behaviour")
         par = py_trees.composites.Parallel(
             "Par", policy=py_trees.common.ParallelPolicy.SuccessOnAll()
@@ -108,27 +113,27 @@ class TestUtilsTree:
             == "TopSequence/Behaviour"
         )
 
-    def test_scoped_list_tree_deeper(self):
+    def test_scoped_list_tree_deeper(self) -> None:
         leaf_behaviour = DummyBehaviour("Behaviour")
         par = py_trees.composites.Parallel(
             "Par", policy=py_trees.common.ParallelPolicy.SuccessOnAll()
         )
         par.add_child(leaf_behaviour)
 
-        mid_sequence = py_trees.composites.Sequence("MidSequence", memory=True)
-        mid_sequence.add_child(par)
+        middle_sequence = py_trees.composites.Sequence("MidSequence", memory=True)
+        middle_sequence.add_child(par)
 
         top_sequence = py_trees.composites.Sequence("TopSequence", memory=True)
-        top_sequence.add_child(mid_sequence)
+        top_sequence.add_child(middle_sequence)
         assert get_scoped_list_of_names(
             leaf_behaviour, py_trees.composites.Sequence
-        ) == [top_sequence.name, mid_sequence.name, leaf_behaviour.name]
+        ) == [top_sequence.name, middle_sequence.name, leaf_behaviour.name]
         assert (
             get_scoped_name(leaf_behaviour, py_trees.composites.Sequence)
             == "TopSequence/MidSequence/Behaviour"
         )
 
-    def test_scoped_list_single_behaviour(self):
+    def test_scoped_list_single_behaviour(self) -> None:
         leaf_behaviour = DummyBehaviour("Behaviour")
         assert get_scoped_list_of_names(
             leaf_behaviour, py_trees.composites.Sequence
@@ -137,7 +142,7 @@ class TestUtilsTree:
             get_scoped_name(leaf_behaviour, py_trees.composites.Sequence) == "Behaviour"
         )
 
-    def test_add_child_to_parent(self):
+    def test_add_child_to_parent(self) -> None:
         par2 = py_trees.composites.Parallel(
             "Par2", policy=py_trees.common.ParallelPolicy.SuccessOnAll()
         )
@@ -155,7 +160,7 @@ class TestUtilsTree:
         assert len(par2.children) == 1
         assert par2.children[0] == leaf_behaviour
 
-    def test_add_child_to_parent_invalid_child(self):
+    def test_add_child_to_parent_invalid_child(self) -> None:
         par2 = py_trees.composites.Parallel(
             "Par2", policy=py_trees.common.ParallelPolicy.SuccessOnAll()
         )
@@ -169,7 +174,7 @@ class TestUtilsTree:
 
         assert pytest.raises(TypeError, add_child_to_parent, par2, leaf_behaviour)
 
-    def test_add_children_to_parent(self):
+    def test_add_children_to_parent(self) -> None:
         par2 = py_trees.composites.Parallel(
             "Par2", policy=py_trees.common.ParallelPolicy.SuccessOnAll()
         )
@@ -190,7 +195,7 @@ class TestUtilsTree:
         assert len(par1.children) == 1
         assert len(par2.children) == 3
 
-    def test_find_root(self):
+    def test_find_root(self) -> None:
         leaf_behaviour1 = DummyBehaviour("Behaviour1")
         leaf_behaviour2 = DummyBehaviour("Behaviour2")
         leaf_behaviour3 = DummyBehaviour("Behaviour3")
@@ -211,7 +216,7 @@ class TestUtilsTree:
             root = find_root(child)
             assert root == par1
 
-    def test_fix_parent_relationship_of_childs(self):
+    def test_fix_parent_relationship_of_childs(self) -> None:
         # Build first pipeline with children
         leaf_behaviour1 = DummyBehaviour("Behaviour1")
         leaf_behaviour2 = DummyBehaviour("Behaviour2")
@@ -242,7 +247,7 @@ class TestUtilsTree:
         for child in children:
             assert child.parent.name == par2.name
 
-    def test_setup_with_descendants_on_behaviour(self):
+    def test_setup_with_descendants_on_behaviour(self) -> None:
         leaf_behaviour0 = DummyBehaviour("Behaviour0")
 
         leaf_behaviour1 = DummyBehaviour("Behaviour1")
@@ -268,7 +273,7 @@ class TestUtilsTree:
 
         assert leaf_behaviour0._setup == False, "only descendants should be setup"
 
-    def test_setup_with_descendants_rk(self):
+    def test_setup_with_descendants_robokudo(self) -> None:
         leaf_behaviour0 = DummyBehaviour("Behaviour0")
 
         leaf_behaviour1 = DummyBehaviour("Behaviour1")
@@ -288,13 +293,13 @@ class TestUtilsTree:
         )
         tree = BehaviourTree(par1)
 
-        setup_with_descendants_rk(tree)
+        setup_with_descendants_robokudo(tree)
 
         for child in children:
             assert child._setup == True
         assert leaf_behaviour0._setup == True
 
-    def test_behaviour_iterate_except_type_basic(self):
+    def test_behaviour_iterate_except_type_basic(self) -> None:
         leaf_behaviour0 = DummyBehaviour("Behaviour0")
 
         leaf_behaviour1 = DummyBehaviour("Behaviour1")
@@ -326,7 +331,7 @@ class TestUtilsTree:
         for child in children:
             assert child.name in tree_children
 
-    def test_behaviour_iterate_except_type_with_tree(self):
+    def test_behaviour_iterate_except_type_with_tree(self) -> None:
         leaf_behaviour0 = DummyBehaviour("Behaviour0")
 
         leaf_behaviour1 = DummyBehaviour("Behaviour1")
@@ -359,7 +364,7 @@ class TestUtilsTree:
         for child in children:
             assert child.name in tree_children
 
-    def test_behaviour_iterate_except_type_direct_descendants(self):
+    def test_behaviour_iterate_except_type_direct_descendants(self) -> None:
         leaf_behaviour0 = DummyBehaviour("Behaviour0")
 
         leaf_behaviour1 = DummyBehaviour("Behaviour1")
@@ -393,7 +398,7 @@ class TestUtilsTree:
         assert par2.name in tree_children
         assert leaf_behaviour0.name in tree_children
 
-    def test_behaviour_iterate_except_type_exclude_type(self):
+    def test_behaviour_iterate_except_type_exclude_type(self) -> None:
         leaf_behaviour0 = DummyBehaviour("Behaviour0")
 
         leaf_behaviour1 = DummyBehaviour("Behaviour1")
@@ -401,11 +406,13 @@ class TestUtilsTree:
         leaf_behaviour3 = DummyBehaviour("Behaviour3")
         children = [leaf_behaviour1, leaf_behaviour2, leaf_behaviour3]
 
-        seq1 = py_trees.composites.Sequence("Seq1", memory=True, children=children)
+        first_sequence = py_trees.composites.Sequence(
+            "Seq1", memory=True, children=children
+        )
         par1 = py_trees.composites.Parallel(
             "Par1",
             policy=py_trees.common.ParallelPolicy.SuccessOnAll(),
-            children=[seq1, leaf_behaviour0],
+            children=[first_sequence, leaf_behaviour0],
         )
 
         tree_children = [
@@ -414,7 +421,7 @@ class TestUtilsTree:
         ]
 
         assert par1.name not in tree_children
-        assert seq1.name not in tree_children
+        assert first_sequence.name not in tree_children
 
         for child in children:
             assert child.name not in tree_children

@@ -11,7 +11,7 @@ The pipeline implements the following functionality:
 * Sequential preprocessing stage
 * Parallel object analysis stage
 * Color analysis
-* PCA-based pose estimation
+* principal component analysis-based pose estimation
 * Optional query handling (commented out)
 
 .. note::
@@ -28,13 +28,15 @@ from robokudo.annotators.image_preprocessor import ImagePreprocessorAnnotator
 from robokudo.annotators.plane import PlaneAnnotator
 from robokudo.annotators.pointcloud_cluster_extractor import PointCloudClusterExtractor
 from robokudo.annotators.pointcloud_crop import PointcloudCropAnnotator
-from robokudo.annotators.cluster_pose_pca import ClusterPosePCAAnnotator
+from robokudo.annotators.cluster_pose_principal_component_analysis import (
+    ClusterPosePrincipalComponentAnalysisAnnotator,
+)
 from robokudo.annotators.cluster_color import ClusterColorAnnotator
-from robokudo.idioms import pipeline_init
+from robokudo.idioms import pipeline_initialization
 from robokudo.pipeline import Pipeline
 from robokudo.tree_components.better_parallel import Parallel, ParallelPolicy
 
-from robokudo.descriptors.factories.cr_descriptor_factory import (
+from robokudo.descriptors.factories.collection_reader_descriptor_factory import (
     CollectionReaderDescriptorFactory,
 )
 
@@ -58,7 +60,7 @@ class AnalysisEngine(AnalysisEngineInterface):
       * Extract clusters
     * Parallel feature analysis stage
       * Color analysis
-      * PCA-based pose estimation
+      * principal component analysis-based pose estimation
 
     .. note::
         The pipeline includes commented-out query handling components that
@@ -93,16 +95,18 @@ class AnalysisEngine(AnalysisEngineInterface):
            * Extract clusters
         3. Parallel analysis
            * Color analysis
-           * PCA pose estimation
+           * principal component analysis pose estimation
 
         :return: The configured pipeline with parallel processing
         """
-        cr_storage_config = CollectionReaderDescriptorFactory.create_descriptor("mongo")
+        storage_reader_descriptor = CollectionReaderDescriptorFactory.create_descriptor(
+            "mongo"
+        )
 
-        pre = Sequence("Preprocessing", memory=True)
-        pre.add_children(
+        preprocessing = Sequence("Preprocessing", memory=True)
+        preprocessing.add_children(
             [
-                CollectionReaderAnnotator(descriptor=cr_storage_config),
+                CollectionReaderAnnotator(descriptor=storage_reader_descriptor),
                 ImagePreprocessorAnnotator("ImagePreprocessor"),
             ]
         )
@@ -113,7 +117,7 @@ class AnalysisEngine(AnalysisEngineInterface):
         parallel.add_children(
             [
                 ClusterColorAnnotator(),
-                ClusterPosePCAAnnotator(),
+                ClusterPosePrincipalComponentAnalysisAnnotator(),
             ]
         )
         annotators = Sequence("Annotators", memory=True)
@@ -129,9 +133,9 @@ class AnalysisEngine(AnalysisEngineInterface):
         seq = Pipeline("ContPipeline")
         seq.add_children(
             [
-                pipeline_init(),
+                pipeline_initialization(),
                 # robokudo.annotators.query.QueryAnnotator(),
-                pre,
+                preprocessing,
                 annotators,
                 # GenerateQueryResult(),
                 # QueryReply(),

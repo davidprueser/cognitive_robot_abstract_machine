@@ -151,7 +151,9 @@ def get_scoped_name(
     return delimiter.join(get_scoped_list_of_names(behaviour, scoping_behaviour_type))
 
 
-def setup_with_descendants_rk(tree: BehaviourTree, setup_timeout: float = 0) -> None:
+def setup_with_descendants_robokudo(
+    tree: BehaviourTree, setup_timeout: float = 0
+) -> None:
     """
     Set up ROS behavior tree and all descendants.
 

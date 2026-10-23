@@ -1,3 +1,6 @@
+from __future__ import annotations
+from py_trees.behaviour import Behaviour
+
 import robokudo.analysis_engine
 import robokudo.behaviours.clear_errors
 import robokudo.descriptors.camera_configs.config_mongodb_playback
@@ -14,17 +17,19 @@ from robokudo.annotators.static_object_detector import (
 from robokudo.annotators.world_descriptor_bootstrap import (
     WorldDescriptorBootstrapAnnotator,
 )
-from robokudo.descriptors.factories.cr_descriptor_factory import (
+from robokudo.descriptors.factories.collection_reader_descriptor_factory import (
     CollectionReaderDescriptorFactory,
 )
 
 
 class AnalysisEngine(robokudo.analysis_engine.AnalysisEngineInterface):
-    def name(self):
+    def name(self) -> str:
         return "static_detector_world_descriptor_from_storage"
 
-    def implementation(self):
-        cr_storage_config = CollectionReaderDescriptorFactory.create_descriptor("mongo")
+    def implementation(self) -> Behaviour:
+        storage_reader_descriptor = CollectionReaderDescriptorFactory.create_descriptor(
+            "mongo"
+        )
 
         bootstrap = WorldDescriptorBootstrapAnnotator.Descriptor()
         bootstrap.parameters.world_descriptor_name = "world_iai_kitchen20"
@@ -35,18 +40,18 @@ class AnalysisEngine(robokudo.analysis_engine.AnalysisEngineInterface):
         sod.parameters.create_bounding_box_annotation = True
         sod.parameters.create_pose_annotation = True
 
-        oh_vis = ObjectHypothesisVisualizer.Descriptor()
-        oh_vis.parameters.visualize_full_cloud = True
+        object_hypothesis_visualizer = ObjectHypothesisVisualizer.Descriptor()
+        object_hypothesis_visualizer.parameters.visualize_full_cloud = True
 
-        seq = robokudo.pipeline.Pipeline("StoragePipeline")
-        seq.add_children(
+        pipeline = robokudo.pipeline.Pipeline("StoragePipeline")
+        pipeline.add_children(
             [
-                robokudo.idioms.pipeline_init(),
-                CollectionReaderAnnotator(descriptor=cr_storage_config),
+                robokudo.idioms.pipeline_initialization(),
+                CollectionReaderAnnotator(descriptor=storage_reader_descriptor),
                 WorldDescriptorBootstrapAnnotator(descriptor=bootstrap),
                 ImagePreprocessorAnnotator("ImagePreprocessor"),
                 StaticObjectDetectorAnnotator(descriptor=sod),
-                ObjectHypothesisVisualizer(descriptor=oh_vis),
+                ObjectHypothesisVisualizer(descriptor=object_hypothesis_visualizer),
             ]
         )
-        return seq
+        return pipeline

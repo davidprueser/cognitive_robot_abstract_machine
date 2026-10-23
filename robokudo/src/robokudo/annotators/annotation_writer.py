@@ -16,14 +16,16 @@ from std_msgs.msg import String
 from typing_extensions import Optional
 
 from robokudo.annotators.core import BaseAnnotator
-from robokudo.io.cas_annotation_codecs import serialize_annotations
+from robokudo.io.common_analysis_structure_annotation_codecs import (
+    serialize_annotations,
+)
 from semantic_digital_twin.adapters.ros.node_registry import ROSNodeRegistry
 
 
 class AnnotationStorageWriter(BaseAnnotator):
     """Annotator for writing annotations to storage in JSON format.
 
-    This annotator writes the current CAS annotations to files in a specified
+    This annotator writes the current common analysis structure annotations to files in a specified
     directory, using JSON serialization.
     """
 
@@ -54,13 +56,13 @@ class AnnotationStorageWriter(BaseAnnotator):
         :param descriptor: Configuration descriptor
         """
         super().__init__(name, descriptor)
-        self.rk_logger.debug("%s.__init__()" % self.__class__.__name__)
+        self.robokudo_logger.debug("%s.__init__()" % self.__class__.__name__)
 
         self.counter: int = -1
         """Counter for generating sequential filenames"""
 
     def update(self) -> Status:
-        """Write current CAS annotations to storage.
+        """Write current common analysis structure annotations to storage.
 
         Serializes the current annotations to JSON and writes them to a file
         in the configured directory. Files are numbered sequentially.
@@ -70,23 +72,26 @@ class AnnotationStorageWriter(BaseAnnotator):
         start_timer = default_timer()
 
         # Encode annotations via KRROOD serializer and dump to JSON.
-        json_data_string = json.dumps(serialize_annotations(self.get_cas().annotations))
+        json_data_string = json.dumps(
+            serialize_annotations(self.get_common_analysis_structure().annotations)
+        )
 
-        dir_path = os.path.join(self.descriptor.parameters.basic_path, self.name)
+        directory_path = os.path.join(self.descriptor.parameters.basic_path, self.name)
 
         # increase count
         self.counter += 1
 
-        if self.counter == 0 and os.path.exists(dir_path):
-            shutil.rmtree(dir_path)
+        if self.counter == 0 and os.path.exists(directory_path):
+            shutil.rmtree(directory_path)
 
-        os.makedirs(dir_path, exist_ok=True)
+        os.makedirs(directory_path, exist_ok=True)
 
         json_path = os.path.join(
-            dir_path, "{}.{}".format(self.counter, self.descriptor.parameters.suffix)
+            directory_path,
+            "{}.{}".format(self.counter, self.descriptor.parameters.suffix),
         )
-        with open(json_path, "w") as f:
-            f.write(json_data_string)
+        with open(json_path, "w") as file:
+            file.write(json_data_string)
 
         end_timer = default_timer()
         self.feedback_message = f"Processing took {(end_timer - start_timer):.4f}s"
@@ -96,7 +101,7 @@ class AnnotationStorageWriter(BaseAnnotator):
 class AnnotationPublisherWriter(BaseAnnotator):
     """Annotator for publishing annotations via ROS topics.
 
-    This annotator publishes the current CAS annotations as JSON-encoded
+    This annotator publishes the current common analysis structure annotations as JSON-encoded
     strings over a ROS topic.
     """
 
@@ -124,7 +129,7 @@ class AnnotationPublisherWriter(BaseAnnotator):
         :param descriptor: Configuration descriptor
         """
         super().__init__(name, descriptor)
-        self.rk_logger.debug("%s.__init__()" % self.__class__.__name__)
+        self.robokudo_logger.debug("%s.__init__()" % self.__class__.__name__)
 
         self.pub: Optional[Publisher] = None
         """ROS publisher for annotations"""
@@ -134,7 +139,7 @@ class AnnotationPublisherWriter(BaseAnnotator):
 
         :param timeout: Maximum time to wait for setup completion
         """
-        self.rk_logger.debug("%s.setup()" % self.__class__.__name__)
+        self.robokudo_logger.debug("%s.setup()" % self.__class__.__name__)
 
         node = ROSNodeRegistry().get()
         self.pub = node.create_publisher(
@@ -142,7 +147,7 @@ class AnnotationPublisherWriter(BaseAnnotator):
         )
 
     def update(self) -> Status:
-        """Publish current CAS annotations.
+        """Publish current common analysis structure annotations.
 
         Serializes the current annotations to JSON and publishes them
         on the configured ROS topic.
@@ -152,13 +157,15 @@ class AnnotationPublisherWriter(BaseAnnotator):
         start_timer = default_timer()
 
         # Encode annotations via KRROOD serializer and dump to JSON.
-        json_data_string = json.dumps(serialize_annotations(self.get_cas().annotations))
+        json_data_string = json.dumps(
+            serialize_annotations(self.get_common_analysis_structure().annotations)
+        )
 
         # publish encoded data
         if self.pub is None:
             raise RuntimeError("Publisher is not initialized. Call setup() first.")
-        msg = String(data=json_data_string)
-        self.pub.publish(msg)
+        message = String(data=json_data_string)
+        self.pub.publish(message)
 
         end_timer = default_timer()
         self.feedback_message = f"Processing took {(end_timer - start_timer):.4f}s"

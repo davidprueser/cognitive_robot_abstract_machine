@@ -41,8 +41,11 @@ from sensor_msgs.msg import CompressedImage, CameraInfo, Image
 from tf2_ros import Buffer
 from typing_extensions import Optional, List, Any, TYPE_CHECKING, Union
 
-from robokudo.cas import CASViews, CAS
-from robokudo.defs import PACKAGE_NAME
+from robokudo.common_analysis_structure import (
+    CommonAnalysisStructureViews,
+    CommonAnalysisStructure,
+)
+from robokudo.definitions import PACKAGE_NAME
 from robokudo.exceptions import CameraDataMissing
 from robokudo.io.tf_listener_proxy import TFListenerProxy
 from robokudo.types.tf import StampedTransform
@@ -83,7 +86,7 @@ class CameraInterface(object):
         """
         Camera configuration object.
         """
-        self.rk_logger: logging.Logger = logging.getLogger(PACKAGE_NAME)
+        self.robokudo_logger: logging.Logger = logging.getLogger(PACKAGE_NAME)
         """
         RoboKudo logger instance.
         """
@@ -97,14 +100,14 @@ class CameraInterface(object):
         return self._has_new_data
 
     @staticmethod
-    def store_camera_to_world_transform_in_cas(
-        cas: CAS,
+    def store_camera_to_world_transform_in_common_analysis_structure(
+        common_analysis_structure: CommonAnalysisStructure,
         world_frame: str,
         camera_frame: str,
         world_T_camera: HomogeneousTransformationMatrix,
-        timestamp_ns: Optional[int] = None,
+        timestamp_nanoseconds: Optional[int] = None,
     ) -> None:
-        """Write a camera-to-world transform to the CAS and runtime world."""
+        """Write a camera-to-world transform to the common analysis structure and runtime world."""
         setup_world_for_camera_frame(world_frame=world_frame, camera_frame=camera_frame)
 
         world = world_instance()
@@ -117,11 +120,11 @@ class CameraInterface(object):
             child_frame=camera_body,
         )
 
-        cas.world_frame = world_frame
-        cas.camera_frame = camera_frame
-        cas.camera_to_world_transform = runtime_world_T_camera
-        if timestamp_ns is not None:
-            cas.data_timestamp = timestamp_ns
+        common_analysis_structure.world_frame = world_frame
+        common_analysis_structure.camera_frame = camera_frame
+        common_analysis_structure.camera_to_world_transform = runtime_world_T_camera
+        if timestamp_nanoseconds is not None:
+            common_analysis_structure.data_timestamp = timestamp_nanoseconds
 
         update_connection_transform(
             to_name=world_body.name,
@@ -131,45 +134,47 @@ class CameraInterface(object):
 
     def store_camera_to_world_transform(
         self,
-        cas: CAS,
+        common_analysis_structure: CommonAnalysisStructure,
         world_frame: str,
         camera_frame: str,
         world_T_camera: HomogeneousTransformationMatrix,
-        timestamp_ns: Optional[int] = None,
+        timestamp_nanoseconds: Optional[int] = None,
     ) -> None:
-        """Write a camera-to-world transform to the CAS and runtime world."""
-        self.store_camera_to_world_transform_in_cas(
-            cas=cas,
+        """Write a camera-to-world transform to the common analysis structure and runtime world."""
+        self.store_camera_to_world_transform_in_common_analysis_structure(
+            common_analysis_structure=common_analysis_structure,
             world_frame=world_frame,
             camera_frame=camera_frame,
             world_T_camera=world_T_camera,
-            timestamp_ns=timestamp_ns,
+            timestamp_nanoseconds=timestamp_nanoseconds,
         )
 
     def store_static_camera_transform_if_configured(
-        self, cas: CAS, timestamp_ns: Optional[int] = None
+        self,
+        common_analysis_structure: CommonAnalysisStructure,
+        timestamp_nanoseconds: Optional[int] = None,
     ) -> bool:
         """Write the configured static camera transform, if enabled."""
         if not self.camera_config.static_camera_transform_enabled:
             return False
 
         self.store_camera_to_world_transform(
-            cas=cas,
+            common_analysis_structure=common_analysis_structure,
             world_frame=self.camera_config.static_world_frame,
             camera_frame=self.camera_config.static_camera_frame,
             world_T_camera=self.camera_config.static_world_T_camera,
-            timestamp_ns=timestamp_ns,
+            timestamp_nanoseconds=timestamp_nanoseconds,
         )
         return True
 
-    def set_data(self, cas: CAS) -> None:
+    def set_data(self, common_analysis_structure: CommonAnalysisStructure) -> None:
         """
         This method is supposed to read in, convert (if needed) and put the data into
-        the CAS. If you are running a CameraInterface which is getting data via callback
+        the common analysis structure. If you are running a CameraInterface which is getting data via callback
         methods, please make sure to keep callbacks light and do the main conversion
         work here! Callbacks should be short.
 
-        :param cas: The CAS where the data should be placed in
+        :param common_analysis_structure: The common analysis structure where the data should be placed in
         """
         raise NotImplementedError
 
@@ -248,21 +253,23 @@ class ROSCameraInterface(CameraInterface):
                     float(rotation.z),
                     float(rotation.w),
                 ]
-            except Exception as err:
-                self.rk_logger.warning(
-                    f"cannot transform from {self.tf_from} to {self.tf_to} at ts {timestamp}: {err}"
+            except Exception as error:
+                self.robokudo_logger.warning(
+                    f"cannot transform from {self.tf_from} to {self.tf_to} at ts {timestamp}: {error}"
                 )
                 return False
         return True
 
     def store_camera_to_world_transform_from_tf(
-        self, cas: CAS, timestamp: builtin_interfaces.msg.Time
+        self,
+        common_analysis_structure: CommonAnalysisStructure,
+        timestamp: builtin_interfaces.msg.Time,
     ) -> None:
         """
         If the camera is configured to look up transforms, store the camera transform in
-        the CAS.
+        the common analysis structure.
 
-        :param cas: The CAS to store the transform in
+        :param common_analysis_structure: The common analysis structure to store the transform in
         :param timestamp: The timestamp of the transform
         """
         if self.lookup_viewpoint:
@@ -276,36 +283,40 @@ class ROSCameraInterface(CameraInterface):
                 quat_w=self.camera_quaternion[3],
             )
             super().store_camera_to_world_transform(
-                cas=cas,
+                common_analysis_structure=common_analysis_structure,
                 world_frame=self.tf_to,
                 camera_frame=self.tf_from,
                 world_T_camera=world_T_camera,
-                timestamp_ns=timestamp.sec * 1_000_000_000 + timestamp.nanosec,
+                timestamp_nanoseconds=timestamp.sec * 1_000_000_000 + timestamp.nanosec,
             )
 
     @staticmethod
-    def store_legacy_camera_to_world_transform_from_cas(cas: CAS) -> None:
-        """Create legacy StampedTransform from CAS camera_to_world_transform and data_timestamp.
+    def store_legacy_camera_to_world_transform_from_common_analysis_structure(
+        common_analysis_structure: CommonAnalysisStructure,
+    ) -> None:
+        """Create legacy StampedTransform from common analysis structure camera_to_world_transform and data_timestamp.
 
-        :param cas: The CAS to store the transform in
+        :param common_analysis_structure: The common analysis structure to store the transform in
         """
         warnings.warn(
-            "store_legacy_camera_to_world_transform_from_cas() is deprecated. "
-            "Use CASViews.CAMERA_TO_WORLD_TRANSFORM instead.",
+            "store_legacy_camera_to_world_transform_from_common_analysis_structure() is deprecated. "
+            "Use CommonAnalysisStructureViews.CAMERA_TO_WORLD_TRANSFORM instead.",
             DeprecationWarning,
             stacklevel=2,
         )
-        camera_to_world_transform = cas.camera_to_world_transform
+        camera_to_world_transform = common_analysis_structure.camera_to_world_transform
         if camera_to_world_transform is None:
-            raise KeyError("camera_to_world_transform not set in CAS")
+            raise KeyError(
+                "camera_to_world_transform not set in common analysis structure"
+            )
 
-        timestamp_ns = cas.data_timestamp
-        if timestamp_ns is None:
-            raise KeyError("timestamp_ns not set in CAS")
+        timestamp_nanoseconds = common_analysis_structure.data_timestamp
+        if timestamp_nanoseconds is None:
+            raise KeyError("timestamp_nanoseconds not set in common analysis structure")
 
         timestamp = builtin_interfaces.msg.Time(
-            sec=int(timestamp_ns // 1_000_000_000),
-            nanosec=int(timestamp_ns % 1_000_000_000),
+            sec=int(timestamp_nanoseconds // 1_000_000_000),
+            nanosec=int(timestamp_nanoseconds % 1_000_000_000),
         )
 
         translation = (
@@ -321,15 +332,19 @@ class ROSCameraInterface(CameraInterface):
             .tolist()
         )
 
-        st = StampedTransform()
-        st.rotation = rotation
-        st.translation = translation
+        stamped_transform = StampedTransform()
+        stamped_transform.rotation = rotation
+        stamped_transform.translation = translation
         if camera_to_world_transform.child_frame is not None:
-            st.frame = str(camera_to_world_transform.child_frame.name)
+            stamped_transform.frame = str(camera_to_world_transform.child_frame.name)
         if camera_to_world_transform.reference_frame is not None:
-            st.child_frame = str(camera_to_world_transform.reference_frame.name)
-        st.timestamp = timestamp
-        cas.views[CASViews.VIEWPOINT_CAMERA_TO_WORLD] = st
+            stamped_transform.child_frame = str(
+                camera_to_world_transform.reference_frame.name
+            )
+        stamped_transform.timestamp = timestamp
+        common_analysis_structure.views[
+            CommonAnalysisStructureViews.VIEWPOINT_CAMERA_TO_WORLD
+        ] = stamped_transform
 
     def set_o3d_camera_intrinsics_from_ros_camera_info(self) -> None:
         """Convert ROS camera info to Open3D camera intrinsics.
@@ -337,7 +352,7 @@ class ROSCameraInterface(CameraInterface):
         Creates an Open3D camera intrinsics object from the ROS camera calibration
         parameters.
         """
-        # Construct o3d camera intrinsics from camera info in CAS
+        # Construct o3d camera intrinsics from camera info in common analysis structure
         self.camera_intrinsic = o3d.camera.PinholeCameraIntrinsic()
         width = self.camera_info.width
         height = self.camera_info.height
@@ -348,23 +363,23 @@ class ROSCameraInterface(CameraInterface):
         self.camera_intrinsic.set_intrinsics(width, height, fx, fy, cx, cy)
 
 
-def depth_convert_workaround(msg: CompressedImage) -> npt.NDArray:
+def depth_convert_workaround(message: CompressedImage) -> npt.NDArray:
     """
     Convert compressed depth image to proper depth format.
 
     This is a workaround for handling compressed depth images in ROS.
     Source: https://answers.ros.org/question/249775/display-compresseddepth-image-python-cv2/
 
-    :param msg: Compressed depth image message
+    :param message: Compressed depth image message
     :return: Depth image as numpy array
     :raises Exception: If compression type is wrong or decoding fails
     """
-    # 'msg' as type CompressedImage
-    depth_fmt, compr_type = msg.format.split(";")
+    # 'message' as type CompressedImage
+    depth_fmt, compression_type = message.format.split(";")
     # remove white space
     depth_fmt = depth_fmt.strip()
-    compr_type = compr_type.strip()
-    if "compressedDepth" not in compr_type:
+    compression_type = compression_type.strip()
+    if "compressedDepth" not in compression_type:
         raise Exception(
             "Compression type is not 'compressedDepth'."
             "You probably subscribed to the wrong topic."
@@ -372,13 +387,13 @@ def depth_convert_workaround(msg: CompressedImage) -> npt.NDArray:
 
     # remove header from raw data
     depth_header_size = 12
-    raw_data = msg.data[depth_header_size:]
+    raw_data = message.data[depth_header_size:]
 
-    depth_img_raw = cv2.imdecode(
+    raw_depth_image = cv2.imdecode(
         np.frombuffer(raw_data, np.uint8), cv2.IMREAD_UNCHANGED
     )
     # replaced np.fromstring with np.frombuffer because np.fromstring is deprecated in newer versions of numpy
-    if depth_img_raw is None:
+    if raw_depth_image is None:
         # probably wrong header size
         raise Exception(
             "Could not decode compressed depth image."
@@ -387,21 +402,23 @@ def depth_convert_workaround(msg: CompressedImage) -> npt.NDArray:
 
     if depth_fmt == "16UC1":
         # write raw image data
-        return depth_img_raw
+        return raw_depth_image
     elif depth_fmt == "32FC1":
-        raw_header = msg.data[:depth_header_size]
+        raw_header = message.data[:depth_header_size]
         # header: int, float, float
-        [compfmt, depthQuantA, depthQuantB] = struct.unpack("iff", raw_header)
-        depth_img_scaled = depthQuantA / (
-            depth_img_raw.astype(np.float32) - depthQuantB
+        [compression_format, depth_quantization_a, depth_quantization_b] = (
+            struct.unpack("iff", raw_header)
+        )
+        scaled_depth_image = depth_quantization_a / (
+            raw_depth_image.astype(np.float32) - depth_quantization_b
         )
         # filter max values
-        depth_img_scaled[depth_img_raw == 0] = 0
+        scaled_depth_image[raw_depth_image == 0] = 0
 
-        # depth_img_scaled provides distance in meters as f32
+        # scaled_depth_image provides distance in meters as f32
         # for storing it as png, we need to convert it to 16UC1 again (depth in mm)
-        depth_img_mm = (depth_img_scaled * 1000).astype(np.uint16)
-        return depth_img_mm
+        depth_image_millimeters = (scaled_depth_image * 1000).astype(np.uint16)
+        return depth_image_millimeters
     else:
         raise Exception("Decoding of '" + depth_fmt + "' is not implemented!")
 
@@ -447,17 +464,17 @@ class KinectCameraInterface(ROSCameraInterface):
         # self.camera_info_sub = self.node.create_subscription(CameraInfo, camera_config.topic_camera_info,
         #                                                   self.blackhole_callback, 10)
 
-        ts = ApproximateTimeSynchronizer(
+        time_synchronizer = ApproximateTimeSynchronizer(
             [self.color_subscriber, self.depth_subscriber, self.camera_info_subscriber],
             queue_size=10,
             slop=0.4,
         )
-        ts.registerCallback(self.callback)
+        time_synchronizer.registerCallback(self.callback)
 
-        self.rk_logger.info("Subscribed to: ")
-        self.rk_logger.info(f"  {camera_config.topic_color}")
-        self.rk_logger.info(f"  {camera_config.topic_depth}")
-        self.rk_logger.info(f"  {camera_config.topic_camera_info}")
+        self.robokudo_logger.info("Subscribed to: ")
+        self.robokudo_logger.info(f"  {camera_config.topic_color}")
+        self.robokudo_logger.info(f"  {camera_config.topic_depth}")
+        self.robokudo_logger.info(f"  {camera_config.topic_camera_info}")
 
         self.color: Optional[npt.NDArray] = None
         """
@@ -550,8 +567,8 @@ class KinectCameraInterface(ROSCameraInterface):
         :param camera_info: Camera calibration message
         """
         self.lock.acquire()
-        if self.rk_logger.isEnabledFor(logging.DEBUG):
-            self.rk_logger.debug("Received data:")
+        if self.robokudo_logger.isEnabledFor(logging.DEBUG):
+            self.robokudo_logger.debug("Received data:")
 
             color_time = Time(
                 seconds=color_data.header.stamp.sec,
@@ -563,7 +580,7 @@ class KinectCameraInterface(ROSCameraInterface):
                     seconds=depth_data.header.stamp.sec,
                     nanoseconds=depth_data.header.stamp.nanosec,
                 )
-                self.rk_logger.debug(
+                self.robokudo_logger.debug(
                     f"  Color time - Depth time: {(color_time - depth_time).nanoseconds / 1e9:.6f}"
                 )
 
@@ -572,13 +589,13 @@ class KinectCameraInterface(ROSCameraInterface):
                     seconds=camera_info.header.stamp.sec,
                     nanoseconds=camera_info.header.stamp.nanosec,
                 )
-                self.rk_logger.debug(
+                self.robokudo_logger.debug(
                     f"  Color time - Camera Info time: {(color_time - camera_info_time).nanoseconds / 1e9:.6f}"
                 )
 
         if self.compressed_color_configured():
-            color_arr = np.frombuffer(color_data.data, np.uint8)
-            self.color = cv2.imdecode(color_arr, cv2.IMREAD_COLOR)
+            color_array = np.frombuffer(color_data.data, np.uint8)
+            self.color = cv2.imdecode(color_array, cv2.IMREAD_COLOR)
         else:
             self.color = self.bridge.imgmsg_to_cv2(color_data, "bgr8")
 
@@ -601,7 +618,7 @@ class KinectCameraInterface(ROSCameraInterface):
 
         self.camera_info = camera_info
 
-        # self.rk_logger.info("Callback processing done - Final steps")
+        # self.robokudo_logger.info("Callback processing done - Final steps")
         if not self.lookup_transform():
             self._has_new_data = False
             self.lock.release()
@@ -610,18 +627,18 @@ class KinectCameraInterface(ROSCameraInterface):
         self._has_new_data = True
         self.lock.release()
 
-    def set_data(self, cas: CAS) -> None:
+    def set_data(self, common_analysis_structure: CommonAnalysisStructure) -> None:
         if not self.has_new_data():
             return
 
         self.lock.acquire()
-        if self.camera_config.hi_res_mode:
+        if self.camera_config.high_resolution_mode:
             self.color = self.color[0:960, 0:1280]
 
         self.camera_intrinsic = o3d.camera.PinholeCameraIntrinsic()
         width = self.camera_info.width
         height = self.camera_info.height
-        if self.camera_config.hi_res_mode:
+        if self.camera_config.high_resolution_mode:
             height = 960
 
         fx = self.camera_info.k[0]
@@ -632,13 +649,25 @@ class KinectCameraInterface(ROSCameraInterface):
 
         self.color_to_depth_ratio = self.camera_config.color_to_depth_ratio
 
-        cas.set(CASViews.COLOR_IMAGE, self.color)
-        cas.set(CASViews.DEPTH_IMAGE, self.depth)
-        cas.set(CASViews.CAMERA_INFO, self.camera_info)
-        cas.set(CASViews.CAMERA_INTRINSIC, self.camera_intrinsic)
-        cas.set(CASViews.COLOR_TO_DEPTH_RATIO, self.color_to_depth_ratio)
+        common_analysis_structure.set(
+            CommonAnalysisStructureViews.COLOR_IMAGE, self.color
+        )
+        common_analysis_structure.set(
+            CommonAnalysisStructureViews.DEPTH_IMAGE, self.depth
+        )
+        common_analysis_structure.set(
+            CommonAnalysisStructureViews.CAMERA_INFO, self.camera_info
+        )
+        common_analysis_structure.set(
+            CommonAnalysisStructureViews.CAMERA_INTRINSIC, self.camera_intrinsic
+        )
+        common_analysis_structure.set(
+            CommonAnalysisStructureViews.COLOR_TO_DEPTH_RATIO, self.color_to_depth_ratio
+        )
 
-        self.store_camera_to_world_transform_from_tf(cas, self.timestamp)
+        self.store_camera_to_world_transform_from_tf(
+            common_analysis_structure, self.timestamp
+        )
 
         self._has_new_data = False
 

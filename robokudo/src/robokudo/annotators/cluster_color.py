@@ -2,7 +2,7 @@
 Robokudo Color Analysis Module.
 
 This module provides functionality for semantic color analysis of object hypotheses.
-It analyzes RGB regions of interest (ROIs) and masks to determine dominant colors
+It analyzes RGB regions of interest (regions of interest) and masks to determine dominant colors
 using HSV color space segmentation.
 
 .. warning::
@@ -23,9 +23,9 @@ from py_trees.common import Status
 from typing_extensions import TYPE_CHECKING, Dict, List, Tuple, Type
 
 from robokudo.annotators.core import BaseAnnotator
-from robokudo.cas import CASViews
+from robokudo.common_analysis_structure import CommonAnalysisStructureViews
 from robokudo.types.annotation import SemanticColor
-from robokudo.types.cv import Rect
+from robokudo.types.cv import Rectangle
 from robokudo.types.scene import AnalyzableAnnotation
 from robokudo.utils.cv_helper import crop_image
 
@@ -57,7 +57,7 @@ class Color(Enum):
 class ClusterColorAnnotator(BaseAnnotator):
     """
     Calculate the semantic color for every Object Hypothesis (cluster) that has a RGB
-    ROI and a Mask.
+    region of interest and a Mask.
 
     This annotator analyzes object hypotheses by:
 
@@ -90,9 +90,9 @@ class ClusterColorAnnotator(BaseAnnotator):
             """
 
             def __init__(self) -> None:
-                self.num_of_colors: int = 6
-                self.color_range: float = 256 / self.num_of_colors
-                self.jit_compile_on_init: bool = False
+                self.number_of_colors: int = 6
+                self.color_range: float = 256 / self.number_of_colors
+                self.just_in_time_compile_on_initialization: bool = False
                 self.min_value_color: int = 60
                 self.min_saturation_color: int = 60
                 self.max_value_black: int = 60
@@ -106,7 +106,7 @@ class ClusterColorAnnotator(BaseAnnotator):
     # To easily define this, we use RGB here and then flip it. OpenCV in python uses BGR per default.
     # Please note, that this color will not be used for the segmentation!
     # The segmentation is mainly done with self.color_hue_positions
-    color_name_to_bgr_values: Dict[Color, Tuple[int, ...]] = {
+    color_name_to_blue_green_red_values: Dict[Color, Tuple[int, ...]] = {
         Color.RED: tuple(reversed((255, 0, 0))),
         Color.YELLOW: tuple(reversed((255, 255, 0))),
         Color.GREEN: tuple(reversed((0, 255, 0))),
@@ -131,14 +131,14 @@ class ClusterColorAnnotator(BaseAnnotator):
         :param descriptor: Configuration descriptor
         """
         super().__init__(name, descriptor)
-        self.rk_logger.debug("%s.__init__()" % self.__class__.__name__)
+        self.robokudo_logger.debug("%s.__init__()" % self.__class__.__name__)
 
         # This list defines the range of a certain color.
         hue_intervals = [
             i * self.descriptor.parameters.color_range
             + self.descriptor.parameters.color_range / 2
             + 0.5
-            for i in range(0, self.descriptor.parameters.num_of_colors)
+            for i in range(0, self.descriptor.parameters.number_of_colors)
         ]
 
         self.color_hue_positions = {
@@ -151,17 +151,17 @@ class ClusterColorAnnotator(BaseAnnotator):
         }
 
         self.cluster_color_info: List[List[Tuple[Color, int, float]]] = []
-        self.cluster_rois: List[Rect] = []
+        self.cluster_regions_of_interest: List[Rectangle] = []
 
         # Trigger JIT by calling method first time with empty data
-        if self.descriptor.parameters.jit_compile_on_init:
-            start_timer_jit = default_timer()
+        if self.descriptor.parameters.just_in_time_compile_on_initialization:
+            compile_start_time = default_timer()
             hsv_image = np.array([[[0, 0, 0]]])
             mask = np.array([[0]])
             self.count_colors_numba(hsv_image, mask)
-            end_timer_jit = default_timer()
-            self.rk_logger.info(
-                f"Pre-compilation took {(end_timer_jit - start_timer_jit):.4f}s"
+            compile_end_time = default_timer()
+            self.robokudo_logger.info(
+                f"Pre-compilation took {(compile_end_time - compile_start_time):.4f}s"
             )
 
     def count_colors_numba(
@@ -178,27 +178,29 @@ class ClusterColorAnnotator(BaseAnnotator):
         :return: A tuple with the number of analyzed pixels (given by the mask) as well
             as a dict with the counted colors. The key is a Color enum from this module.
         """
-        counted_pixel_sum, color_count = ClusterColorAnnotator.count_colors_numba_impl(
-            hsv_image,
-            mask,
-            len(Color),
-            self.descriptor.parameters.min_saturation_color,
-            self.descriptor.parameters.min_value_color,
-            self.descriptor.parameters.max_value_black,
-            self.descriptor.parameters.min_value_white,
-            self.descriptor.parameters.num_of_colors,
-            self.descriptor.parameters.color_range,
+        counted_pixel_sum, color_count = (
+            ClusterColorAnnotator.count_colors_numba_implementation(
+                hsv_image,
+                mask,
+                len(Color),
+                self.descriptor.parameters.min_saturation_color,
+                self.descriptor.parameters.min_value_color,
+                self.descriptor.parameters.max_value_black,
+                self.descriptor.parameters.min_value_white,
+                self.descriptor.parameters.number_of_colors,
+                self.descriptor.parameters.color_range,
+            )
         )
 
         color_count_map = {}
-        for c in Color:
-            color_count_map[c] = color_count[c.value[0]]
+        for color in Color:
+            color_count_map[color] = color_count[color.value[0]]
 
         return counted_pixel_sum, color_count_map
 
     @staticmethod
     @numba.njit
-    def count_colors_numba_impl(
+    def count_colors_numba_implementation(
         hsv_image: npt.NDArray,
         mask: npt.NDArray,
         total_amount_of_colors: int,
@@ -242,9 +244,9 @@ class ClusterColorAnnotator(BaseAnnotator):
                 if mask[i][j] != 255:
                     continue
                 counted_pixel_sum += 1
-                hue, sat, val = hsv_image[i, j]
+                hue, saturation, value = hsv_image[i, j]
                 # Assume check is done in the right order to not mix up indices
-                if sat > min_saturation_color and val > min_value_color:
+                if saturation > min_saturation_color and value > min_value_color:
                     if hue < hue_intervals[Color.RED.value[0]]:
                         color_count[Color.RED.value[0]] += 1
                     elif hue < hue_intervals[Color.YELLOW.value[0]]:
@@ -259,9 +261,9 @@ class ClusterColorAnnotator(BaseAnnotator):
                         color_count[Color.MAGENTA.value[0]] += 1
                     else:
                         color_count[Color.RED.value[0]] += 1
-                elif val <= max_value_black:
+                elif value <= max_value_black:
                     color_count[Color.BLACK.value[0]] += 1
-                elif val > min_value_white:
+                elif value > min_value_white:
                     color_count[Color.WHITE.value[0]] += 1
                 else:
                     color_count[Color.GREY.value[0]] += 1
@@ -271,7 +273,7 @@ class ClusterColorAnnotator(BaseAnnotator):
         self, hsv_image: npt.NDArray, mask: npt.NDArray
     ) -> Tuple[int, dict]:
         """
-        Non-numba version of the count_colors_numba_impl method.
+        Non-numba version of the count_colors_numba_implementation method.
 
         Use only if you can't use numba.
 
@@ -286,70 +288,72 @@ class ClusterColorAnnotator(BaseAnnotator):
 
         # indices
         # hue = 0
-        # sat = 1
-        # val = 2
+        # saturation = 1
+        # value = 2
 
         # https://stackoverflow.com/questions/7662458/how-to-split-an-array-according-to-a-condition-in-numpy
         def split(
-            arr: npt.NDArray, cond: npt.NDArray
+            array: npt.NDArray, condition: npt.NDArray
         ) -> Tuple[npt.NDArray, npt.NDArray]:
-            return arr[cond], arr[~cond]
+            return array[condition], array[~condition]
 
         # Input matrix
-        im = all_image_pixel_values_in_mask
+        pixel_values = all_image_pixel_values_in_mask
 
         # We'll now create multiple pixel lists (pl) in a divide and conquer fashion.
         # Effectively reducing the number of pixels we have to analyze
         # We try to visit pixels as few times as possible.
-        pl_color, pl_bw_range = split(
-            im,
+        pixels_color, pixels_black_and_white_range = split(
+            pixel_values,
             np.logical_and(
-                im[:, 1] > self.descriptor.parameters.min_saturation_color,
-                im[:, 2] > self.descriptor.parameters.min_value_color,
+                pixel_values[:, 1] > self.descriptor.parameters.min_saturation_color,
+                pixel_values[:, 2] > self.descriptor.parameters.min_value_color,
             ),
         )
 
-        pl_black, pl_grey_white = split(
-            pl_bw_range, pl_bw_range[:, 2] <= self.descriptor.parameters.max_value_black
+        pixels_black, pixels_grey_white = split(
+            pixels_black_and_white_range,
+            pixels_black_and_white_range[:, 2]
+            <= self.descriptor.parameters.max_value_black,
         )
-        pl_white, pl_grey = split(
-            pl_grey_white,
-            pl_grey_white[:, 2] > self.descriptor.parameters.min_value_white,
+        pixels_white, pixels_grey = split(
+            pixels_grey_white,
+            pixels_grey_white[:, 2] > self.descriptor.parameters.min_value_white,
         )
 
         # Check on the HUE channel the color and reduce the list of pixels piece-by-piece
-        pl_red, pl_rest = split(
-            pl_color, pl_color[:, 0] < self.color_hue_positions[Color.RED]
+        pixels_red, pixels_rest = split(
+            pixels_color, pixels_color[:, 0] < self.color_hue_positions[Color.RED]
         )
-        pl_yellow, pl_rest = split(
-            pl_rest, pl_rest[:, 0] < self.color_hue_positions[Color.YELLOW]
+        pixels_yellow, pixels_rest = split(
+            pixels_rest, pixels_rest[:, 0] < self.color_hue_positions[Color.YELLOW]
         )
-        pl_green, pl_rest = split(
-            pl_rest, pl_rest[:, 0] < self.color_hue_positions[Color.GREEN]
+        pixels_green, pixels_rest = split(
+            pixels_rest, pixels_rest[:, 0] < self.color_hue_positions[Color.GREEN]
         )
-        pl_cyan, pl_rest = split(
-            pl_rest, pl_rest[:, 0] < self.color_hue_positions[Color.CYAN]
+        pixels_cyan, pixels_rest = split(
+            pixels_rest, pixels_rest[:, 0] < self.color_hue_positions[Color.CYAN]
         )
-        pl_blue, pl_rest = split(
-            pl_rest, pl_rest[:, 0] < self.color_hue_positions[Color.BLUE]
+        pixels_blue, pixels_rest = split(
+            pixels_rest, pixels_rest[:, 0] < self.color_hue_positions[Color.BLUE]
         )
-        pl_magenta, pl_rest = split(
-            pl_rest, pl_rest[:, 0] < self.color_hue_positions[Color.MAGENTA]
+        pixels_magenta, pixels_rest = split(
+            pixels_rest, pixels_rest[:, 0] < self.color_hue_positions[Color.MAGENTA]
         )
-        pl_red = np.append(
-            pl_red, pl_rest
+        pixels_red = np.append(
+            pixels_red, pixels_rest
         )  # the rest can be considered as red in the HUE scale
 
         color_count = {
-            Color.RED: len(pl_red),
-            Color.YELLOW: len(pl_yellow),
-            Color.GREEN: len(pl_green),
-            Color.CYAN: len(pl_cyan),
-            Color.BLUE: len(pl_blue),
-            Color.MAGENTA: len(pl_magenta),
-            Color.WHITE: len(pl_white),
-            Color.BLACK: len(pl_black),
-            Color.GREY: len(pl_grey),
+            Color.RED: len(pixels_red),
+            Color.YELLOW: len(pixels_yellow),
+            Color.GREEN: len(pixels_green),
+            Color.CYAN: len(pixels_cyan),
+            Color.BLUE: len(pixels_blue),
+            Color.MAGENTA: len(pixels_magenta),
+            Color.WHITE: len(pixels_white),
+            Color.BLACK: len(pixels_black),
+            Color.GREY: len(pixels_grey),
         }
 
         return len(all_image_pixel_values_in_mask), color_count
@@ -369,25 +373,29 @@ class ClusterColorAnnotator(BaseAnnotator):
         """
         start_timer = default_timer()
 
-        cloud = self.get_cas().get(CASViews.CLOUD)
-        color = self.get_cas().get(CASViews.COLOR_IMAGE)
+        cloud = self.get_common_analysis_structure().get(
+            CommonAnalysisStructureViews.CLOUD
+        )
+        color = self.get_common_analysis_structure().get(
+            CommonAnalysisStructureViews.COLOR_IMAGE
+        )
 
         # List for visualization purposes
         self.cluster_color_info = []
-        self.cluster_rois = []
+        self.cluster_regions_of_interest = []
 
         self.create_color_annotations(color)
 
-        visualization_img = copy.deepcopy(color)
-        visualization_img = self.draw_visualization(visualization_img)
+        visualization_image = copy.deepcopy(color)
+        visualization_image = self.draw_visualization(visualization_image)
 
         # 3D Visualization
         vis_geometries = [
             {"name": "Cloud", "geometry": cloud},
         ]
 
-        self.get_annotator_output_struct().set_geometries(vis_geometries)
-        self.get_annotator_output_struct().set_image(visualization_img)
+        self.get_annotator_output_structure().set_geometries(vis_geometries)
+        self.get_annotator_output_structure().set_image(visualization_image)
 
         end_timer = default_timer()
         self.feedback_message = f"Processing took {(end_timer - start_timer):.4f}s"
@@ -397,7 +405,7 @@ class ClusterColorAnnotator(BaseAnnotator):
         """
         Create color annotations for all object hypotheses.
 
-        For each object hypothesis with a valid ROI mask:
+        For each object hypothesis with a valid region of interest mask:
 
         * Extract color image region and mask
         * Convert to HSV color space
@@ -409,43 +417,46 @@ class ClusterColorAnnotator(BaseAnnotator):
         :param color: Input color image
         """
         # Iterate over everything that is an Object hypothesis and calculate the colors
-        object_hypotheses = self.get_cas().filter_annotations_by_type(
-            self.descriptor.parameters.analysis_scope
+        object_hypotheses = (
+            self.get_common_analysis_structure().filter_annotations_by_type(
+                self.descriptor.parameters.analysis_scope
+            )
         )
 
         for object_hypothesis in object_hypotheses:
-            if object_hypothesis.roi.mask is None:
+            if object_hypothesis.region_of_interest.mask is None:
                 continue
 
-            roi = object_hypothesis.roi.roi
+            rectangle = object_hypothesis.region_of_interest.rectangle
 
-            cluster_color_img = color[
-                roi.pos.y : roi.pos.y + roi.height, roi.pos.x : roi.pos.x + roi.width
+            cluster_color_image = color[
+                rectangle.position.y : rectangle.position.y + rectangle.height,
+                rectangle.position.x : rectangle.position.x + rectangle.width,
             ]
 
-            cluster_mask = object_hypothesis.roi.mask
+            cluster_mask = object_hypothesis.region_of_interest.mask
 
-            # If you need to manually check the ROI color calcuation, you can overwrite ROI images:
-            # cluster_color_img = np.zeros((300, 300, 3), np.uint8)
-            # cluster_color_img[:] = self.color_bgr_values[ClusterColorAnnotator.Color.GREY]
+            # If you need to manually check the region of interest color calcuation, you can overwrite region of interest images:
+            # cluster_color_image = np.zeros((300, 300, 3), np.uint8)
+            # cluster_color_image[:] = self.color_bgr_values[ClusterColorAnnotator.Color.GREY]
             # cluster_mask = np.zeros((300, 300), np.uint8)
             # cluster_mask[:] = 255  # take everything
 
-            color_height, color_width, color_dim = cluster_color_img.shape
+            color_height, color_width, color_channel_count = cluster_color_image.shape
             mask_height, mask_width = cluster_mask.shape
 
             assert color_height == mask_height
             assert color_width == mask_width
 
             # Convert to HSV_FULL. FULL is important, # because otherwise you just get H=0...180
-            cluster_hsv_color_img = cv2.cvtColor(
-                cluster_color_img, cv2.COLOR_BGR2HSV_FULL
+            cluster_hsv_color_image = cv2.cvtColor(
+                cluster_color_image, cv2.COLOR_BGR2HSV_FULL
             )
 
             # Uncomment the following line if you want to use the non-numba version (roughly 100% slower)
-            # color_count_result = self.count_colors(cluster_hsv_color_img, cluster_mask)
+            # color_count_result = self.count_colors(cluster_hsv_color_image, cluster_mask)
             total_pixel_count, color_count_dict = self.count_colors_numba(
-                cluster_hsv_color_img, cluster_mask
+                cluster_hsv_color_image, cluster_mask
             )
 
             # Sort list by color count. Highest value comes first.
@@ -459,7 +470,7 @@ class ClusterColorAnnotator(BaseAnnotator):
                     )
                     for color_name, color_pixel_count in color_count_dict.items()
                 ],
-                key=lambda tup: tup[1],
+                key=lambda pair: pair[1],
                 reverse=True,
             )
 
@@ -480,33 +491,38 @@ class ClusterColorAnnotator(BaseAnnotator):
 
             # Prepare visualization
             self.cluster_color_info.append(color_count_result_sorted_by_count)
-            self.cluster_rois.append(roi)
+            self.cluster_regions_of_interest.append(rectangle)
 
-    def draw_visualization(self, visualization_img: npt.NDArray) -> npt.NDArray:
+    def draw_visualization(self, visualization_image: npt.NDArray) -> npt.NDArray:
         """
         Draw visualization of detected colors on the image.
 
-        For each ROI:
+        For each region of interest:
 
         * Draw bounding box in dominant color
-        * Add text label with ROI index and dominant color name
+        * Add text label with region of interest index and dominant color name
         * Create color histogram showing distribution of detected colors
 
-        :param visualization_img: Image to draw visualization on
+        :param visualization_image: Image to draw visualization on
         :return: Image with visualization overlays
         """
-        for i, roi in enumerate(self.cluster_rois):
-            cci = self.cluster_color_info[i]
-            dominant_color = cci[0][0]
+        for i, rectangle in enumerate(self.cluster_regions_of_interest):
+            cluster_color_information = self.cluster_color_info[i]
+            dominant_color = cluster_color_information[0][0]
             assert isinstance(dominant_color, Color)
-            dominant_color_value = self.color_name_to_bgr_values[dominant_color]
+            dominant_color_value = self.color_name_to_blue_green_red_values[
+                dominant_color
+            ]
 
-            upper_left = (roi.pos.x, roi.pos.y)
-            upper_left_text = (roi.pos.x, roi.pos.y - 5)
+            upper_left = (rectangle.position.x, rectangle.position.y)
+            upper_left_text = (
+                rectangle.position.x,
+                rectangle.position.y - 5,
+            )
 
             font = cv2.FONT_HERSHEY_COMPLEX
-            visualization_img = cv2.putText(
-                visualization_img,
+            visualization_image = cv2.putText(
+                visualization_image,
                 f"{i}: {dominant_color.name}",
                 upper_left_text,
                 font,
@@ -515,30 +531,36 @@ class ClusterColorAnnotator(BaseAnnotator):
                 1,
                 2,
             )
-            visualization_img = cv2.rectangle(
-                visualization_img,
+            visualization_image = cv2.rectangle(
+                visualization_image,
                 upper_left,
-                (roi.pos.x + roi.width, roi.pos.y + roi.height),
+                (
+                    rectangle.position.x + rectangle.width,
+                    rectangle.position.y + rectangle.height,
+                ),
                 dominant_color_value,
                 2,
             )
 
             # Prepare Histogram
-            histogram_size = roi.width, 10
-            histogram_upper_left = (roi.pos.x, roi.pos.y + roi.height + 1)
+            histogram_size = rectangle.width, 10
+            histogram_upper_left = (
+                rectangle.position.x,
+                rectangle.position.y + rectangle.height + 1,
+            )
             histogram_lower_right = (
-                roi.pos.x + histogram_size[0],
-                roi.pos.y + roi.height + 1 + histogram_size[1],
+                rectangle.position.x + histogram_size[0],
+                rectangle.position.y + rectangle.height + 1 + histogram_size[1],
             )
             histogram_region = crop_image(
-                visualization_img, histogram_upper_left, histogram_size
+                visualization_image, histogram_upper_left, histogram_size
             )
 
             histogram_region[:] = (255, 255, 255)
 
             # Draw the border of the Histogram
-            visualization_img = cv2.rectangle(
-                visualization_img,
+            visualization_image = cv2.rectangle(
+                visualization_image,
                 histogram_upper_left,
                 histogram_lower_right,
                 (0, 0, 0),
@@ -549,23 +571,23 @@ class ClusterColorAnnotator(BaseAnnotator):
             # Get the ratios of the colors, calculate their width and draw them into the region of the image
             # where the histogram is located.
             start = 0
-            for elem in cci:
+            for element in cluster_color_information:
                 # Triple: Name, Count, Ratio
-                hist_color = elem[0]
-                assert isinstance(hist_color, Color)
-                ratio = elem[2]
-                hist_color_width = histogram_size[0] * ratio
-                hist_color_rect = (
+                histogram_color = element[0]
+                assert isinstance(histogram_color, Color)
+                ratio = element[2]
+                histogram_color_width = histogram_size[0] * ratio
+                histogram_color_rectangle = (
                     int(start + 0.5),
                     0,
-                    int(hist_color_width + 0.5),
+                    int(histogram_color_width + 0.5),
                     histogram_size[1],
                 )
-                start += hist_color_width
+                start += histogram_color_width
                 cv2.rectangle(
                     histogram_region,
-                    hist_color_rect,
-                    self.color_name_to_bgr_values[hist_color],
+                    histogram_color_rectangle,
+                    self.color_name_to_blue_green_red_values[histogram_color],
                     thickness=-1,
                 )
-        return visualization_img
+        return visualization_image

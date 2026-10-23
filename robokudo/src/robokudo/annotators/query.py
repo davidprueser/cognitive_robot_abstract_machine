@@ -8,7 +8,7 @@ It supports:
 * Type-agnostic query processing
 * Asynchronous query response
 * Integration with ROS action system
-* CAS annotation with query data
+* common analysis structure annotation with query data
 
 The module is used for:
 
@@ -17,6 +17,8 @@ The module is used for:
 * Interactive perception tasks
 * Asynchronous data exchange
 """
+
+from __future__ import annotations
 
 import logging
 import queue
@@ -35,9 +37,9 @@ from robokudo_msgs.msg import ObjectDesignator
 from typing_extensions import Any, Optional, Type
 
 from robokudo.annotators.core import BaseAnnotator
-from robokudo.cas import CASViews
-from robokudo.defs import LOGGING_IDENTIFIER_QUERY, PACKAGE_NAME
-from robokudo.identifier import BBIdentifier
+from robokudo.common_analysis_structure import CommonAnalysisStructureViews
+from robokudo.definitions import LOGGING_IDENTIFIER_QUERY, PACKAGE_NAME
+from robokudo.identifier import BlackboardIdentifier
 from robokudo.types.annotation import (
     BoundingBox3DAnnotation,
     Classification,
@@ -56,17 +58,17 @@ from robokudo.types.cv import BoundingBox3D
 from robokudo.types.scene import ObjectHypothesis
 from robokudo.utils.annotation_conversion import (
     BoundingBox3DForShapeSizeConverter,
-    Classification2ODConverter,
-    Cuboid2ODConverter,
-    Cylinder2ODConverter,
-    Location2ODConverter,
-    Pose2ODConverter,
-    Position2ODConverter,
-    SemanticColor2ODConverter,
-    Shape2ODConverter,
-    Sphere2ODConverter,
-    StampedPose2ODConverter,
-    StampedPosition2ODConverter,
+    ClassificationToObjectDesignatorConverter,
+    CuboidToObjectDesignatorConverter,
+    CylinderToObjectDesignatorConverter,
+    LocationToObjectDesignatorConverter,
+    PoseToObjectDesignatorConverter,
+    PositionToObjectDesignatorConverter,
+    SemanticColorToObjectDesignatorConverter,
+    ShapeToObjectDesignatorConverter,
+    SphereToObjectDesignatorConverter,
+    StampedPoseToObjectDesignatorConverter,
+    StampedPositionToObjectDesignatorConverter,
 )
 from robokudo.utils.error_handling import (
     clear_blackboard_exception,
@@ -81,9 +83,9 @@ class QueryAnnotator(BaseAnnotator):
     Handle external queries through ROS action server.
 
     This Annotator spawns an Action Server that listens for Queries from external ROS
-    nodes. It will then annotate the CAS and put the Query into CASViews.QUERY. The
+    nodes. It will then annotate the common analysis structure and put the Query into CommonAnalysisStructureViews.QUERY. The
     Annotator and the Actionserver are type-agnostic, which means that you are not bound
-    to a specific type of query. You can pass these from your AE to this QueryAnnotator.
+    to a specific type of query. You can pass these from your analysis engine to this QueryAnnotator.
     """
 
     def __init__(self, name: str = "QueryAnnotator") -> None:
@@ -115,36 +117,38 @@ class QueryAnnotator(BaseAnnotator):
         Sets up the action server if not already initialized. Stores server instance on
         blackboard for access by other nodes.
         """
-        self.rk_logger.debug(f"{self.__class__.__name__}.initialise()")
+        self.robokudo_logger.debug(f"{self.__class__.__name__}.initialise()")
         blackboard = Blackboard()
-        if not blackboard.exists(BBIdentifier.QUERY_SERVER):
+        if not blackboard.exists(BlackboardIdentifier.QUERY_SERVER):
             query_action_server = QueryActionServer(name="query")
-            blackboard.set(BBIdentifier.QUERY_SERVER, query_action_server)
+            blackboard.set(BlackboardIdentifier.QUERY_SERVER, query_action_server)
 
-        blackboard.set(BBIdentifier.QUERY_SERVER_IN_PIPELINE, True)
+        blackboard.set(BlackboardIdentifier.QUERY_SERVER_IN_PIPELINE, True)
 
-        self.action_server = blackboard.get(BBIdentifier.QUERY_SERVER)
+        self.action_server = blackboard.get(BlackboardIdentifier.QUERY_SERVER)
 
     def update(self) -> Status:
         """
-        Process new queries and update CAS.
+        Process new queries and update common analysis structure.
 
-        Checks for new queries from action server and updates CAS if found. Provides
+        Checks for new queries from action server and updates common analysis structure if found. Provides
         feedback about query status.
 
         :return: SUCCESS if query processed, RUNNING if waiting
         """
-        self.rk_logger.debug(f"{self.__class__.__name__}.update()")
+        self.robokudo_logger.debug(f"{self.__class__.__name__}.update()")
 
         assert (
             self.action_server is not None
         ), "Action server should be initialized by now."
         query = self.action_server.new_query
-        self.rk_logger.debug(f"self.action_server.new_query: {query}")
+        self.robokudo_logger.debug(f"self.action_server.new_query: {query}")
 
         if query:
             self.feedback_message = f"Query: {query}"
-            self.get_cas().set(CASViews.QUERY, query)
+            self.get_common_analysis_structure().set(
+                CommonAnalysisStructureViews.QUERY, query
+            )
             self.action_server.start_processing()
             # self.publish_feedback()
 
@@ -159,23 +163,23 @@ class QueryFeedback(BaseAnnotator):
     A test class which simply generates a fixed-string feedback.
     """
 
-    def __init__(self, name: str = "QueryFeedback", feedback_str: str = "") -> None:
+    def __init__(self, name: str = "QueryFeedback", feedback_string: str = "") -> None:
         """
         Initialize query feedback generator.
 
         :param name: Annotator name
-        :param feedback_str: Feedback string to send to the client
+        :param feedback_string: Feedback string to send to the client
         """
         super().__init__(name=name)
 
-        self.feedback_str = feedback_str
+        self.feedback_string = feedback_string
         """
         Feedback string to send to the client.
         """
 
     def update(self) -> Status:
-        self.rk_logger.debug(f"{self.__class__.__name__}.update()")
-        QueryHandler.send_feedback_str(self.feedback_str)
+        self.robokudo_logger.debug(f"{self.__class__.__name__}.update()")
+        QueryHandler.send_feedback_string(self.feedback_string)
 
         return Status.SUCCESS
 
@@ -216,8 +220,8 @@ class QueryFeedbackAndCount(BaseAnnotator):
         """
 
     def update(self) -> Status:
-        self.rk_logger.debug(f"{self.__class__.__name__}.update()")
-        QueryHandler.send_feedback_str(f"Count: {self.i}")
+        self.robokudo_logger.debug(f"{self.__class__.__name__}.update()")
+        QueryHandler.send_feedback_string(f"Count: {self.i}")
         self.i = self.i + 1
         if self.i > self.count_until:
             self.i = 0
@@ -234,7 +238,7 @@ class QueryReply(BaseAnnotator):
     Create a single, empty Object Designator that will be sent to the caller.
     """
 
-    def __init__(self, name: str = "QueryReply"):
+    def __init__(self, name: str = "QueryReply") -> None:
         """
         Initialize query reply generator.
 
@@ -246,7 +250,7 @@ class QueryReply(BaseAnnotator):
         """
         Initialize reply generator.
         """
-        self.rk_logger.debug(f"{self.__class__.__name__}.initialise()")
+        self.robokudo_logger.debug(f"{self.__class__.__name__}.initialise()")
 
     def update(self) -> Status:
         """
@@ -256,9 +260,9 @@ class QueryReply(BaseAnnotator):
 
         :return: SUCCESS after generating response
         """
-        self.rk_logger.debug(f"{self.__class__.__name__}.update()")
+        self.robokudo_logger.debug(f"{self.__class__.__name__}.update()")
         result = Query.Result()
-        od = ObjectDesignator()
+        object_designator = ObjectDesignator()
 
         pose_stamped = PoseStamped()
 
@@ -272,8 +276,8 @@ class QueryReply(BaseAnnotator):
         pose_stamped.pose.orientation.z = float(0)
         pose_stamped.pose.orientation.w = float(1)
 
-        od.pose.append(pose_stamped)
-        result.res = [od]
+        object_designator.pose.append(pose_stamped)
+        result.res = [object_designator]
 
         QueryHandler.send_answer(result)
 
@@ -305,20 +309,20 @@ class GenerateQueryResult(BaseAnnotator):
         :param name: Annotator name
         :param descriptor: Annotator configuration descriptor
         """
-        self.rk_logger = logging.getLogger(PACKAGE_NAME)
+        self.robokudo_logger = logging.getLogger(PACKAGE_NAME)
 
-        self.color_converter = SemanticColor2ODConverter()
-        self.class_converter = Classification2ODConverter()
-        self.position_converter = Position2ODConverter()
-        self.stamped_position_converter = StampedPosition2ODConverter()
-        self.pose_converter = Pose2ODConverter()
-        self.stamped_pose_converter = StampedPose2ODConverter()
-        self.shape_converter = Shape2ODConverter()
-        self.cuboid_converter = Cuboid2ODConverter()
-        self.cylinder_converter = Cylinder2ODConverter()
-        self.sphere_converter = Sphere2ODConverter()
-        self.location_converter = Location2ODConverter()
-        self.bb_size_converter = BoundingBox3DForShapeSizeConverter()
+        self.color_converter = SemanticColorToObjectDesignatorConverter()
+        self.class_converter = ClassificationToObjectDesignatorConverter()
+        self.position_converter = PositionToObjectDesignatorConverter()
+        self.stamped_position_converter = StampedPositionToObjectDesignatorConverter()
+        self.pose_converter = PoseToObjectDesignatorConverter()
+        self.stamped_pose_converter = StampedPoseToObjectDesignatorConverter()
+        self.shape_converter = ShapeToObjectDesignatorConverter()
+        self.cuboid_converter = CuboidToObjectDesignatorConverter()
+        self.cylinder_converter = CylinderToObjectDesignatorConverter()
+        self.sphere_converter = SphereToObjectDesignatorConverter()
+        self.location_converter = LocationToObjectDesignatorConverter()
+        self.bounding_box_size_converter = BoundingBox3DForShapeSizeConverter()
 
         self.type_converter = {
             SemanticColor: self.color_converter,
@@ -332,8 +336,8 @@ class GenerateQueryResult(BaseAnnotator):
             Cylinder: self.cylinder_converter,
             Sphere: self.sphere_converter,
             LocationAnnotation: self.location_converter,
-            BoundingBox3D: self.bb_size_converter,
-            BoundingBox3DAnnotation: self.bb_size_converter,
+            BoundingBox3D: self.bounding_box_size_converter,
+            BoundingBox3DAnnotation: self.bounding_box_size_converter,
         }
         self.query_matcher = ObjectHypothesisQueryMatcher()
 
@@ -341,9 +345,9 @@ class GenerateQueryResult(BaseAnnotator):
 
     def update(self) -> Status:
         """
-        Generate query result from current CAS annotations.
+        Generate query result from current common analysis structure annotations.
 
-        For each ObjectHypothesis in CAS:
+        For each ObjectHypothesis in common analysis structure:
         * Creates ObjectDesignator
         * Adds color information if available
         * Adds classification if available
@@ -354,18 +358,21 @@ class GenerateQueryResult(BaseAnnotator):
         """
         if QueryHandler.preempt_requested():
             QueryHandler.acknowledge_preempt_request()
-            self.rk_logger.warning("Acknowledge preempt")
+            self.robokudo_logger.warning("Acknowledge preempt")
             return Status.FAILURE
 
-        cas = self.get_cas()
-        annotations = cas.annotations
+        common_analysis_structure = self.get_common_analysis_structure()
+        annotations = common_analysis_structure.annotations
         object_hypotheses_count = 0
         skipped_object_hypotheses_count = 0
         query_result = []
         result = Query.Result()
         requested_object = None
-        if self.descriptor.parameters.filter_by_query and cas.contains(CASViews.QUERY):
-            query = cas.get(CASViews.QUERY)
+        if (
+            self.descriptor.parameters.filter_by_query
+            and common_analysis_structure.contains(CommonAnalysisStructureViews.QUERY)
+        ):
+            query = common_analysis_structure.get(CommonAnalysisStructureViews.QUERY)
             requested_object = query.obj
 
         for annotation in annotations:
@@ -380,22 +387,28 @@ class GenerateQueryResult(BaseAnnotator):
 
             object_designator = ObjectDesignator()
 
-            for oh_annotation in annotation.annotations:
-                converter = self.type_converter.get(type(oh_annotation), None)
+            for object_hypothesis_annotation in annotation.annotations:
+                converter = self.type_converter.get(
+                    type(object_hypothesis_annotation), None
+                )
                 if converter is None:
-                    self.rk_logger.warning(
-                        f"no converter available for annotation type {type(oh_annotation)}, skipping annotation."
+                    self.robokudo_logger.warning(
+                        f"no converter available for annotation type {type(object_hypothesis_annotation)}, skipping annotation."
                     )
                     continue
-                if not converter.can_convert(oh_annotation):
-                    self.rk_logger.warning(
-                        f"converter for {type(oh_annotation)} available but cannot convert, skipping annotation."
+                if not converter.can_convert(object_hypothesis_annotation):
+                    self.robokudo_logger.warning(
+                        f"converter for {type(object_hypothesis_annotation)} available but cannot convert, skipping annotation."
                     )
                     continue
 
-                converter.convert(oh_annotation, cas, object_designator)
-                self.rk_logger.info(
-                    f"converted {type(oh_annotation)} on OH {object_hypotheses_count}"
+                converter.convert(
+                    object_hypothesis_annotation,
+                    common_analysis_structure,
+                    object_designator,
+                )
+                self.robokudo_logger.info(
+                    f"converted {type(object_hypothesis_annotation)} on object hypothesis {object_hypotheses_count}"
                 )
 
             query_result.append(object_designator)
@@ -435,9 +448,9 @@ class QueryActionServer(Node):
             self,
             action_type,
             self._action_name,
-            execute_callback=self.execute_cb,
-            goal_callback=self.goal_cb,
-            cancel_callback=self.cancel_cb,
+            execute_callback=self.execute_callback,
+            goal_callback=self.goal_callback,
+            cancel_callback=self.cancel_callback,
         )
         """
         Action server instance.
@@ -458,7 +471,7 @@ class QueryActionServer(Node):
         """
         Currently processing query.
         """
-        self.reset_bookkeeping_vars()
+        self.reset_bookkeeping_variables()
 
         self.query_processed_event: Event = Event()
         """
@@ -466,7 +479,7 @@ class QueryActionServer(Node):
         """
         self.logger = logging.getLogger(LOGGING_IDENTIFIER_QUERY)
 
-    def reset_bookkeeping_vars(self) -> None:
+    def reset_bookkeeping_variables(self) -> None:
         """
         Reset internal state variables.
 
@@ -474,18 +487,18 @@ class QueryActionServer(Node):
         """
         self.query = None
         self.new_query = None
-        Blackboard().set(BBIdentifier.QUERY_ANSWER, None)
-        Blackboard().set(BBIdentifier.QUERY_FEEDBACK, queue.Queue())
-        Blackboard().set(BBIdentifier.QUERY_PREEMPT_REQUESTED, False)
-        Blackboard().set(BBIdentifier.QUERY_PREEMPT_ACK, False)
+        Blackboard().set(BlackboardIdentifier.QUERY_ANSWER, None)
+        Blackboard().set(BlackboardIdentifier.QUERY_FEEDBACK, queue.Queue())
+        Blackboard().set(BlackboardIdentifier.QUERY_PREEMPT_REQUESTED, False)
+        Blackboard().set(BlackboardIdentifier.QUERY_PREEMPT_ACKNOWLEDGED, False)
 
-    def goal_cb(self, goal_request: Query.Goal) -> GoalResponse:
+    def goal_callback(self, goal_request: Query.Goal) -> GoalResponse:
         self.logger.info(f"Received new goal: {goal_request}")
         return GoalResponse.ACCEPT
 
-    def cancel_cb(self, goal_handle: ServerGoalHandle) -> CancelResponse:
+    def cancel_callback(self, goal_handle: ServerGoalHandle) -> CancelResponse:
         self.logger.info(f"Received cancel request:{goal_handle}")
-        Blackboard().set(BBIdentifier.QUERY_PREEMPT_REQUESTED, True)
+        Blackboard().set(BlackboardIdentifier.QUERY_PREEMPT_REQUESTED, True)
         return CancelResponse.ACCEPT
 
     def start_processing(self) -> None:
@@ -506,7 +519,9 @@ class QueryActionServer(Node):
         """
         return self.query is not None
 
-    async def execute_cb(self, goal_handle: ServerGoalHandle) -> Optional[Query.Result]:
+    async def execute_callback(
+        self, goal_handle: ServerGoalHandle
+    ) -> Optional[Query.Result]:
         """
         Action server execution callback.
 
@@ -526,7 +541,7 @@ class QueryActionServer(Node):
         self.logger.info("Begin waiting for new_query")
         self.logger.info("Processing query...")
 
-        feedback_queue = Blackboard().get(BBIdentifier.QUERY_FEEDBACK)
+        feedback_queue = Blackboard().get(BlackboardIdentifier.QUERY_FEEDBACK)
         self.logger.info("Start watching")
 
         while rclpy.ok():
@@ -534,13 +549,15 @@ class QueryActionServer(Node):
 
             # At least one node in the Tree has to acknowledge the preempt request. This allows the tree
             # to properly shutdown.
-            preempt_acknowledge = Blackboard().get(BBIdentifier.QUERY_PREEMPT_ACK)
+            preempt_acknowledge = Blackboard().get(
+                BlackboardIdentifier.QUERY_PREEMPT_ACKNOWLEDGED
+            )
             if goal_handle.is_cancel_requested and preempt_acknowledge:
                 self.logger.info("Goal cancel acknowledged by PPT.")
                 goal_handle.canceled()
                 cancel_result = Query.Result()
                 cancel_result.text_result = "Canceled"
-                self.reset_bookkeeping_vars()
+                self.reset_bookkeeping_variables()
                 return cancel_result
 
             if has_blackboard_exception():
@@ -550,14 +567,14 @@ class QueryActionServer(Node):
                 goal_handle.abort()
                 abort_result = Query.Result()
                 abort_result.text_result = "Aborted"
-                self.reset_bookkeeping_vars()
+                self.reset_bookkeeping_variables()
                 return abort_result
 
             try:
-                feedback_msg = feedback_queue.get_nowait()
-                if isinstance(feedback_msg, Query.Feedback):
+                feedback_message = feedback_queue.get_nowait()
+                if isinstance(feedback_message, Query.Feedback):
                     self.feedback_instance.feedback = (
-                        feedback_msg.feedback
+                        feedback_message.feedback
                     )  # Adjust based on actual field
                     goal_handle.publish_feedback(self.feedback_instance)
                     self.logger.info(
@@ -566,11 +583,11 @@ class QueryActionServer(Node):
             except queue.Empty:
                 pass
 
-            answer = Blackboard().get(BBIdentifier.QUERY_ANSWER)
+            answer = Blackboard().get(BlackboardIdentifier.QUERY_ANSWER)
             if answer is not None:
                 goal_handle.succeed()
                 self.logger.info(f"Send: {answer}")
-                self.reset_bookkeeping_vars()
+                self.reset_bookkeeping_variables()
                 return answer
 
         goal_handle.abort()

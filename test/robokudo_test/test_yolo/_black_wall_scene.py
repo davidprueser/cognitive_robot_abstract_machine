@@ -13,7 +13,7 @@ from krrood.ormatic.utils import classproperty
 from semantic_digital_twin.datastructures.camera_resolution import CameraResolution
 
 from robokudo.annotators.core import BaseAnnotator
-from robokudo.cas import CASViews
+from robokudo.common_analysis_structure import CommonAnalysisStructureViews
 from robokudo.pipeline import Pipeline
 from robokudo.types.cv import ColorToDepthRatio
 
@@ -36,7 +36,7 @@ class BlackWallScene:
         default_factory=lambda: CameraResolution(width=80, height=40)
     )
     """
-    Resolution of the color images in the CAS.
+    Resolution of the color images in the common analysis structure.
     """
 
     wall_distance: float = 1.0
@@ -65,7 +65,7 @@ class BlackWallScene:
         self, annotator: BaseAnnotator, color_to_depth_ratio: float = 1.0
     ) -> None:
         """
-        Set the annotator up in a pipeline whose CAS holds the scene's color image and a
+        Set the annotator up in a pipeline whose common analysis structure holds the scene's color image and a
         matching depth image.
 
         :param color_to_depth_ratio: Size of the depth image relative to the color
@@ -79,24 +79,26 @@ class BlackWallScene:
         color_height, color_width = self.resolution.height, self.resolution.width
         depth_height = int(color_height * color_to_depth_ratio)
         depth_width = int(color_width * color_to_depth_ratio)
-        cas = annotator.get_cas()
-        cas.set(CASViews.COLOR_IMAGE, self.color_image())
-        cas.set(
-            CASViews.DEPTH_IMAGE,
+        common_analysis_structure = annotator.get_common_analysis_structure()
+        common_analysis_structure.set(
+            CommonAnalysisStructureViews.COLOR_IMAGE, self.color_image()
+        )
+        common_analysis_structure.set(
+            CommonAnalysisStructureViews.DEPTH_IMAGE,
             np.full(
                 (depth_height, depth_width),
                 round(self.wall_distance * self.depth_image_units_per_meter),
                 dtype=np.uint16,
             ),
         )
-        cas.set(
-            CASViews.COLOR_TO_DEPTH_RATIO,
+        common_analysis_structure.set(
+            CommonAnalysisStructureViews.COLOR_TO_DEPTH_RATIO,
             ColorToDepthRatio(
                 horizontal=color_to_depth_ratio, vertical=color_to_depth_ratio
             ),
         )
-        cas.set(
-            CASViews.CAMERA_INTRINSIC,
+        common_analysis_structure.set(
+            CommonAnalysisStructureViews.CAMERA_INTRINSIC,
             o3d.camera.PinholeCameraIntrinsic(
                 color_width,
                 color_height,

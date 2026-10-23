@@ -21,7 +21,7 @@ from py_trees.common import Status
 from typing_extensions import TYPE_CHECKING, Optional
 
 from robokudo.annotators.core import BaseAnnotator
-from robokudo.cas import CASViews
+from robokudo.common_analysis_structure import CommonAnalysisStructureViews
 from robokudo.utils.annotator_helper import (
     transform_cloud_from_camera_to_world,
     transform_cloud_from_world_to_camera,
@@ -40,7 +40,7 @@ class PointcloudCropAnnotator(BaseAnnotator):
     The crop is either done in sensor coordinates (default) or relative to the world frame.
 
     .. warning::
-       When using world coordinates, requires valid camera-to-world transform in CAS.
+       When using world coordinates, requires valid camera-to-world transform in common analysis structure.
     """
 
     class Descriptor(BaseAnnotator.Descriptor):
@@ -85,7 +85,7 @@ class PointcloudCropAnnotator(BaseAnnotator):
         :param descriptor: Configuration descriptor
         """
         super().__init__(name, descriptor)
-        self.rk_logger.debug("%s.__init__()" % self.__class__.__name__)
+        self.robokudo_logger.debug("%s.__init__()" % self.__class__.__name__)
 
         self.color: Optional[npt.NDArray] = None
         """A copy of the color image currently being worked with."""
@@ -96,25 +96,31 @@ class PointcloudCropAnnotator(BaseAnnotator):
 
         The method:
 
-        * Loads point cloud and camera data from CAS
+        * Loads point cloud and camera data from common analysis structure
         * Optionally transforms to world coordinates
         * Crops using axis-aligned bounding box
         * Generates visualization mask
-        * Updates CAS with cropped cloud
+        * Updates common analysis structure with cropped cloud
         * Creates combined visualization
 
         :return: SUCCESS after processing
         :raises Exception: If world transform not found when needed
         """
         start_timer = default_timer()
-        self.rk_logger.warning(f"{self.__class__.__name__} called for update()")
+        self.robokudo_logger.warning(f"{self.__class__.__name__} called for update()")
 
-        cloud = self.get_cas().get(CASViews.CLOUD)
-        self.color = self.get_cas().get(CASViews.COLOR_IMAGE)
-        pointcloud_camera_intrinsics = self.get_cas().get(
-            CASViews.POINTCLOUD_CAMERA_INTRINSIC
+        cloud = self.get_common_analysis_structure().get(
+            CommonAnalysisStructureViews.CLOUD
         )
-        color_to_depth_ratio = self.get_cas().get(CASViews.COLOR_TO_DEPTH_RATIO)
+        self.color = self.get_common_analysis_structure().get(
+            CommonAnalysisStructureViews.COLOR_IMAGE
+        )
+        pointcloud_camera_intrinsics = self.get_common_analysis_structure().get(
+            CommonAnalysisStructureViews.POINTCLOUD_CAMERA_INTRINSIC
+        )
+        color_to_depth_ratio = self.get_common_analysis_structure().get(
+            CommonAnalysisStructureViews.COLOR_TO_DEPTH_RATIO
+        )
 
         #
         # Lookup camera information if the crop should be done relative to the world frame
@@ -122,11 +128,13 @@ class PointcloudCropAnnotator(BaseAnnotator):
 
         if self.descriptor.parameters.relative_to_world:
             try:
-                cloud = transform_cloud_from_camera_to_world(self.get_cas(), cloud)
-            except Exception as e:
-                self.rk_logger.warning(
-                    f"Couldn't find camera viewpoint in the CAS and relative_to_world is true. "
-                    f"Fail. Error: {e}"
+                cloud = transform_cloud_from_camera_to_world(
+                    self.get_common_analysis_structure(), cloud
+                )
+            except Exception as exception:
+                self.robokudo_logger.warning(
+                    f"Couldn't find camera viewpoint in the common analysis structure and relative_to_world is true. "
+                    f"Fail. Error: {exception}"
                 )
                 return Status.FAILURE
 
@@ -135,7 +143,7 @@ class PointcloudCropAnnotator(BaseAnnotator):
         #
         assert isinstance(cloud, o3d.geometry.PointCloud)
 
-        abb = o3d.geometry.AxisAlignedBoundingBox(
+        axis_aligned_bounding_box = o3d.geometry.AxisAlignedBoundingBox(
             [
                 self.descriptor.parameters.min_x,
                 self.descriptor.parameters.min_y,
@@ -148,19 +156,21 @@ class PointcloudCropAnnotator(BaseAnnotator):
             ],
         )
 
-        cropped_cloud = cloud.crop(abb)
+        cropped_cloud = cloud.crop(axis_aligned_bounding_box)
 
         # Transform cloud back to camera coordinates if it has been transformed to world before
         if self.descriptor.parameters.relative_to_world:
             cropped_cloud_transformed = transform_cloud_from_world_to_camera(
-                self.get_cas(), cropped_cloud
+                self.get_common_analysis_structure(), cropped_cloud
             )
             cropped_cloud = cropped_cloud_transformed
 
         assert isinstance(cropped_cloud, o3d.geometry.PointCloud)
 
-        self.get_cas().set_ref(CASViews.CLOUD, cropped_cloud)
-        self.get_annotator_output_struct().set_geometries(cropped_cloud)
+        self.get_common_analysis_structure().set_reference(
+            CommonAnalysisStructureViews.CLOUD, cropped_cloud
+        )
+        self.get_annotator_output_structure().set_geometries(cropped_cloud)
 
         mask_scale = 1.0 / color_to_depth_ratio.horizontal
         mask = get_mask_from_pointcloud(
@@ -168,10 +178,10 @@ class PointcloudCropAnnotator(BaseAnnotator):
             self.color,
             pointcloud_camera_intrinsics,
             mask_scale_factor=mask_scale,
-            crop_to_ref=True,
+            crop_to_reference=True,
         )
         combined_mask_color = cv2.addWeighted(self.color, 0.5, mask, 0.5, 0)
-        self.get_annotator_output_struct().set_image(combined_mask_color)
+        self.get_annotator_output_structure().set_image(combined_mask_color)
 
         end_timer = default_timer()
         self.feedback_message = f"Processing took {(end_timer - start_timer):.4f}s"

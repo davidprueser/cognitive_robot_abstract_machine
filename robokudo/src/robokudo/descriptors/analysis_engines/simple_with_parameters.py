@@ -21,10 +21,10 @@ from robokudo.analysis_engine import AnalysisEngineInterface
 from robokudo.annotators.collection_reader import CollectionReaderAnnotator
 from robokudo.annotators.image_preprocessor import ImagePreprocessorAnnotator
 from robokudo.annotators.testing import SlowAnnotator
-from robokudo.descriptors.factories.cr_descriptor_factory import (
+from robokudo.descriptors.factories.collection_reader_descriptor_factory import (
     CollectionReaderDescriptorFactory,
 )
-from robokudo.idioms import pipeline_init
+from robokudo.idioms import pipeline_initialization
 from robokudo.pipeline import Pipeline
 
 
@@ -66,7 +66,7 @@ class AnalysisEngine(AnalysisEngineInterface):
         Pipeline configuration:
 
         * Kinect camera interface setup
-        * Image preprocessor with depth_trunc = 4.5m
+        * Image preprocessor with depth_truncation = 4.5m
         * Slow annotator for processing simulation
 
         :return: The configured pipeline with custom parameters
@@ -74,12 +74,12 @@ class AnalysisEngine(AnalysisEngineInterface):
         kinect_config = CollectionReaderDescriptorFactory.create_descriptor("kinect")
 
         image_preprocessor_config = ImagePreprocessorAnnotator.Descriptor()
-        image_preprocessor_config.parameters.depth_trunc = 4.5
+        image_preprocessor_config.parameters.depth_truncation = 4.5
 
         seq = Pipeline("RWPipeline")
         seq.add_children(
             [
-                pipeline_init(),
+                pipeline_initialization(),
                 CollectionReaderAnnotator(descriptor=kinect_config),
                 ImagePreprocessorAnnotator(
                     "ImagePreprocessor", descriptor=image_preprocessor_config

@@ -1,3 +1,4 @@
+from __future__ import annotations
 import sys
 
 import numpy as np
@@ -6,7 +7,10 @@ import sensor_msgs.msg
 from geometry_msgs.msg import PoseStamped
 from scipy.spatial.transform import Rotation as R
 
-from robokudo.cas import CAS, CASViews
+from robokudo.common_analysis_structure import (
+    CommonAnalysisStructure,
+    CommonAnalysisStructureViews,
+)
 from robokudo.types.annotation import (
     PoseAnnotation,
     StampedPoseAnnotation,
@@ -26,27 +30,27 @@ from robokudo.types.tf import StampedTransform
 from robokudo.utils.annotation_conversion import (
     PoseAnnotationToStampedPoseAnnotationConverter,
     PositionAnnotationToStampedPoseAnnotationConverter,
-    SemanticColor2ODConverter,
-    Classification2ODConverter,
-    StampedPose2ODConverter,
-    Pose2ODConverter,
-    Position2ODConverter,
-    StampedPosition2ODConverter,
+    SemanticColorToObjectDesignatorConverter,
+    ClassificationToObjectDesignatorConverter,
+    StampedPoseToObjectDesignatorConverter,
+    PoseToObjectDesignatorConverter,
+    PositionToObjectDesignatorConverter,
+    StampedPositionToObjectDesignatorConverter,
     BoundingBox3DForShapeSizeConverter,
-    Shape2ODConverter,
-    Cuboid2ODConverter,
-    Cylinder2ODConverter,
-    Sphere2ODConverter,
-    Location2ODConverter,
+    ShapeToObjectDesignatorConverter,
+    CuboidToObjectDesignatorConverter,
+    CylinderToObjectDesignatorConverter,
+    SphereToObjectDesignatorConverter,
+    LocationToObjectDesignatorConverter,
 )
 from robokudo_msgs.msg import ObjectDesignator, ShapeSize
 
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
 from semantic_digital_twin.world_description.geometry import (
-    Box as SemDTBox,
-    Cylinder as SemDTCylinder,
-    Sphere as SemDTSphere,
+    Box as SemanticDigitalTwinBox,
+    Cylinder as SemanticDigitalTwinCylinder,
+    Sphere as SemanticDigitalTwinSphere,
 )
 from semantic_digital_twin.world_description.world_entity import Region
 from . import _assertions
@@ -54,14 +58,14 @@ from . import _assertions
 
 class TestUtilsAnnotationConversion(object):
     @pytest.fixture
-    def cas_with_tf(self):
-        cas = CAS()
+    def common_analysis_structure_with_transform(self) -> CommonAnalysisStructure:
+        common_analysis_structure = CommonAnalysisStructure()
 
         # tf = StampedTransform()
         # tf.rotation = (-0.5, 0.5, -0.5, 0.5)
         # tf.translation = (0.5, 0.5, 0.5)
-        # cas.set(CASViews.VIEWPOINT_CAMERA_TO_WORLD, tf)
-        cas.camera_to_world_transform = (
+        # common_analysis_structure.set(CommonAnalysisStructureViews.VIEWPOINT_CAMERA_TO_WORLD, tf)
+        common_analysis_structure.camera_to_world_transform = (
             HomogeneousTransformationMatrix.from_xyz_quaternion(
                 pos_x=0.5,
                 pos_y=0.5,
@@ -83,10 +87,12 @@ class TestUtilsAnnotationConversion(object):
         kinect_camera_info.k[2] = 1050.0
         kinect_camera_info.k[4] = 639.5
         kinect_camera_info.k[5] = 479.5
-        cas.set(CASViews.CAMERA_INFO, kinect_camera_info)
-        return cas
+        common_analysis_structure.set(
+            CommonAnalysisStructureViews.CAMERA_INFO, kinect_camera_info
+        )
+        return common_analysis_structure
 
-    def test_pose_annotation_to_stamped_pose_annotation_can_convert(self):
+    def test_pose_annotation_to_stamped_pose_annotation_can_convert(self) -> None:
         converter = PoseAnnotationToStampedPoseAnnotationConverter()
 
         pose_annotation = PoseAnnotation()
@@ -100,7 +106,7 @@ class TestUtilsAnnotationConversion(object):
             converter.can_convert(position_annotation, StampedPoseAnnotation) == False
         )
 
-    def test_pose_annotation_to_stamped_pose_annotation_convert(self):
+    def test_pose_annotation_to_stamped_pose_annotation_convert(self) -> None:
         converter = PoseAnnotationToStampedPoseAnnotationConverter()
 
         pose_annotation = PoseAnnotation()
@@ -116,7 +122,7 @@ class TestUtilsAnnotationConversion(object):
             stamped_pose_annotation.translation == pose_annotation.translation
         )
 
-    def test_position_annotation_to_stamped_pose_annotation_can_convert(self):
+    def test_position_annotation_to_stamped_pose_annotation_can_convert(self) -> None:
         converter = PositionAnnotationToStampedPoseAnnotationConverter()
 
         pose_annotation = PoseAnnotation()
@@ -128,65 +134,67 @@ class TestUtilsAnnotationConversion(object):
 
         assert converter.can_convert(position_annotation, PoseAnnotation) == False
 
-    def test_position_annotation_to_stamped_pose_annotation_convert(self):
+    def test_position_annotation_to_stamped_pose_annotation_convert(self) -> None:
         converter = PositionAnnotationToStampedPoseAnnotationConverter()
 
-        pos_annotation = PositionAnnotation()
-        pos_annotation.source = "some_weird_no_default_source"
-        pos_annotation.translation = np.random.rand(3)
+        position_annotation = PositionAnnotation()
+        position_annotation.source = "some_weird_no_default_source"
+        position_annotation.translation = np.random.rand(3)
 
-        stamped_pose_annotation = converter.convert(pos_annotation)
+        stamped_pose_annotation = converter.convert(position_annotation)
 
-        assert stamped_pose_annotation.source == pos_annotation.source
-        assert np.all(stamped_pose_annotation.translation == pos_annotation.translation)
+        assert stamped_pose_annotation.source == position_annotation.source
+        assert np.all(
+            stamped_pose_annotation.translation == position_annotation.translation
+        )
 
-    def test_semantic_color_2_od_converter_can_convert(self):
-        converter = SemanticColor2ODConverter()
+    def test_semantic_color_to_object_designator_converter_can_convert(self) -> None:
+        converter = SemanticColorToObjectDesignatorConverter()
         assert converter.can_convert(SemanticColor()) == True
         assert converter.can_convert(Annotation()) == False
 
-    def test_semantic_color_2_od_converter_convert(self):
-        cas = CAS()
-        od = ObjectDesignator()
+    def test_semantic_color_to_object_designator_converter_convert(self) -> None:
+        common_analysis_structure = CommonAnalysisStructure()
+        object_designator = ObjectDesignator()
 
-        converter = SemanticColor2ODConverter()
+        converter = SemanticColorToObjectDesignatorConverter()
 
         semantic_color = SemanticColor()
         semantic_color.color = "some_weird_non_default_color"
 
-        converter.convert(semantic_color, cas, od)
+        converter.convert(semantic_color, common_analysis_structure, object_designator)
 
-        assert len(od.color) == 1
-        assert od.color[0] == semantic_color.color
+        assert len(object_designator.color) == 1
+        assert object_designator.color[0] == semantic_color.color
 
-    def test_classification_2_od_converter_can_convert(self):
-        converter = Classification2ODConverter()
+    def test_classification_to_object_designator_converter_can_convert(self) -> None:
+        converter = ClassificationToObjectDesignatorConverter()
         assert converter.can_convert(Classification()) == True
         assert converter.can_convert(Annotation()) == False
 
-    def test_classification_2_od_converter_convert(self):
-        cas = CAS()
-        od = ObjectDesignator()
+    def test_classification_to_object_designator_converter_convert(self) -> None:
+        common_analysis_structure = CommonAnalysisStructure()
+        object_designator = ObjectDesignator()
 
-        converter = Classification2ODConverter()
+        converter = ClassificationToObjectDesignatorConverter()
 
         classification = Classification()
         classification.classname = "some_weird_non_default_classname"
 
-        converter.convert(classification, cas, od)
+        converter.convert(classification, common_analysis_structure, object_designator)
 
-        assert od.type == classification.classname
+        assert object_designator.type == classification.classname
 
-    def test_stamped_pose_2_od_converter_can_convert(self):
-        converter = StampedPose2ODConverter()
+    def test_stamped_pose_to_object_designator_converter_can_convert(self) -> None:
+        converter = StampedPoseToObjectDesignatorConverter()
         assert converter.can_convert(StampedPoseAnnotation()) == True
         assert converter.can_convert(Annotation()) == False
 
-    def test_stamped_pose_2_od_converter_convert(self):
-        cas = CAS()
-        od = ObjectDesignator()
+    def test_stamped_pose_to_object_designator_converter_convert(self) -> None:
+        common_analysis_structure = CommonAnalysisStructure()
+        object_designator = ObjectDesignator()
 
-        converter = StampedPose2ODConverter()
+        converter = StampedPoseToObjectDesignatorConverter()
 
         stamped_pose_annotation = StampedPoseAnnotation()
         stamped_pose_annotation.source = "some_weird_non_default_source"
@@ -195,10 +203,12 @@ class TestUtilsAnnotationConversion(object):
         stamped_pose_annotation.frame = "some_weird_non_default_frame_id"
         stamped_pose_annotation.timestamp = np.random.randint(sys.maxsize)
 
-        converter.convert(stamped_pose_annotation, cas, od)
+        converter.convert(
+            stamped_pose_annotation, common_analysis_structure, object_designator
+        )
 
-        assert len(od.pose) == 1
-        pose: PoseStamped = od.pose[0]
+        assert len(object_designator.pose) == 1
+        pose: PoseStamped = object_designator.pose[0]
         assert pose.header.stamp.sec == stamped_pose_annotation.timestamp
         assert pose.header.frame_id == stamped_pose_annotation.frame
         assert pose.pose.position.x == stamped_pose_annotation.translation[0]
@@ -209,29 +219,35 @@ class TestUtilsAnnotationConversion(object):
         assert pose.pose.orientation.z == stamped_pose_annotation.rotation[2]
         assert pose.pose.orientation.w == stamped_pose_annotation.rotation[3]
 
-    def test_pose_2_od_converter_can_convert(self):
-        converter = Pose2ODConverter()
+    def test_pose_to_object_designator_converter_can_convert(self) -> None:
+        converter = PoseToObjectDesignatorConverter()
         assert converter.can_convert(PoseAnnotation()) == True
         assert converter.can_convert(Annotation()) == False
 
-    def test_pose_2_od_converter_convert_in_camera(self, cas_with_tf: CAS):
-        # cas_with_tf.set(CASViews.VIEWPOINT_CAMERA_TO_WORLD, None)
-        cas_with_tf.camera_to_world_transform = None
-        kinect_camera_info = cas_with_tf.get(CASViews.CAMERA_INFO)
+    def test_pose_to_object_designator_converter_convert_in_camera(
+        self, common_analysis_structure_with_transform: CommonAnalysisStructure
+    ) -> None:
+        # common_analysis_structure_with_transform.set(CommonAnalysisStructureViews.VIEWPOINT_CAMERA_TO_WORLD, None)
+        common_analysis_structure_with_transform.camera_to_world_transform = None
+        kinect_camera_info = common_analysis_structure_with_transform.get(
+            CommonAnalysisStructureViews.CAMERA_INFO
+        )
 
-        od = ObjectDesignator()
+        object_designator = ObjectDesignator()
 
-        converter = Pose2ODConverter()
+        converter = PoseToObjectDesignatorConverter()
 
         pose_annotation = PoseAnnotation()
         pose_annotation.source = "some_weird_non_default_source"
         pose_annotation.translation = np.random.rand(3)
         pose_annotation.rotation = np.random.rand(4)
 
-        converter.convert(pose_annotation, cas_with_tf, od)
+        converter.convert(
+            pose_annotation, common_analysis_structure_with_transform, object_designator
+        )
 
-        assert len(od.pose) == 1
-        pose: PoseStamped = od.pose[0]
+        assert len(object_designator.pose) == 1
+        pose: PoseStamped = object_designator.pose[0]
         assert pose.header.frame_id == kinect_camera_info.header.frame_id
         assert pose.header.stamp.sec == kinect_camera_info.header.stamp.sec
         assert (
@@ -245,29 +261,36 @@ class TestUtilsAnnotationConversion(object):
         assert pose.pose.orientation.z == pose_annotation.rotation[2]
         assert pose.pose.orientation.w == pose_annotation.rotation[3]
 
-    def test_pose_2_od_converter_convert_in_world(self, cas_with_tf: CAS):
-        camera_to_world_quat = (
-            cas_with_tf.camera_to_world_transform.quaternion.to_list()
+    def test_pose_to_object_designator_converter_convert_in_world(
+        self, common_analysis_structure_with_transform: CommonAnalysisStructure
+    ) -> None:
+        camera_to_world_quaternion = (
+            common_analysis_structure_with_transform.camera_to_world_transform.quaternion.to_list()
         )
-        kinect_camera_info = cas_with_tf.get(CASViews.CAMERA_INFO)
+        kinect_camera_info = common_analysis_structure_with_transform.get(
+            CommonAnalysisStructureViews.CAMERA_INFO
+        )
 
-        od = ObjectDesignator()
+        object_designator = ObjectDesignator()
 
-        converter = Pose2ODConverter()
+        converter = PoseToObjectDesignatorConverter()
 
         pose_annotation = PoseAnnotation()
         pose_annotation.source = "some_weird_non_default_source"
         pose_annotation.translation = np.random.rand(3)
         pose_annotation.rotation = np.random.rand(4)
 
-        converter.convert(pose_annotation, cas_with_tf, od)
+        converter.convert(
+            pose_annotation, common_analysis_structure_with_transform, object_designator
+        )
 
         new_rotation = (
-            R.from_quat(camera_to_world_quat) * R.from_quat(pose_annotation.rotation)
+            R.from_quat(camera_to_world_quaternion)
+            * R.from_quat(pose_annotation.rotation)
         ).as_quat(True)
 
-        assert len(od.pose) == 1
-        pose: PoseStamped = od.pose[0]
+        assert len(object_designator.pose) == 1
+        pose: PoseStamped = object_designator.pose[0]
         assert pose.header.frame_id == "map"
         assert pose.header.stamp.sec == kinect_camera_info.header.stamp.sec
         assert (
@@ -281,8 +304,8 @@ class TestUtilsAnnotationConversion(object):
         assert np.isclose(pose.pose.orientation.z, new_rotation[2])
         assert np.isclose(pose.pose.orientation.w, new_rotation[3])
 
-    def test_position_2_od_converter_can_convert(self):
-        converter = Position2ODConverter()
+    def test_position_to_object_designator_converter_can_convert(self) -> None:
+        converter = PositionToObjectDesignatorConverter()
 
         position_annotation = PositionAnnotation()
         other_ann = Annotation()
@@ -290,48 +313,56 @@ class TestUtilsAnnotationConversion(object):
         assert converter.can_convert(position_annotation) == True
         assert converter.can_convert(other_ann) == False
 
-    def test_position_2_od_converter_convert(self, cas_with_tf: CAS):
-        camera_to_world_quat = (
-            cas_with_tf.camera_to_world_transform.quaternion.to_list()
+    def test_position_to_object_designator_converter_convert(
+        self, common_analysis_structure_with_transform: CommonAnalysisStructure
+    ) -> None:
+        camera_to_world_quaternion = (
+            common_analysis_structure_with_transform.camera_to_world_transform.quaternion.to_list()
         )
 
-        od = ObjectDesignator()
+        object_designator = ObjectDesignator()
 
-        converter = Position2ODConverter()
+        converter = PositionToObjectDesignatorConverter()
 
         position_annotation = PositionAnnotation()
         position_annotation.source = "some_weird_non_default_source"
         position_annotation.translation = np.random.rand(3)
 
-        converter.convert(position_annotation, cas_with_tf, od)
+        converter.convert(
+            position_annotation,
+            common_analysis_structure_with_transform,
+            object_designator,
+        )
 
-        assert len(od.pose) == 1
-        pose: PoseStamped = od.pose[0]
+        assert len(object_designator.pose) == 1
+        pose: PoseStamped = object_designator.pose[0]
         assert pose.pose.position.x == position_annotation.translation[2] + 0.5
         assert pose.pose.position.y == -position_annotation.translation[0] + 0.5
         assert pose.pose.position.z == -position_annotation.translation[1] + 0.5
-        _assertions.assert_quat_equal_up_to_sign(
+        _assertions.assert_quaternion_equal_up_to_sign(
             [
                 pose.pose.orientation.x,
                 pose.pose.orientation.y,
                 pose.pose.orientation.z,
                 pose.pose.orientation.w,
             ],
-            camera_to_world_quat,
+            camera_to_world_quaternion,
         )
 
-    def test_stamped_position_2_od_converter_can_convert(self):
-        converter = StampedPosition2ODConverter()
+    def test_stamped_position_to_object_designator_converter_can_convert(self) -> None:
+        converter = StampedPositionToObjectDesignatorConverter()
         assert converter.can_convert(StampedPositionAnnotation()) == True
         assert converter.can_convert(Annotation()) == False
 
-    def test_stamped_position_2_od_converter_convert(self, cas_with_tf: CAS):
-        camera_to_world_quat = (
-            cas_with_tf.camera_to_world_transform.quaternion.to_list()
+    def test_stamped_position_to_object_designator_converter_convert(
+        self, common_analysis_structure_with_transform: CommonAnalysisStructure
+    ) -> None:
+        camera_to_world_quaternion = (
+            common_analysis_structure_with_transform.camera_to_world_transform.quaternion.to_list()
         )
-        od = ObjectDesignator()
+        object_designator = ObjectDesignator()
 
-        converter = StampedPosition2ODConverter()
+        converter = StampedPositionToObjectDesignatorConverter()
 
         stamped_pose_annotation = StampedPoseAnnotation()
         stamped_pose_annotation.source = "some_weird_non_default_source"
@@ -340,153 +371,159 @@ class TestUtilsAnnotationConversion(object):
         stamped_pose_annotation.frame = "some_weird_non_default_frame_id"
         stamped_pose_annotation.timestamp = np.random.randint(sys.maxsize)
 
-        converter.convert(stamped_pose_annotation, cas_with_tf, od)
+        converter.convert(
+            stamped_pose_annotation,
+            common_analysis_structure_with_transform,
+            object_designator,
+        )
 
-        assert len(od.pose) == 1
-        pose: PoseStamped = od.pose[0]
+        assert len(object_designator.pose) == 1
+        pose: PoseStamped = object_designator.pose[0]
         assert pose.header.stamp.sec == stamped_pose_annotation.timestamp
         assert pose.header.frame_id == stamped_pose_annotation.frame
         assert pose.pose.position.x == stamped_pose_annotation.translation[2] + 0.5
         assert pose.pose.position.y == -stamped_pose_annotation.translation[0] + 0.5
         assert pose.pose.position.z == -stamped_pose_annotation.translation[1] + 0.5
-        _assertions.assert_quat_equal_up_to_sign(
+        _assertions.assert_quaternion_equal_up_to_sign(
             [
                 pose.pose.orientation.x,
                 pose.pose.orientation.y,
                 pose.pose.orientation.z,
                 pose.pose.orientation.w,
             ],
-            camera_to_world_quat,
+            camera_to_world_quaternion,
         )
 
-    def test_bounding_box_3d_for_shape_size_converter_can_convert(self):
+    def test_bounding_box_3d_for_shape_size_converter_can_convert(self) -> None:
         converter = BoundingBox3DForShapeSizeConverter()
         assert converter.can_convert(BoundingBox3D()) == True
         assert converter.can_convert(Annotation()) == False
 
-    def test_bounding_box_3d_for_shape_size_converter_convert(self):
-        od = ObjectDesignator()
-        cas = CAS()
+    def test_bounding_box_3d_for_shape_size_converter_convert(self) -> None:
+        object_designator = ObjectDesignator()
+        common_analysis_structure = CommonAnalysisStructure()
 
         converter = BoundingBox3DForShapeSizeConverter()
 
-        bbox3d = BoundingBox3D()
-        bbox3d.x_length = np.random.randint(sys.maxsize)
-        bbox3d.y_length = np.random.randint(sys.maxsize)
-        bbox3d.z_length = np.random.randint(sys.maxsize)
+        bounding_box_3d = BoundingBox3D()
+        bounding_box_3d.x_length = np.random.randint(sys.maxsize)
+        bounding_box_3d.y_length = np.random.randint(sys.maxsize)
+        bounding_box_3d.z_length = np.random.randint(sys.maxsize)
 
-        converter.convert(bbox3d, cas, od)
+        converter.convert(bounding_box_3d, common_analysis_structure, object_designator)
 
         assert (
-            od.size == ""
+            object_designator.size == ""
         )  # TODO: Correct assertion when implementation of converter is complete
-        assert len(od.shape_size) == 1
-        shape_size: ShapeSize = od.shape_size[0]
-        assert shape_size.dimensions.x == float(bbox3d.x_length)
-        assert shape_size.dimensions.y == float(bbox3d.y_length)
-        assert shape_size.dimensions.z == float(bbox3d.z_length)
+        assert len(object_designator.shape_size) == 1
+        shape_size: ShapeSize = object_designator.shape_size[0]
+        assert shape_size.dimensions.x == float(bounding_box_3d.x_length)
+        assert shape_size.dimensions.y == float(bounding_box_3d.y_length)
+        assert shape_size.dimensions.z == float(bounding_box_3d.z_length)
         assert shape_size.radius == 0.0
 
-    def test_shape_2_od_converter_can_convert(self):
-        converter = Shape2ODConverter()
+    def test_shape_to_object_designator_converter_can_convert(self) -> None:
+        converter = ShapeToObjectDesignatorConverter()
         assert converter.can_convert(Shape()) == True
         assert converter.can_convert(Annotation()) == False
 
-    def test_shape_2_od_converter_convert(self):
-        od = ObjectDesignator()
+    def test_shape_to_object_designator_converter_convert(self) -> None:
+        object_designator = ObjectDesignator()
 
-        converter = Shape2ODConverter()
+        converter = ShapeToObjectDesignatorConverter()
 
         shape = Shape()
-        shape.geometry = SemDTSphere(radius=0.17)
+        shape.geometry = SemanticDigitalTwinSphere(radius=0.17)
 
-        converter.convert(shape, CAS(), od)
+        converter.convert(shape, CommonAnalysisStructure(), object_designator)
 
-        assert len(od.shape) == 1
-        assert od.shape[0] == shape.shape_name
+        assert len(object_designator.shape) == 1
+        assert object_designator.shape[0] == shape.shape_name
 
-    def test_cuboid_2_od_converter_can_convert(self):
-        converter = Cuboid2ODConverter()
+    def test_cuboid_to_object_designator_converter_can_convert(self) -> None:
+        converter = CuboidToObjectDesignatorConverter()
         assert converter.can_convert(Cuboid()) == True
         assert converter.can_convert(Annotation()) == False
 
-    def test_cuboid_2_od_converter_convert(self):
-        od = ObjectDesignator()
+    def test_cuboid_to_object_designator_converter_convert(self) -> None:
+        object_designator = ObjectDesignator()
 
-        converter = Cuboid2ODConverter()
+        converter = CuboidToObjectDesignatorConverter()
 
         shape = Cuboid()
-        shape.geometry = SemDTBox()
+        shape.geometry = SemanticDigitalTwinBox()
 
-        converter.convert(shape, CAS(), od)
+        converter.convert(shape, CommonAnalysisStructure(), object_designator)
 
-        assert len(od.shape) == 1
-        assert od.shape[0] == shape.shape_name
+        assert len(object_designator.shape) == 1
+        assert object_designator.shape[0] == shape.shape_name
 
-    def test_sphere_2_od_converter_can_convert(self):
-        converter = Sphere2ODConverter()
+    def test_sphere_to_object_designator_converter_can_convert(self) -> None:
+        converter = SphereToObjectDesignatorConverter()
         assert converter.can_convert(Sphere()) == True
         assert converter.can_convert(Annotation()) == False
 
-    def test_cylinder_2_od_converter_can_convert(self):
-        converter = Cylinder2ODConverter()
+    def test_cylinder_to_object_designator_converter_can_convert(self) -> None:
+        converter = CylinderToObjectDesignatorConverter()
         assert converter.can_convert(Cylinder()) == True
         assert converter.can_convert(Annotation()) == False
 
-    def test_cylinder_2_od_converter_convert(self):
-        od = ObjectDesignator()
+    def test_cylinder_to_object_designator_converter_convert(self) -> None:
+        object_designator = ObjectDesignator()
 
-        converter = Cylinder2ODConverter()
+        converter = CylinderToObjectDesignatorConverter()
 
         shape = Cylinder()
-        shape.geometry = SemDTCylinder(width=0.22, height=0.41)
+        shape.geometry = SemanticDigitalTwinCylinder(width=0.22, height=0.41)
 
-        converter.convert(shape, CAS(), od)
+        converter.convert(shape, CommonAnalysisStructure(), object_designator)
 
-        assert len(od.shape) == 1
-        assert od.shape[0] == shape.shape_name
+        assert len(object_designator.shape) == 1
+        assert object_designator.shape[0] == shape.shape_name
 
-    def test_sphere_2_od_converter_convert(self):
-        od = ObjectDesignator()
+    def test_sphere_to_object_designator_converter_convert(self) -> None:
+        object_designator = ObjectDesignator()
 
-        converter = Sphere2ODConverter()
+        converter = SphereToObjectDesignatorConverter()
 
         shape = Sphere()
-        shape.geometry = SemDTSphere(radius=np.random.random())
+        shape.geometry = SemanticDigitalTwinSphere(radius=np.random.random())
 
-        converter.convert(shape, CAS(), od)
+        converter.convert(shape, CommonAnalysisStructure(), object_designator)
 
-        assert len(od.shape) == 1
-        assert od.shape[0] == shape.shape_name
+        assert len(object_designator.shape) == 1
+        assert object_designator.shape[0] == shape.shape_name
 
-        assert len(od.shape_size) == 1
-        assert od.shape_size[0].radius == shape.geometry.radius
+        assert len(object_designator.shape_size) == 1
+        assert object_designator.shape_size[0].radius == shape.geometry.radius
 
-    def test_location_2_od_converter_can_convert(self):
-        converter = Location2ODConverter()
+    def test_location_to_object_designator_converter_can_convert(self) -> None:
+        converter = LocationToObjectDesignatorConverter()
         assert converter.can_convert(LocationAnnotation()) == True
         assert converter.can_convert(Annotation()) == False
 
-    def test_location_2_od_converter_convert(self):
-        od = ObjectDesignator()
+    def test_location_to_object_designator_converter_convert(self) -> None:
+        object_designator = ObjectDesignator()
 
-        converter = Location2ODConverter()
+        converter = LocationToObjectDesignatorConverter()
 
-        loc = LocationAnnotation()
-        loc.region = Region(name=PrefixedName(name="some_weird_non_default_name"))
+        location = LocationAnnotation()
+        location.region = Region(name=PrefixedName(name="some_weird_non_default_name"))
 
-        converter.convert(loc, CAS(), od)
+        converter.convert(location, CommonAnalysisStructure(), object_designator)
 
-        assert od.location == str(loc.region.name)
+        assert object_designator.location == str(location.region.name)
 
-    def test_location_2_od_converter_convert_with_legacy_name_fallback(self):
-        od = ObjectDesignator()
+    def test_location_to_object_designator_converter_convert_with_legacy_name_fallback(
+        self,
+    ) -> None:
+        object_designator = ObjectDesignator()
 
-        converter = Location2ODConverter()
+        converter = LocationToObjectDesignatorConverter()
 
-        loc = LocationAnnotation()
-        loc.name = "legacy_location_name"
+        location = LocationAnnotation()
+        location.name = "legacy_location_name"
 
-        converter.convert(loc, CAS(), od)
+        converter.convert(location, CommonAnalysisStructure(), object_designator)
 
-        assert od.location == loc.name
+        assert object_designator.location == location.name

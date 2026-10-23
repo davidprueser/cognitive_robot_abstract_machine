@@ -1,3 +1,4 @@
+from __future__ import annotations
 import math
 
 import numpy as np
@@ -18,7 +19,7 @@ from robokudo.utils.shape_fitting import (
 
 
 class TestShapeFitting:
-    def test_fit_sphere_with_noisy_surface_points(self):
+    def test_fit_sphere_with_noisy_surface_points(self) -> None:
         random_generator = np.random.default_rng(4)
 
         center = np.asarray([0.2, -0.1, 0.4], dtype=np.float64)
@@ -36,7 +37,7 @@ class TestShapeFitting:
         assert abs(fit_result.radius - radius) < 0.01
         assert fit_result.inlier_ratio > 0.85
 
-    def test_fit_cylinder_with_noisy_surface_points(self):
+    def test_fit_cylinder_with_noisy_surface_points(self) -> None:
         random_generator = np.random.default_rng(21)
 
         radius = 0.06
@@ -58,7 +59,7 @@ class TestShapeFitting:
         assert fit_result.height > 0.18
         assert fit_result.inlier_ratio > 0.8
 
-    def test_refit_cylinder_with_fixed_axis(self):
+    def test_refit_cylinder_with_fixed_axis(self) -> None:
         random_generator = np.random.default_rng(211)
 
         radius = 0.06
@@ -80,9 +81,9 @@ class TestShapeFitting:
                 robust_loss="soft_l1",
                 max_radius=0.4,
                 max_height=1.0,
-                max_radius_to_bbox_diagonal_ratio=10.0,
+                max_radius_to_bounding_box_diagonal_ratio=10.0,
                 max_radius_to_cross_section_extent_ratio=10.0,
-                max_axis_center_distance_to_bbox_diagonal_ratio=10.0,
+                max_axis_center_distance_to_bounding_box_diagonal_ratio=10.0,
             ),
             min_inlier_ratio=0.8,
         )
@@ -93,7 +94,7 @@ class TestShapeFitting:
         assert fit_result.height > 0.18
         assert fit_result.inlier_ratio > 0.8
 
-    def test_fit_cuboid_with_surface_points(self):
+    def test_fit_cuboid_with_surface_points(self) -> None:
         random_generator = np.random.default_rng(2)
 
         extents = np.asarray([0.20, 0.10, 0.06], dtype=np.float64)
@@ -135,7 +136,7 @@ class TestShapeFitting:
         )
         assert fit_result.inlier_ratio > 0.7
 
-    def test_refit_cuboid_with_fixed_orientation(self):
+    def test_refit_cuboid_with_fixed_orientation(self) -> None:
         random_generator = np.random.default_rng(22)
 
         extents = np.asarray([0.20, 0.10, 0.06], dtype=np.float64)
@@ -180,7 +181,7 @@ class TestShapeFitting:
         assert np.allclose(fit_result.extents, extents, atol=0.03)
         assert fit_result.inlier_ratio > 0.7
 
-    def test_select_best_shape_returns_highest_score(self):
+    def test_select_best_shape_returns_highest_score(self) -> None:
         first = SphereFit(
             center=np.zeros(3),
             radius=1.0,
@@ -200,7 +201,7 @@ class TestShapeFitting:
         selected = select_best_shape([first, second])
         assert selected is second
 
-    def test_compute_fit_score_prefers_higher_inlier_ratio(self):
+    def test_compute_fit_score_prefers_higher_inlier_ratio(self) -> None:
         score_a = compute_fit_score(
             inlier_ratio=0.5,
             root_mean_square_error=0.001,
@@ -215,10 +216,12 @@ class TestShapeFitting:
         )
         assert score_b > score_a
 
-    def test_select_best_shape_with_empty_input(self):
+    def test_select_best_shape_with_empty_input(self) -> None:
         assert select_best_shape([]) is None
 
-    def test_select_best_shape_prefers_smaller_volume_when_scores_are_close(self):
+    def test_select_best_shape_prefers_smaller_volume_when_scores_are_close(
+        self,
+    ) -> None:
         sphere = SphereFit(
             center=np.zeros(3),
             radius=0.4,
@@ -240,7 +243,7 @@ class TestShapeFitting:
         selected = select_best_shape([sphere, cuboid], score_tolerance=0.05)
         assert selected is cuboid
 
-    def test_select_best_shape_keeps_best_score_when_gap_is_large(self):
+    def test_select_best_shape_keeps_best_score_when_gap_is_large(self) -> None:
         sphere = SphereFit(
             center=np.zeros(3),
             radius=0.4,
@@ -262,7 +265,9 @@ class TestShapeFitting:
         selected = select_best_shape([sphere, cuboid], score_tolerance=0.05)
         assert selected is sphere
 
-    def test_select_best_shape_prefers_box_like_cuboid_when_scores_are_close(self):
+    def test_select_best_shape_prefers_box_like_cuboid_when_scores_are_close(
+        self,
+    ) -> None:
         cylinder = CylinderFit(
             axis_center=np.zeros(3),
             axis_direction=np.array([0.0, 0.0, 1.0]),
@@ -291,7 +296,9 @@ class TestShapeFitting:
         )
         assert selected is cuboid
 
-    def test_select_best_shape_does_not_prefer_cuboid_for_cylinder_like_profile(self):
+    def test_select_best_shape_does_not_prefer_cuboid_for_cylinder_like_profile(
+        self,
+    ) -> None:
         cylinder = CylinderFit(
             axis_center=np.zeros(3),
             axis_direction=np.array([0.0, 0.0, 1.0]),
@@ -322,7 +329,7 @@ class TestShapeFitting:
         )
         assert selected is cylinder
 
-    def test_fit_sphere_rejects_radius_over_one_meter(self):
+    def test_fit_sphere_rejects_radius_over_one_meter(self) -> None:
         random_generator = np.random.default_rng(9)
 
         center = np.asarray([0.0, 0.0, 0.0], dtype=np.float64)
@@ -339,7 +346,7 @@ class TestShapeFitting:
         )
         assert fit_result is None
 
-    def test_fit_sphere_rejects_implausible_radius_for_small_patch(self):
+    def test_fit_sphere_rejects_implausible_radius_for_small_patch(self) -> None:
         random_generator = np.random.default_rng(11)
 
         radius = 1.0
@@ -357,14 +364,14 @@ class TestShapeFitting:
             points=points,
             distance_threshold=0.01,
             max_radius=1.2,
-            max_radius_to_bbox_diagonal_ratio=1.8,
-            max_center_distance_to_bbox_diagonal_ratio=1.8,
+            max_radius_to_bounding_box_diagonal_ratio=1.8,
+            max_center_distance_to_bounding_box_diagonal_ratio=1.8,
         )
 
         assert unconstrained_fit is not None
         assert constrained_fit is None
 
-    def test_fit_sphere_rejects_large_radius_for_small_observed_extent(self):
+    def test_fit_sphere_rejects_large_radius_for_small_observed_extent(self) -> None:
         random_generator = np.random.default_rng(15)
 
         radius = 0.36
@@ -380,23 +387,23 @@ class TestShapeFitting:
             points=points,
             distance_threshold=0.01,
             max_radius=0.4,
-            max_radius_to_bbox_diagonal_ratio=10.0,
-            max_center_distance_to_bbox_diagonal_ratio=10.0,
+            max_radius_to_bounding_box_diagonal_ratio=10.0,
+            max_center_distance_to_bounding_box_diagonal_ratio=10.0,
         )
         constrained_fit = fit_sphere(
             points=points,
             distance_threshold=0.01,
             max_radius=0.4,
-            max_radius_to_bbox_diagonal_ratio=10.0,
+            max_radius_to_bounding_box_diagonal_ratio=10.0,
             max_radius_to_observed_extent_ratio=0.8,
-            max_center_distance_to_bbox_diagonal_ratio=10.0,
+            max_center_distance_to_bounding_box_diagonal_ratio=10.0,
         )
 
         assert unconstrained_fit is not None
         assert unconstrained_fit.radius > 0.2
         assert constrained_fit is None
 
-    def test_fit_cylinder_rejects_radius_over_limit(self):
+    def test_fit_cylinder_rejects_radius_over_limit(self) -> None:
         random_generator = np.random.default_rng(33)
 
         radius = 0.52
@@ -414,7 +421,9 @@ class TestShapeFitting:
         )
         assert fit_result is None
 
-    def test_fit_cylinder_rejects_large_radius_for_small_cross_section_arc(self):
+    def test_fit_cylinder_rejects_large_radius_for_small_cross_section_arc(
+        self,
+    ) -> None:
         random_generator = np.random.default_rng(55)
 
         radius = 1.1
@@ -428,23 +437,23 @@ class TestShapeFitting:
             points=points,
             distance_threshold=0.01,
             max_radius=2.0,
-            max_radius_to_bbox_diagonal_ratio=10.0,
-            max_axis_center_distance_to_bbox_diagonal_ratio=10.0,
+            max_radius_to_bounding_box_diagonal_ratio=10.0,
+            max_axis_center_distance_to_bounding_box_diagonal_ratio=10.0,
         )
         constrained_fit = fit_cylinder(
             points=points,
             distance_threshold=0.01,
             max_radius=2.0,
-            max_radius_to_bbox_diagonal_ratio=10.0,
+            max_radius_to_bounding_box_diagonal_ratio=10.0,
             max_radius_to_cross_section_extent_ratio=0.95,
-            max_axis_center_distance_to_bbox_diagonal_ratio=10.0,
+            max_axis_center_distance_to_bounding_box_diagonal_ratio=10.0,
         )
 
         assert unconstrained_fit is not None
         assert unconstrained_fit.radius > 0.5
         assert constrained_fit is None
 
-    def test_fit_cuboid_rejects_extent_over_limit(self):
+    def test_fit_cuboid_rejects_extent_over_limit(self) -> None:
         random_generator = np.random.default_rng(41)
 
         extents = np.asarray([0.82, 0.22, 0.18], dtype=np.float64)

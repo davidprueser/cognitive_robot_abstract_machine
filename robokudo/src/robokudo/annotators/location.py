@@ -26,13 +26,13 @@ from py_trees.common import Status
 from semantic_digital_twin.world_description.world_entity import Region
 from typing_extensions import TYPE_CHECKING, List
 
-import robokudo.world as rk_world
+import robokudo.world as robokudo_world
 from robokudo.annotators.core import BaseAnnotator, ThreadedAnnotator
 from robokudo.types.annotation import LocationAnnotation
 from robokudo.types.scene import ObjectHypothesis
 from robokudo.utils.annotator_helper import get_world_to_camera_transform_matrix
 from robokudo.utils.error_handling import catch_and_raise_to_blackboard
-from robokudo.utils.region import region_obb_in_camera_coordinates
+from robokudo.utils.region import region_oriented_bounding_box_in_camera_coordinates
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -106,14 +106,16 @@ class LocationAnnotator(ThreadedAnnotator):
         :param world_to_camera_transform_matrix: Transform from world to camera frame
         :param object_hypotheses: List of object hypotheses to check
         """
-        runtime_world = rk_world.world_instance()
-        obb = region_obb_in_camera_coordinates(
+        runtime_world = robokudo_world.world_instance()
+        oriented_bounding_box = region_oriented_bounding_box_in_camera_coordinates(
             runtime_world, region, world_to_camera_transform_matrix
         )
         for object_hypothesis in object_hypotheses:
             # Extract the indices of an object that lies inside the region
-            object_indices = obb.get_point_indices_within_bounding_box(
-                object_hypothesis.points.points
+            object_indices = (
+                oriented_bounding_box.get_point_indices_within_bounding_box(
+                    object_hypothesis.points.points
+                )
             )
             # Total number of object indices
             total_indices = len(object_hypothesis.points.points)
@@ -144,15 +146,19 @@ class LocationAnnotator(ThreadedAnnotator):
         :return: SUCCESS after processing
         """
         start_timer = default_timer()
-        runtime_world = rk_world.world_instance()
+        runtime_world = robokudo_world.world_instance()
         regions = runtime_world.get_kinematic_structure_entity_by_type(Region)
         active_regions = {str(region.name): region for region in regions}
         # TODO Filter active regions by FRUSTUM CULLING
 
         world_to_camera_transform_matrix = get_world_to_camera_transform_matrix(
-            self.get_cas()
+            self.get_common_analysis_structure()
         )
-        object_hypotheses = self.get_cas().filter_annotations_by_type(ObjectHypothesis)
+        object_hypotheses = (
+            self.get_common_analysis_structure().filter_annotations_by_type(
+                ObjectHypothesis
+            )
+        )
 
         for region_name, region in active_regions.items():
 

@@ -5,7 +5,7 @@ This module provides an annotator for storing sensor data in MongoDB.
 It supports:
 
 * MongoDB integration
-* CAS data persistence
+* common analysis structure data persistence
 * View data storage
 * Database management
 * Configurable database settings
@@ -47,7 +47,7 @@ class StorageWriter(BaseAnnotator):
             """Parameter container for storage configuration."""
 
             def __init__(self) -> None:
-                self.db_name: str = "rk_scenes"
+                self.database_name: str = "rk_scenes"
                 """Database name"""
 
                 self.drop_database_on_storage: bool = True
@@ -67,8 +67,8 @@ class StorageWriter(BaseAnnotator):
         :param descriptor: Configuration descriptor
         """
         super().__init__(name, descriptor)
-        self.rk_logger.debug("%s.__init__()" % self.__class__.__name__)
-        self.storage = Storage(self.descriptor.parameters.db_name)
+        self.robokudo_logger.debug("%s.__init__()" % self.__class__.__name__)
+        self.storage = Storage(self.descriptor.parameters.database_name)
         self.storage_preparation_completed: bool = False
         """
         Whether storage setup has already run for this writer.
@@ -95,19 +95,25 @@ class StorageWriter(BaseAnnotator):
         return True
 
     def update(self) -> Status:
-        """Store current CAS data in MongoDB.
+        """Store current common analysis structure data in MongoDB.
 
-        Creates a deep copy of the CAS, flattens it into a dictionary,
-        and stores both views and CAS data in the database.
+        Creates a deep copy of the common analysis structure, flattens it into a dictionary,
+        and stores both views and common analysis structure data in the database.
 
         :return: SUCCESS if storage successful, FAILURE otherwise
         """
         start_timer = default_timer()
 
-        persist_cas = copy.deepcopy(self.get_cas())
+        persist_common_analysis_structure = copy.deepcopy(
+            self.get_common_analysis_structure()
+        )
 
-        flat_cas = self.storage.generate_dict_from_real_cas(persist_cas)
-        flat_cas["view_ids"] = {}
+        flat_common_analysis_structure = (
+            self.storage.generate_dict_from_real_common_analysis_structure(
+                persist_common_analysis_structure
+            )
+        )
+        flat_common_analysis_structure["view_ids"] = {}
 
         world = robokudo.world.world_instance()
         snapshot = WorldModelSnapshot(
@@ -119,17 +125,21 @@ class StorageWriter(BaseAnnotator):
         )
 
         payload = snapshot.to_json()
-        json_str = json.dumps(payload)
-        flat_cas["world"] = json_str
+        json_string = json.dumps(payload)
+        flat_common_analysis_structure["world"] = json_string
 
         # step 1: persist each view
-        self.storage.store_views_in_mongo(flat_cas)
+        self.storage.store_views_in_mongo(flat_common_analysis_structure)
 
-        # step 2: persist cas and pointers to each view
-        del flat_cas["views"]
-        result = self.storage.store_cas_dict(flat_cas)
+        # step 2: persist common_analysis_structure and pointers to each view
+        del flat_common_analysis_structure["views"]
+        result = self.storage.store_common_analysis_structure_dict(
+            flat_common_analysis_structure
+        )
         if not result.acknowledged:
-            self.rk_logger.error(f"mongo db error when trying to store cas")
+            self.robokudo_logger.error(
+                f"mongo db error when trying to store common_analysis_structure"
+            )
             return Status.FAILURE
 
         end_timer = default_timer()

@@ -1,5 +1,6 @@
+from __future__ import annotations
 from robokudo.types.cv import ColorToDepthRatio
-from robokudo.descriptors.factories.cr_descriptor_factory import (
+from robokudo.descriptors.factories.collection_reader_descriptor_factory import (
     CollectionReaderDescriptorFactory,
 )
 import multiprocessing
@@ -11,8 +12,8 @@ import pytest
 
 from action_msgs.msg import GoalStatus
 
-import robokudo.cas
-import robokudo.defs
+import robokudo.common_analysis_structure
+import robokudo.definitions
 import robokudo.descriptors.camera_configs.config_filereader_playback
 import robokudo.descriptors.camera_configs.config_mongodb_playback
 import robokudo.garden
@@ -32,40 +33,46 @@ from robokudo.annotators.query import QueryAnnotator, GenerateQueryResult
 from robokudo.pipeline import Pipeline
 
 import robokudo.scripts.query_test_client
+from typing_extensions import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from rclpy.node import Node
+    from py_trees.composites import Sequence
+    from py_trees.common import Status
 
 
 class QueryWorkerThread(threading.Thread):
-    def __init__(self, node):
+    def __init__(self, node: Node) -> None:
         threading.Thread.__init__(self)
         self.node = node
         self.result = None
 
-    def run(self):
+    def run(self) -> None:
         self.result = query_simple_pipeline(self.node)
 
 
-def query_simple_pipeline(node):
-    cr_fr_config = CollectionReaderDescriptorFactory.create_descriptor(
+def query_simple_pipeline(node: Node) -> tuple[Sequence, Status]:
+    file_reader_descriptor = CollectionReaderDescriptorFactory.create_descriptor(
         "file_reader",
         loop=True,
-        target_dir=robokudo.utils.data_downloader.test_data_path() / Path("data"),
+        target_directory=robokudo.utils.data_downloader.test_data_path() / Path("data"),
         kinect_height_fix_mode=True,
         color_to_depth_ratio=ColorToDepthRatio(horizontal=0.5, vertical=0.5),
     )
 
     # Restrict FOV of pointcloud to robustly get only one object
-    pc_crop_config = PointcloudCropAnnotator.Descriptor()
-    pc_crop_config.parameters.min_x = -0.3
-    pc_crop_config.parameters.max_x = 0.3
+    point_cloud_crop_config = PointcloudCropAnnotator.Descriptor()
+    point_cloud_crop_config.parameters.min_x = -0.3
+    point_cloud_crop_config.parameters.max_x = 0.3
 
     seq = Pipeline("TestPipeline")
     seq.add_children(
         [
-            robokudo.idioms.pipeline_init(),
+            robokudo.idioms.pipeline_initialization(),
             QueryAnnotator(),
-            CollectionReaderAnnotator(descriptor=cr_fr_config),
+            CollectionReaderAnnotator(descriptor=file_reader_descriptor),
             ImagePreprocessorAnnotator("ImagePreprocessor"),
-            PointcloudCropAnnotator(descriptor=pc_crop_config),
+            PointcloudCropAnnotator(descriptor=point_cloud_crop_config),
             PlaneAnnotator(),
             PointCloudClusterExtractor(),
             GenerateQueryResult(),
@@ -80,19 +87,21 @@ def query_simple_pipeline(node):
 
 
 @pytest.fixture
-def tree_run(node):
+def tree_run(node: Node) -> tuple[Sequence, Status]:
     print("tree_run")
     return query_simple_pipeline(node)
 
 
 class TestQueryInterface:
-    def test_query_annotator_returns_running(self, tree_run):
+    def test_query_annotator_returns_running(
+        self, tree_run: tuple[Sequence, Status]
+    ) -> None:
         seq, tree_result = tree_run
 
         # We are not sending a query just yet. So the QueryAnnotator should block indefinitely with RUNNING
         assert tree_result is py_trees.common.Status.RUNNING
 
-    def test_query(self, node):
+    def test_query(self, node: Node) -> None:
         # seq, tree_result = query_simple_pipeline(node)
         multiprocessing.set_start_method("spawn", force=True)
 

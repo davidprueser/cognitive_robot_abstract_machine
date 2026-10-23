@@ -19,16 +19,18 @@ grasping it.
 """
 
 from robokudo.analysis_engine import AnalysisEngineInterface
-from robokudo.annotators.cluster_pose_bb import ClusterPoseBBAnnotator
+from robokudo.annotators.cluster_pose_bounding_box import (
+    ClusterPoseBoundingBoxAnnotator,
+)
 from robokudo.annotators.collection_reader import CollectionReaderAnnotator
 from robokudo.annotators.image_cluster_extractor import ImageClusterExtractor
 from robokudo.annotators.image_preprocessor import ImagePreprocessorAnnotator
 from robokudo.annotators.pointcloud_crop import PointcloudCropAnnotator
 from robokudo.annotators.query import QueryAnnotator, GenerateQueryResult
-from robokudo.descriptors.factories.cr_descriptor_factory import (
+from robokudo.descriptors.factories.collection_reader_descriptor_factory import (
     CollectionReaderDescriptorFactory,
 )
-from robokudo.idioms import pipeline_init
+from robokudo.idioms import pipeline_initialization
 from robokudo.pipeline import Pipeline
 
 CAMERA_CONFIG_NAME = "realsense"
@@ -38,7 +40,7 @@ Camera configuration this engine reads from.
 The Stretch carries a RealSense D435i publishing on the stock ``realsense2_camera`` topics,
 and its colour frame is named ``camera_color_optical_frame``, so the shared RealSense config
 applies unchanged. Pass overrides to
-:meth:`~robokudo.descriptors.factories.cr_descriptor_factory.CollectionReaderDescriptorFactory.create_descriptor`
+:meth:`~robokudo.descriptors.factories.collection_reader_descriptor_factory.CollectionReaderDescriptorFactory.create_descriptor`
 if a particular robot publishes elsewhere.
 """
 
@@ -119,7 +121,7 @@ class AnalysisEngine(AnalysisEngineInterface):
         # The target object (a cereal box) is glossy enough that the RealSense returns no
         # depth on its face, and depth-based clustering has no way to bound its search to
         # just the object (it searches the whole detected shelf plane). Extracting by
-        # color instead sidesteps both: the ROI comes from the RGB contour, not from
+        # color instead sidesteps both: the region of interest comes from the RGB contour, not from
         # depth, so a hole in the box's depth just means fewer 3D points within an
         # already-correctly-shaped region. Hardcoded to red for now, matching the one
         # object this pipeline currently targets.
@@ -131,29 +133,29 @@ class AnalysisEngine(AnalysisEngineInterface):
             cluster_descriptor.parameters.color_name_to_hsv_range["red"]["hsv_max"]
         )
         # The depth hole leaves few valid 3D points under the color mask. Lowered to
-        # ClusterPoseBBAnnotator's own floor (it needs more than 10 points to compute a
-        # pose, cluster_pose_bb.py:161-165) rather than the class default of 62, so a
+        # ClusterPoseBoundingBoxAnnotator's own floor (it needs more than 10 points to compute a
+        # pose, cluster_pose_bounding_box.py:161-165) rather than the class default of 62, so a
         # sparse-but-real detection reaches pose estimation instead of being dropped here
         # first. Outlier removal is skipped too: pruning an already-sparse, hole-riddled
         # cloud for statistical outliers risks stripping the real points further.
         cluster_descriptor.parameters.min_points_threshold = 11
         cluster_descriptor.parameters.outlier_removal = True
 
-        # ..note:: PointcloudCropAnnotator crops CASViews.CLOUD, but
-        #     ImageClusterExtractor reads CASViews.COLOR_IMAGE/DEPTH_IMAGE directly, so
+        # ..note:: PointcloudCropAnnotator crops CommonAnalysisStructureViews.CLOUD, but
+        #     ImageClusterExtractor reads CommonAnalysisStructureViews.COLOR_IMAGE/DEPTH_IMAGE directly, so
         #     the crop no longer bounds what ImageClusterExtractor searches. Left in
         #     place for now to see how color-based extraction behaves before deciding
         #     whether/how to re-bound its search area.
         pipeline = Pipeline("StretchPipeline")
         pipeline.add_children(
             [
-                pipeline_init(),
+                pipeline_initialization(),
                 QueryAnnotator(),
                 CollectionReaderAnnotator(descriptor=camera_descriptor),
                 ImagePreprocessorAnnotator("ImagePreprocessor"),
                 PointcloudCropAnnotator(descriptor=crop_descriptor),
                 ImageClusterExtractor(descriptor=cluster_descriptor),
-                ClusterPoseBBAnnotator(),
+                ClusterPoseBoundingBoxAnnotator(),
                 # Left unconfigured so that filtering by query stays off: it compares the
                 # requested type against Classification annotations, which this pipeline
                 # does not produce, so filtering a typed query would discard every object.

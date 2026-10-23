@@ -4,11 +4,11 @@ Core annotator classes for RoboKudo.
 This module provides base classes for implementing annotators in RoboKudo.
 
 :Classes:
-    * BaseAnnotator - Core functionality for CAS access, tree structure, and GUI result handling
+    * BaseAnnotator - Core functionality for common analysis structure access, tree structure, and GUI result handling
     * ThreadedAnnotator - Extends BaseAnnotator for long-running operations that should not block the main thread
 
 :Features:
-    * Common Analysis Structure (CAS) access
+    * Common analysis structure access
     * Tree structure navigation
     * GUI result handling
     * Thread-safe operation
@@ -21,7 +21,7 @@ from __future__ import annotations
 import logging
 import threading
 import time
-from collections import defaultdict  # noqa: B027ons import defaultdict
+from collections import defaultdict
 from concurrent.futures import Future
 
 from py_trees.behaviour import Behaviour
@@ -46,14 +46,17 @@ from robokudo.annotators.outputs import (
     AnnotatorOutputs,
     AnnotatorOutputStruct,
 )
-from robokudo.cas import CAS, CASViews
-from robokudo.defs import PACKAGE_NAME
+from robokudo.common_analysis_structure import (
+    CommonAnalysisStructure,
+    CommonAnalysisStructureViews,
+)
+from robokudo.definitions import PACKAGE_NAME
 from robokudo.types.core import Annotation
 from robokudo.utils.tree import find_parent_of_type
 
 """
 This module contains superclasses for annotators.  the two main superclasses are Base- and ThreadedAnnotator.
-The first superclass provides convenience methods to access the CAS, 
+The first superclass provides convenience methods to access the common analysis structure, 
 the tree structure as well as GUI result related functionality.
 The threaded annotator provides functionality to call long-running annotators without blocking the main thread.
 """
@@ -63,9 +66,9 @@ class BaseAnnotator(Behaviour):
     """
     Base class for all RoboKudo annotators.
 
-    This class provides core functionality for CAS access, tree structure navigation,
-    and GUI result handling. It serves as the foundation for implementing annotators in
-    the RoboKudo framework.
+    This class provides core functionality for common analysis structure access, tree
+    structure navigation, and GUI result handling. It serves as the foundation for
+    implementing annotators in the RoboKudo framework.
 
     Annotators may obtain RoboKudo's shared ROS node at any point in their lifecycle,
     including while its executor is spinning, and may create and use ROS entities on it.
@@ -114,10 +117,10 @@ class BaseAnnotator(Behaviour):
             """
             Initialize the descriptor with parameters and capabilities.
             """
-            param_class = self.Parameters
+            parameter_class = self.Parameters
 
             # overwrite __getattr__ in current 'Parameters' class
-            def get_attr_with_predefined_parameters(self, name: str) -> Any:
+            def get_attribute_with_predefined_parameters(self: Any, name: str) -> Any:
                 """
                 Custom attribute getter for accessing global parameters.
 
@@ -133,16 +136,16 @@ class BaseAnnotator(Behaviour):
                 else:
                     raise AttributeError(f"Unknown parameter with name <{name}>.")
 
-            param_class.__getattr__ = get_attr_with_predefined_parameters
+            parameter_class.__getattr__ = get_attribute_with_predefined_parameters
 
-            self.parameters = param_class()
+            self.parameters = parameter_class()
             self.capabilities = self.Capabilities()
 
     def __init__(
         self,
         name: str = "Annotator",
         descriptor: Optional[BaseAnnotator.Descriptor] = None,
-        ros_pkg_name: str = PACKAGE_NAME,
+        ros_package_name: str = PACKAGE_NAME,
     ) -> None:
         """
         Initialize the BaseAnnotator.
@@ -151,17 +154,17 @@ class BaseAnnotator(Behaviour):
 
         :param name: Name of the annotator instance
         :param descriptor: Configuration descriptor
-        :param ros_pkg_name: Name of the ROS package
+        :param ros_package_name: Name of the ROS package
         """
         super().__init__(name)
         if descriptor is None:
             descriptor = self.Descriptor()
 
-        # self.rk_logger = get_logger(ros_pkg_name)
-        self.rk_logger = logging.getLogger(ros_pkg_name)
+        # self.robokudo_logger = get_logger(ros_package_name)
+        self.robokudo_logger = logging.getLogger(ros_package_name)
 
-        self.rk_logger.debug("%s.__init__()" % self.__class__.__name__)
-        # self.rk_logger.debug("%s" % (get_line_context(self)))
+        self.robokudo_logger.debug("%s.__init__()" % self.__class__.__name__)
+        # self.robokudo_logger.debug("%s" % (get_line_context(self)))
         self.descriptor = descriptor
 
     def setup(self, **kwargs: Any) -> bool:
@@ -175,7 +178,7 @@ class BaseAnnotator(Behaviour):
         and create or use ROS entities on it. See :class:`BaseAnnotator` for its
         ownership contract.
         """
-        self.rk_logger.debug("%s.setup()" % self.__class__.__name__)
+        self.robokudo_logger.debug("%s.setup()" % self.__class__.__name__)
         return True
 
     def initialise(self) -> None:
@@ -184,7 +187,7 @@ class BaseAnnotator(Behaviour):
 
         Called when first tick is received and anytime status is not running.
         """
-        self.rk_logger.debug("%s.initialise()" % self.__class__.__name__)
+        self.robokudo_logger.debug("%s.initialise()" % self.__class__.__name__)
 
     def update(self) -> Status:
         """
@@ -204,7 +207,7 @@ class BaseAnnotator(Behaviour):
 
         :param new_status: New status of the behavior (SUCCESS, FAILURE, or INVALID)
         """
-        self.rk_logger.debug(
+        self.robokudo_logger.debug(
             "%s.terminate()[%s->%s]"
             % (self.__class__.__name__, self.status, new_status)
         )
@@ -215,10 +218,12 @@ class BaseAnnotator(Behaviour):
 
         :param key: Key code of the pressed key
         """
-        self.rk_logger.debug("%s.keyCallback() got %i" % (self.__class__.__name__, key))
+        self.robokudo_logger.debug(
+            "%s.keyCallback() got %i" % (self.__class__.__name__, key)
+        )
 
     def mouse_callback(
-        self, event: int, x: int, y: int, flags: int, param: int
+        self, event: int, x: int, y: int, flags: int, parameter: int
     ) -> None:
         """
         Handle mouse interaction events in the visualizer window.
@@ -227,20 +232,20 @@ class BaseAnnotator(Behaviour):
         :param x: The x coordinate of the mouse click
         :param y: The y coordinate of the mouse click
         :param flags: Flags passed by OpenCV
-        :param param: Parameters passed by OpenCV
+        :param parameter: Parameters passed by OpenCV
         """
-        self.rk_logger.debug(
+        self.robokudo_logger.debug(
             "%s.mouseCallback() got %i at (%i,%i)"
             % (self.__class__.__name__, event, x, y)
         )
 
-    def get_cas(self) -> CAS:
+    def get_common_analysis_structure(self) -> CommonAnalysisStructure:
         """
-        Get the CAS from the parent RoboKudo pipeline.
+        Get the common analysis structure from the parent RoboKudo pipeline.
 
-        :return: The Common Analysis Structure (CAS) instance or None if not found
+        :return: The common analysis structure instance or None if not found
         """
-        return self.get_parent_pipeline().cas
+        return self.get_parent_pipeline().common_analysis_structure
 
     def get_parent_pipeline(self) -> Optional[robokudo.pipeline.Pipeline]:
         """
@@ -271,7 +276,7 @@ class BaseAnnotator(Behaviour):
         assert isinstance(annotator_outputs, AnnotatorOutputs)
         return annotator_outputs
 
-    def get_annotator_output_struct(
+    def get_annotator_output_structure(
         self,
     ) -> AnnotatorOutputStruct:
         """
@@ -285,13 +290,13 @@ class BaseAnnotator(Behaviour):
         # This check adds dynamically added annotators to the output struct that have
         # not been in the tree during the setup() of it.
         if self.name not in annotator_outputs.outputs:
-            self.rk_logger.debug(
+            self.robokudo_logger.debug(
                 f"Annotator {self.name} was not in AnnotatorOutput struct. Adding it now."
             )
-            self.add_self_to_annotator_output_struct()
+            self.add_self_to_annotator_output_structure()
         return self.get_annotator_outputs().outputs[self.name]
 
-    def add_self_to_annotator_output_struct(self) -> None:
+    def add_self_to_annotator_output_structure(self) -> None:
         """
         Add this annotator to the output structure.
 
@@ -303,7 +308,7 @@ class BaseAnnotator(Behaviour):
         )
         annotator_output_pipeline_map_buffer.map[
             self.get_parent_pipeline().name
-        ].init_annotator(self.name)
+        ].initialize_annotator(self.name)
 
     def get_class_name(self) -> str:
         """
@@ -322,16 +327,16 @@ class BaseAnnotator(Behaviour):
         """
         Look up data to analyze based on a list of Types or String constants.
 
-        Retrieves data from the CAS based on specified types or CASView constants.
+        Retrieves data from the common analysis structure based on specified types or CommonAnalysisStructureView constants.
         Can be used to analyze data at different levels (Scene, ObjectHypothesis, etc.)
         based on the current perception task context.
 
         Example::
 
-            get_data_from_analysis_scope([CASViews.COLOR_IMAGE])
+            get_data_from_analysis_scope([CommonAnalysisStructureViews.COLOR_IMAGE])
             =>
             {
-                CASViews.COLOR_IMAGE : numpy.array([.. image data...])
+                CommonAnalysisStructureViews.COLOR_IMAGE : numpy.array([.. image data...])
             }
 
             get_data_from_analysis_scope([robokudo.types.scene.ObjectHypothesis])
@@ -340,26 +345,30 @@ class BaseAnnotator(Behaviour):
                 robokudo.types.scene.ObjectHypothesis : [ObjectHypothesis1, ... ObjectHypothesisN]
             }
 
-        :param analysis_scope: List of data types to target (CASView attributes or Annotation subclasses)
+        :param analysis_scope: List of data types to target (CommonAnalysisStructureView attributes or Annotation subclasses)
         :return: Dict mapping requested types to corresponding data
         :raises ValueError: If result would be empty
         """
         result: Dict[Union[str, Type], Any] = {}
 
         for content in analysis_scope:
-            # CASViews are string values
+            # CommonAnalysisStructureViews are string values
             if isinstance(content, str):
-                if content not in CASViews:
-                    self.rk_logger.warning(
-                        "You have passed a string that is not defining a valid CASView from robokudo.cas.CASViews"
+                if content not in CommonAnalysisStructureViews:
+                    self.robokudo_logger.warning(
+                        "You have passed a string that is not defining a valid CommonAnalysisStructureView from robokudo.common_analysis_structure.CommonAnalysisStructureViews"
                     )
-                result[content] = self.get_cas().get(content)
+                result[content] = self.get_common_analysis_structure().get(content)
             elif issubclass(content, Annotation):
                 # We assume that typically only few annotations are requested here
                 # Otherwise we should iterate over all annotations and filter once to save resources
-                result[content] = self.get_cas().filter_annotations_by_type(content)
+                result[
+                    content
+                ] = self.get_common_analysis_structure().filter_annotations_by_type(
+                    content
+                )
             else:
-                self.rk_logger.error(
+                self.robokudo_logger.error(
                     f"Couldn't lookup data {content} - Unsupported type"
                 )
 
@@ -370,30 +379,25 @@ class BaseAnnotator(Behaviour):
 
         return result
 
-    def init_time_recording(self) -> None:
+    def initialize_time_recording(self) -> None:
         """
         Initialize the time recording dictionary for performance measurement.
         """
         if not hasattr(self, "_times"):
             setattr(self, "_times", defaultdict(list))
 
-    def set_time_recording(self, value: float, func: str = "update") -> None:
+    def set_time_recording(self, value: float, method_name: str = "update") -> None:
         """
         Record timing information for a function.
 
         :param value: The timing value to record
-        :param func: The function name to associate with the timing
+        :param method_name: The function name to associate with the timing
         """
         timing_dict = getattr(self, "_times")
-        timing_dict[func] = value
+        timing_dict[method_name] = value
 
-    #########################################################
-    # Data publishing handling                               #
-    #                                                        #
-    # Collect float variables in your Annotators             #
-    # that you want to analyze with external tools.          #
-    # The following methods handle to publish these via ROS. #
-    ##########################################################
+    # Data publishing: collect float variables in an annotator to analyze them with
+    # external tools; the following methods publish them via ROS.
 
     def shall_publish_variables(self) -> bool:
         """
@@ -431,7 +435,7 @@ class BaseAnnotator(Behaviour):
         """
         try:
             self.published_variables[name] = value
-        except Exception as e:
+        except Exception as exception:
             pass
 
     def setup_done_for_published_variables(self) -> bool:
@@ -457,20 +461,24 @@ class BaseAnnotator(Behaviour):
                 self.setup_published_variables()
 
             # Create a joint state message to have a common data structure for all values
-            msg = JointState()
-            msg.header.stamp = (
-                self.get_cas().get(CASViews.CAMERA_INFO).header.stamp
+            message = JointState()
+            message.header.stamp = (
+                self.get_common_analysis_structure()
+                .get(CommonAnalysisStructureViews.CAMERA_INFO)
+                .header.stamp
             )  # This is always the time of recording the data.
 
-            # msg.header.stamp = rospy.Time(self.get_cas().timestamp) # This might be the current time!
+            # message.header.stamp = rospy.Time(self.get_common_analysis_structure().timestamp) # This might be the current time!
             for key, value in self.published_variables.items():
-                msg.name.append(key)
-                msg.position.append(value)
+                message.name.append(key)
+                message.position.append(value)
 
             try:
-                self.variable_publisher.publish(msg)
-            except Exception as e:
-                self.rk_logger.warning(f"Caught exception {e} while publish_variables")
+                self.variable_publisher.publish(message)
+            except Exception as exception:
+                self.robokudo_logger.warning(
+                    f"Caught exception {exception} while publish_variables"
+                )
 
 
 # This class is based on https://stackoverflow.com/a/32913813
@@ -482,15 +490,15 @@ class Worker(object):
     execute a callback when the function completes.
     """
 
-    def __init__(self, fn: Callable, args: Tuple = ()) -> None:
+    def __init__(self, function: Callable, args: Tuple = ()) -> None:
         """
         Initialize the worker.
 
-        :param fn: The function to execute
+        :param function: The function to execute
         :param args: Arguments to pass to the function
         """
         self.future: Future = Future()
-        self._fn: Callable = fn
+        self._function: Callable = function
         self._args: Tuple = args
 
     def start(self, callback: Optional[Callable] = None) -> threading.Thread:
@@ -510,9 +518,9 @@ class Worker(object):
         Execute the function and store its result in the future object.
         """
         try:
-            self.future.set_result(self._fn(*self._args))
-        except BaseException as e:
-            self.future.set_exception(e)
+            self.future.set_result(self._function(*self._args))
+        except BaseException as exception:
+            self.future.set_exception(exception)
 
         if self._callback:
             self._callback(self.future.result())
@@ -539,7 +547,7 @@ class ThreadedAnnotator(BaseAnnotator):
         :param descriptor: Configuration descriptor
         """
         super().__init__(name, descriptor)
-        self.rk_logger.debug("%s.__init__()" % self.__class__.__name__)
+        self.robokudo_logger.debug("%s.__init__()" % self.__class__.__name__)
         self.compute_worker: Optional[Worker] = None
         self.compute_worker_started: bool = False
         self.compute_worker_thread: Optional[threading.Thread] = None
@@ -550,7 +558,7 @@ class ThreadedAnnotator(BaseAnnotator):
 
         Called when first tick is received and anytime status is not running.
         """
-        self.rk_logger.debug("%s.initialise()" % self.__class__.__name__)
+        self.robokudo_logger.debug("%s.initialise()" % self.__class__.__name__)
         self.compute_worker = Worker(self.compute)
 
     def update(self) -> Status:
@@ -564,7 +572,7 @@ class ThreadedAnnotator(BaseAnnotator):
 
         :return: Status of the behavior after update
         """
-        self.rk_logger.debug("%s.update()" % self.__class__.__name__)
+        self.robokudo_logger.debug("%s.update()" % self.__class__.__name__)
         if self.compute_worker.future.running():
             return Status.RUNNING
         elif not self.compute_worker_started:
@@ -579,7 +587,7 @@ class ThreadedAnnotator(BaseAnnotator):
         result = self.compute_worker.future.result()
 
         if result is None:
-            self.rk_logger.error(
+            self.robokudo_logger.error(
                 "Your Annotator didn't return a Status. Please fix. Will return SUCCESS."
             )
             return Status.SUCCESS
@@ -593,11 +601,11 @@ class ThreadedAnnotator(BaseAnnotator):
         This method should be overridden by subclasses to implement the actual
         computation logic.
         """
-        self.rk_logger.debug(
+        self.robokudo_logger.debug(
             "%s.compute(): Start doing the heavy stuff" % self.__class__.__name__
         )
         time.sleep(0.5)  # in seconds
-        self.rk_logger.debug(
+        self.robokudo_logger.debug(
             "%s.compute(): Stop doing the heavy stuff" % self.__class__.__name__
         )
         return Status.SUCCESS
@@ -611,7 +619,7 @@ class ThreadedAnnotator(BaseAnnotator):
 
         :param new_status: New status of the behavior (SUCCESS, FAILURE, or INVALID)
         """
-        self.rk_logger.debug(
+        self.robokudo_logger.debug(
             "%s.terminate()[%s->%s]"
             % (self.__class__.__name__, self.status, new_status)
         )

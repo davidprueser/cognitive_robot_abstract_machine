@@ -25,8 +25,11 @@ from std_msgs.msg import Header
 from typing_extensions import TYPE_CHECKING, Dict
 
 from robokudo.utils.cv_bridge_workaround import CVBridgeWorkaround
-from robokudo.utils.o3d_helper import get_obb_from_size_and_transform
-from robokudo.utils.transform import get_transform_matrix, get_rotation_matrix_from_q
+from robokudo.utils.o3d_helper import get_oriented_bounding_box_from_size_and_transform
+from robokudo.utils.transform import (
+    get_transform_matrix,
+    get_rotation_matrix_from_quaternion,
+)
 
 if TYPE_CHECKING:
     import numpy.typing as npt
@@ -97,7 +100,7 @@ def ros_camera_info_from_dict(dict_camera_info: Dict) -> CameraInfo:
     return camera_info
 
 
-# RK Type Annotations
+# RoboKudo Type Annotations
 
 
 def get_geometry_msgs_pose_from_position_annotation(
@@ -196,7 +199,7 @@ def get_transform_matrix_from_pose_annotation(
     :return: 4x4 homogeneous transform matrix
     """
     transform_matrix = get_transform_matrix(
-        get_rotation_matrix_from_q(
+        get_rotation_matrix_from_quaternion(
             np.array(
                 [
                     pose_annotation.rotation[0],
@@ -217,7 +220,7 @@ def get_transform_matrix_from_pose_annotation(
     return transform_matrix
 
 
-def get_o3d_obb_from_bounding_box_annotation(
+def get_o3d_oriented_bounding_box_from_bounding_box_annotation(
     bounding_box_annotation: BoundingBox3DAnnotation,
 ) -> o3d.geometry.OrientedBoundingBox:
     """
@@ -226,7 +229,7 @@ def get_o3d_obb_from_bounding_box_annotation(
     :param bounding_box_annotation: Bounding box annotation to convert
     :return: Open3D OrientedBoundingBox representation of bounding box annotation
     """
-    bb_size = np.array(
+    bounding_box_size = np.array(
         [
             bounding_box_annotation.x_length,
             bounding_box_annotation.y_length,
@@ -236,7 +239,9 @@ def get_o3d_obb_from_bounding_box_annotation(
     transform_matrix = get_transform_matrix_from_pose_annotation(
         bounding_box_annotation.pose
     )
-    return get_obb_from_size_and_transform(bb_size, transform_matrix)
+    return get_oriented_bounding_box_from_size_and_transform(
+        bounding_box_size, transform_matrix
+    )
 
 
 def o3d_camera_intrinsics_from_ros_camera_info(
@@ -268,8 +273,8 @@ def convert_ros_to_cv_image(ros_image: Image) -> npt.NDArray:
     :return: OpenCV image array
     :raises ValueError: If conversion fails
     """
-    cv_rgb_image = _CV_BRIDGE_WORKAROUND.imgmsg_to_cv2(ros_image)
-    return cv_rgb_image
+    cv_color_image = _CV_BRIDGE_WORKAROUND.imgmsg_to_cv2(ros_image)
+    return cv_color_image
 
 
 def convert_cv_to_ros_image(cv_image: npt.NDArray) -> Image:
@@ -280,7 +285,7 @@ def convert_cv_to_ros_image(cv_image: npt.NDArray) -> Image:
     :return: ROS image message
     :raises ValueError: If conversion fails
     """
-    ros_rgb_image = _CV_BRIDGE_WORKAROUND.cv2_to_imgmsg(
+    ros_color_image = _CV_BRIDGE_WORKAROUND.cv2_to_imgmsg(
         cv_image, encoding="passthrough"
     )
-    return ros_rgb_image
+    return ros_color_image

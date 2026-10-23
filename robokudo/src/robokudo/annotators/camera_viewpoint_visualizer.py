@@ -10,7 +10,7 @@ from py_trees.common import Status
 
 import robokudo.utils.annotator_helper
 from robokudo.annotators.core import BaseAnnotator
-from robokudo.cas import CASViews
+from robokudo.common_analysis_structure import CommonAnalysisStructureViews
 
 
 class CameraViewpointVisualizer(BaseAnnotator):
@@ -22,7 +22,7 @@ class CameraViewpointVisualizer(BaseAnnotator):
     coordinate frame and the point cloud in the same space.
 
     The annotator will fail if the required viewpoint transform cannot be found in the
-    CAS.
+    common analysis structure.
     """
 
     def __init__(self, name: str = "CameraViewpointVisualizer") -> None:
@@ -32,7 +32,7 @@ class CameraViewpointVisualizer(BaseAnnotator):
         :param name: Name of the annotator instance
         """
         super().__init__(name)
-        self.rk_logger.debug("%s.__init__()" % self.__class__.__name__)
+        self.robokudo_logger.debug("%s.__init__()" % self.__class__.__name__)
 
     def update(self) -> Status:
         """
@@ -49,14 +49,18 @@ class CameraViewpointVisualizer(BaseAnnotator):
         try:
             world_to_camera_transform = (
                 robokudo.utils.annotator_helper.get_world_to_camera_transform_matrix(
-                    self.get_cas()
+                    self.get_common_analysis_structure()
                 )
             )
-        except KeyError as err:
-            self.rk_logger.warning(f"Couldn't find viewpoint in the CAS: {err}")
+        except KeyError as error:
+            self.robokudo_logger.warning(
+                f"Couldn't find viewpoint in the common analysis structure: {error}"
+            )
             return Status.FAILURE
 
-        cloud = self.get_cas().get(CASViews.CLOUD)
+        cloud = self.get_common_analysis_structure().get(
+            CommonAnalysisStructureViews.CLOUD
+        )
         world_frame = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.2)
         world_frame.transform(world_to_camera_transform)
 
@@ -64,6 +68,6 @@ class CameraViewpointVisualizer(BaseAnnotator):
             {"name": "World frame", "geometry": world_frame},
             {"name": "Cloud", "geometry": cloud},
         ]
-        self.get_annotator_output_struct().set_geometries(geometries)
+        self.get_annotator_output_structure().set_geometries(geometries)
 
         return Status.SUCCESS

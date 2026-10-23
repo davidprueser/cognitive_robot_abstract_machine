@@ -1,3 +1,4 @@
+from __future__ import annotations
 import copy
 
 import numpy as np
@@ -6,23 +7,23 @@ import pytest
 from cv2 import boundingRect
 
 from robokudo.types.cv import ColorToDepthRatio
-import robokudo.cas
+import robokudo.common_analysis_structure
 from robokudo.annotators.core import BaseAnnotator
 from robokudo.annotators.image_preprocessor import ImagePreprocessorAnnotator
 from robokudo.pipeline import Pipeline
-from robokudo.types.cv import ImageROI
+from robokudo.types.cv import ImageRegionOfInterest
 from robokudo.utils.cv_helper import (
-    adjust_roi,
-    get_hsv_for_rgb_color,
+    adjust_region_of_interest,
+    get_hsv_for_red_green_blue_color,
     crop_image,
-    get_hsv_for_bgr_color,
+    get_hsv_for_blue_green_red_color,
     get_scaled_color_image_for_depth_image,
     draw_rectangle_around_center,
-    clamp_bounding_rect,
-    sanity_checks_bounding_rects,
-    adjust_image_roi,
+    clamp_bounding_rectangle,
+    sanity_checks_bounding_rectangles,
+    adjust_image_region_of_interest,
     adjust_mask,
-    crop_image_roi,
+    crop_image_region_of_interest,
 )
 
 
@@ -43,7 +44,7 @@ class TestUtilsCVHelper(object):
         return camera_intrinsics
 
     @pytest.mark.parametrize(
-        ["image_dim_xy", "crop_xy", "crop_wh", "expected_yx_shape"],
+        ["image_dimensions_xy", "crop_xy", "crop_width_height", "expected_yx_shape"],
         [
             # Crop exceeds image boundaries right and bottom
             ((256, 256), (0, 0), (257, 257), (256, 256)),
@@ -63,17 +64,17 @@ class TestUtilsCVHelper(object):
     )
     def test_crop_image(
         self,
-        image_dim_xy: tuple[int, int],
+        image_dimensions_xy: tuple[int, int],
         crop_xy: tuple[int, int],
-        crop_wh: tuple[int, int],
+        crop_width_height: tuple[int, int],
         expected_yx_shape: tuple[int, int],
-    ):
-        image = np.zeros((image_dim_xy[0], image_dim_xy[1], 3), np.uint8)
-        cropped_image = crop_image(image.copy(), crop_xy, crop_wh)
+    ) -> None:
+        image = np.zeros((image_dimensions_xy[0], image_dimensions_xy[1], 3), np.uint8)
+        cropped_image = crop_image(image.copy(), crop_xy, crop_width_height)
         assert cropped_image.shape[:2] == expected_yx_shape
 
     @pytest.mark.parametrize(
-        ["image_dim_xy", "crop_xy", "crop_wh", "expected_yx_shape"],
+        ["image_dimensions_xy", "crop_xy", "crop_width_height", "expected_yx_shape"],
         [
             # Crop exceeds image boundaries right and bottom
             ((256, 256), (0, 0), (257, 257), (256, 256)),
@@ -91,20 +92,20 @@ class TestUtilsCVHelper(object):
             ((256, 256), (128, -1), (256, 64), (63, 128)),
         ],
     )
-    def test_crop_image_roi(
+    def test_crop_image_region_of_interest(
         self,
-        image_dim_xy: tuple[int, int],
+        image_dimensions_xy: tuple[int, int],
         crop_xy: tuple[int, int],
-        crop_wh: tuple[int, int],
+        crop_width_height: tuple[int, int],
         expected_yx_shape: tuple[int, int],
-    ):
-        image = np.zeros((image_dim_xy[0], image_dim_xy[1], 3), np.uint8)
-        roi = robokudo.types.cv.ImageROI()
-        roi.roi.pos.x = crop_xy[0]
-        roi.roi.pos.y = crop_xy[1]
-        roi.roi.width = crop_wh[0]
-        roi.roi.height = crop_wh[1]
-        cropped_image = crop_image_roi(image.copy(), roi)
+    ) -> None:
+        image = np.zeros((image_dimensions_xy[0], image_dimensions_xy[1], 3), np.uint8)
+        region_of_interest = robokudo.types.cv.ImageRegionOfInterest()
+        region_of_interest.rectangle.position.x = crop_xy[0]
+        region_of_interest.rectangle.position.y = crop_xy[1]
+        region_of_interest.rectangle.width = crop_width_height[0]
+        region_of_interest.rectangle.height = crop_width_height[1]
+        cropped_image = crop_image_region_of_interest(image.copy(), region_of_interest)
         assert cropped_image.shape[:2] == expected_yx_shape
 
     @pytest.mark.parametrize(
@@ -122,39 +123,51 @@ class TestUtilsCVHelper(object):
         scale_factor: tuple[float, float],
         annotator_in_pipeline: BaseAnnotator,
         kinect_intrinsics: o3d.camera.PinholeCameraIntrinsic,
-    ):
+    ) -> None:
         annotator_in_pipeline.descriptor.parameters.global_with_depth = True
-        cas = annotator_in_pipeline.get_cas()
+        common_analysis_structure = (
+            annotator_in_pipeline.get_common_analysis_structure()
+        )
         width, height = kinect_intrinsics.width, kinect_intrinsics.height
-        scalex, scaley = scale_factor
+        scale_x, scale_y = scale_factor
 
         image = np.zeros((height, width, 3), dtype=np.uint8)
 
-        cas.set(
-            robokudo.cas.CASViews.COLOR_TO_DEPTH_RATIO,
-            ColorToDepthRatio(horizontal=scalex, vertical=scaley),
+        common_analysis_structure.set(
+            robokudo.common_analysis_structure.CommonAnalysisStructureViews.COLOR_TO_DEPTH_RATIO,
+            ColorToDepthRatio(horizontal=scale_x, vertical=scale_y),
         )
 
         annotator_in_pipeline.camera_intrinsics = copy.deepcopy(kinect_intrinsics)
 
-        scaled_image = get_scaled_color_image_for_depth_image(cas, image)
+        scaled_image = get_scaled_color_image_for_depth_image(
+            common_analysis_structure, image
+        )
         assert scaled_image.shape[:2] == (
-            height * scaley,
-            width * scalex,
-        ), f"Image should be scaled to {scalex}, {scaley}"
+            height * scale_y,
+            width * scale_x,
+        ), f"Image should be scaled to {scale_x}, {scale_y}"
 
     def test_get_scaled_color_image_for_depth_image_no_depth_ratio(
         self, annotator_in_pipeline: BaseAnnotator
-    ):
-        cas = annotator_in_pipeline.get_cas()
-        cas.set(robokudo.cas.CASViews.COLOR_TO_DEPTH_RATIO, None)
+    ) -> None:
+        common_analysis_structure = (
+            annotator_in_pipeline.get_common_analysis_structure()
+        )
+        common_analysis_structure.set(
+            robokudo.common_analysis_structure.CommonAnalysisStructureViews.COLOR_TO_DEPTH_RATIO,
+            None,
+        )
         image = np.zeros((640, 480, 3), dtype=np.uint8)
         assert pytest.raises(
-            RuntimeError, get_scaled_color_image_for_depth_image, cas, image
+            RuntimeError,
+            get_scaled_color_image_for_depth_image,
+            common_analysis_structure,
+            image,
         )
 
     @pytest.mark.parametrize(
-        ["rgb", "hsv"],
+        ["red_green_blue", "hsv"],
         [
             # All cannels the same
             ((0, 0, 0), (0, 0, 0)),
@@ -168,14 +181,14 @@ class TestUtilsCVHelper(object):
             ((0, 0, 255), (171, 255, 255)),
         ],
     )
-    def test_get_hsv_for_rgb_color(
-        self, rgb: tuple[int, int, int], hsv: tuple[int, int, int]
-    ):
-        hsv_from_rgb = get_hsv_for_rgb_color(rgb)
-        assert np.all(hsv == hsv_from_rgb)
+    def test_get_hsv_for_red_green_blue_color(
+        self, red_green_blue: tuple[int, int, int], hsv: tuple[int, int, int]
+    ) -> None:
+        hsv_from_red_green_blue = get_hsv_for_red_green_blue_color(red_green_blue)
+        assert np.all(hsv == hsv_from_red_green_blue)
 
     @pytest.mark.parametrize(
-        ["bgr", "hsv"],
+        ["blue_green_red", "hsv"],
         [
             # All cannels the same
             ((0, 0, 0), (0, 0, 0)),
@@ -189,11 +202,11 @@ class TestUtilsCVHelper(object):
             ((255, 0, 0), (171, 255, 255)),
         ],
     )
-    def test_get_hsv_for_bgr_color(
-        self, bgr: tuple[int, int, int], hsv: tuple[int, int, int]
-    ):
-        hsv_from_bgr = get_hsv_for_bgr_color(bgr)
-        assert np.all(hsv == hsv_from_bgr)
+    def test_get_hsv_for_blue_green_red_color(
+        self, blue_green_red: tuple[int, int, int], hsv: tuple[int, int, int]
+    ) -> None:
+        hsv_from_blue_green_red = get_hsv_for_blue_green_red_color(blue_green_red)
+        assert np.all(hsv == hsv_from_blue_green_red)
 
     @pytest.mark.parametrize(
         ["center", "size", "expected_points"],
@@ -242,13 +255,13 @@ class TestUtilsCVHelper(object):
     )
     def test_draw_rectangle_around_center(
         self, center: tuple[int, int], size: tuple[int, int], expected_points: int
-    ):
+    ) -> None:
         x, y = center
-        w, h = size
+        width, height = size
 
         image = np.zeros((512, 512, 3), dtype=np.uint8)
         modified_image = draw_rectangle_around_center(
-            image, x, y, w, h, value=(255, 0, 0)
+            image, x, y, width, height, value=(255, 0, 0)
         )
 
         assert (
@@ -275,20 +288,20 @@ class TestUtilsCVHelper(object):
             ((-64, -64, 768, 768), (0, 0, 512, 512)),
         ],
     )
-    def test_clamp_bounding_rect(
+    def test_clamp_bounding_rectangle(
         self, points: tuple[int, int, int, int], adjusted: tuple[int, int, int, int]
-    ):
+    ) -> None:
         image_width = 512
         image_height = 512
 
-        result = clamp_bounding_rect(points, image_width, image_height)
+        result = clamp_bounding_rectangle(points, image_width, image_height)
 
         assert np.all(result == adjusted)
 
-        x, y, w, h = result
+        x, y, width, height = result
 
-        assert 0 <= x + w <= image_width
-        assert 0 <= y + h <= image_height
+        assert 0 <= x + width <= image_width
+        assert 0 <= y + height <= image_height
 
         assert 0 <= x < image_width
         assert 0 <= y < image_height
@@ -312,16 +325,21 @@ class TestUtilsCVHelper(object):
             (np.array([(4096, 4096), (4096, 4096)]), False),
         ],
     )
-    def test_sanity_checks_bounding_rects(self, points: np.ndarray, valid: bool):
+    def test_sanity_checks_bounding_rectangles(
+        self, points: np.ndarray, valid: bool
+    ) -> None:
         image_width = 512
         image_height = 512
 
-        rect = boundingRect(points)
+        rectangle = boundingRect(points)
 
-        assert sanity_checks_bounding_rects(rect, image_width, image_height) == valid
+        assert (
+            sanity_checks_bounding_rectangles(rectangle, image_width, image_height)
+            == valid
+        )
 
     @pytest.mark.parametrize(
-        ["image_dim", "roi", "offset"],
+        ["image_dimensions", "region_of_interest", "offset"],
         [
             # Roi no change
             ((512, 512), (64, 64, 128, 128), 0),
@@ -331,21 +349,26 @@ class TestUtilsCVHelper(object):
             ((512, 512), (64, 64, 128, 128), -10),
         ],
     )
-    def test_adjust_roi_within_boundaries(
-        self, image_dim: tuple[int, int], roi: tuple[int, int, int, int], offset: int
-    ):
-        w, h = image_dim
-        image = np.zeros((h, w, 3), dtype=np.uint8)
+    def test_adjust_region_of_interest_within_boundaries(
+        self,
+        image_dimensions: tuple[int, int],
+        region_of_interest: tuple[int, int, int, int],
+        offset: int,
+    ) -> None:
+        width, height = image_dimensions
+        image = np.zeros((height, width, 3), dtype=np.uint8)
 
-        new_x, new_y, new_width, new_height = adjust_roi(image, roi, offset)
+        new_x, new_y, new_width, new_height = adjust_region_of_interest(
+            image, region_of_interest, offset
+        )
 
-        assert new_x == roi[0] - offset
-        assert new_y == roi[1] - offset
-        assert new_width == roi[2] + 2 * offset
-        assert new_height == roi[3] + 2 * offset
+        assert new_x == region_of_interest[0] - offset
+        assert new_y == region_of_interest[1] - offset
+        assert new_width == region_of_interest[2] + 2 * offset
+        assert new_height == region_of_interest[3] + 2 * offset
 
     @pytest.mark.parametrize(
-        ["image_dim", "roi", "offset"],
+        ["image_dimensions", "region_of_interest", "offset"],
         [
             # Roi shrink to minimum
             ((512, 512), (40, 40, 20, 20), -10),
@@ -367,35 +390,40 @@ class TestUtilsCVHelper(object):
             ((512, 512), (0, 0, 512, 512), 10),
         ],
     )
-    def test_adjust_roi_boundary_conditions(
-        self, image_dim: tuple[int, int], roi: tuple[int, int, int, int], offset: int
-    ):
-        w, h = image_dim
-        image = np.zeros((h, w, 3), dtype=np.uint8)
+    def test_adjust_region_of_interest_boundary_conditions(
+        self,
+        image_dimensions: tuple[int, int],
+        region_of_interest: tuple[int, int, int, int],
+        offset: int,
+    ) -> None:
+        width, height = image_dimensions
+        image = np.zeros((height, width, 3), dtype=np.uint8)
 
-        new_x, new_y, new_width, new_height = adjust_roi(image, roi, offset)
+        new_x, new_y, new_width, new_height = adjust_region_of_interest(
+            image, region_of_interest, offset
+        )
 
         assert (
-            0 <= new_x < w
-        ), f"{roi} x should be expanded by {offset} within image width"
+            0 <= new_x < width
+        ), f"{region_of_interest} x should be expanded by {offset} within image width"
         assert (
-            0 <= new_y < h
-        ), f"{roi} y should be expanded by {offset} within image width"
+            0 <= new_y < height
+        ), f"{region_of_interest} y should be expanded by {offset} within image width"
         assert (
-            1 <= new_width <= w
-        ), f"{roi} width should be at least 1 and within image width"
+            1 <= new_width <= width
+        ), f"{region_of_interest} width should be at least 1 and within image width"
         assert (
-            1 <= new_height <= h
-        ), f"{roi} width should be at least 1 and within image width"
+            1 <= new_height <= height
+        ), f"{region_of_interest} width should be at least 1 and within image width"
         assert (
-            1 <= new_x + new_width <= w
-        ), f"{roi} width should be expanded by {offset} within image width"
+            1 <= new_x + new_width <= width
+        ), f"{region_of_interest} width should be expanded by {offset} within image width"
         assert (
-            1 <= new_y + new_height <= h
-        ), f"{roi} height should be expanded by {offset} within image width"
+            1 <= new_y + new_height <= height
+        ), f"{region_of_interest} height should be expanded by {offset} within image width"
 
     @pytest.mark.parametrize(
-        ["image_dim", "roi", "offset"],
+        ["image_dimensions", "region_of_interest", "offset"],
         [
             # Roi no change
             ((512, 512), (64, 64, 128, 128), 0),
@@ -405,26 +433,53 @@ class TestUtilsCVHelper(object):
             ((512, 512), (64, 64, 128, 128), -10),
         ],
     )
-    def test_adjust_image_roi_within_boundaries(
-        self, image_dim: tuple[int, int], roi: tuple[int, int, int, int], offset: int
-    ):
-        w, h = image_dim
+    def test_adjust_image_region_of_interest_within_boundaries(
+        self,
+        image_dimensions: tuple[int, int],
+        region_of_interest: tuple[int, int, int, int],
+        offset: int,
+    ) -> None:
+        width, height = image_dimensions
 
-        image_roi = ImageROI()
-        image_roi.roi.pos.x, image_roi.roi.pos.y = roi[0], roi[1]
-        image_roi.roi.width, image_roi.roi.height = roi[2], roi[3]
+        image_region_of_interest = ImageRegionOfInterest()
+        (
+            image_region_of_interest.rectangle.position.x,
+            image_region_of_interest.rectangle.position.y,
+        ) = (
+            region_of_interest[0],
+            region_of_interest[1],
+        )
+        (
+            image_region_of_interest.rectangle.width,
+            image_region_of_interest.rectangle.height,
+        ) = (
+            region_of_interest[2],
+            region_of_interest[3],
+        )
 
-        image = np.zeros((h, w, 3), dtype=np.uint8)
+        image = np.zeros((height, width, 3), dtype=np.uint8)
 
-        adjust_image_roi(image, image_roi, offset)
+        adjust_image_region_of_interest(image, image_region_of_interest, offset)
 
-        assert image_roi.roi.pos.x == roi[0] - offset
-        assert image_roi.roi.pos.y == roi[1] - offset
-        assert image_roi.roi.width == roi[2] + 2 * offset
-        assert image_roi.roi.height == roi[3] + 2 * offset
+        assert (
+            image_region_of_interest.rectangle.position.x
+            == region_of_interest[0] - offset
+        )
+        assert (
+            image_region_of_interest.rectangle.position.y
+            == region_of_interest[1] - offset
+        )
+        assert (
+            image_region_of_interest.rectangle.width
+            == region_of_interest[2] + 2 * offset
+        )
+        assert (
+            image_region_of_interest.rectangle.height
+            == region_of_interest[3] + 2 * offset
+        )
 
     @pytest.mark.parametrize(
-        ["image_dim", "roi", "offset"],
+        ["image_dimensions", "region_of_interest", "offset"],
         [
             # Roi shrink to minimum
             ((512, 512), (40, 40, 20, 20), -10),
@@ -446,38 +501,59 @@ class TestUtilsCVHelper(object):
             ((512, 512), (0, 0, 512, 512), 10),
         ],
     )
-    def test_adjust_image_roi_boundary_conditions(
-        self, image_dim: tuple[int, int], roi: tuple[int, int, int, int], offset: int
-    ):
-        w, h = image_dim
+    def test_adjust_image_region_of_interest_boundary_conditions(
+        self,
+        image_dimensions: tuple[int, int],
+        region_of_interest: tuple[int, int, int, int],
+        offset: int,
+    ) -> None:
+        width, height = image_dimensions
         offset = offset
 
-        image_roi = ImageROI()
-        image_roi.roi.pos.x, image_roi.roi.pos.y = roi[0], roi[1]
-        image_roi.roi.width, image_roi.roi.height = roi[2], roi[3]
+        image_region_of_interest = ImageRegionOfInterest()
+        (
+            image_region_of_interest.rectangle.position.x,
+            image_region_of_interest.rectangle.position.y,
+        ) = (
+            region_of_interest[0],
+            region_of_interest[1],
+        )
+        (
+            image_region_of_interest.rectangle.width,
+            image_region_of_interest.rectangle.height,
+        ) = (
+            region_of_interest[2],
+            region_of_interest[3],
+        )
 
-        image = np.zeros((h, w, 3), dtype=np.uint8)
+        image = np.zeros((height, width, 3), dtype=np.uint8)
 
-        adjust_image_roi(image, image_roi, offset)
+        adjust_image_region_of_interest(image, image_region_of_interest, offset)
 
         assert (
-            0 <= image_roi.roi.pos.x <= w
-        ), f"{roi} x should be expanded by {offset} within image width"
+            0 <= image_region_of_interest.rectangle.position.x <= width
+        ), f"{region_of_interest} x should be expanded by {offset} within image width"
         assert (
-            0 <= image_roi.roi.pos.y <= h
-        ), f"{roi} y should be expanded by {offset} within image width"
+            0 <= image_region_of_interest.rectangle.position.y <= height
+        ), f"{region_of_interest} y should be expanded by {offset} within image width"
         assert (
-            1 <= image_roi.roi.width <= w
-        ), f"{roi} width should be at least 1 and within image width"
+            1 <= image_region_of_interest.rectangle.width <= width
+        ), f"{region_of_interest} width should be at least 1 and within image width"
         assert (
-            1 <= image_roi.roi.height <= h
-        ), f"{roi} width should be at least 1 and within image width"
+            1 <= image_region_of_interest.rectangle.height <= height
+        ), f"{region_of_interest} width should be at least 1 and within image width"
         assert (
-            1 <= image_roi.roi.pos.x + image_roi.roi.width <= w
-        ), f"{roi} width should be expanded by {offset} within image width"
+            1
+            <= image_region_of_interest.rectangle.position.x
+            + image_region_of_interest.rectangle.width
+            <= width
+        ), f"{region_of_interest} width should be expanded by {offset} within image width"
         assert (
-            1 <= image_roi.roi.pos.y + image_roi.roi.height <= h
-        ), f"{roi} height should be expanded by {offset} within image width"
+            1
+            <= image_region_of_interest.rectangle.position.y
+            + image_region_of_interest.rectangle.height
+            <= height
+        ), f"{region_of_interest} height should be expanded by {offset} within image width"
 
     @pytest.mark.parametrize(
         ["mask", "offset", "fill_value"],
@@ -496,24 +572,24 @@ class TestUtilsCVHelper(object):
             (np.zeros((512, 512), dtype=np.uint8), -10, 0),
         ],
     )
-    def test_adjust_mask(self, mask: np.ndarray, offset: int, fill_value: int):
+    def test_adjust_mask(self, mask: np.ndarray, offset: int, fill_value: int) -> None:
         new_mask = adjust_mask(mask, offset, fill_value=fill_value)
         assert np.all(new_mask == fill_value)
         assert np.all(new_mask.shape[:2] == np.array(mask.shape[:2]) + (offset * 2))
 
-    def test_adjust_mask_shrink_empty_mask(self):
+    def test_adjust_mask_shrink_empty_mask(self) -> None:
         mask = np.empty((0, 0), dtype=np.uint8)
         new_mask = adjust_mask(mask, -1, fill_value=0)
         assert np.all(new_mask == 0)
         assert np.all(new_mask.shape[:2] == np.array(mask.shape[:2]))
 
-    def test_adjust_mask_unchanged_random_mask(self):
+    def test_adjust_mask_unchanged_random_mask(self) -> None:
         mask = np.random.randint(0, 2, size=(512, 512), dtype=np.uint8)
         new_mask = adjust_mask(mask, 0, fill_value=0)
         assert np.array_equal(mask, new_mask)
         assert np.all(new_mask.shape[:2] == mask.shape[:2])
 
-    def test_adjust_mask_expand_random_mask(self):
+    def test_adjust_mask_expand_random_mask(self) -> None:
         offset = 10
         fill = 0
         mask = np.random.randint(0, 2, size=(512, 512), dtype=np.uint8)
@@ -529,15 +605,15 @@ class TestUtilsCVHelper(object):
         assert np.all(new_mask[-offset:, :] == fill)  # Bottom
         assert np.all(new_mask[:, -offset:] == fill)  # Right
 
-    def test_adjust_mask_shrink_random_mask(self):
+    def test_adjust_mask_shrink_random_mask(self) -> None:
         offset = -10
         mask = np.random.randint(0, 2, size=(512, 512), dtype=np.uint8)
         new_mask = adjust_mask(mask, offset, fill_value=0)
 
-        abs_offset = abs(offset)
+        absolute_offset = abs(offset)
         expected_slice = (
-            slice(abs_offset, mask.shape[0] - abs_offset),
-            slice(abs_offset, mask.shape[1] - abs_offset),
+            slice(absolute_offset, mask.shape[0] - absolute_offset),
+            slice(absolute_offset, mask.shape[1] - absolute_offset),
         )
         assert np.array_equal(new_mask, mask[expected_slice])
         assert np.all(new_mask.shape[:2] == np.array(mask.shape[:2]) - 20)

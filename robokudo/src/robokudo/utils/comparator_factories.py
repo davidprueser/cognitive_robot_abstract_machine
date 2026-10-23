@@ -1,4 +1,6 @@
-from typing_extensions import Dict, Optional, Type
+from __future__ import annotations
+
+from typing_extensions import Dict, Optional, Type, Any
 
 from robokudo.types.annotation import (
     BoundingBox3DAnnotation,
@@ -13,8 +15,8 @@ from robokudo.types.annotation import (
     StampedTransformAnnotation,
 )
 from robokudo.types.core import Annotation
-from robokudo.types.core import Type as RkType
-from robokudo.types.cv import ImageROI, Rect
+from robokudo.types.core import Type as RoboKudoType
+from robokudo.types.cv import ImageRegionOfInterest, Rectangle
 from robokudo.types.tf import (
     Pose,
     Position,
@@ -23,15 +25,15 @@ from robokudo.types.tf import (
     StampedTransform,
 )
 from robokudo.utils.comparators import (
-    BboxComparator,
+    BoundingBoxComparator,
     ClassificationComparator,
     FeatureComparator,
     HistogramComparator,
-    ImageROIComparator,
+    ImageRegionOfInterestComparator,
     PoseComparator,
-    RoiComparator,
+    RegionOfInterestComparator,
     SemanticColorComparator,
-    SIFTComparator,
+    ScaleInvariantFeatureTransformComparator,
     TranslationComparator,
 )
 
@@ -42,7 +44,7 @@ class FeatureComparatorFactory:
     """
 
     annotator_comparators: Dict[Type[Annotation], Type[FeatureComparator]] = {
-        BoundingBox3DAnnotation: BboxComparator,
+        BoundingBox3DAnnotation: BoundingBoxComparator,
         Classification: ClassificationComparator,
         ColorHistogram: HistogramComparator,
         SemanticColor: SemanticColorComparator,
@@ -51,15 +53,15 @@ class FeatureComparatorFactory:
         PoseAnnotation: PoseComparator,
         StampedPoseAnnotation: PoseComparator,
         StampedTransformAnnotation: PoseComparator,
-        SIFTAnnotation: SIFTComparator,
+        SIFTAnnotation: ScaleInvariantFeatureTransformComparator,
     }
     """
     Mapping of annotation types to feature comparators.
     """
 
-    type_comparators: Dict[Type[RkType], Type[FeatureComparator]] = {
-        Rect: RoiComparator,
-        ImageROI: ImageROIComparator,
+    type_comparators: Dict[Type[RoboKudoType], Type[FeatureComparator]] = {
+        Rectangle: RegionOfInterestComparator,
+        ImageRegionOfInterest: ImageRegionOfInterestComparator,
         Position: TranslationComparator,
         StampedPosition: TranslationComparator,
         Pose: PoseComparator,
@@ -72,7 +74,7 @@ class FeatureComparatorFactory:
 
     @classmethod
     def for_annotation(
-        cls, annotation: Type[Annotation], weight: float, **kwargs
+        cls, annotation: Type[Annotation], weight: float, **kwargs: Any
     ) -> Optional[FeatureComparator]:
         """
         Get a feature comparator for the given annotation type and assign it the given
@@ -91,17 +93,19 @@ class FeatureComparatorFactory:
 
     @classmethod
     def for_type(
-        cls, rk_type: Type[RkType], weight: float, **kwargs
+        cls, robokudo_type: Type[RoboKudoType], weight: float, **kwargs: Any
     ) -> Optional[FeatureComparator]:
         """
         Get a feature comparator for the given robokudo type and assign it the given
         weight.
 
-        :param rk_type: The robokudo type to get a feature comparator for.
+        :param robokudo_type: The robokudo type to get a feature comparator for.
         :param weight: The weight to assign the annotation type.
         :return: A feature comparator instance for the given annotation type or None if
             the type is not supported.
         """
-        if rk_type not in cls.type_comparators:
+        if robokudo_type not in cls.type_comparators:
             return None
-        return FeatureComparatorFactory.type_comparators[rk_type](weight, **kwargs)
+        return FeatureComparatorFactory.type_comparators[robokudo_type](
+            weight, **kwargs
+        )

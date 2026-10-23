@@ -1,10 +1,18 @@
-from robokudo.world_descriptor import BaseWorldDescriptor, ObjectSpec, RegionSpec
+from __future__ import annotations
+from robokudo.world_descriptor import (
+    BaseWorldDescriptor,
+    ObjectSpecification,
+    RegionSpecification,
+)
 from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
 from semantic_digital_twin.world_description.geometry import Scale, Color
 
 
 class WorldDescriptor(BaseWorldDescriptor):
-    """A compact tabletop world for SemDT RayTracer with cylindrical target objects."""
+    """
+    A compact tabletop world for semantic digital twin RayTracer with cylindrical target
+    objects.
+    """
 
     def __init__(self) -> None:
         super().__init__()
@@ -20,7 +28,7 @@ class WorldDescriptor(BaseWorldDescriptor):
         blue_cylinder_height = 0.14
 
         object_specs = [
-            ObjectSpec(
+            ObjectSpecification(
                 name="table",
                 box_scale=Scale(1.20, 0.80, table_thickness),
                 color=Color(0.65, 0.58, 0.48, 1.0),
@@ -31,7 +39,7 @@ class WorldDescriptor(BaseWorldDescriptor):
                     reference_frame=root,
                 ),
             ),
-            ObjectSpec(
+            ObjectSpecification(
                 name="cylinder_red",
                 cylinder_width=red_cylinder_width,
                 cylinder_height=red_cylinder_height,
@@ -43,7 +51,7 @@ class WorldDescriptor(BaseWorldDescriptor):
                     reference_frame=root,
                 ),
             ),
-            ObjectSpec(
+            ObjectSpecification(
                 name="cylinder_blue",
                 cylinder_width=blue_cylinder_width,
                 cylinder_height=blue_cylinder_height,
@@ -59,7 +67,7 @@ class WorldDescriptor(BaseWorldDescriptor):
         ]
 
         region_specs = [
-            RegionSpec(
+            RegionSpecification(
                 name="table_surface_region",
                 box_scale=Scale(1.00, 0.60, table_surface_region_thickness),
                 parent_name="table",

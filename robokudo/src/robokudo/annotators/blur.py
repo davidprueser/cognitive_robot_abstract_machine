@@ -21,7 +21,7 @@ from py_trees.common import Status
 from typing_extensions import TYPE_CHECKING
 
 from robokudo.annotators.core import BaseAnnotator
-from robokudo.cas import CASViews
+from robokudo.common_analysis_structure import CommonAnalysisStructureViews
 
 if TYPE_CHECKING:
     import numpy.typing as npt
@@ -70,7 +70,7 @@ class BlurAnnotator(BaseAnnotator):
         super().__init__(name, descriptor)
         self.logger.debug("%s.__init__()" % self.__class__.__name__)
 
-    def compute_bluriness(self, img: npt.NDArray) -> float:
+    def compute_bluriness(self, image: npt.NDArray) -> float:
         """Compute the blur metric for an image.
 
         Uses Laplacian variance to measure image sharpness:
@@ -79,11 +79,11 @@ class BlurAnnotator(BaseAnnotator):
         * Computes Laplacian operator
         * Returns variance of Laplacian values
 
-        :param img: Input image in BGR format
+        :param image: Input image in BGR format
         :return: Blur metric value (higher = sharper)
         """
-        img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        return cv2.Laplacian(img, cv2.CV_64F).var()
+        image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        return cv2.Laplacian(image, cv2.CV_64F).var()
 
     def update(self) -> Status:
         """Update blur detection and visualization.
@@ -97,15 +97,19 @@ class BlurAnnotator(BaseAnnotator):
         """
         start_timer = default_timer()
 
-        cloud = self.get_cas().get(CASViews.CLOUD)
-        color = self.get_cas().get(CASViews.COLOR_IMAGE)
+        cloud = self.get_common_analysis_structure().get(
+            CommonAnalysisStructureViews.CLOUD
+        )
+        color = self.get_common_analysis_structure().get(
+            CommonAnalysisStructureViews.COLOR_IMAGE
+        )
 
         bluriness = self.compute_bluriness(color)
 
-        visualization_img = copy.deepcopy(color)
+        visualization_image = copy.deepcopy(color)
         font = cv2.FONT_HERSHEY_COMPLEX
-        visualization_img = cv2.putText(
-            visualization_img,
+        visualization_image = cv2.putText(
+            visualization_image,
             f"Bluriness: {bluriness}",
             (20, 90),
             font,
@@ -120,8 +124,8 @@ class BlurAnnotator(BaseAnnotator):
             {"name": "Cloud", "geometry": cloud},
         ]
 
-        self.get_annotator_output_struct().set_geometries(vis_geometries)
-        self.get_annotator_output_struct().set_image(visualization_img)
+        self.get_annotator_output_structure().set_geometries(vis_geometries)
+        self.get_annotator_output_structure().set_image(visualization_image)
 
         end_timer = default_timer()
         self.feedback_message = f"Processing took {(end_timer - start_timer):.4f}s"

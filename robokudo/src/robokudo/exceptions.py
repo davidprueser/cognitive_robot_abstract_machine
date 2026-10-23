@@ -22,7 +22,7 @@ class RoboKudoError(DataclassException, ABC):
 @dataclass
 class ColorToDepthRatioMissing(RoboKudoError, RuntimeError):
     """
-    Raised when an operation needs the color-to-depth ratio, but the CAS holds none.
+    Raised when an operation needs the color-to-depth ratio, but the common analysis structure holds none.
     """
 
     operation: str = "continue"
@@ -31,14 +31,12 @@ class ColorToDepthRatioMissing(RoboKudoError, RuntimeError):
     """
 
     def error_message(self) -> str:
-        return (
-            f"The color-to-depth ratio is missing from the CAS. Can't {self.operation}."
-        )
+        return f"The color-to-depth ratio is missing from the common analysis structure. Can't {self.operation}."
 
     def suggest_correction(self) -> str:
         return (
             "make sure the camera driver or reader stores the color-to-depth ratio in "
-            "the CAS before this operation."
+            "the common analysis structure before this operation."
         )
 
 
@@ -291,9 +289,11 @@ class AnalysisPreconditionError(RoboKudoError, ABC):
 
 
 @dataclass
-class CASCheckConfigurationError(AnalysisPreconditionError, ValueError):
+class CommonAnalysisStructureCheckConfigurationError(
+    AnalysisPreconditionError, ValueError
+):
     """
-    Raised when a CAS check annotator is not configured correctly.
+    Raised when a common analysis structure check annotator is not configured correctly.
     """
 
     component_name: str
@@ -305,22 +305,22 @@ class CASCheckConfigurationError(AnalysisPreconditionError, ValueError):
         )
 
     def suggest_correction(self) -> str:
-        return "pass a callable via the 'func' parameter."
+        return "pass a callable via the 'function' parameter."
 
 
 @dataclass
-class CASCheckFailed(AnalysisPreconditionError):
+class CommonAnalysisStructureCheckFailed(AnalysisPreconditionError):
     """
-    Raised when a configured CAS check condition fails.
+    Raised when a configured common analysis structure check condition fails.
     """
 
     reason: str
 
     def error_message(self) -> str:
-        return f"CAS check failed: {self.reason}"
+        return f"Common analysis structure check failed: {self.reason}"
 
     def suggest_correction(self) -> str:
-        return "inspect the CAS contents and the condition configured for this check."
+        return "inspect the common analysis structure contents and the condition configured for this check."
 
 
 class PointCloudThresholdRelation(StrEnum):
@@ -351,20 +351,20 @@ class PointCloudThresholdError(AnalysisPreconditionError):
     def suggest_correction(self) -> str:
         return (
             "adjust the threshold or verify that the expected point cloud was written "
-            "to the CAS."
+            "to the common analysis structure."
         )
 
 
 @dataclass
 class PlaneModelMissing(AnalysisPreconditionError):
     """
-    Raised when an algorithm requires a plane model in the CAS.
+    Raised when an algorithm requires a plane model in the common analysis structure.
     """
 
     context: str
 
     def error_message(self) -> str:
-        return f"{self.context} requires a plane model in the CAS, but none was found."
+        return f"{self.context} requires a plane model in the common analysis structure, but none was found."
 
     def suggest_correction(self) -> str:
         return (
@@ -404,7 +404,7 @@ class EmptyPointCloud(AnalysisPreconditionError):
         return f"{self.context} requires a non-empty point cloud."
 
     def suggest_correction(self) -> str:
-        return "verify that the upstream point cloud producer wrote points to the CAS."
+        return "verify that the upstream point cloud producer wrote points to the common analysis structure."
 
 
 @dataclass

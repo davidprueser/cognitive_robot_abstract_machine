@@ -1,3 +1,4 @@
+from __future__ import annotations
 import logging
 import tempfile
 
@@ -12,15 +13,15 @@ from robokudo.utils.logging_configuration import (
 
 class TestUtilsLoggingConfiguration:
 
-    def test_dynamic_compact_formatter_line_width_calculation(self):
+    def test_dynamic_compact_formatter_line_width_calculation(self) -> None:
         formatter = DynamicCompactFormatter("%(name)s %(filename_line)-50s %(message)s")
         assert formatter.max_file_line_width == 50
 
-    def test_dynamic_compact_formatter_default_line_width(self):
+    def test_dynamic_compact_formatter_default_line_width(self) -> None:
         formatter = DynamicCompactFormatter("%(name)s %(filename_line)s %(message)s")
         assert formatter.max_file_line_width == 44
 
-    def test_dynamic_compact_formatter_default_fmt(self):
+    def test_dynamic_compact_formatter_default_fmt(self) -> None:
         formatter = DynamicCompactFormatter(None)
         record = logging.LogRecord(
             name="test",
@@ -35,7 +36,7 @@ class TestUtilsLoggingConfiguration:
         formatted = formatter.format(record)
         assert formatted == record.msg
 
-    def test_dynamic_compact_formatter_truncate_file_and_method(self):
+    def test_dynamic_compact_formatter_truncate_file_and_method(self) -> None:
         formatter = DynamicCompactFormatter("%(name)s %(filename_line)-10s %(message)s")
         record = logging.LogRecord(
             name="test",
@@ -50,7 +51,7 @@ class TestUtilsLoggingConfiguration:
         formatted = formatter.format(record)
         assert ".../...:42" == formatted.split(" ")[1]
 
-    def test_dynamic_compact_formatter_truncate_file(self):
+    def test_dynamic_compact_formatter_truncate_file(self) -> None:
         formatter = DynamicCompactFormatter("%(name)s %(filename_line)-31s %(message)s")
         record = logging.LogRecord(
             name="test",
@@ -65,7 +66,7 @@ class TestUtilsLoggingConfiguration:
         formatted = formatter.format(record)
         assert "ve.../short_function_name:42" == formatted.split(" ")[1]
 
-    def test_dynamic_compact_formatter_truncate_fallback(self):
+    def test_dynamic_compact_formatter_truncate_fallback(self) -> None:
         formatter = DynamicCompactFormatter("%(name)s %(filename_line)-6s %(message)s")
         record = logging.LogRecord(
             name="test",
@@ -90,7 +91,7 @@ class TestUtilsLoggingConfiguration:
             (50, logging.CRITICAL),
         ],
     )
-    def test_configure_logging(self, level: int, name: int):
+    def test_configure_logging(self, level: int, name: int) -> None:
         config = {
             "root": level,
             "module0": 10,
@@ -99,11 +100,13 @@ class TestUtilsLoggingConfiguration:
             "module3": 40,
             "module4": 50,
         }
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
-            yaml.dump(config, f)
-            f.flush()
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".yaml", delete=False
+        ) as file:
+            yaml.dump(config, file)
+            file.flush()
 
-            configure_logging(f.name)
+            configure_logging(file.name)
 
             assert logging.getLogger("root").level == name
             assert logging.getLogger("module0").level == logging.DEBUG

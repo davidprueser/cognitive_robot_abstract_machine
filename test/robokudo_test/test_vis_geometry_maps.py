@@ -1,3 +1,4 @@
+from __future__ import annotations
 import numpy as np
 import open3d as o3d
 import pytest
@@ -7,12 +8,11 @@ from robokudo.vis.multiprocessed_o3d_visualizer import (
     SharedMemoryManager,
 )
 
-
 RANDOM_SEED = 42
 
 
 def get_random_mesh(
-    mesh_type: Type, rng: np.random.Generator
+    mesh_type: Type, random_generator: np.random.Generator
 ) -> Union[o3d.geometry.TriangleMesh, o3d.geometry.TetraMesh]:
     """
     Get a random open3d mesh of the given type.
@@ -24,31 +24,45 @@ def get_random_mesh(
     * TetraMesh
 
     :param mesh_type: The type of mesh to return.
-    :param rng: Random number generator to use.
+    :param random_generator: Random number generator to use.
     :return: A mesh object of the type.
     :raises: ValueError if the mesh type is not supported.
     """
     input_mesh = mesh_type()
 
-    input_mesh.vertices = o3d.utility.Vector3dVector(rng.random((1000, 3)))
-    input_mesh.vertex_colors = o3d.utility.Vector3dVector(rng.random((1000, 3)))
-    input_mesh.vertex_normals = o3d.utility.Vector3dVector(rng.random((1000, 3)))
+    input_mesh.vertices = o3d.utility.Vector3dVector(random_generator.random((1000, 3)))
+    input_mesh.vertex_colors = o3d.utility.Vector3dVector(
+        random_generator.random((1000, 3))
+    )
+    input_mesh.vertex_normals = o3d.utility.Vector3dVector(
+        random_generator.random((1000, 3))
+    )
     if mesh_type == o3d.geometry.TriangleMesh:
-        input_mesh.triangles = o3d.utility.Vector3iVector(rng.random((1000, 3)))
-        input_mesh.triangle_normals = o3d.utility.Vector3dVector(rng.random((1000, 3)))
-        input_mesh.triangle_uvs = o3d.utility.Vector2dVector(rng.random((1000, 2)))
+        input_mesh.triangles = o3d.utility.Vector3iVector(
+            random_generator.random((1000, 3))
+        )
+        input_mesh.triangle_normals = o3d.utility.Vector3dVector(
+            random_generator.random((1000, 3))
+        )
+        input_mesh.triangle_uvs = o3d.utility.Vector2dVector(
+            random_generator.random((1000, 2))
+        )
         input_mesh.triangle_material_ids = o3d.utility.IntVector(
-            rng.integers(0, 10, size=1000, dtype=np.int32)
+            random_generator.integers(0, 10, size=1000, dtype=np.int32)
         )
         input_mesh.adjacency_list = [{3, 8, 9}, {0, 4}, {0, 2, 4}]
         input_mesh.textures = [
-            o3d.geometry.Image(rng.integers(0, 255, size=(512, 512), dtype=np.uint8)),
-            o3d.geometry.Image(rng.integers(0, 255, size=(512, 512), dtype=np.uint8)),
+            o3d.geometry.Image(
+                random_generator.integers(0, 255, size=(512, 512), dtype=np.uint8)
+            ),
+            o3d.geometry.Image(
+                random_generator.integers(0, 255, size=(512, 512), dtype=np.uint8)
+            ),
         ]
         return input_mesh
     elif mesh_type == o3d.geometry.TetraMesh:
         input_mesh.tetras = o3d.utility.Vector4iVector(
-            rng.integers(0, 255, size=(1000, 4))
+            random_generator.integers(0, 255, size=(1000, 4))
         )
         return input_mesh
     elif mesh_type == o3d.geometry.MeshBase:
@@ -57,7 +71,9 @@ def get_random_mesh(
         raise ValueError(f"Unknown mesh type: {type}")
 
 
-def assert_mesh_equal(mesh1, mesh2) -> None:
+def assert_mesh_equal(
+    mesh1: o3d.geometry.TriangleMesh, mesh2: o3d.geometry.TriangleMesh
+) -> None:
     """
     Assert that the two meshes contain the same mesh data.
 
@@ -122,72 +138,90 @@ def assert_mesh_equal(mesh1, mesh2) -> None:
 
 class TestVisGeometryMaps(object):
     @pytest.fixture
-    def rng(self) -> np.random.Generator:
+    def random_generator(self) -> np.random.Generator:
         """
         Random number generator initialized with the global random seed.
         """
         return np.random.default_rng(seed=RANDOM_SEED)
 
-    def test_point_cloud_maps(self, rng: np.random.Generator) -> None:
+    def test_point_cloud_maps(self, random_generator: np.random.Generator) -> None:
         """
         Test writing and reading point clouds with the shared memory manager.
         """
         iterations = 3
 
-        write_manager = SharedMemoryManager.with_shm(
+        write_manager = SharedMemoryManager.with_shared_memory(
             (1000 * np.dtype(np.float64).itemsize * (3 + 3 + 3 + 9)) * iterations
         )
 
-        inputs_pcds = []
+        input_point_clouds = []
         for _ in range(iterations):
-            input_pcd = o3d.geometry.PointCloud()
-            input_pcd.points = o3d.utility.Vector3dVector(np.random.rand(1000, 3))
-            input_pcd.colors = o3d.utility.Vector3dVector(np.random.rand(1000, 3))
-            input_pcd.estimate_normals()
-            input_pcd.covariances = input_pcd.estimate_point_covariances(input_pcd)
+            input_point_cloud = o3d.geometry.PointCloud()
+            input_point_cloud.points = o3d.utility.Vector3dVector(
+                np.random.rand(1000, 3)
+            )
+            input_point_cloud.colors = o3d.utility.Vector3dVector(
+                np.random.rand(1000, 3)
+            )
+            input_point_cloud.estimate_normals()
+            input_point_cloud.covariances = (
+                input_point_cloud.estimate_point_covariances(input_point_cloud)
+            )
 
-            assert input_pcd.has_normals(), "PointCloud should have normals"
-            assert input_pcd.has_covariances(), "PointCloud should have covariances"
+            assert input_point_cloud.has_normals(), "PointCloud should have normals"
+            assert (
+                input_point_cloud.has_covariances()
+            ), "PointCloud should have covariances"
 
             memory_map = Geometry3DMemoryMapFactory.from_geometry(
-                "PointCloud", input_pcd
+                "PointCloud", input_point_cloud
             )
-            write_manager.write_geometry(input_pcd, memory_map)
+            write_manager.write_geometry(input_point_cloud, memory_map)
 
-            inputs_pcds.append(input_pcd)
+            input_point_clouds.append(input_point_cloud)
 
         for i, geometry_dict in enumerate(write_manager.read_geometries()):
-            input_pcd = inputs_pcds[i]
-            output_pcd = geometry_dict["geometry"]
+            input_point_cloud = input_point_clouds[i]
+            output_point_cloud = geometry_dict["geometry"]
 
             assert (
-                output_pcd != input_pcd
+                output_point_cloud != input_point_cloud
             ), "Output and input point clouds should be different objects"
 
-            assert output_pcd.has_normals(), "PointCloud should have normals"
-            assert output_pcd.has_covariances(), "PointCloud should have covariances"
+            assert output_point_cloud.has_normals(), "PointCloud should have normals"
+            assert (
+                output_point_cloud.has_covariances()
+            ), "PointCloud should have covariances"
 
-            assert np.all(np.asarray(output_pcd.points) == np.asarray(input_pcd.points))
-            assert np.all(np.asarray(output_pcd.colors) == np.asarray(input_pcd.colors))
             assert np.all(
-                np.asarray(output_pcd.normals) == np.asarray(input_pcd.normals)
+                np.asarray(output_point_cloud.points)
+                == np.asarray(input_point_cloud.points)
             )
             assert np.all(
-                np.asarray(output_pcd.covariances) == np.asarray(input_pcd.covariances)
+                np.asarray(output_point_cloud.colors)
+                == np.asarray(input_point_cloud.colors)
+            )
+            assert np.all(
+                np.asarray(output_point_cloud.normals)
+                == np.asarray(input_point_cloud.normals)
+            )
+            assert np.all(
+                np.asarray(output_point_cloud.covariances)
+                == np.asarray(input_point_cloud.covariances)
             )
 
-    def test_mesh_base_maps(self, rng: np.random.Generator) -> None:
+    def test_mesh_base_maps(self, random_generator: np.random.Generator) -> None:
         """
         Test writing and reading base meshes with the shared memory manager.
         """
         iterations = 3
 
         mesh_size = (np.dtype(np.float64).itemsize * (3 + 3 + 3)) * 1000
-        write_manager = SharedMemoryManager.with_shm(mesh_size * iterations)
+        write_manager = SharedMemoryManager.with_shared_memory(mesh_size * iterations)
 
         input_meshes = []
         for _ in range(iterations):
-            input_mesh = get_random_mesh(o3d.geometry.MeshBase, rng)
+            input_mesh = get_random_mesh(o3d.geometry.MeshBase, random_generator)
 
             memory_map = Geometry3DMemoryMapFactory.from_geometry(
                 "MeshBase", input_mesh
@@ -206,7 +240,7 @@ class TestVisGeometryMaps(object):
 
             assert_mesh_equal(output_mesh, input_mesh)
 
-    def test_triangle_mesh_maps(self, rng: np.random.Generator) -> None:
+    def test_triangle_mesh_maps(self, random_generator: np.random.Generator) -> None:
         """
         Test writing and reading triangle meshes with the shared memory manager.
         """
@@ -217,11 +251,11 @@ class TestVisGeometryMaps(object):
             + (np.dtype(np.int32).itemsize * (3 + 1))
             + (np.dtype(np.int64).itemsize * (3 + 2 + 3))
         ) * 1000 + ((np.dtype(np.uint8).itemsize * (512 * 512)) * 2)
-        write_manager = SharedMemoryManager.with_shm(mesh_size * iterations)
+        write_manager = SharedMemoryManager.with_shared_memory(mesh_size * iterations)
 
         input_meshes = []
         for _ in range(iterations):
-            input_mesh = get_random_mesh(o3d.geometry.TriangleMesh, rng)
+            input_mesh = get_random_mesh(o3d.geometry.TriangleMesh, random_generator)
 
             memory_map = Geometry3DMemoryMapFactory.from_geometry(
                 "TriangleMesh", input_mesh
@@ -240,7 +274,7 @@ class TestVisGeometryMaps(object):
 
             assert_mesh_equal(output_mesh, input_mesh)
 
-    def test_tetra_mesh_maps(self, rng: np.random.Generator) -> None:
+    def test_tetra_mesh_maps(self, random_generator: np.random.Generator) -> None:
         """
         Test writing and reading base meshes with the shared memory manager.
         """
@@ -250,11 +284,11 @@ class TestVisGeometryMaps(object):
             (np.dtype(np.float64).itemsize * (3 + 3 + 3))
             + (np.dtype(np.int64).itemsize * 4)
         ) * 1000
-        write_manager = SharedMemoryManager.with_shm(mesh_size * iterations)
+        write_manager = SharedMemoryManager.with_shared_memory(mesh_size * iterations)
 
         input_meshes = []
         for _ in range(iterations):
-            input_mesh = get_random_mesh(o3d.geometry.TetraMesh, rng)
+            input_mesh = get_random_mesh(o3d.geometry.TetraMesh, random_generator)
 
             memory_map = Geometry3DMemoryMapFactory.from_geometry(
                 "TetraMesh", input_mesh
@@ -284,22 +318,24 @@ class TestVisGeometryMaps(object):
             + (np.dtype(np.int32).itemsize * (3 + 1))
             + (np.dtype(np.int64).itemsize * (3 + 2 + 3))
         ) * 1000 + ((np.dtype(np.uint8).itemsize * (512 * 512)) * 2)
-        write_manager = SharedMemoryManager.with_shm(mesh_size * iterations)
+        write_manager = SharedMemoryManager.with_shared_memory(mesh_size * iterations)
 
         input_meshes = []
         for _ in range(iterations):
-            t_mesh = o3d.geometry.TriangleMesh.create_cylinder()
-            t_mesh.vertex_colors = o3d.utility.Vector3dVector(
-                np.random.rand(len(t_mesh.vertices), 3)
+            triangle_mesh = o3d.geometry.TriangleMesh.create_cylinder()
+            triangle_mesh.vertex_colors = o3d.utility.Vector3dVector(
+                np.random.rand(len(triangle_mesh.vertices), 3)
             )
-            t_mesh.compute_vertex_normals()
-            t_mesh.compute_triangle_normals()
+            triangle_mesh.compute_vertex_normals()
+            triangle_mesh.compute_triangle_normals()
 
-            assert t_mesh.has_vertex_normals(), "Mesh should have vertex normals"
-            assert t_mesh.has_triangle_normals(), "Mesh should have triangle normals"
+            assert triangle_mesh.has_vertex_normals(), "Mesh should have vertex normals"
+            assert (
+                triangle_mesh.has_triangle_normals()
+            ), "Mesh should have triangle normals"
 
             input_mesh = o3d.geometry.HalfEdgeTriangleMesh.create_from_triangle_mesh(
-                t_mesh
+                triangle_mesh
             )
 
             memory_map = Geometry3DMemoryMapFactory.from_geometry(
@@ -319,82 +355,107 @@ class TestVisGeometryMaps(object):
 
             assert_mesh_equal(output_mesh, input_mesh)
 
-    def test_oriented_bounding_box_maps(self, rng: np.random.Generator) -> None:
+    def test_oriented_bounding_box_maps(
+        self, random_generator: np.random.Generator
+    ) -> None:
         """
         Test writing and reading oriented bounding boxes with the shared memory manager.
         """
         iterations = 3
 
-        bbox_size = (3 + 3 + 3 + 9) * np.dtype(np.float64).itemsize
-        write_manager = SharedMemoryManager.with_shm(bbox_size * iterations)
+        bounding_box_size = (3 + 3 + 3 + 9) * np.dtype(np.float64).itemsize
+        write_manager = SharedMemoryManager.with_shared_memory(
+            bounding_box_size * iterations
+        )
 
-        input_obbs = []
+        input_oriented_bounding_boxes = []
         for _ in range(iterations):
-            input_obb = o3d.geometry.OrientedBoundingBox()
-            input_obb.center = rng.random(3)
-            input_obb.color = rng.random(3)
-            input_obb.extent = rng.random(3)
-            input_obb.R = rng.random((3, 3))
+            input_oriented_bounding_box = o3d.geometry.OrientedBoundingBox()
+            input_oriented_bounding_box.center = random_generator.random(3)
+            input_oriented_bounding_box.color = random_generator.random(3)
+            input_oriented_bounding_box.extent = random_generator.random(3)
+            input_oriented_bounding_box.R = random_generator.random((3, 3))
 
             memory_map = Geometry3DMemoryMapFactory.from_geometry(
-                "OrientedBoundingBox", input_obb
+                "OrientedBoundingBox", input_oriented_bounding_box
             )
-            write_manager.write_geometry(input_obb, memory_map)
+            write_manager.write_geometry(input_oriented_bounding_box, memory_map)
 
-            input_obbs.append(input_obb)
+            input_oriented_bounding_boxes.append(input_oriented_bounding_box)
 
         for i, geometry_dict in enumerate(write_manager.read_geometries()):
-            input_obb = input_obbs[i]
-            output_obb = geometry_dict["geometry"]
+            input_oriented_bounding_box = input_oriented_bounding_boxes[i]
+            output_oriented_bounding_box = geometry_dict["geometry"]
 
             assert (
-                output_obb != input_obb
+                output_oriented_bounding_box != input_oriented_bounding_box
             ), "Output and input boxes should be different objects"
-            assert np.all(np.asarray(output_obb.center) == np.asarray(input_obb.center))
-            assert np.all(np.asarray(output_obb.color) == np.asarray(input_obb.color))
-            assert np.all(np.asarray(output_obb.extent) == np.asarray(input_obb.extent))
-            assert np.all(np.asarray(output_obb.R) == np.asarray(input_obb.R))
+            assert np.all(
+                np.asarray(output_oriented_bounding_box.center)
+                == np.asarray(input_oriented_bounding_box.center)
+            )
+            assert np.all(
+                np.asarray(output_oriented_bounding_box.color)
+                == np.asarray(input_oriented_bounding_box.color)
+            )
+            assert np.all(
+                np.asarray(output_oriented_bounding_box.extent)
+                == np.asarray(input_oriented_bounding_box.extent)
+            )
+            assert np.all(
+                np.asarray(output_oriented_bounding_box.R)
+                == np.asarray(input_oriented_bounding_box.R)
+            )
 
-    def test_axis_aligned_bounding_box_maps(self, rng: np.random.Generator) -> None:
+    def test_axis_aligned_bounding_box_maps(
+        self, random_generator: np.random.Generator
+    ) -> None:
         """
         Test writing and reading axis aligned bounding boxes with the shared memory
         manager.
         """
         iterations = 3
 
-        bbox_size = (3 + 3 + 3) * np.dtype(np.float64).itemsize
-        write_manager = SharedMemoryManager.with_shm(bbox_size * iterations)
+        bounding_box_size = (3 + 3 + 3) * np.dtype(np.float64).itemsize
+        write_manager = SharedMemoryManager.with_shared_memory(
+            bounding_box_size * iterations
+        )
 
-        input_obbs = []
+        input_oriented_bounding_boxes = []
         for _ in range(iterations):
-            input_obb = o3d.geometry.AxisAlignedBoundingBox()
-            input_obb.max_bound = rng.random(3)
-            input_obb.min_bound = rng.random(3)
-            input_obb.color = rng.random(3)
+            input_oriented_bounding_box = o3d.geometry.AxisAlignedBoundingBox()
+            input_oriented_bounding_box.max_bound = random_generator.random(3)
+            input_oriented_bounding_box.min_bound = random_generator.random(3)
+            input_oriented_bounding_box.color = random_generator.random(3)
 
             memory_map = Geometry3DMemoryMapFactory.from_geometry(
-                "AxisAlignedBoundingBox", input_obb
+                "AxisAlignedBoundingBox", input_oriented_bounding_box
             )
-            write_manager.write_geometry(input_obb, memory_map)
+            write_manager.write_geometry(input_oriented_bounding_box, memory_map)
 
-            input_obbs.append(input_obb)
+            input_oriented_bounding_boxes.append(input_oriented_bounding_box)
 
         for i, geometry_dict in enumerate(write_manager.read_geometries()):
-            input_obb = input_obbs[i]
-            output_obb = geometry_dict["geometry"]
+            input_oriented_bounding_box = input_oriented_bounding_boxes[i]
+            output_oriented_bounding_box = geometry_dict["geometry"]
 
             assert (
-                output_obb != input_obb
+                output_oriented_bounding_box != input_oriented_bounding_box
             ), "Output and input boxes should be different objects"
             assert np.all(
-                np.asarray(output_obb.max_bound) == np.asarray(input_obb.max_bound)
+                np.asarray(output_oriented_bounding_box.max_bound)
+                == np.asarray(input_oriented_bounding_box.max_bound)
             )
-            assert np.all(np.asarray(output_obb.color) == np.asarray(input_obb.color))
             assert np.all(
-                np.asarray(output_obb.min_bound) == np.asarray(input_obb.min_bound)
+                np.asarray(output_oriented_bounding_box.color)
+                == np.asarray(input_oriented_bounding_box.color)
+            )
+            assert np.all(
+                np.asarray(output_oriented_bounding_box.min_bound)
+                == np.asarray(input_oriented_bounding_box.min_bound)
             )
 
-    def test_line_set_maps(self, rng: np.random.Generator) -> None:
+    def test_line_set_maps(self, random_generator: np.random.Generator) -> None:
         """
         Test writing and reading line sets with the shared memory manager.
         """
@@ -404,14 +465,22 @@ class TestVisGeometryMaps(object):
             ((3 + 3) * np.dtype(np.float64).itemsize)
             + (2 * np.dtype(np.int32).itemsize)
         ) * 1000
-        write_manager = SharedMemoryManager.with_shm(lineset_size * iterations)
+        write_manager = SharedMemoryManager.with_shared_memory(
+            lineset_size * iterations
+        )
 
         input_linesets = []
         for _ in range(iterations):
             input_lineset = o3d.geometry.LineSet()
-            input_lineset.points = o3d.utility.Vector3dVector(rng.random((1000, 3)))
-            input_lineset.colors = o3d.utility.Vector3dVector(rng.random((1000, 3)))
-            input_lineset.lines = o3d.utility.Vector2iVector(rng.random((1000, 2)))
+            input_lineset.points = o3d.utility.Vector3dVector(
+                random_generator.random((1000, 3))
+            )
+            input_lineset.colors = o3d.utility.Vector3dVector(
+                random_generator.random((1000, 3))
+            )
+            input_lineset.lines = o3d.utility.Vector2iVector(
+                random_generator.random((1000, 2))
+            )
 
             memory_map = Geometry3DMemoryMapFactory.from_geometry(
                 "LineSet", input_lineset
@@ -438,12 +507,14 @@ class TestVisGeometryMaps(object):
                 np.asarray(output_lineset.lines) == np.asarray(input_lineset.lines)
             )
 
-    def test_maps_from_geometry_dict(self, rng: np.random.Generator) -> None:
+    def test_maps_from_geometry_dict(
+        self, random_generator: np.random.Generator
+    ) -> None:
         """
         Test writing and reading full geometry dictionaries with the shared memory
         manager.
         """
-        m_width, m_height = 16, 9
+        texture_width, texture_height = 16, 9
 
         iterations = 3
 
@@ -452,63 +523,83 @@ class TestVisGeometryMaps(object):
             + (np.dtype(np.int32).itemsize * (3 + 1))
             + (np.dtype(np.int64).itemsize * (3 + 2 + 3))
         ) * 1000 + ((np.dtype(np.uint8).itemsize * (512 * 512)) * 2)
-        write_manager = SharedMemoryManager.with_shm(mesh_size * iterations)
+        write_manager = SharedMemoryManager.with_shared_memory(mesh_size * iterations)
 
-        input_dicts: List[Dict] = []
+        input_dictionaries: List[Dict] = []
         for _ in range(iterations):
-            input_mesh = get_random_mesh(o3d.geometry.TriangleMesh, rng)
+            input_mesh = get_random_mesh(o3d.geometry.TriangleMesh, random_generator)
 
             material = o3d.visualization.rendering.MaterialRecord()
-            material.absorption_color = rng.random(3)
-            material.absorption_distance = rng.random()
+            material.absorption_color = random_generator.random(3)
+            material.absorption_distance = random_generator.random()
             material.albedo_img = o3d.geometry.Image(
-                rng.integers(0, 256, (m_height, m_width, 3), dtype=np.uint8)
+                random_generator.integers(
+                    0, 256, (texture_height, texture_width, 3), dtype=np.uint8
+                )
             )
             material.anisotropy_img = o3d.geometry.Image(
-                rng.integers(0, 256, (m_height, m_width, 3), dtype=np.uint8)
+                random_generator.integers(
+                    0, 256, (texture_height, texture_width, 3), dtype=np.uint8
+                )
             )
             material.ao_img = o3d.geometry.Image(
-                rng.integers(0, 256, (m_height, m_width, 3), dtype=np.uint8)
+                random_generator.integers(
+                    0, 256, (texture_height, texture_width, 3), dtype=np.uint8
+                )
             )
             material.ao_rough_metal_img = o3d.geometry.Image(
-                rng.integers(0, 256, (m_height, m_width, 3), dtype=np.uint8)
+                random_generator.integers(
+                    0, 256, (texture_height, texture_width, 3), dtype=np.uint8
+                )
             )
-            material.aspect_ratio = rng.random()
-            material.base_anisotropy = rng.random()
-            material.base_clearcoat = rng.random()
-            material.base_clearcoat_roughness = rng.random()
-            material.base_color = rng.random(4)
-            material.base_metallic = rng.random()
-            material.base_reflectance = rng.random()
-            material.base_roughness = rng.random()
+            material.aspect_ratio = random_generator.random()
+            material.base_anisotropy = random_generator.random()
+            material.base_clearcoat = random_generator.random()
+            material.base_clearcoat_roughness = random_generator.random()
+            material.base_color = random_generator.random(4)
+            material.base_metallic = random_generator.random()
+            material.base_reflectance = random_generator.random()
+            material.base_roughness = random_generator.random()
             material.clearcoat_img = o3d.geometry.Image(
-                rng.integers(0, 256, (m_height, m_width, 3), dtype=np.uint8)
+                random_generator.integers(
+                    0, 256, (texture_height, texture_width, 3), dtype=np.uint8
+                )
             )
             material.clearcoat_roughness_img = o3d.geometry.Image(
-                rng.integers(0, 256, (m_height, m_width, 3), dtype=np.uint8)
+                random_generator.integers(
+                    0, 256, (texture_height, texture_width, 3), dtype=np.uint8
+                )
             )
-            material.emissive_color = rng.random(4)
-            material.ground_plane_axis = rng.random()
-            material.has_alpha = rng.random() > 0.5
+            material.emissive_color = random_generator.random(4)
+            material.ground_plane_axis = random_generator.random()
+            material.has_alpha = random_generator.random() > 0.5
             material.metallic_img = o3d.geometry.Image(
-                rng.integers(0, 256, (m_height, m_width, 3), dtype=np.uint8)
+                random_generator.integers(
+                    0, 256, (texture_height, texture_width, 3), dtype=np.uint8
+                )
             )
             material.normal_img = o3d.geometry.Image(
-                rng.integers(0, 256, (m_height, m_width, 3), dtype=np.uint8)
+                random_generator.integers(
+                    0, 256, (texture_height, texture_width, 3), dtype=np.uint8
+                )
             )
-            material.point_size = rng.random()
+            material.point_size = random_generator.random()
             material.reflectance_img = o3d.geometry.Image(
-                rng.integers(0, 256, (m_height, m_width, 3), dtype=np.uint8)
+                random_generator.integers(
+                    0, 256, (texture_height, texture_width, 3), dtype=np.uint8
+                )
             )
             material.roughness_img = o3d.geometry.Image(
-                rng.integers(0, 256, (m_height, m_width, 3), dtype=np.uint8)
+                random_generator.integers(
+                    0, 256, (texture_height, texture_width, 3), dtype=np.uint8
+                )
             )
-            material.sRGB_color = rng.random() > 0.5
-            material.scalar_max = rng.random()
-            material.scalar_min = rng.random()
+            material.sRGB_color = random_generator.random() > 0.5
+            material.scalar_max = random_generator.random()
+            material.scalar_min = random_generator.random()
             material.shader = "non-default-shader"
-            material.thickness = rng.random()
-            material.transmission = rng.random()
+            material.thickness = random_generator.random()
+            material.transmission = random_generator.random()
 
             input_dict = {
                 "name": "TriangleMesh",
@@ -522,10 +613,10 @@ class TestVisGeometryMaps(object):
             memory_map = Geometry3DMemoryMapFactory.from_geometry_dict(input_dict)
             write_manager.write_geometry(input_dict, memory_map)
 
-            input_dicts.append(input_dict)
+            input_dictionaries.append(input_dict)
 
         for i, geometry_dict in enumerate(write_manager.read_geometries()):
-            input_dict = input_dicts[i]
+            input_dict = input_dictionaries[i]
             input_mesh = input_dict["geometry"]
             output_mesh = geometry_dict["geometry"]
 

@@ -4,7 +4,7 @@ OpenCV helper utilities for Robokudo.
 This module provides helper functions for working with OpenCV images and operations.
 It supports:
 
-* Image cropping and ROI handling
+* Image cropping and region of interest handling
 * ROS-OpenCV image conversion
 * Color space conversions
 * Bounding box operations
@@ -18,17 +18,17 @@ import cv2
 import numpy as np
 from typing_extensions import TYPE_CHECKING, Tuple
 
-from robokudo.cas import CASViews
+from robokudo.common_analysis_structure import CommonAnalysisStructureViews
 from robokudo.exceptions import ColorToDepthRatioMissing
-from robokudo.types.cv import ImageROI
+from robokudo.types.cv import ImageRegionOfInterest
 
 if TYPE_CHECKING:
     import cv2.typing as cv2t
     import numpy.typing as npt
-    from robokudo.cas import CAS
+    from robokudo.common_analysis_structure import CommonAnalysisStructure
 
 
-def crop_image(image: npt.NDArray, xy: tuple, wh: tuple) -> npt.NDArray:
+def crop_image(image: npt.NDArray, xy: tuple, width_height: tuple) -> npt.NDArray:
     """
     Crop region from image using coordinates and dimensions.
 
@@ -36,34 +36,41 @@ def crop_image(image: npt.NDArray, xy: tuple, wh: tuple) -> npt.NDArray:
 
     :param image: Input image
     :param xy: Top-left corner coordinates (x,y)
-    :param wh: Width and height of crop region (w,h)
+    :param width_height: Width and height of crop region (w,h)
     :return: Cropped image region
     """
     x, y = xy
-    w, h = wh
+    width, height = width_height
 
     x0, y0 = max(xy[0], 0), max(xy[1], 0)
-    x1, y1 = min(x + w, image.shape[1]), min(y + h, image.shape[0])
+    x1, y1 = min(x + width, image.shape[1]), min(y + height, image.shape[0])
 
     crop = image[y0:y1, x0:x1]
     return crop
 
 
-def crop_image_roi(image: npt.NDArray, roi: ImageROI) -> npt.NDArray:
+def crop_image_region_of_interest(
+    image: npt.NDArray, region_of_interest: ImageRegionOfInterest
+) -> npt.NDArray:
     """
-    Crop region from image using ROI object.
+    Crop region from image using region of interest object.
 
     :param image: Input image
-    :param roi: Region of interest
+    :param region_of_interest: Region of interest
     :return: Cropped image region
     """
     return crop_image(
-        image, (roi.roi.pos.x, roi.roi.pos.y), (roi.roi.width, roi.roi.height)
+        image,
+        (
+            region_of_interest.rectangle.position.x,
+            region_of_interest.rectangle.position.y,
+        ),
+        (region_of_interest.rectangle.width, region_of_interest.rectangle.height),
     )
 
 
 def get_scaled_color_image_for_depth_image(
-    cas: CAS, color_image: npt.NDArray
+    common_analysis_structure: CommonAnalysisStructure, color_image: npt.NDArray
 ) -> npt.NDArray:
     """
     Scale color image to match depth image resolution.
@@ -74,13 +81,15 @@ def get_scaled_color_image_for_depth_image(
     o3d.geometry.RGBDImage.create_from_color_and_depth is called, so that depth and
     color image match.
 
-    :param cas: The CAS holding the color-to-depth ratio.
+    :param common_analysis_structure: The common analysis structure holding the color-to-depth ratio.
     :param color_image: The color image to be adjusted
     :return: A resized copy of the color image if a resize necessary. Otherwise, the
         unchanged color_image is returned.
-    :raises ColorToDepthRatioMissing: If color-to-depth ratio not set in CAS
+    :raises ColorToDepthRatioMissing: If color-to-depth ratio not set in common analysis structure
     """
-    color_to_depth_ratio = cas.get(CASViews.COLOR_TO_DEPTH_RATIO)
+    color_to_depth_ratio = common_analysis_structure.get(
+        CommonAnalysisStructureViews.COLOR_TO_DEPTH_RATIO
+    )
 
     if color_to_depth_ratio is None:
         raise ColorToDepthRatioMissing(
@@ -98,24 +107,28 @@ def get_scaled_color_image_for_depth_image(
     )
 
 
-def get_hsv_for_rgb_color(rgb: Tuple[int, int, int]) -> npt.NDArray:
+def get_hsv_for_red_green_blue_color(
+    red_green_blue: Tuple[int, int, int],
+) -> npt.NDArray:
     """
     Convert RGB color to HSV color space.
 
-    :param rgb: RGB color values (r,g,b)
+    :param red_green_blue: RGB color values (r,g,b)
     :return: HSV color values
     """
-    return cv2.cvtColor(np.uint8([[list(rgb)]]), cv2.COLOR_RGB2HSV_FULL)
+    return cv2.cvtColor(np.uint8([[list(red_green_blue)]]), cv2.COLOR_RGB2HSV_FULL)
 
 
-def get_hsv_for_bgr_color(bgr: Tuple[int, int, int]) -> npt.NDArray:
+def get_hsv_for_blue_green_red_color(
+    blue_green_red: Tuple[int, int, int],
+) -> npt.NDArray:
     """
     Convert BGR color to HSV color space.
 
-    :param bgr: BGR color values (b,g,r)
+    :param blue_green_red: BGR color values (b,g,r)
     :return: HSV color values
     """
-    return cv2.cvtColor(np.uint8([[list(bgr)]]), cv2.COLOR_BGR2HSV_FULL)
+    return cv2.cvtColor(np.uint8([[list(blue_green_red)]]), cv2.COLOR_BGR2HSV_FULL)
 
 
 def draw_rectangle_around_center(
@@ -136,26 +149,30 @@ def draw_rectangle_around_center(
         return binary_image
     # Consider x and y as the center point of the interest and draw rectangle around it
     center = (int(x), int(y))  # Cast to int for safety
-    pt1 = (center[0] - width // 2, center[1] - height // 2)
-    pt2 = (center[0] + width // 2, center[1] + height // 2)
+    first_corner = (center[0] - width // 2, center[1] - height // 2)
+    second_corner = (center[0] + width // 2, center[1] + height // 2)
     return cv2.rectangle(
-        img=binary_image, pt1=pt1, pt2=pt2, color=value, thickness=cv2.FILLED
+        img=binary_image,
+        pt1=first_corner,
+        pt2=second_corner,
+        color=value,
+        thickness=cv2.FILLED,
     )
 
 
-def clamp_bounding_rect(
-    bounding_rect: cv2t.Rect, image_width: int, image_height: int
+def clamp_bounding_rectangle(
+    bounding_rectangle: cv2t.Rect, image_width: int, image_height: int
 ) -> cv2t.Rect:
     """
     Clamp bounding rectangle to image boundaries.
 
-    :param bounding_rect: Input bounding rectangle (x,y,w,h)
+    :param bounding_rectangle: Input bounding rectangle (x,y,w,h)
     :param image_width: Image width
     :param image_height: Image height
     :return: Clamped bounding rectangle
     """
-    x1, y1, w, h = bounding_rect
-    x2, y2 = x1 + w, y1 + h
+    x1, y1, width, height = bounding_rectangle
+    x2, y2 = x1 + width, y1 + height
 
     x1 = max(0, min(x1, image_width))
     y1 = max(0, min(y1, image_height))
@@ -166,8 +183,8 @@ def clamp_bounding_rect(
     return x1, y1, x2 - x1, y2 - y1
 
 
-def rect_outside_image(
-    bounding_rect: cv2t.Rect, image_width: int, image_height: int
+def rectangle_outside_image(
+    bounding_rectangle: cv2t.Rect, image_width: int, image_height: int
 ) -> bool:
     """
     Check whether a bounding rectangle is completely outside an image.
@@ -176,37 +193,37 @@ def rect_outside_image(
     image. Rectangles that only touch the image border (zero-area intersection) are
     treated as outside.
 
-    :param bounding_rect: Bounding rectangle to check (x, y, w, h)
+    :param bounding_rectangle: Bounding rectangle to check (x, y, w, h)
     :param image_width: Image width
     :param image_height: Image height
     :return: True if the bounding rectangle lies completely outside the image, False
         otherwise
     """
-    x, y, w, h = bounding_rect
+    x, y, width, height = bounding_rectangle
 
     # Rectangle edges
-    rect_left = x
-    rect_right = x + w
-    rect_top = y
-    rect_bottom = y + h
+    rectangle_left = x
+    rectangle_right = x + width
+    rectangle_top = y
+    rectangle_bottom = y + height
 
     # Image edges
-    img_left = 0
-    img_right = image_width
-    img_top = 0
-    img_bottom = image_height
+    image_left = 0
+    image_right = image_width
+    image_top = 0
+    image_bottom = image_height
 
     # Completely outside if one separating axis exists
     return (
-        rect_right <= img_left  # left of image
-        or rect_left >= img_right  # right of image
-        or rect_bottom <= img_top  # above image
-        or rect_top >= img_bottom  # below image
+        rectangle_right <= image_left  # left of image
+        or rectangle_left >= image_right  # right of image
+        or rectangle_bottom <= image_top  # above image
+        or rectangle_top >= image_bottom  # below image
     )
 
 
-def sanity_checks_bounding_rects(
-    bounding_rect: cv2t.Rect, image_width: int, image_height: int
+def sanity_checks_bounding_rectangles(
+    bounding_rectangle: cv2t.Rect, image_width: int, image_height: int
 ) -> bool:
     """
     Check if bounding rectangle is valid for image dimensions.
@@ -214,38 +231,38 @@ def sanity_checks_bounding_rects(
     Check basic rules of a boundingRect to reject bad ones. Might happen if projections
     are done on objects that are out-of-view etc.
 
-    :param bounding_rect: Bounding rectangle to check (x,y,w,h)
+    :param bounding_rectangle: Bounding rectangle to check (x,y,w,h)
     :param image_width: Image width
     :param image_height: Image height
     :return: True if rules have been passed, False otherwise
     """
-    # Check if ROI starts out of bounds - In that case, we'll skip this Object Hypothesis
-    if bounding_rect[0] > image_width or bounding_rect[1] > image_height:
+    # Check if region of interest starts out of bounds - In that case, we'll skip this Object Hypothesis
+    if bounding_rectangle[0] > image_width or bounding_rectangle[1] > image_height:
         return False
 
-    # Check if the estimated Width and Height of the BB are even bigger than the image
-    if bounding_rect[2] > image_width or bounding_rect[3] > image_height:
+    # Check if the estimated Width and Height of the bounding box are even bigger than the image
+    if bounding_rectangle[2] > image_width or bounding_rectangle[3] > image_height:
         return False
 
     return True
 
 
-def adjust_roi(
-    image: npt.NDArray, roi: Tuple[int, int, int, int], offset: int
+def adjust_region_of_interest(
+    image: npt.NDArray, region_of_interest: Tuple[int, int, int, int], offset: int
 ) -> Tuple[int, int, int, int]:
     """
-    Adjusts the ROI by a given offset while respecting image boundaries, keeping the
+    Adjusts the region of interest by a given offset while respecting image boundaries, keeping the
     same center point.
 
     :param image: The image (OpenCV format).
-    :param roi: A tuple (x, y, width, height) representing the bounding box.
-    :param offset: The amount by which to grow or shrink the ROI (can be negative).
+    :param region_of_interest: A tuple (x, y, width, height) representing the bounding box.
+    :param offset: The amount by which to grow or shrink the region of interest (can be negative).
     :return: A tuple (new_x, new_y, new_width, new_height) representing the adjusted
-        ROI.
+        region of interest.
     """
-    x, y, width, height = roi
+    x, y, width, height = region_of_interest
 
-    # Calculate the center of the current ROI
+    # Calculate the center of the current region of interest
     center_x = x + width // 2
     center_y = y + height // 2
 
@@ -257,7 +274,7 @@ def adjust_roi(
     new_x = center_x - new_width // 2
     new_y = center_y - new_height // 2
 
-    # Ensure the new ROI fits within the image boundaries
+    # Ensure the new region of interest fits within the image boundaries
     if new_x < 0:
         new_x = 0
     if new_y < 0:
@@ -267,7 +284,7 @@ def adjust_roi(
     if new_y + new_height > image.shape[0]:
         new_y = image.shape[0] - new_height
 
-    # Adjust the width and height if ROI is at the boundary
+    # Adjust the width and height if region of interest is at the boundary
     if new_x < 0:
         new_width += new_x
         new_x = 0
@@ -278,33 +295,37 @@ def adjust_roi(
     return new_x, new_y, new_width, new_height
 
 
-def adjust_image_roi(image: npt.NDArray, image_roi: ImageROI, offset: int) -> None:
+def adjust_image_region_of_interest(
+    image: npt.NDArray, image_region_of_interest: ImageRegionOfInterest, offset: int
+) -> None:
     """
-    Adjusts the ImageROI's ROI by a given offset while respecting image boundaries,
-    keeping the same center point. This method uses the adjust_roi function.
+    Adjusts the ImageRegionOfInterest's region of interest by a given offset while respecting image boundaries,
+    keeping the same center point. This method uses the adjust_region_of_interest function.
 
-    :param image: The image this ROI is relative to. Necessary to respect the boundaries
+    :param image: The image this region of interest is relative to. Necessary to respect the boundaries
         properly.
-    :param image_roi: An object of type ImageROI.
-    :param offset: The amount by which to grow or shrink the ROI (can be negative).
-    :return: None. The ImageROI's ROI is adjusted in place.
+    :param image_region_of_interest: An object of type ImageRegionOfInterest.
+    :param offset: The amount by which to grow or shrink the region of interest (can be negative).
+    :return: None. The ImageRegionOfInterest's region of interest is adjusted in place.
     """
-    # Extract the current ROI as a tuple (x, y, width, height)
-    roi_tuple = (
-        image_roi.roi.pos.x,
-        image_roi.roi.pos.y,
-        image_roi.roi.width,
-        image_roi.roi.height,
+    # Extract the current region of interest as a tuple (x, y, width, height)
+    region_of_interest_tuple = (
+        image_region_of_interest.rectangle.position.x,
+        image_region_of_interest.rectangle.position.y,
+        image_region_of_interest.rectangle.width,
+        image_region_of_interest.rectangle.height,
     )
 
-    # Use the adjust_roi function to get the new ROI
-    new_x, new_y, new_width, new_height = adjust_roi(image, roi_tuple, offset)
+    # Use the adjust_region_of_interest function to get the new region of interest
+    new_x, new_y, new_width, new_height = adjust_region_of_interest(
+        image, region_of_interest_tuple, offset
+    )
 
-    # Update the ImageROI object with the new values
-    image_roi.roi.pos.x = new_x
-    image_roi.roi.pos.y = new_y
-    image_roi.roi.width = new_width
-    image_roi.roi.height = new_height
+    # Update the ImageRegionOfInterest object with the new values
+    image_region_of_interest.rectangle.position.x = new_x
+    image_region_of_interest.rectangle.position.y = new_y
+    image_region_of_interest.rectangle.width = new_width
+    image_region_of_interest.rectangle.height = new_height
 
 
 def adjust_mask(mask: npt.NDArray, offset: int, fill_value: int = 0) -> npt.NDArray:
@@ -312,7 +333,7 @@ def adjust_mask(mask: npt.NDArray, offset: int, fill_value: int = 0) -> npt.NDAr
     Adjusts the mask by a given offset.
 
     When expanding, the new areas are filled with the specified fill value.
-    :param mask: The mask corresponding to the ROI (same dimensions as the ROI).
+    :param mask: The mask corresponding to the region of interest (same dimensions as the region of interest).
     :param offset: The amount by which to grow or shrink the mask (can be negative).
     :param fill_value: The value to fill new areas when expanding the mask.
     :return: The adjusted mask.

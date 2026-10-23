@@ -20,14 +20,14 @@ import numpy as np
 import open3d as o3d
 from typing_extensions import Callable, List, TYPE_CHECKING
 
-from robokudo.cas import CASViews
+from robokudo.common_analysis_structure import CommonAnalysisStructureViews
 from robokudo.exceptions import ColorToDepthRatioMissing
 from robokudo.types.annotation import PoseAnnotation
 from robokudo.types.scene import ObjectHypothesis
 from robokudo.utils.cv_helper import get_scaled_color_image_for_depth_image
 from robokudo.utils.o3d_helper import scale_o3d_camera_intrinsics
 from robokudo.utils.transform import (
-    get_transform_matrix_from_q,
+    get_transform_matrix_from_quaternion,
     get_translation_from_transform_matrix,
     get_quaternion_from_transform_matrix,
 )
@@ -35,32 +35,34 @@ from robokudo.utils.transform import (
 if TYPE_CHECKING:
     import numpy.typing as npt
     from robokudo.annotators.core import BaseAnnotator
-    from robokudo.cas import CAS
+    from robokudo.common_analysis_structure import CommonAnalysisStructure
 
 
 def transform_pose_from_camera_to_world(
-    cas: CAS, pose: PoseAnnotation
+    common_analysis_structure: CommonAnalysisStructure, pose: PoseAnnotation
 ) -> PoseAnnotation:
     """
     Transform pose from camera to world coordinates.
 
-    Uses transform from CAS to convert pose from camera frame to world frame.
+    Uses transform from common analysis structure to convert pose from camera frame to world frame.
 
-    :param cas: CAS containing camera-to-world transform
+    :param common_analysis_structure: common analysis structure containing camera-to-world transform
     :param pose: Pose in camera coordinates
     :return: Transformed pose in world coordinates
-    :raises AssertionError: If camera-to-world transform not in CAS
+    :raises AssertionError: If camera-to-world transform not in common analysis structure
     """
-    pose_mat = get_transform_matrix_from_q(pose.rotation, pose.translation)
+    pose_matrix = get_transform_matrix_from_quaternion(pose.rotation, pose.translation)
 
-    camera_to_world_transform = get_camera_to_world_transform_matrix(cas)
+    camera_to_world_transform = get_camera_to_world_transform_matrix(
+        common_analysis_structure
+    )
 
-    pose_in_world_mat = np.matmul(camera_to_world_transform, pose_mat)
+    pose_in_world_matrix = np.matmul(camera_to_world_transform, pose_matrix)
 
     new_pose = PoseAnnotation()
-    new_pose.rotation = list(get_quaternion_from_transform_matrix(pose_in_world_mat))
+    new_pose.rotation = list(get_quaternion_from_transform_matrix(pose_in_world_matrix))
     new_pose.translation = list(
-        get_translation_from_transform_matrix(pose_in_world_mat)
+        get_translation_from_transform_matrix(pose_in_world_matrix)
     )
     new_pose.source = pose.source
 
@@ -68,47 +70,53 @@ def transform_pose_from_camera_to_world(
 
 
 def transform_pose_from_world_to_camera(
-    cas: CAS, pose: PoseAnnotation
+    common_analysis_structure: CommonAnalysisStructure, pose: PoseAnnotation
 ) -> PoseAnnotation:
     """
     Transform pose from world to camera coordinates.
 
-    Uses transform from CAS to convert pose from world frame to camera frame.
+    Uses transform from common analysis structure to convert pose from world frame to camera frame.
 
-    :param cas: CAS containing camera-to-world transform
+    :param common_analysis_structure: common analysis structure containing camera-to-world transform
     :param pose: Pose in world coordinates
     :return: Transformed pose in camera coordinates
-    :raises AssertionError: If camera-to-world transform not in CAS
+    :raises AssertionError: If camera-to-world transform not in common analysis structure
     """
-    pose_mat = get_transform_matrix_from_q(pose.rotation, pose.translation)
-    world_to_camera_transform = get_world_to_camera_transform_matrix(cas)
+    pose_matrix = get_transform_matrix_from_quaternion(pose.rotation, pose.translation)
+    world_to_camera_transform = get_world_to_camera_transform_matrix(
+        common_analysis_structure
+    )
 
-    pose_in_camera_mat = np.matmul(world_to_camera_transform, pose_mat)
+    pose_in_camera_matrix = np.matmul(world_to_camera_transform, pose_matrix)
 
     new_pose = PoseAnnotation()
-    new_pose.rotation = list(get_quaternion_from_transform_matrix(pose_in_camera_mat))
+    new_pose.rotation = list(
+        get_quaternion_from_transform_matrix(pose_in_camera_matrix)
+    )
     new_pose.translation = list(
-        get_translation_from_transform_matrix(pose_in_camera_mat)
+        get_translation_from_transform_matrix(pose_in_camera_matrix)
     )
 
     return new_pose
 
 
 def transform_cloud_from_camera_to_world(
-    cas: CAS, cloud: o3d.geometry.PointCloud, transform_inplace: bool = False
+    common_analysis_structure: CommonAnalysisStructure,
+    cloud: o3d.geometry.PointCloud,
+    transform_inplace: bool = False,
 ) -> o3d.geometry.PointCloud:
     """
     Transform point cloud from camera to world coordinates.
 
-    Uses transform from CAS to convert point cloud from camera frame to world frame.
+    Uses transform from common analysis structure to convert point cloud from camera frame to world frame.
 
-    :param cas: CAS containing camera-to-world transform
+    :param common_analysis_structure: common analysis structure containing camera-to-world transform
     :param cloud: Point cloud in camera coordinates
     :param transform_inplace: Whether to modify input cloud directly
     :return: Transformed point cloud in world coordinates
-    :raises KeyError: If camera-to-world transform not in CAS
+    :raises KeyError: If camera-to-world transform not in common analysis structure
     """
-    t = get_camera_to_world_transform_matrix(cas)
+    t = get_camera_to_world_transform_matrix(common_analysis_structure)
 
     if transform_inplace:
         return cloud.transform(t)
@@ -116,89 +124,117 @@ def transform_cloud_from_camera_to_world(
 
 
 def transform_cloud_from_world_to_camera(
-    cas: CAS, cloud: o3d.geometry.PointCloud, transform_inplace: bool = False
+    common_analysis_structure: CommonAnalysisStructure,
+    cloud: o3d.geometry.PointCloud,
+    transform_inplace: bool = False,
 ) -> o3d.geometry.PointCloud:
     """
     Transform point cloud from world to camera coordinates.
 
-    Uses transform from CAS to convert point cloud from world frame to camera frame.
+    Uses transform from common analysis structure to convert point cloud from world frame to camera frame.
 
-    :param cas: CAS containing camera-to-world transform
+    :param common_analysis_structure: common analysis structure containing camera-to-world transform
     :param cloud: Point cloud in world coordinates
     :param transform_inplace: This bool will control if the given 'cloud' is deepcopied
         before the transformation is done. Set this value to True, if it is OK that the
         given cloud variable is changed. Set this to value to False (default), if a
         deepcopy should performed beforehand.
     :return: Transformed point cloud in camera coordinates
-    :raises KeyError: If camera-to-world transform not in CAS
+    :raises KeyError: If camera-to-world transform not in common analysis structure
     """
-    t = get_world_to_camera_transform_matrix(cas)
+    t = get_world_to_camera_transform_matrix(common_analysis_structure)
 
     if transform_inplace:
         return cloud.transform(t)
     return deepcopy(cloud).transform(t)
 
 
-def get_camera_to_world_transform_matrix(cas: CAS) -> npt.NDArray:
+def get_camera_to_world_transform_matrix(
+    common_analysis_structure: CommonAnalysisStructure,
+) -> npt.NDArray:
     """
-    Get camera-to-world transform matrix from CAS.
+    Get camera-to-world transform matrix from common analysis structure.
 
-    :param cas: CAS containing camera-to-world transform
+    :param common_analysis_structure: common analysis structure containing camera-to-world transform
     :return: 4x4 camera-to-world transform matrix
-    :raises KeyError: If camera-to-world transform not in CAS
+    :raises KeyError: If camera-to-world transform not in common analysis structure
     """
-    if cas.camera_to_world_transform is None:
+    if common_analysis_structure.camera_to_world_transform is None:
         raise KeyError(
-            "Camera-to-world transform not found in CAS. "
+            "Camera-to-world transform not found in common analysis structure. "
             "Is lookup_viewpoint in camera config set to True? "
             "Or if reading from a database: Has the data been recorded with lookup_viewpoint set to true?"
         )
-    return cas.camera_to_world_transform.to_np()
+    return common_analysis_structure.camera_to_world_transform.to_np()
 
 
-def get_world_to_camera_transform_matrix(cas: CAS) -> npt.NDArray:
+def get_world_to_camera_transform_matrix(
+    common_analysis_structure: CommonAnalysisStructure,
+) -> npt.NDArray:
     """
-    Get world-to-camera transform matrix from CAS.
+    Get world-to-camera transform matrix from common analysis structure.
 
-    :param cas: CAS containing camera-to-world transform
+    :param common_analysis_structure: common analysis structure containing camera-to-world transform
     :return: 4x4 world-to-camera transform matrix
-    :raises KeyError: If camera-to-world transform not in CAS
+    :raises KeyError: If camera-to-world transform not in common analysis structure
     """
-    world_to_camera_transform = np.linalg.inv(get_camera_to_world_transform_matrix(cas))
+    world_to_camera_transform = np.linalg.inv(
+        get_camera_to_world_transform_matrix(common_analysis_structure)
+    )
 
     return world_to_camera_transform
 
 
 def draw_bounding_boxes_from_object_hypotheses(
-    img: npt.NDArray,
+    image: npt.NDArray,
     object_hypotheses: List[ObjectHypothesis],
     text_function: Callable[[ObjectHypothesis], str],
 ) -> None:
     """
     Draw bounding boxes for object hypotheses on the image.
 
-    Draws rectangles and labels for each object hypothesis ROI.
+    Draws rectangles and labels for each object hypothesis region of interest.
 
-    :param img: Input image to draw on
+    :param image: Input image to draw on
     :param object_hypotheses: List of object hypotheses
     :param text_function: Function to generate label text from hypothesis
     """
-    for oh in object_hypotheses:
-        if not isinstance(oh, ObjectHypothesis):
+    for object_hypothesis in object_hypotheses:
+        if not isinstance(object_hypothesis, ObjectHypothesis):
             continue
 
-        oh_roi = oh.roi.roi
-        upper_left = (oh_roi.pos.x, oh_roi.pos.y)
-        upper_left_text = (oh_roi.pos.x, oh_roi.pos.y - 5)
+        object_hypothesis_region_of_interest = (
+            object_hypothesis.region_of_interest.rectangle
+        )
+        upper_left = (
+            object_hypothesis_region_of_interest.position.x,
+            object_hypothesis_region_of_interest.position.y,
+        )
+        upper_left_text = (
+            object_hypothesis_region_of_interest.position.x,
+            object_hypothesis_region_of_interest.position.y - 5,
+        )
 
         font = cv2.FONT_HERSHEY_COMPLEX
-        img = cv2.putText(
-            img, text_function(oh), upper_left_text, font, 0.5, (0, 0, 255), 1, 2
+        image = cv2.putText(
+            image,
+            text_function(object_hypothesis),
+            upper_left_text,
+            font,
+            0.5,
+            (0, 0, 255),
+            1,
+            2,
         )
-        img = cv2.rectangle(
-            img,
+        image = cv2.rectangle(
+            image,
             upper_left,
-            (oh_roi.pos.x + oh_roi.width, oh_roi.pos.y + oh_roi.height),
+            (
+                object_hypothesis_region_of_interest.position.x
+                + object_hypothesis_region_of_interest.width,
+                object_hypothesis_region_of_interest.position.y
+                + object_hypothesis_region_of_interest.height,
+            ),
             (0, 0, 255),
             2,
         )
@@ -215,7 +251,9 @@ def scale_camera_intrinsics(annotator: BaseAnnotator) -> None:
     :param annotator: Annotator whose ``camera_intrinsics`` attribute is replaced by the
         scaled intrinsics.
     """
-    color_to_depth_ratio = annotator.get_cas().get(CASViews.COLOR_TO_DEPTH_RATIO)
+    color_to_depth_ratio = annotator.get_common_analysis_structure().get(
+        CommonAnalysisStructureViews.COLOR_TO_DEPTH_RATIO
+    )
     if not color_to_depth_ratio.is_identity:
         annotator.camera_intrinsics = scale_o3d_camera_intrinsics(
             annotator.camera_intrinsics,
@@ -226,7 +264,7 @@ def scale_camera_intrinsics(annotator: BaseAnnotator) -> None:
 
 def get_color_image(annotator: BaseAnnotator) -> npt.NDArray:
     """
-    Load and potentially resize the color image from the CAS.
+    Load and potentially resize the color image from the common analysis structure.
 
     This is useful, as the resolution of the RGB image might differ from the resolution
     of the depth image. This function resizes the color image to the resolution of the
@@ -239,20 +277,22 @@ def get_color_image(annotator: BaseAnnotator) -> npt.NDArray:
     :param annotator: Annotator to get image from
     :return: The resized color image.
     """
-    img = annotator.get_cas().get_copy(CASViews.COLOR_IMAGE)
+    image = annotator.get_common_analysis_structure().get_copy(
+        CommonAnalysisStructureViews.COLOR_IMAGE
+    )
     resized_color = None
 
     if annotator.descriptor.parameters.global_with_depth:
         try:
             resized_color = get_scaled_color_image_for_depth_image(
-                annotator.get_cas(), img
+                annotator.get_common_analysis_structure(), image
             )
-        except ColorToDepthRatioMissing as e:  # pylint: disable=invalid-name
-            annotator.rk_logger.error(
-                f"No color to depth ratio set by your camera driver! Can't preprocess: {e}"
+        except ColorToDepthRatioMissing as exception:  # pylint: disable=invalid-name
+            annotator.robokudo_logger.error(
+                f"No color to depth ratio set by your camera driver! Can't preprocess: {exception}"
             )
     else:
-        resized_color = img
+        resized_color = image
 
     return resized_color
 
@@ -274,7 +314,9 @@ def resize_mask(annotator: BaseAnnotator, mask: npt.NDArray) -> npt.NDArray:
         # nothing to do
         return mask
 
-    color_to_depth_ratio = annotator.get_cas().get(CASViews.COLOR_TO_DEPTH_RATIO)
+    color_to_depth_ratio = annotator.get_common_analysis_structure().get(
+        CommonAnalysisStructureViews.COLOR_TO_DEPTH_RATIO
+    )
 
     if color_to_depth_ratio is None:
         raise ColorToDepthRatioMissing(operation="resize mask")

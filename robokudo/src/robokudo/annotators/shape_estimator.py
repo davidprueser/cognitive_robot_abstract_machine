@@ -117,13 +117,15 @@ class ShapeEstimatorAnnotator(ThreadedAnnotator):
                 self.max_sphere_radius_meters: float = 0.4
                 """Maximum allowed sphere radius."""
 
-                self.max_sphere_radius_to_bbox_diagonal_ratio: float = 1.0
+                self.max_sphere_radius_to_bounding_box_diagonal_ratio: float = 1.0
                 """Maximum allowed ratio between sphere radius and point cloud diagonal."""
 
                 self.max_sphere_radius_to_observed_extent_ratio: float = 0.8
                 """Maximum allowed ratio between sphere radius and observed cloud extent."""
 
-                self.max_sphere_center_distance_to_bbox_diagonal_ratio: float = 0.9
+                self.max_sphere_center_distance_to_bounding_box_diagonal_ratio: (
+                    float
+                ) = 0.9
                 """Maximum allowed ratio between center offset and point cloud diagonal."""
 
                 self.fit_cylinder: bool = True
@@ -138,13 +140,15 @@ class ShapeEstimatorAnnotator(ThreadedAnnotator):
                 self.max_cylinder_height_meters: float = 1.0
                 """Maximum allowed cylinder height."""
 
-                self.max_cylinder_radius_to_bbox_diagonal_ratio: float = 1.0
+                self.max_cylinder_radius_to_bounding_box_diagonal_ratio: float = 1.0
                 """Maximum allowed ratio between cylinder radius and cloud diagonal."""
 
                 self.max_cylinder_radius_to_cross_section_extent_ratio: float = 0.95
                 """Maximum allowed ratio between cylinder radius and observed cross-section extent."""
 
-                self.max_cylinder_center_distance_to_bbox_diagonal_ratio: float = 0.8
+                self.max_cylinder_center_distance_to_bounding_box_diagonal_ratio: (
+                    float
+                ) = 0.8
                 """Maximum allowed ratio between axis center offset and cloud diagonal."""
 
                 self.cylinder_max_initializations: int = 12
@@ -232,7 +236,11 @@ class ShapeEstimatorAnnotator(ThreadedAnnotator):
 
     def compute(self) -> Status:
         """Estimate shapes and publish annotations and 3D visualizations."""
-        object_hypotheses = self.get_cas().filter_annotations_by_type(ObjectHypothesis)
+        object_hypotheses = (
+            self.get_common_analysis_structure().filter_annotations_by_type(
+                ObjectHypothesis
+            )
+        )
 
         total_object_hypotheses = 0
         updated_object_hypotheses = 0
@@ -252,7 +260,7 @@ class ShapeEstimatorAnnotator(ThreadedAnnotator):
             updated_object_hypotheses += 1
 
         if len(visual_geometries) > 0:
-            self.get_annotator_output_struct().set_geometries(visual_geometries)
+            self.get_annotator_output_structure().set_geometries(visual_geometries)
 
         self.feedback_message = (
             f"Estimated shapes for {updated_object_hypotheses}/"
@@ -349,14 +357,14 @@ class ShapeEstimatorAnnotator(ThreadedAnnotator):
                         distance_threshold=parameters.distance_threshold,
                         robust_loss=parameters.robust_loss,
                         max_radius=parameters.max_sphere_radius_meters,
-                        max_radius_to_bbox_diagonal_ratio=(
-                            parameters.max_sphere_radius_to_bbox_diagonal_ratio
+                        max_radius_to_bounding_box_diagonal_ratio=(
+                            parameters.max_sphere_radius_to_bounding_box_diagonal_ratio
                         ),
                         max_radius_to_observed_extent_ratio=(
                             parameters.max_sphere_radius_to_observed_extent_ratio
                         ),
-                        max_center_distance_to_bbox_diagonal_ratio=(
-                            parameters.max_sphere_center_distance_to_bbox_diagonal_ratio
+                        max_center_distance_to_bounding_box_diagonal_ratio=(
+                            parameters.max_sphere_center_distance_to_bounding_box_diagonal_ratio
                         ),
                         min_inlier_ratio=parameters.minimum_inlier_ratio,
                     ),
@@ -372,14 +380,14 @@ class ShapeEstimatorAnnotator(ThreadedAnnotator):
                         robust_loss=parameters.robust_loss,
                         max_radius=parameters.max_cylinder_radius_meters,
                         max_height=parameters.max_cylinder_height_meters,
-                        max_radius_to_bbox_diagonal_ratio=(
-                            parameters.max_cylinder_radius_to_bbox_diagonal_ratio
+                        max_radius_to_bounding_box_diagonal_ratio=(
+                            parameters.max_cylinder_radius_to_bounding_box_diagonal_ratio
                         ),
                         max_radius_to_cross_section_extent_ratio=(
                             parameters.max_cylinder_radius_to_cross_section_extent_ratio
                         ),
-                        max_axis_center_distance_to_bbox_diagonal_ratio=(
-                            parameters.max_cylinder_center_distance_to_bbox_diagonal_ratio
+                        max_axis_center_distance_to_bounding_box_diagonal_ratio=(
+                            parameters.max_cylinder_center_distance_to_bounding_box_diagonal_ratio
                         ),
                         min_inlier_ratio=parameters.cylinder_minimum_inlier_ratio,
                         max_initializations=parameters.cylinder_max_initializations,
@@ -446,14 +454,14 @@ class ShapeEstimatorAnnotator(ThreadedAnnotator):
             robust_loss=self.descriptor.parameters.robust_loss,
             max_radius=self.descriptor.parameters.max_cylinder_radius_meters,
             max_height=self.descriptor.parameters.max_cylinder_height_meters,
-            max_radius_to_bbox_diagonal_ratio=(
-                self.descriptor.parameters.max_cylinder_radius_to_bbox_diagonal_ratio
+            max_radius_to_bounding_box_diagonal_ratio=(
+                self.descriptor.parameters.max_cylinder_radius_to_bounding_box_diagonal_ratio
             ),
             max_radius_to_cross_section_extent_ratio=(
                 self.descriptor.parameters.max_cylinder_radius_to_cross_section_extent_ratio
             ),
-            max_axis_center_distance_to_bbox_diagonal_ratio=(
-                self.descriptor.parameters.max_cylinder_center_distance_to_bbox_diagonal_ratio
+            max_axis_center_distance_to_bounding_box_diagonal_ratio=(
+                self.descriptor.parameters.max_cylinder_center_distance_to_bounding_box_diagonal_ratio
             ),
         )
 
@@ -619,7 +627,7 @@ class ShapeEstimatorAnnotator(ThreadedAnnotator):
         axis_deviation_degrees = self._axis_angle_degrees(
             original_fit.axis_direction, selected_candidate.axis_direction
         )
-        self.rk_logger.info(
+        self.robokudo_logger.info(
             f"{self.name} stabilized cylinder axis: "
             f"source={selected_candidate.source}, "
             f"deviation={axis_deviation_degrees:.2f}deg, "
@@ -999,7 +1007,9 @@ class ShapeEstimatorAnnotator(ThreadedAnnotator):
         if not self.descriptor.parameters.log_rejection_reasons:
             return
         object_name = object_hypothesis.id if object_hypothesis.id != "" else "object"
-        self.rk_logger.info(f"{self.name} rejected {shape_name} for {object_name}")
+        self.robokudo_logger.info(
+            f"{self.name} rejected {shape_name} for {object_name}"
+        )
 
     def _log_candidate_metrics(
         self, object_hypothesis: ObjectHypothesis, fit_result: FittedShape
@@ -1008,7 +1018,7 @@ class ShapeEstimatorAnnotator(ThreadedAnnotator):
         if not self.descriptor.parameters.log_candidate_metrics:
             return
         object_name = object_hypothesis.id if object_hypothesis.id != "" else "object"
-        self.rk_logger.info(
+        self.robokudo_logger.info(
             f"{self.name} candidate {object_name}: "
             f"{adapter_for_fit(fit_result).summary(fit_result)}"
         )
@@ -1020,7 +1030,7 @@ class ShapeEstimatorAnnotator(ThreadedAnnotator):
         if not self.descriptor.parameters.log_candidate_metrics:
             return
         object_name = object_hypothesis.id if object_hypothesis.id != "" else "object"
-        self.rk_logger.info(
+        self.robokudo_logger.info(
             f"{self.name} selected {object_name}: "
             f"{adapter_for_fit(fit_result).summary(fit_result)}"
         )

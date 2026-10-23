@@ -19,7 +19,7 @@ from semantic_digital_twin.world_description.world_entity import Body
 from typing_extensions import TYPE_CHECKING, Dict, List, Tuple
 
 from robokudo.annotators.core import BaseAnnotator
-from robokudo.cas import CASViews
+from robokudo.common_analysis_structure import CommonAnalysisStructureViews
 from robokudo.types.annotation import (
     BoundingBox3DAnnotation,
     Classification,
@@ -30,11 +30,11 @@ from robokudo.utils.annotator_helper import draw_bounding_boxes_from_object_hypo
 from robokudo.utils.error_handling import catch_and_raise_to_blackboard
 from robokudo.utils.o3d_helper import (
     draw_mesh_wireframe_on_image,
-    draw_wireframe_of_obb_into_image,
+    draw_wireframe_of_oriented_bounding_box_into_image,
     trimesh_to_o3d_mesh,
 )
 from robokudo.utils.type_conversion import (
-    get_o3d_obb_from_bounding_box_annotation,
+    get_o3d_oriented_bounding_box_from_bounding_box_annotation,
     get_transform_matrix_from_pose_annotation,
 )
 
@@ -44,7 +44,7 @@ if TYPE_CHECKING:
 
 
 class ObjectHypothesisVisualizer(BaseAnnotator):
-    """Annotator for visualizing object hypotheses in the CAS.
+    """Annotator for visualizing object hypotheses in the common analysis structure.
 
     This annotator creates visualizations of detected objects by:
 
@@ -80,10 +80,10 @@ class ObjectHypothesisVisualizer(BaseAnnotator):
         :param descriptor: Configuration descriptor
         """
         super().__init__(name, descriptor)
-        self.rk_logger.debug("%s.__init__()" % self.__class__.__name__)
+        self.robokudo_logger.debug("%s.__init__()" % self.__class__.__name__)
         self._mesh_cache: Dict[Tuple[object, ...], o3d.geometry.TriangleMesh] = {}
 
-    def _iter_mesh_visuals(self, body: Body) -> List[Mesh]:
+    def _iterate_mesh_visuals(self, body: Body) -> List[Mesh]:
         """Return mesh-based visual shapes for a body."""
         return [shape for shape in body.visual if isinstance(shape, Mesh)]
 
@@ -100,10 +100,10 @@ class ObjectHypothesisVisualizer(BaseAnnotator):
 
     def _mesh_shape_to_o3d(self, shape: Mesh) -> o3d.geometry.TriangleMesh:
         """Convert a mesh shape to Open3D, cache the result, and apply its local origin."""
-        tm: trimesh.Trimesh = shape.mesh
+        mesh: trimesh.Trimesh = shape.mesh
         cache_key = self._mesh_cache_key(shape)
         if cache_key not in self._mesh_cache:
-            self._mesh_cache[cache_key] = trimesh_to_o3d_mesh(tm)
+            self._mesh_cache[cache_key] = trimesh_to_o3d_mesh(mesh)
         mesh_instance = copy.deepcopy(self._mesh_cache[cache_key])
         mesh_instance.transform(shape.origin.to_np())
         return mesh_instance
@@ -150,33 +150,43 @@ class ObjectHypothesisVisualizer(BaseAnnotator):
         """
         start_timer = default_timer()
 
-        visualization_img = self.get_cas().get_copy(CASViews.COLOR_IMAGE)
+        visualization_image = self.get_common_analysis_structure().get_copy(
+            CommonAnalysisStructureViews.COLOR_IMAGE
+        )
         visualized_geometries = []
 
         if self.descriptor.parameters.query_aware:
             query = None  # type: Query.Goal | None
-            if self.get_cas().contains(CASViews.QUERY):
-                query = self.get_cas().get(CASViews.QUERY)
+            if self.get_common_analysis_structure().contains(
+                CommonAnalysisStructureViews.QUERY
+            ):
+                query = self.get_common_analysis_structure().get(
+                    CommonAnalysisStructureViews.QUERY
+                )
 
-        object_hypotheses = self.get_cas().filter_annotations_by_type(ObjectHypothesis)
+        object_hypotheses = (
+            self.get_common_analysis_structure().filter_annotations_by_type(
+                ObjectHypothesis
+            )
+        )
         if len(object_hypotheses) == 0:
-            self.draw_text_middle(visualization_img, "No Object Hypotheses")
+            self.draw_text_middle(visualization_image, "No Object Hypotheses")
         else:
 
-            def get_box_text(oh):
-                max_conf = -1
+            def get_box_text(object_hypothesis: ObjectHypothesis) -> str:
+                max_confidence = -1
                 best_classification = None
 
-                for oh_anno in oh.annotations:
-                    if isinstance(oh_anno, Classification):
-                        if oh_anno.confidence > max_conf:
-                            max_conf = oh_anno.confidence
-                            best_classification = oh_anno
+                for object_hypothesis_annotation in object_hypothesis.annotations:
+                    if isinstance(object_hypothesis_annotation, Classification):
+                        if object_hypothesis_annotation.confidence > max_confidence:
+                            max_confidence = object_hypothesis_annotation.confidence
+                            best_classification = object_hypothesis_annotation
 
                 if best_classification is None:
-                    return f"ROI-{oh.id}"
+                    return f"ROI-{object_hypothesis.id}"
                 else:
-                    return f"{oh.id}: {best_classification.classname}, {best_classification.confidence:.2f}"
+                    return f"{object_hypothesis.id}: {best_classification.classname}, {best_classification.confidence:.2f}"
 
             if (
                 self.descriptor.parameters.query_aware
@@ -184,38 +194,48 @@ class ObjectHypothesisVisualizer(BaseAnnotator):
                 and query.obj.type != ""
             ):
                 matching_object_hypotheses = []
-                for oh in object_hypotheses:
-                    classifications = self.get_cas().filter_by_type_and_criteria(
+                for object_hypothesis in object_hypotheses:
+                    classifications = self.get_common_analysis_structure().filter_by_type_and_criteria(
                         Classification,
-                        oh.annotations,
+                        object_hypothesis.annotations,
                         criteria={"classname": ("==", f"{query.obj.type}")},
                     )
 
                     if len(classifications) > 0:
-                        matching_object_hypotheses.append(oh)
+                        matching_object_hypotheses.append(object_hypothesis)
 
                 draw_bounding_boxes_from_object_hypotheses(
-                    visualization_img, matching_object_hypotheses, get_box_text
+                    visualization_image, matching_object_hypotheses, get_box_text
                 )
 
             else:
                 draw_bounding_boxes_from_object_hypotheses(
-                    visualization_img, object_hypotheses, get_box_text
+                    visualization_image, object_hypotheses, get_box_text
                 )
 
         for object_hypothesis in object_hypotheses:
             visualized_geometries.append(object_hypothesis.points)
 
-            bb_annotations = self.get_cas().filter_by_type(
-                type_to_include=BoundingBox3DAnnotation,
-                input_list=object_hypothesis.annotations,
+            bounding_box_annotations = (
+                self.get_common_analysis_structure().filter_by_type(
+                    type_to_include=BoundingBox3DAnnotation,
+                    input_list=object_hypothesis.annotations,
+                )
             )
-            for bb_annotation in bb_annotations:
-                obb = get_o3d_obb_from_bounding_box_annotation(bb_annotation)
-                visualized_geometries.append(obb)
-                draw_wireframe_of_obb_into_image(self.get_cas(), visualization_img, obb)
+            for bounding_box_annotation in bounding_box_annotations:
+                oriented_bounding_box = (
+                    get_o3d_oriented_bounding_box_from_bounding_box_annotation(
+                        bounding_box_annotation
+                    )
+                )
+                visualized_geometries.append(oriented_bounding_box)
+                draw_wireframe_of_oriented_bounding_box_into_image(
+                    self.get_common_analysis_structure(),
+                    visualization_image,
+                    oriented_bounding_box,
+                )
 
-            pose_annotations = self.get_cas().filter_by_type(
+            pose_annotations = self.get_common_analysis_structure().filter_by_type(
                 type_to_include=PoseAnnotation,
                 input_list=object_hypothesis.annotations,
             )
@@ -230,19 +250,26 @@ class ObjectHypothesisVisualizer(BaseAnnotator):
 
                 body = object_hypothesis.object_knowledge
                 if body is not None:
-                    for mesh_shape in self._iter_mesh_visuals(body):
+                    for mesh_shape in self._iterate_mesh_visuals(body):
                         mesh_instance = self._mesh_shape_to_o3d(mesh_shape)
                         mesh_instance.transform(transform)
                         visualized_geometries.append(mesh_instance)
                         draw_mesh_wireframe_on_image(
-                            visualization_img, mesh_shape, transform, self.get_cas()
+                            visualization_image,
+                            mesh_shape,
+                            transform,
+                            self.get_common_analysis_structure(),
                         )
 
         if self.descriptor.parameters.visualize_full_cloud:
-            visualized_geometries.append(self.get_cas().get(CASViews.CLOUD))
+            visualized_geometries.append(
+                self.get_common_analysis_structure().get(
+                    CommonAnalysisStructureViews.CLOUD
+                )
+            )
 
-        self.get_annotator_output_struct().set_image(visualization_img)
-        self.get_annotator_output_struct().set_geometries(visualized_geometries)
+        self.get_annotator_output_structure().set_image(visualization_image)
+        self.get_annotator_output_structure().set_geometries(visualized_geometries)
 
         end_timer = default_timer()
         self.feedback_message = f"Processing took {(end_timer - start_timer):.4f}s"

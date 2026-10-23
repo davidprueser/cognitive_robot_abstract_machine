@@ -1,5 +1,5 @@
 """
-KRROOD-backed codecs for CAS annotation serialization.
+KRROOD-backed codecs for common analysis structure annotation serialization.
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ from robokudo.io.open3d_codec_utils import (
 )
 
 try:
-    # Side effect import: registers ROS message serializers from SemDT.
+    # Side effect import: registers ROS message serializers from semantic digital twin.
     import semantic_digital_twin.adapters.ros  # noqa: F401
 except (
     ImportError
@@ -38,7 +38,7 @@ class Open3DPointCloudJSONSerializer(
     """
 
     @classmethod
-    def to_json(cls, obj: o3d.geometry.PointCloud, **kwargs) -> Dict[str, Any]:
+    def to_json(cls, obj: o3d.geometry.PointCloud, **kwargs: Any) -> Dict[str, Any]:
         """
         Convert an Open3D point cloud into a JSON-compatible payload.
         """
@@ -66,7 +66,7 @@ class NumpyScalarJSONSerializer(ExternalClassJSONSerializer[np.generic]):
     """
 
     @classmethod
-    def to_json(cls, obj: np.generic, **kwargs) -> Dict[str, Any]:
+    def to_json(cls, obj: np.generic, **kwargs: Any) -> Dict[str, Any]:
         """
         Convert a NumPy scalar value to JSON-compatible data.
         """

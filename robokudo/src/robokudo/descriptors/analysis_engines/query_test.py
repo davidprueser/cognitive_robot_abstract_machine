@@ -25,9 +25,9 @@ from robokudo.analysis_engine import AnalysisEngineInterface
 from robokudo.annotators.core import BaseAnnotator
 from robokudo.annotators.query import QueryAnnotator
 from robokudo.behaviours.action_server_checks import ActionServerNoPreemptRequest
-from robokudo.cas import CASViews
-from robokudo.identifier import BBIdentifier
-from robokudo.idioms import pipeline_init
+from robokudo.common_analysis_structure import CommonAnalysisStructureViews
+from robokudo.identifier import BlackboardIdentifier
+from robokudo.idioms import pipeline_initialization
 from robokudo.pipeline import Pipeline
 
 
@@ -47,10 +47,10 @@ class PrintNumbers(BaseAnnotator):
 
     def update(self) -> Status:
         blackboard = Blackboard()
-        feedback_queue = blackboard.get(BBIdentifier.QUERY_FEEDBACK)
+        feedback_queue = blackboard.get(BlackboardIdentifier.QUERY_FEEDBACK)
         if feedback_queue is None:
             feedback_queue = Queue()
-            blackboard.set(BBIdentifier.QUERY_FEEDBACK, feedback_queue)
+            blackboard.set(BlackboardIdentifier.QUERY_FEEDBACK, feedback_queue)
 
         if self.current_number <= 100:
             # Append number and update result
@@ -59,29 +59,31 @@ class PrintNumbers(BaseAnnotator):
             self.result_string += f"{self.current_number}, "
 
             # Add feedback message
-            feedback_msg = Query.Feedback()
-            feedback_msg.feedback = f"Processing number: {self.result_string}"
-            feedback_queue.put(feedback_msg)
+            feedback_message = Query.Feedback()
+            feedback_message.feedback = f"Processing number: {self.result_string}"
+            feedback_queue.put(feedback_message)
 
             self.current_number += 1
             return Status.RUNNING
         else:
             self.completed = True
-            blackboard.set(BBIdentifier.QUERY_ANSWER, self.result_string)
+            blackboard.set(BlackboardIdentifier.QUERY_ANSWER, self.result_string)
             return Status.SUCCESS
 
 
 class CheckQueryType(BaseAnnotator):
     """
-    Checks if the query type on the CAS is 'numbers'.
+    Checks if the query type on the common analysis structure is 'numbers'.
     """
 
     def __init__(self, name: str = "CheckQueryType") -> None:
         super().__init__(name)
 
     def update(self) -> Status:
-        # Retrieve the query from the CAS
-        query = self.get_cas().get(CASViews.QUERY)
+        # Retrieve the query from the common analysis structure
+        query = self.get_common_analysis_structure().get(
+            CommonAnalysisStructureViews.QUERY
+        )
 
         # Check if the query type is 'numbers'
         if query and getattr(query.obj, "type", None) == "numbers":
@@ -123,7 +125,7 @@ class AnalysisEngine(AnalysisEngineInterface):
         seq = Pipeline("OPExperiments")
         seq.add_children(
             [
-                pipeline_init(),  # Initialize the pipeline
+                pipeline_initialization(),  # Initialize the pipeline
                 QueryAnnotator(),  # Handle incoming queries
                 conditional_selector,  # Preemption-aware task execution
             ]

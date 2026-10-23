@@ -7,7 +7,7 @@ This module provides utilities for 3D geometric calculations.
 RoboKudo Team
 """
 
-from robokudo.utils.transform import get_rotation_matrix_from_q
+from robokudo.utils.transform import get_rotation_matrix_from_quaternion
 from typing_extensions import Iterable, Optional, Tuple, List
 import numpy as np
 
@@ -82,7 +82,7 @@ def intersecting_spheres(
     :param point1: Start point of the line segment (x, y, z).
     :param point2: End point of the line segment (x, y, z).
     :param spheres: Iterable of tuples (name, center, radius) where center is a tuple (x, y, z).
-    :return: List of tuples (dist to point1, name, center, radius, first_intersection_from_point1).
+    :return: List of tuples (intersection_distance to point1, name, center, radius, first_intersection_from_point1).
 
     :Example:
 
@@ -107,8 +107,8 @@ def intersecting_spheres(
 
         if t is not None:
             intersection = intersection_point(point1, point2, t)
-            dist = distance(point1, intersection)
-            intersections.append((dist, name, C, r, intersection))
+            intersection_distance = distance(point1, intersection)
+            intersections.append((intersection_distance, name, C, r, intersection))
 
     # Sort by distance
     intersections.sort(key=lambda x: x[0])
@@ -172,9 +172,9 @@ def compute_line_intersection_point(
     if discriminant < 0:
         return None  # No intersection
 
-    sqrt_discriminant = discriminant**0.5
-    t1 = (-b - sqrt_discriminant) / (2 * a)
-    t2 = (-b + sqrt_discriminant) / (2 * a)
+    square_root_of_discriminant = discriminant**0.5
+    t1 = (-b - square_root_of_discriminant) / (2 * a)
+    t2 = (-b + square_root_of_discriminant) / (2 * a)
 
     # Check if t1 and t2 are within [0, 1]
     t1_valid = 0 <= t1 <= 1
@@ -248,8 +248,8 @@ def compute_direction_vector_angle(
     vertical = np.dot(direction_vector, normalized_floor)
     horizontal = np.linalg.norm(direction_vector - vertical * normalized_floor)
 
-    ang = np.degrees(np.arctan2(vertical, horizontal))  # (-90..90)
-    return ang
+    angle = np.degrees(np.arctan2(vertical, horizontal))  # (-90..90)
+    return angle
 
 
 def intersecting_cuboids(
@@ -276,7 +276,7 @@ def intersecting_cuboids(
     :param cuboids: List of tuples (name, position, orientation, size) where position is a tuple (x, y, z),
                      orientation is a tuple (x, y, z, w) representing a quaternion, and size is a tuple (width, height, depth).
 
-    :return: List of tuples (dist to P1, name, cuboid_min, cuboid_max, first_intersection_from_P1).
+    :return: List of tuples (intersection_distance to P1, name, cuboid_min, cuboid_max, first_intersection_from_P1).
     """
     intersections = []
     point1 = np.array(point1, dtype=float)
@@ -290,22 +290,22 @@ def intersecting_cuboids(
         half_size = cuboid_size / 2
 
         # Convert quaternion to rotation matrix
-        quat = np.array(cuboid_orientation, dtype=float)
-        rot = get_rotation_matrix_from_q(quat)  # x, y, z, w
+        quaternion = np.array(cuboid_orientation, dtype=float)
+        rotation = get_rotation_matrix_from_quaternion(quaternion)  # x, y, z, w
         # inverse of a rotation matrix = transpose
-        rot_inv = rot.T
+        inverse_rotation = rotation.T
 
         # Transform P1 and P2 into cuboid local space
         # This helps, because we dont need to transform the cuboid based on its orientation, but only the line segment
-        P1_local = rot_inv @ (point1 - cuboid_position)
-        P2_local = rot_inv @ (point2 - cuboid_position)
+        P1_local = inverse_rotation @ (point1 - cuboid_position)
+        P2_local = inverse_rotation @ (point2 - cuboid_position)
         direction_local = P2_local - P1_local
 
         # avoid division by zero
-        dir_eps = np.where(direction_local == 0, 1e-12, direction_local)
+        safe_direction = np.where(direction_local == 0, 1e-12, direction_local)
         # Calculate t values for intersection with the slabs defined by the cuboid
-        t_min = (-half_size - P1_local) / dir_eps
-        t_max = (half_size - P1_local) / dir_eps
+        t_min = (-half_size - P1_local) / safe_direction
+        t_max = (half_size - P1_local) / safe_direction
 
         # Ensure t_min and t_max are ordered correctly. t1 and t2 are the entry and exit points of the line segment
         t1 = np.minimum(t_min, t_max)
@@ -318,30 +318,36 @@ def intersecting_cuboids(
             # Compute world-space AABB bounds for output
             # Useful for output annotator struct visualization
             corners_local = np.array([[-1, -1, -1], [1, 1, 1]]) * half_size
-            corners_world = (rot @ corners_local.T).T + cuboid_position
+            corners_world = (rotation @ corners_local.T).T + cuboid_position
             cuboid_min = np.min(corners_world, axis=0)
             cuboid_max = np.max(corners_world, axis=0)
 
             if t_enter < 0 and t_exit > 1:
                 # Segment is entirely inside the cube
                 intersection_world = point1  # P1 is inside the cube
-                dist = 0.0
+                intersection_distance = 0.0
             elif t_enter < 0 and 0 <= t_exit <= 1:
                 # Segment starts inside and exits outside
                 intersection_local = intersection_point(P1_local, P2_local, t_exit)
-                intersection_world = rot @ intersection_local + cuboid_position
-                dist = distance(point1, intersection_world)
+                intersection_world = rotation @ intersection_local + cuboid_position
+                intersection_distance = distance(point1, intersection_world)
             elif 0 <= t_enter <= 1:
                 # Segment starts outside and intersects the cube (use t_enter)
                 intersection_local = intersection_point(P1_local, P2_local, t_enter)
-                intersection_world = rot @ intersection_local + cuboid_position
-                dist = distance(point1, intersection_world)
+                intersection_world = rotation @ intersection_local + cuboid_position
+                intersection_distance = distance(point1, intersection_world)
             else:
                 # t_enter > 1: Intersection is beyond P2, ignore
                 continue
 
             intersections.append(
-                (dist, name, cuboid_min, cuboid_max, intersection_world)
+                (
+                    intersection_distance,
+                    name,
+                    cuboid_min,
+                    cuboid_max,
+                    intersection_world,
+                )
             )
 
     intersections.sort(key=lambda x: x[0])

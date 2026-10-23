@@ -18,20 +18,27 @@ if TYPE_CHECKING:
 @dataclass
 class ObjectBeliefState:
     body: Body
-    """The semdt body associated with the belief state."""
+    """
+    The semantic digital twin body associated with the belief state.
+    """
 
-    max_num_hypotheses: int = 1
-    """The maximum number of object hypotheses to keep in the belief state."""
+    max_number_of_hypotheses: int = 1
+    """
+    The maximum number of object hypotheses to keep in the belief state.
+    """
 
     hypotheses: Deque[ObjectHypothesis] = field(init=False)
-    """The hypotheses associated with the belief state."""
+    """
+    The hypotheses associated with the belief state.
+    """
 
-    def __post_init__(self):
-        self.hypotheses = deque(maxlen=self.max_num_hypotheses)
+    def __post_init__(self) -> None:
+        self.hypotheses = deque(maxlen=self.max_number_of_hypotheses)
 
     @classmethod
     def create_with_new_body(cls, name: Optional[PrefixedName] = None) -> Self:
-        """Create a new ObjectBeliefState with a new Body.
+        """
+        Create a new ObjectBeliefState with a new Body.
 
         :param name: Name of the body.
         :return: The new object belief state.
@@ -42,19 +49,25 @@ class ObjectBeliefState:
 
     @property
     def uuid(self) -> UUID:
-        """The UUID of the belief state."""
+        """
+        The UUID of the belief state.
+        """
         return self.body.id
 
     @property
     def latest_hypothesis(self) -> Optional[ObjectHypothesis]:
-        """The latest hypothesis added to the belief state."""
+        """
+        The latest hypothesis added to the belief state.
+        """
         if len(self.hypotheses) == 0:
             return None
         return self.hypotheses[len(self.hypotheses) - 1]
 
     @property
     def latest_pose(self) -> Optional[PoseAnnotation]:
-        """The newest pose annotation of the latest hypothesis."""
+        """
+        The newest pose annotation of the latest hypothesis.
+        """
         hypothesis = self.latest_hypothesis
         if hypothesis is not None:
             for annotation in reversed(hypothesis.annotations):
@@ -63,8 +76,10 @@ class ObjectBeliefState:
         return None
 
     @property
-    def latest_bbox_3d(self) -> Optional[BoundingBox3DAnnotation]:
-        """The newest 3D bounding box annotation of the latest hypothesis."""
+    def latest_bounding_box_3d(self) -> Optional[BoundingBox3DAnnotation]:
+        """
+        The newest 3D bounding box annotation of the latest hypothesis.
+        """
         hypothesis = self.latest_hypothesis
         if hypothesis is not None:
             for annotation in reversed(hypothesis.annotations):
@@ -73,7 +88,8 @@ class ObjectBeliefState:
         return None
 
     def add_hypothesis(self, hypothesis: ObjectHypothesis) -> Self:
-        """Add a new hypothesis to the belief state.
+        """
+        Add a new hypothesis to the belief state.
 
         :param hypothesis: The hypothesis to add.
         """

@@ -55,7 +55,7 @@ class StaticCameraTransformComponent:
     """Camera component with configuration for a fixed camera transform."""
 
     static_camera_transform_enabled: bool = False
-    """Whether to write a configured static camera transform into each CAS."""
+    """Whether to write a configured static camera transform into each common analysis structure."""
 
     static_world_frame: str = "map"
     """World frame ID for the configured static camera transform."""
@@ -101,5 +101,5 @@ class RGBDComponent(DepthComponent, ColorComponent):
     axes for a 640x480 depth image next to a 1280x960 color image.
     """
 
-    hi_res_mode: bool = False
+    high_resolution_mode: bool = False
     """Setting this to true will apply some workarounds to match the depth data to RGB on the Kinect."""

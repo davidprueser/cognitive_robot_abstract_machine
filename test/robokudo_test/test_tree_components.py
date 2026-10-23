@@ -1,12 +1,14 @@
+from __future__ import annotations
 from typing import Any
+from typing_extensions import TYPE_CHECKING
 
 import py_trees
 import pytest
 from py_trees.blackboard import Blackboard
 from py_trees.composites import Sequence
 
-from robokudo.cas import CASViews
-from robokudo.identifier import BBIdentifier
+from robokudo.common_analysis_structure import CommonAnalysisStructureViews
+from robokudo.identifier import BlackboardIdentifier
 from robokudo.pipeline import Pipeline
 from robokudo.tree_components.query_based_task_scheduler import QueryBasedScheduler
 from robokudo.tree_components.task_scheduler import (
@@ -15,21 +17,24 @@ from robokudo.tree_components.task_scheduler import (
 )
 from robokudo_msgs.action import Query
 
+if TYPE_CHECKING:
+    from py_trees.common import Status
+
 
 class DummyBehaviour(py_trees.behaviour.Behaviour):
-    def __init__(self, name):
+    def __init__(self, name: str) -> None:
         super().__init__(name)
         self._setup = False
 
-    def setup(self, **kwargs: Any):
+    def setup(self, **kwargs: Any) -> None:
         self._setup = True
 
-    def update(self):
+    def update(self) -> Status:
         return py_trees.common.Status.SUCCESS
 
 
 class TestTreeComponents:
-    def test_iterative_task_scheduler(self):
+    def test_iterative_task_scheduler(self) -> None:
         leaf_behaviour1 = DummyBehaviour("Behaviour1")
         par1 = py_trees.composites.Parallel(
             "Par1", policy=py_trees.common.ParallelPolicy.SuccessOnAll()
@@ -64,7 +69,7 @@ class TestTreeComponents:
             task = scheduler.parent.children[1]
             assert task.children[0].name == job.name
 
-    def test_query_based_scheduler(self):
+    def test_query_based_scheduler(self) -> None:
         leaf_behaviour1 = DummyBehaviour("Behaviour1")
         par1 = py_trees.composites.Parallel(
             "Par1", policy=py_trees.common.ParallelPolicy.SuccessOnAll()
@@ -82,7 +87,7 @@ class TestTreeComponents:
                 "detect": par1,
                 "track": par2,
             },
-            filter_fn=lambda query: query["query"],
+            filter_function=lambda query: query["query"],
         )
         pipe = Pipeline("Seq", memory=True, children=[scheduler])
 
@@ -92,7 +97,9 @@ class TestTreeComponents:
         assert all([leaf_behaviour1._setup, leaf_behaviour2._setup])
 
         query_goal = {"query": "detect"}
-        scheduler.get_cas().set(CASViews.QUERY, query_goal)
+        scheduler.get_common_analysis_structure().set(
+            CommonAnalysisStructureViews.QUERY, query_goal
+        )
 
         status = scheduler.update()
         assert status == py_trees.common.Status.SUCCESS
@@ -100,7 +107,9 @@ class TestTreeComponents:
         assert task.children[0].name == par1.name
 
         query_goal = {"query": "track"}
-        scheduler.get_cas().set(CASViews.QUERY, query_goal)
+        scheduler.get_common_analysis_structure().set(
+            CommonAnalysisStructureViews.QUERY, query_goal
+        )
 
         status = scheduler.update()
         assert status == py_trees.common.Status.SUCCESS
@@ -108,8 +117,10 @@ class TestTreeComponents:
         assert task.children[0].name == par2.name
 
         query_goal = {"query": "non-existent-query-goal"}
-        scheduler.get_cas().set(CASViews.QUERY, query_goal)
+        scheduler.get_common_analysis_structure().set(
+            CommonAnalysisStructureViews.QUERY, query_goal
+        )
 
         status = scheduler.update()
         assert status == py_trees.common.Status.FAILURE
-        assert Blackboard().get(BBIdentifier.BLACKBOARD_EXCEPTION_NAME)
+        assert Blackboard().get(BlackboardIdentifier.BLACKBOARD_EXCEPTION_NAME)

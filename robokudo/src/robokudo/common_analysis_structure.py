@@ -1,8 +1,8 @@
 """
-Common Analysis Structure (CAS) for RoboKudo.
+Common analysis structure for RoboKudo.
 
 This module provides the core data structure used throughout RoboKudo for storing
-and managing data during pipeline execution. The CAS (Common Analysis Structure)
+and managing data during pipeline execution. The common analysis structure
 holds sensor data, annotations, and other information that is shared between
 annotators.
 
@@ -49,11 +49,11 @@ if TYPE_CHECKING:
     from robokudo.types.cv import ColorToDepthRatio
 
 
-class CASViews(StrEnum):
+class CommonAnalysisStructureViews(StrEnum):
     """Standard view definitions for the Common Analysis Structure.
 
     This class defines the standard keys used to store and access different types
-    of data in the CAS. These keys ensure consistent access to common data types
+    of data in the common analysis structure. These keys ensure consistent access to common data types
     like images, point clouds, and camera information.
     """
 
@@ -65,7 +65,7 @@ class CASViews(StrEnum):
 
     COLOR_TO_DEPTH_RATIO = "color_to_depth_ratio"
     """
-    Size of the :attr:`DEPTH_IMAGE` relative to the :attr:`COLOR_IMAGE`, as a
+    Size of the :attribute:`DEPTH_IMAGE` relative to the :attribute:`COLOR_IMAGE`, as a
     :class:`~robokudo.types.cv.ColorToDepthRatio`.
     """
 
@@ -105,8 +105,8 @@ class CASViews(StrEnum):
     type: Int
     """
 
-    CAS_ID = "cas_id"
-    """Monotonic ID of the CAS instance within a single pipeline run.
+    COMMON_ANALYSIS_STRUCTURE_ID = "cas_id"
+    """Monotonic ID of the common analysis structure instance within a single pipeline run.
     type: Int
     """
 
@@ -118,20 +118,20 @@ class CASViews(StrEnum):
     """Object color mapping data which assigns objects visible in OBJECT_IMAGE to entity names."""
 
     GROUND_TRUTH_WORLD_REFERENCE = "ground_truth_world_ref"
-    """Read-only reference to the SemDT ground-truth world used for this CAS frame.
+    """Read-only reference to the semantic digital twin ground-truth world used for this common analysis structure frame.
 
     This view is intended for in-process consumers only and should be written
-    by producers via `CAS.set_ref(...)` to avoid deep-copying the world object.
+    by producers via `CommonAnalysisStructure.set_reference(...)` to avoid deep-copying the world object.
     Consumers must treat this object as strictly read-only.
     """
 
 
 @dataclass
-class CAS:
+class CommonAnalysisStructure:
     """The main data representation in RoboKudo.
 
     This class provides the central data structure used by annotators to store and
-    retrieve information. Each pipeline has its own CAS instance that maintains
+    retrieve information. Each pipeline has its own common analysis structure instance that maintains
     views (singular data like sensor readings) and annotations (multiple descriptors
     of the same data).
 
@@ -140,13 +140,13 @@ class CAS:
     """
 
     timestamp: float = field(default_factory=time.time_ns)
-    """Unix timestamp when this CAS was created. In Nanoseconds since Epoch."""
+    """Unix timestamp when this common analysis structure was created. In Nanoseconds since Epoch."""
 
     timestamp_readable: str = field(init=False)
     """Human readable timestamp string."""
 
     views: Dict[str, Any] = field(default_factory=dict)
-    """Dictionary storing view data, each view stores data that is typically singular for a single CAS.
+    """Dictionary storing view data, each view stores data that is typically singular for a single common analysis structure.
     
     Example: Sensor data, camera info and cloud which are read from the sensors.
     """
@@ -158,151 +158,151 @@ class CAS:
     """
 
     def __post_init__(self) -> None:
-        dt_timestamp = datetime(1970, 1, 1, tzinfo=timezone.utc) + timedelta(
+        creation_datetime = datetime(1970, 1, 1, tzinfo=timezone.utc) + timedelta(
             microseconds=self.timestamp // 1000
         )
-        self.timestamp_readable = dt_timestamp.strftime("%Y-%m-%d %H:%M:%S")
+        self.timestamp_readable = creation_datetime.strftime("%Y-%m-%d %H:%M:%S")
 
     @property
     def color_image(self) -> Optional[np.ndarray]:
-        return self.views.get(CASViews.COLOR_IMAGE)
+        return self.views.get(CommonAnalysisStructureViews.COLOR_IMAGE)
 
     @color_image.setter
     def color_image(self, value: np.ndarray) -> None:
-        self.views[CASViews.COLOR_IMAGE] = value
+        self.views[CommonAnalysisStructureViews.COLOR_IMAGE] = value
 
     @property
     def depth_image(self) -> Optional[np.ndarray]:
-        return self.views.get(CASViews.DEPTH_IMAGE)
+        return self.views.get(CommonAnalysisStructureViews.DEPTH_IMAGE)
 
     @depth_image.setter
     def depth_image(self, value: np.ndarray) -> None:
-        self.views[CASViews.DEPTH_IMAGE] = value
+        self.views[CommonAnalysisStructureViews.DEPTH_IMAGE] = value
 
     @property
     def color_to_depth_ratio(self) -> ColorToDepthRatio | None:
         """
         Size of the depth image relative to the color image, or None without depth.
         """
-        return self.views.get(CASViews.COLOR_TO_DEPTH_RATIO)
+        return self.views.get(CommonAnalysisStructureViews.COLOR_TO_DEPTH_RATIO)
 
     @color_to_depth_ratio.setter
     def color_to_depth_ratio(self, value: ColorToDepthRatio | None) -> None:
-        self.views[CASViews.COLOR_TO_DEPTH_RATIO] = value
+        self.views[CommonAnalysisStructureViews.COLOR_TO_DEPTH_RATIO] = value
 
     @property
     def camera_info(self) -> Optional[CameraInfo]:
-        return self.views.get(CASViews.CAMERA_INFO)
+        return self.views.get(CommonAnalysisStructureViews.CAMERA_INFO)
 
     @camera_info.setter
     def camera_info(self, value: CameraInfo) -> None:
-        self.views[CASViews.CAMERA_INFO] = value
+        self.views[CommonAnalysisStructureViews.CAMERA_INFO] = value
 
     @property
     def camera_intrinsic(self) -> Optional[o3d.camera.PinholeCameraIntrinsic]:
-        return self.views.get(CASViews.CAMERA_INTRINSIC)
+        return self.views.get(CommonAnalysisStructureViews.CAMERA_INTRINSIC)
 
     @camera_intrinsic.setter
     def camera_intrinsic(self, value: o3d.camera.PinholeCameraIntrinsic) -> None:
-        self.views[CASViews.CAMERA_INTRINSIC] = value
+        self.views[CommonAnalysisStructureViews.CAMERA_INTRINSIC] = value
 
     @property
     def pointcloud_camera_intrinsic(
         self,
     ) -> Optional[o3d.camera.PinholeCameraIntrinsic]:
-        return self.views.get(CASViews.POINTCLOUD_CAMERA_INTRINSIC)
+        return self.views.get(CommonAnalysisStructureViews.POINTCLOUD_CAMERA_INTRINSIC)
 
     @pointcloud_camera_intrinsic.setter
     def pointcloud_camera_intrinsic(
         self, value: o3d.camera.PinholeCameraIntrinsic
     ) -> None:
-        self.views[CASViews.POINTCLOUD_CAMERA_INTRINSIC] = value
+        self.views[CommonAnalysisStructureViews.POINTCLOUD_CAMERA_INTRINSIC] = value
 
     @property
     def cloud(self) -> Optional[o3d.geometry.PointCloud]:
-        return self.views.get(CASViews.CLOUD)
+        return self.views.get(CommonAnalysisStructureViews.CLOUD)
 
     @cloud.setter
     def cloud(self, value: o3d.geometry.PointCloud) -> None:
-        self.views[CASViews.CLOUD] = value
+        self.views[CommonAnalysisStructureViews.CLOUD] = value
 
     @property
     def world_frame(self) -> Optional[str]:
         """Name of the world frame."""
-        return self.views.get(CASViews.WORLD_FRAME)
+        return self.views.get(CommonAnalysisStructureViews.WORLD_FRAME)
 
     @world_frame.setter
     def world_frame(self, value: str) -> None:
-        self.views[CASViews.WORLD_FRAME] = value
+        self.views[CommonAnalysisStructureViews.WORLD_FRAME] = value
 
     @property
     def camera_frame(self) -> Optional[str]:
         """Name of the camera frame."""
-        return self.views.get(CASViews.CAMERA_FRAME)
+        return self.views.get(CommonAnalysisStructureViews.CAMERA_FRAME)
 
     @camera_frame.setter
     def camera_frame(self, value: str) -> None:
-        self.views[CASViews.CAMERA_FRAME] = value
+        self.views[CommonAnalysisStructureViews.CAMERA_FRAME] = value
 
     @property
     def viewpoint_camera_to_world(self) -> Optional[StampedTransform]:
         warnings.warn(
-            "CAS.viewpoint_camera_to_world is deprecated. "
-            "Use CAS.camera_to_world_transform instead.",
+            "CommonAnalysisStructure.viewpoint_camera_to_world is deprecated. "
+            "Use CommonAnalysisStructure.camera_to_world_transform instead.",
             DeprecationWarning,
             stacklevel=2,
         )
-        return self.views.get(CASViews.VIEWPOINT_CAMERA_TO_WORLD)
+        return self.views.get(CommonAnalysisStructureViews.VIEWPOINT_CAMERA_TO_WORLD)
 
     @viewpoint_camera_to_world.setter
     def viewpoint_camera_to_world(self, value: StampedTransform) -> None:
         warnings.warn(
-            "CAS.viewpoint_camera_to_world is deprecated. "
-            "Use CAS.camera_to_world_transform instead.",
+            "CommonAnalysisStructure.viewpoint_camera_to_world is deprecated. "
+            "Use CommonAnalysisStructure.camera_to_world_transform instead.",
             DeprecationWarning,
             stacklevel=2,
         )
-        self.views[CASViews.VIEWPOINT_CAMERA_TO_WORLD] = value
+        self.views[CommonAnalysisStructureViews.VIEWPOINT_CAMERA_TO_WORLD] = value
 
     @property
     def camera_to_world_transform(self) -> Optional[HomogeneousTransformationMatrix]:
-        return self.views.get(CASViews.CAMERA_TO_WORLD_TRANSFORM)
+        return self.views.get(CommonAnalysisStructureViews.CAMERA_TO_WORLD_TRANSFORM)
 
     @camera_to_world_transform.setter
     def camera_to_world_transform(self, value: HomogeneousTransformationMatrix) -> None:
-        self.views[CASViews.CAMERA_TO_WORLD_TRANSFORM] = value
+        self.views[CommonAnalysisStructureViews.CAMERA_TO_WORLD_TRANSFORM] = value
 
     @property
     def data_timestamp(self) -> Optional[int]:
-        return self.views.get(CASViews.DATA_TIMESTAMP)
+        return self.views.get(CommonAnalysisStructureViews.DATA_TIMESTAMP)
 
     @data_timestamp.setter
     def data_timestamp(self, value: int) -> None:
-        self.views[CASViews.DATA_TIMESTAMP] = value
+        self.views[CommonAnalysisStructureViews.DATA_TIMESTAMP] = value
 
     @property
     def query(self) -> Optional[Any]:
-        return self.views.get(CASViews.QUERY)
+        return self.views.get(CommonAnalysisStructureViews.QUERY)
 
     @query.setter
     def query(self, value: Any) -> None:
-        self.views[CASViews.QUERY] = value
+        self.views[CommonAnalysisStructureViews.QUERY] = value
 
     @property
-    def cas_id(self) -> Optional[int]:
-        return self.views.get(CASViews.CAS_ID)
+    def common_analysis_structure_id(self) -> Optional[int]:
+        return self.views.get(CommonAnalysisStructureViews.COMMON_ANALYSIS_STRUCTURE_ID)
 
-    @cas_id.setter
-    def cas_id(self, value: int) -> None:
-        self.views[CASViews.CAS_ID] = value
+    @common_analysis_structure_id.setter
+    def common_analysis_structure_id(self, value: int) -> None:
+        self.views[CommonAnalysisStructureViews.COMMON_ANALYSIS_STRUCTURE_ID] = value
 
     @property
-    def ground_truth_world_ref(self) -> Optional[World]:
-        return self.views.get(CASViews.GROUND_TRUTH_WORLD_REFERENCE)
+    def ground_truth_world_reference(self) -> Optional[World]:
+        return self.views.get(CommonAnalysisStructureViews.GROUND_TRUTH_WORLD_REFERENCE)
 
-    @ground_truth_world_ref.setter
-    def ground_truth_world_ref(self, value: World) -> None:
-        self.views[CASViews.GROUND_TRUTH_WORLD_REFERENCE] = value
+    @ground_truth_world_reference.setter
+    def ground_truth_world_reference(self, value: World) -> None:
+        self.views[CommonAnalysisStructureViews.GROUND_TRUTH_WORLD_REFERENCE] = value
 
     def get(self, view_name: str) -> Any:
         """Get a view by name.
@@ -331,19 +331,19 @@ class CAS:
         return copy.deepcopy(self.views[view_name])
 
     def set(self, view_name: str, value: Any) -> None:
-        """Put data in the CAS index by a given view name. This method will make a deepcopy of value.
+        """Put data in the common analysis structure index by a given view name. This method will make a deepcopy of value.
 
-        :param view_name: The name of the view which should be selected from constants in the CASView class.
-        :param value: The value that will be placed in the CAS under view_name by making a deepcopy of it.
+        :param view_name: The name of the view which should be selected from constants in the CommonAnalysisStructureView class.
+        :param value: The value that will be placed in the common analysis structure under view_name by making a deepcopy of it.
         """
         self.views[view_name] = copy.deepcopy(value)
 
-    def set_ref(self, view_name: str, value: Any) -> None:
-        """Put data in the CAS index by a given view name. In contrast to set(), this will not make a copy but just
+    def set_reference(self, view_name: str, value: Any) -> None:
+        """Put data in the common analysis structure index by a given view name. In contrast to set(), this will not make a copy but just
         does an assignment.
 
-        :param view_name: The name of the view which should be selected from constants in the CASView class.
-        :param value: The value that will be placed in the CAS under view_name by making assigning it.
+        :param view_name: The name of the view which should be selected from constants in the CommonAnalysisStructureView class.
+        :param value: The value that will be placed in the common analysis structure under view_name by making assigning it.
         """
         self.views[view_name] = value
 
@@ -366,9 +366,9 @@ class CAS:
         Filter annotations to include only those of a specific type.
 
         :param type_to_include: Type to filter for
-        :return: A filtered list of annotations in CAS
+        :return: A filtered list of annotations in common analysis structure
         """
-        return CAS.filter_by_type(type_to_include, self.annotations)
+        return CommonAnalysisStructure.filter_by_type(type_to_include, self.annotations)
 
     @staticmethod
     def _filter_objects(
@@ -383,28 +383,28 @@ class CAS:
         :return: Filtered list of objects matching all criteria
         """
 
-        def matches_criteria(obj):
-            for attr, (op, value) in criteria.items():
-                attr_value = getattr(obj, attr, None)
-                if not compare(attr_value, op, value):
+        def matches_criteria(candidate: Any) -> bool:
+            for attribute, (comparison_operator, value) in criteria.items():
+                attribute_value = getattr(candidate, attribute, None)
+                if not compare(attribute_value, comparison_operator, value):
                     return False
             return True
 
-        def compare(attr_value, op, value):
-            if op == "==":
-                return attr_value == value
-            elif op == ">":
-                return attr_value > value
-            elif op == "<":
-                return attr_value < value
-            elif op == ">=":
-                return attr_value >= value
-            elif op == "<=":
-                return attr_value <= value
+        def compare(attribute_value: Any, comparison_operator: str, value: Any) -> bool:
+            if comparison_operator == "==":
+                return attribute_value == value
+            elif comparison_operator == ">":
+                return attribute_value > value
+            elif comparison_operator == "<":
+                return attribute_value < value
+            elif comparison_operator == ">=":
+                return attribute_value >= value
+            elif comparison_operator == "<=":
+                return attribute_value <= value
             else:
-                raise ValueError(f"Unsupported operator: {op}")
+                raise ValueError(f"Unsupported operator: {comparison_operator}")
 
-        return [obj for obj in objects if matches_criteria(obj)]
+        return [candidate for candidate in objects if matches_criteria(candidate)]
 
     def filter_by_type_and_criteria(
         self,

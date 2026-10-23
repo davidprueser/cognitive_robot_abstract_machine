@@ -9,6 +9,8 @@ empty class label, and an empty pose frame -- exactly the shape ``stretch_demo``
 ``tiago_demo`` shipped with.
 """
 
+from __future__ import annotations
+
 import importlib
 import pkgutil
 import signal
@@ -16,6 +18,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from types import FrameType
 from typing import Any, Iterator, List
+from typing_extensions import TYPE_CHECKING
 
 import pytest
 
@@ -28,10 +31,13 @@ from robokudo.descriptors.analysis_engines.stretch_demo import (
 from robokudo.descriptors.analysis_engines.tiago_demo import (
     AnalysisEngine as TiagoDemoAnalysisEngine,
 )
-from robokudo.descriptors.factories.cr_descriptor_factory import (
+from robokudo.descriptors.factories.collection_reader_descriptor_factory import (
     CollectionReaderDescriptorFactory,
 )
 from robokudo.pipeline import Pipeline
+
+if TYPE_CHECKING:
+    from py_trees.behaviour import Behaviour
 
 BUILD_TIMEOUT_SECONDS = 5
 """
@@ -100,9 +106,9 @@ class FakeCameraInterface:
         """
         return False
 
-    def set_data(self, cas: Any) -> None:
+    def set_data(self, common_analysis_structure: Any) -> None:
         """
-        Leave the CAS unchanged.
+        Leave the common analysis structure unchanged.
         """
 
 
@@ -118,7 +124,7 @@ def create_fake_collection_reader_descriptor(
     )
 
 
-def install_fake_collection_reader_descriptor(monkeypatch) -> None:
+def install_fake_collection_reader_descriptor(monkeypatch: pytest.MonkeyPatch) -> None:
     """
     Replace descriptor creation with a build-only test double.
     """
@@ -129,7 +135,7 @@ def install_fake_collection_reader_descriptor(monkeypatch) -> None:
     )
 
 
-def flattened_pipeline_nodes(behaviour) -> List[object]:
+def flattened_pipeline_nodes(behaviour: Behaviour) -> List[object]:
     """
     All nodes in a behaviour tree, including the root and every descendant.
 
@@ -163,14 +169,18 @@ def assert_query_reply_does_not_follow_generate_query_result(
 # %% regression tests for the two analysis engines that shipped with the bug
 
 
-def test_stretch_demo_does_not_discard_its_real_answer(monkeypatch):
+def test_stretch_demo_does_not_discard_its_real_answer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     install_fake_collection_reader_descriptor(monkeypatch)
     with bounded_build_time():
         pipeline = StretchDemoAnalysisEngine().implementation()
     assert_query_reply_does_not_follow_generate_query_result(pipeline)
 
 
-def test_tiago_demo_does_not_discard_its_real_answer(monkeypatch):
+def test_tiago_demo_does_not_discard_its_real_answer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     install_fake_collection_reader_descriptor(monkeypatch)
     with bounded_build_time():
         pipeline = TiagoDemoAnalysisEngine().implementation()
@@ -202,8 +212,8 @@ def discovered_analysis_engine_module_names() -> List[str]:
 )
 def test_no_analysis_engine_discards_its_real_answer_with_query_reply(
     module_name: str,
-    monkeypatch,
-):
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """
     No analysis engine may chain ``QueryReply`` after ``GenerateQueryResult``.
 

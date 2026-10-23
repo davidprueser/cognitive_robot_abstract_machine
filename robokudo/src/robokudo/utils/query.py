@@ -8,7 +8,7 @@ from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 
 from robokudo_msgs.action import Query
 from robokudo_msgs.msg import ObjectDesignator
-from robokudo.identifier import BBIdentifier
+from robokudo.identifier import BlackboardIdentifier
 from robokudo.types.annotation import (
     BoundingBox3DAnnotation,
     Classification,
@@ -45,7 +45,7 @@ class ObjectHypothesisQueryMatcher:
         self.query_matchers = [
             QueryAttributeMatcher(
                 requested_values=lambda requested_object: requested_object.uid,
-                matches=self.matches_uid,
+                matches=self.matches_unique_identifier,
             ),
             QueryAttributeMatcher(
                 requested_values=lambda requested_object: requested_object.type,
@@ -165,7 +165,7 @@ class ObjectHypothesisQueryMatcher:
                 return False
         return True
 
-    def matches_uid(
+    def matches_unique_identifier(
         self, object_hypothesis: ObjectHypothesis, requested_values: Any
     ) -> bool:
         """
@@ -283,28 +283,28 @@ class QueryHandler(object):
     """
 
     @staticmethod
-    def init_feedback_queue() -> None:
+    def initialize_feedback_queue() -> None:
         """
         Initializes the feedback queue on the Blackboard.
         """
         blackboard = Blackboard()
         try:
-            feedback_queue = blackboard.get(BBIdentifier.QUERY_FEEDBACK)
+            feedback_queue = blackboard.get(BlackboardIdentifier.QUERY_FEEDBACK)
         except KeyError:
             feedback_queue = None
         if feedback_queue is None:
             feedback_queue = Queue()
-            blackboard.set(BBIdentifier.QUERY_FEEDBACK, feedback_queue)
+            blackboard.set(BlackboardIdentifier.QUERY_FEEDBACK, feedback_queue)
 
     @staticmethod
     def get_feedback_queue() -> Queue:
         """
         Retrieves and returns the feedback queue from the Blackboard.
         """
-        QueryHandler.init_feedback_queue()
+        QueryHandler.initialize_feedback_queue()
 
         blackboard = Blackboard()
-        return blackboard.get(BBIdentifier.QUERY_FEEDBACK)
+        return blackboard.get(BlackboardIdentifier.QUERY_FEEDBACK)
 
     @staticmethod
     def send_feedback(feedback: Query.Feedback) -> None:
@@ -317,15 +317,15 @@ class QueryHandler(object):
         feedback_queue.put(feedback)
 
     @staticmethod
-    def send_feedback_str(feedback_str: str) -> None:
+    def send_feedback_string(feedback_string: str) -> None:
         """
         Add a simple string to the feedback to the feedback queue, ready to be sent.
 
-        :param feedback_str: The string to send as feedback.
+        :param feedback_string: The string to send as feedback.
         """
-        feedback_msg = Query.Feedback()
-        feedback_msg.feedback = feedback_str
-        QueryHandler.send_feedback(feedback_msg)
+        feedback_message = Query.Feedback()
+        feedback_message.feedback = feedback_string
+        QueryHandler.send_feedback(feedback_message)
 
     @staticmethod
     def send_answer(result: Query.Result) -> None:
@@ -350,7 +350,7 @@ class QueryHandler(object):
         :param result: The data to raise to the blackboard.
         """
         blackboard = Blackboard()
-        blackboard.set(BBIdentifier.QUERY_ANSWER, result)
+        blackboard.set(BlackboardIdentifier.QUERY_ANSWER, result)
 
     @staticmethod
     def preempt_requested() -> bool:
@@ -361,7 +361,7 @@ class QueryHandler(object):
         """
         blackboard = Blackboard()
         try:
-            is_requested = blackboard.get(BBIdentifier.QUERY_PREEMPT_REQUESTED)
+            is_requested = blackboard.get(BlackboardIdentifier.QUERY_PREEMPT_REQUESTED)
         except KeyError:
             is_requested = False
         return is_requested
@@ -372,4 +372,4 @@ class QueryHandler(object):
         Acknowledges the preempt request on the blackboard.
         """
         blackboard = Blackboard()
-        blackboard.set(BBIdentifier.QUERY_PREEMPT_ACK, True)
+        blackboard.set(BlackboardIdentifier.QUERY_PREEMPT_ACKNOWLEDGED, True)

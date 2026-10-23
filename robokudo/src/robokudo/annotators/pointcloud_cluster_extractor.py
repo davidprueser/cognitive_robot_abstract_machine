@@ -3,13 +3,13 @@
 This module provides annotators for:
 
 * Extracting object clusters from point clouds above detected planes
-* Generating ROIs and masks for detected clusters
+* Generating regions of interest and masks for detected clusters
 * Visualizing detected clusters with unique colors
 
-The module uses DBSCAN clustering and oriented bounding boxes (OBB) for object detection.
+The module uses DBSCAN clustering and oriented bounding boxes (oriented bounding box) for object detection.
 
 .. note::
-   The clustering process requires a plane annotation in the CAS to function.
+   The clustering process requires a plane annotation in the common analysis structure to function.
 """
 
 from __future__ import annotations
@@ -27,18 +27,21 @@ from scipy.spatial.transform import Rotation as R
 from typing_extensions import TYPE_CHECKING, List, Tuple
 
 from robokudo.annotators.core import BaseAnnotator, ThreadedAnnotator
-from robokudo.cas import CASViews
+from robokudo.common_analysis_structure import CommonAnalysisStructureViews
 from robokudo.exceptions import (
     EmptyPointCloud,
     PlaneModelMissing,
     PointCloudTooSmallForClustering,
 )
 from robokudo.types.annotation import Plane
-from robokudo.types.cv import ImageROI
+from robokudo.types.cv import ImageRegionOfInterest
 from robokudo.types.scene import ObjectHypothesis
 from robokudo.utils.annotator_helper import draw_bounding_boxes_from_object_hypotheses
 from robokudo.utils.error_handling import catch_and_raise_to_blackboard
-from robokudo.utils.o3d_helper import concatenate_clouds, put_obb_on_target_obb
+from robokudo.utils.o3d_helper import (
+    concatenate_clouds,
+    put_oriented_bounding_box_on_target_oriented_bounding_box,
+)
 from robokudo.utils.transform import get_transform_matrix
 
 if TYPE_CHECKING:
@@ -49,18 +52,18 @@ if TYPE_CHECKING:
 DILATION_KERNEL = np.ones((3, 3), np.uint8)
 
 
-def generate_roi_with_mask_from_points(
+def generate_region_of_interest_with_mask_from_points(
     image_height: int,
     image_width: int,
     pointcloud_camera_intrinsics: o3d.camera.PinholeCameraIntrinsic,
     cloud: o3d.geometry.PointCloud,
     color_to_depth_ratio: ColorToDepthRatio,
-) -> Tuple[ImageROI, npt.NDArray]:
-    """Generate ROI and mask from projected point cloud points.
+) -> Tuple[ImageRegionOfInterest, npt.NDArray]:
+    """Generate region of interest and mask from projected point cloud points.
 
     Projects 3D points to image plane and creates:
 
-    * ROI bounding the projected points
+    * region of interest bounding the projected points
     * Binary mask of projected points
     * Dilated mask to account for point sparsity
 
@@ -69,11 +72,11 @@ def generate_roi_with_mask_from_points(
     :param pointcloud_camera_intrinsics: Camera intrinsic parameters
     :param cloud: Point cloud to project
     :param color_to_depth_ratio: Size of the depth image relative to the color image.
-    :return: Tuple of (ROI with mask, full image mask)
+    :return: Tuple of (region of interest with mask, full image mask)
     """
     # TODO: Use robokudo.utils.o3d_helper.get_mask_from_pointcloud
 
-    # Project 3D points to image plane for ROI generation
+    # Project 3D points to image plane for region of interest generation
     # This will project the matched points into the full-size input image
     k = pointcloud_camera_intrinsics.intrinsic_matrix
     cropped_3d_points = np.asarray(cloud.points)
@@ -85,56 +88,60 @@ def generate_roi_with_mask_from_points(
 
     full_mask = np.zeros((image_height, image_width), np.uint8)
     full_mask[y_scaled, x_scaled] = 255
-    roi = ImageROI()
-    roi.roi.pos.x = x_scaled.min()
-    roi.roi.pos.y = y_scaled.min()
-    roi.roi.width = x_scaled.max() - x_scaled.min()
-    roi.roi.height = y_scaled.max() - y_scaled.min()
+    region_of_interest = ImageRegionOfInterest()
+    region_of_interest.rectangle.position.x = x_scaled.min()
+    region_of_interest.rectangle.position.y = y_scaled.min()
+    region_of_interest.rectangle.width = x_scaled.max() - x_scaled.min()
+    region_of_interest.rectangle.height = y_scaled.max() - y_scaled.min()
 
-    roi.mask = full_mask[
-        roi.roi.pos.y : roi.roi.pos.y + roi.roi.height,
-        roi.roi.pos.x : roi.roi.pos.x + roi.roi.width,
+    region_of_interest.mask = full_mask[
+        region_of_interest.rectangle.position.y : region_of_interest.rectangle.position.y
+        + region_of_interest.rectangle.height,
+        region_of_interest.rectangle.position.x : region_of_interest.rectangle.position.x
+        + region_of_interest.rectangle.width,
     ]
-    roi.mask = cv2.dilate(roi.mask, DILATION_KERNEL, iterations=1)
+    region_of_interest.mask = cv2.dilate(
+        region_of_interest.mask, DILATION_KERNEL, iterations=1
+    )
 
-    return roi, full_mask
+    return region_of_interest, full_mask
 
 
 def cluster_points(
     input_cloud: o3d.geometry.PointCloud,
-    eps: float,
+    epsilon: float,
     min_points: int,
-    rk_logger: logging.Logger,
+    robokudo_logger: logging.Logger,
 ) -> List[int]:
     """Cluster points using DBSCAN algorithm.
 
     :param input_cloud: Point cloud to cluster
-    :param eps: DBSCAN epsilon parameter (density threshold)
+    :param epsilon: DBSCAN epsilon parameter (density threshold)
     :param min_points: Minimum points for a cluster
-    :param rk_logger: Logger instance for progress reporting
+    :param robokudo_logger: Logger instance for progress reporting
     :return: List of point indices for each cluster
 
     .. note::
        Points labeled as noise (label=-1) are ignored in the output.
     """
     # Only print progress of DBSCAN when in logging level DEBUG
-    if rk_logger.getEffectiveLevel() < logging.getLevelNamesMapping()["DEBUG"]:
+    if robokudo_logger.getEffectiveLevel() < logging.getLevelNamesMapping()["DEBUG"]:
         print_progress = True
     else:
         print_progress = False
     labels = np.array(
         input_cloud.cluster_dbscan(
-            eps=eps, min_points=min_points, print_progress=print_progress
+            eps=epsilon, min_points=min_points, print_progress=print_progress
         )
     )
 
     max_label = labels.max()
-    rk_logger.debug(f"point cloud has {max_label + 1} clusters")
+    robokudo_logger.debug(f"point cloud has {max_label + 1} clusters")
     all_cluster_indices = []
     # DBScan returns label==-1 for all points that appear to be noise
     # This will be ignored
-    for val in range(0, labels.max() + 1):
-        cluster_indices = np.where(labels == val)[0]
+    for label in range(0, labels.max() + 1):
+        cluster_indices = np.where(labels == label)[0]
         all_cluster_indices.append(cluster_indices)
 
     return all_cluster_indices
@@ -143,13 +150,13 @@ def cluster_points(
 class PointCloudClusterExtractor(ThreadedAnnotator):
     """Annotator for object detection.
 
-    The main idea is to look for the Plane annotation in the CAS extract the points that belong to the plane,
+    The main idea is to look for the Plane annotation in the common analysis structure extract the points that belong to the plane,
     constructs an oriented bounding box around it, pull it up to create volume above the plane and
     then extract all the inlier points. After that, a clustering process is executed
-    and each cluster is annotated in the CAS.
+    and each cluster is annotated in the common analysis structure.
 
     .. warning::
-       Requires a Plane annotation in the CAS to function.
+       Requires a Plane annotation in the common analysis structure to function.
     """
 
     class Descriptor(BaseAnnotator.Descriptor):
@@ -158,7 +165,7 @@ class PointCloudClusterExtractor(ThreadedAnnotator):
         class Parameters:
             """Parameters for configuring cluster extraction."""
 
-            def __init__(self):
+            def __init__(self) -> None:
                 self.dbscan_min_cluster_count: int = 90
                 """Minimum points for DBSCAN cluster"""
 
@@ -168,7 +175,7 @@ class PointCloudClusterExtractor(ThreadedAnnotator):
                 self.min_on_plane_point_count: int = 90
                 """Minimum points above plane"""
 
-                self.eps: float = 0.04
+                self.dbscan_epsilon: float = 0.04
                 """DBSCAN epsilon parameter (density threshold)"""
 
         # Overwrite the parameters explicitly to enable auto-completion
@@ -205,16 +212,16 @@ class PointCloudClusterExtractor(ThreadedAnnotator):
         :param plane_model:
         :param cloud:
         :return: A tuple consisting of:
-            plane_obb = The OBB around the points belonging to the plane_model in cloud
-            on_plane_obb = The OBB put above plane_obb, with the same width and depth, but extended upwards
-            on_plane_cloud = Points found in on_plane_obb
-            on_plane_cloud_indices = Indices of Points found in on_plane_obb
+            plane_oriented_bounding_box = The oriented bounding box around the points belonging to the plane_model in cloud
+            on_plane_oriented_bounding_box = The oriented bounding box put above plane_oriented_bounding_box, with the same width and depth, but extended upwards
+            on_plane_cloud = Points found in on_plane_oriented_bounding_box
+            on_plane_cloud_indices = Indices of Points found in on_plane_oriented_bounding_box
             outlier_cloud = All points that do not belong to the plane/table itself.
         :raises PointCloudTooSmallForClustering: If insufficient points are found above the plane
 
         .. note::
            The function ensures the plane normal points upward by rotating
-           the OBB if necessary.
+           the oriented bounding box if necessary.
         """
 
         plane_model = plane_model
@@ -223,39 +230,53 @@ class PointCloudClusterExtractor(ThreadedAnnotator):
         # This cloud will contain everything that doesn't belong to the plane
         # cloud and was in the analysis of the PlaneAnnotation.
         outlier_cloud = cloud.select_by_index(plane_model.inliers, invert=True)
-        plane_obb = plane_cloud.get_oriented_bounding_box()
-        assert isinstance(plane_obb, o3d.geometry.OrientedBoundingBox)
+        plane_oriented_bounding_box = plane_cloud.get_oriented_bounding_box()
+        assert isinstance(plane_oriented_bounding_box, o3d.geometry.OrientedBoundingBox)
 
-        # Do we need to fix the Plane OBB orientation?
+        # Do we need to fix the Plane oriented bounding box orientation?
         # The normal should point 'up' from the detected plane
-        vec_plane_obb_normal = np.matmul(
-            np.array([0, 0, 1]), plane_obb.R
+        plane_oriented_bounding_box_normal_vector = np.matmul(
+            np.array([0, 0, 1]), plane_oriented_bounding_box.R
         )  # transform normal vector with plane rotation
-        # Dot product between the vector pointing to the plane center from 0,0,0 and the plane obb normal
-        val = np.dot(plane_obb.center, vec_plane_obb_normal)
-        # print(f"Dot product between VP and Plane OBB Normal: {val}")
-        if val > 0:
-            # fix the OBB orientation. It is pointing downwards now
+        # Dot product between the vector pointing to the plane center from 0,0,0 and the plane oriented bounding box normal
+        label = np.dot(
+            plane_oriented_bounding_box.center,
+            plane_oriented_bounding_box_normal_vector,
+        )
+        # print(f"Dot product between VP and Plane oriented bounding box Normal: {label}")
+        if label > 0:
+            # fix the oriented bounding box orientation. It is pointing downwards now
             # Rotate by 180 deg around X
             rotation = R.from_euler("x", np.radians(180)).as_matrix()
-            new_obb_rotation = np.matmul(plane_obb.R, rotation)
-            plane_obb.R = new_obb_rotation
+            new_oriented_bounding_box_rotation = np.matmul(
+                plane_oriented_bounding_box.R, rotation
+            )
+            plane_oriented_bounding_box.R = new_oriented_bounding_box_rotation
 
-        # ------------------------------------------------
-        # Plane OBB should be good now (normal points up)
+        # Plane oriented bounding box should be good now (normal points up)
         # Begin the actual segmentation
 
-        # Construct OBB which is used to segment objects on the plane
+        # Construct oriented bounding box which is used to segment objects on the plane
         # We need to transform it so that it is on top of the found plane
-        above_plane_obb = o3d.geometry.OrientedBoundingBox()
-        above_plane_obb.extent = np.array(
-            [plane_obb.extent[0], plane_obb.extent[1], 0.8]
+        above_plane_oriented_bounding_box = o3d.geometry.OrientedBoundingBox()
+        above_plane_oriented_bounding_box.extent = np.array(
+            [
+                plane_oriented_bounding_box.extent[0],
+                plane_oriented_bounding_box.extent[1],
+                0.8,
+            ]
         )
 
-        on_plane_obb = put_obb_on_target_obb(above_plane_obb, plane_obb)
-        on_plane_cloud = outlier_cloud.crop(on_plane_obb)
-        on_plane_cloud_indices = on_plane_obb.get_point_indices_within_bounding_box(
-            outlier_cloud.points
+        on_plane_oriented_bounding_box = (
+            put_oriented_bounding_box_on_target_oriented_bounding_box(
+                above_plane_oriented_bounding_box, plane_oriented_bounding_box
+            )
+        )
+        on_plane_cloud = outlier_cloud.crop(on_plane_oriented_bounding_box)
+        on_plane_cloud_indices = (
+            on_plane_oriented_bounding_box.get_point_indices_within_bounding_box(
+                outlier_cloud.points
+            )
         )
         assert isinstance(on_plane_cloud, o3d.geometry.PointCloud)
         on_plane_point_count = len(on_plane_cloud.points)
@@ -274,8 +295,8 @@ class PointCloudClusterExtractor(ThreadedAnnotator):
             )
 
         return (
-            plane_obb,
-            on_plane_obb,
+            plane_oriented_bounding_box,
+            on_plane_oriented_bounding_box,
             on_plane_cloud,
             on_plane_cloud_indices,
             outlier_cloud,
@@ -290,38 +311,48 @@ class PointCloudClusterExtractor(ThreadedAnnotator):
         * Extracts points above detected plane
         * Clusters points using DBSCAN
         * Creates ObjectHypothesis annotations for each cluster
-        * Generates ROIs and masks for visualization
+        * Generates regions of interest and masks for visualization
         * Visualizes clusters with unique colors
 
         :return: SUCCESS if clusters are found, FAILURE if no clusters or errors
-        :raises PlaneModelMissing: If no plane model exists in CAS
+        :raises PlaneModelMissing: If no plane model exists in common analysis structure
         :raises PointCloudTooSmallForClustering: If insufficient points are found above the plane
         """
         start_timer = default_timer()
-        self.rk_logger.info("PCE Start")
-        cloud = self.get_cas().get(CASViews.CLOUD)
-        color_to_depth_ratio = self.get_cas().get(CASViews.COLOR_TO_DEPTH_RATIO)
-        pointcloud_camera_intrinsics = self.get_cas().get(
-            CASViews.POINTCLOUD_CAMERA_INTRINSIC
+        self.robokudo_logger.info("PCE Start")
+        cloud = self.get_common_analysis_structure().get(
+            CommonAnalysisStructureViews.CLOUD
+        )
+        color_to_depth_ratio = self.get_common_analysis_structure().get(
+            CommonAnalysisStructureViews.COLOR_TO_DEPTH_RATIO
+        )
+        pointcloud_camera_intrinsics = self.get_common_analysis_structure().get(
+            CommonAnalysisStructureViews.POINTCLOUD_CAMERA_INTRINSIC
         )
         assert isinstance(
             pointcloud_camera_intrinsics, o3d.camera.PinholeCameraIntrinsic
         )
 
-        color = self.get_cas().get(CASViews.COLOR_IMAGE)
-        height, width, d = color.shape
-        vis_mask = np.zeros((height, width), np.uint8)
-        plane_models = self.get_cas().filter_annotations_by_type(Plane)
+        color = self.get_common_analysis_structure().get(
+            CommonAnalysisStructureViews.COLOR_IMAGE
+        )
+        height, width, channel_count = color.shape
+        visualization_mask = np.zeros((height, width), np.uint8)
+        plane_models = self.get_common_analysis_structure().filter_annotations_by_type(
+            Plane
+        )
         if plane_models is None or plane_models == []:
-            self.feedback_message = "No plane model in CAS. Aborting."
+            self.feedback_message = (
+                "No plane model in common analysis structure. Aborting."
+            )
             raise PlaneModelMissing(context="point cloud clustering")
 
         plane_model: Plane = plane_models[0]
 
         # Segment the pointcloud first. Get the points inside the volume above the given plane and related variables
         (
-            plane_obb,
-            on_plane_obb,
+            plane_oriented_bounding_box,
+            on_plane_oriented_bounding_box,
             on_plane_cloud,
             on_plane_cloud_indices,
             outlier_cloud,
@@ -330,25 +361,25 @@ class PointCloudClusterExtractor(ThreadedAnnotator):
         # Cluster the points above the plane to get a list of point indices for each cluster
         all_cluster_indices = cluster_points(
             input_cloud=on_plane_cloud,
-            eps=self.descriptor.parameters.eps,
+            epsilon=self.descriptor.parameters.dbscan_epsilon,
             min_points=self.descriptor.parameters.dbscan_min_cluster_count,
-            rk_logger=self.rk_logger,
+            robokudo_logger=self.robokudo_logger,
         )
 
-        cmap = plt.get_cmap("tab20")
+        color_map = plt.get_cmap("tab20")
         clusters = {}
-        all_vis_clouds = []
+        all_visualization_clouds = []
         object_hypotheses = []
-        cluster_idx = 0
+        cluster_index = 0
         for cluster_indices in all_cluster_indices:
             if len(cluster_indices) < self.descriptor.parameters.min_cluster_count:
-                self.rk_logger.debug(
-                    f"Skipping cluster {cluster_idx} with {len(cluster_indices)} points"
+                self.robokudo_logger.debug(
+                    f"Skipping cluster {cluster_index} with {len(cluster_indices)} points"
                 )
                 continue
 
             # Work the indices back from our crop towards our original pointcloud
-            # This will allow us to reference the full Cloud in the CAS
+            # This will allow us to reference the full Cloud in the common analysis structure
             # directly, and we don't need to store partial point clouds
             cluster_indices_in_outlier_cloud = np.take(
                 on_plane_cloud_indices, cluster_indices
@@ -357,29 +388,29 @@ class PointCloudClusterExtractor(ThreadedAnnotator):
                 list(cluster_indices_in_outlier_cloud)
             )
 
-            clusters[cluster_idx] = {
+            clusters[cluster_index] = {
                 "cloud": cluster_cloud,
                 "vis_cloud": copy.deepcopy(cluster_cloud),
             }
 
-            clusters[cluster_idx]["vis_cloud"].paint_uniform_color(
-                cmap.colors[(cluster_idx % 20)]
+            clusters[cluster_index]["vis_cloud"].paint_uniform_color(
+                color_map.colors[(cluster_index % 20)]
             )  # limit to 0-19 range due to map size
-            all_vis_clouds.append(clusters[cluster_idx]["vis_cloud"])
+            all_visualization_clouds.append(clusters[cluster_index]["vis_cloud"])
 
-            self.rk_logger.debug(
-                f"Extracted cluster {cluster_idx} with {len(cluster_cloud.points)} points"
+            self.robokudo_logger.debug(
+                f"Extracted cluster {cluster_index} with {len(cluster_cloud.points)} points"
             )
 
-            # Add each cluster to CAS
+            # Add each cluster to common analysis structure
             object_hypothesis = ObjectHypothesis()
             object_hypothesis.source = self.name
             object_hypothesis.points = cluster_cloud
             object_hypothesis.point_indices = [cluster_indices_in_outlier_cloud]
 
-            object_hypothesis.id = str(cluster_idx)
-            object_hypothesis.roi, full_mask_cluster = (
-                generate_roi_with_mask_from_points(
+            object_hypothesis.id = str(cluster_index)
+            object_hypothesis.region_of_interest, full_mask_cluster = (
+                generate_region_of_interest_with_mask_from_points(
                     image_height=height,
                     image_width=width,
                     pointcloud_camera_intrinsics=pointcloud_camera_intrinsics,
@@ -388,53 +419,65 @@ class PointCloudClusterExtractor(ThreadedAnnotator):
                 )
             )
             # Add the image pixel belonging to the cluster to the mask containing all found objects
-            vis_mask[full_mask_cluster == 255] = 255
+            visualization_mask[full_mask_cluster == 255] = 255
 
-            self.get_cas().annotations.append(object_hypothesis)
+            self.get_common_analysis_structure().annotations.append(object_hypothesis)
             object_hypotheses.append(object_hypothesis)
-            cluster_idx += 1
+            cluster_index += 1
 
         if len(object_hypotheses) == 0:
-            self.rk_logger.warning(f"No Clusters have been found.")
+            self.robokudo_logger.warning(f"No Clusters have been found.")
             end_timer = default_timer()
             self.feedback_message = f"Processing took {(end_timer - start_timer):.4f}s"
             return Status.FAILURE
 
-        ##### Visualization
+        # Visualization
         # 3D
-        visualization_cloud = concatenate_clouds(all_vis_clouds)
+        visualization_cloud = concatenate_clouds(all_visualization_clouds)
 
         plane_normal = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.2)
-        t = get_transform_matrix(plane_obb.R, plane_obb.center)
+        t = get_transform_matrix(
+            plane_oriented_bounding_box.R, plane_oriented_bounding_box.center
+        )
         plane_normal.transform(t)
 
         x = [
             {"name": "Visualization cloud PCE", "geometry": visualization_cloud},
-            {"name": "Plane OBB", "geometry": plane_obb},
+            {
+                "name": "Plane oriented bounding box",
+                "geometry": plane_oriented_bounding_box,
+            },
             {"name": "Plane Normal", "geometry": plane_normal},
-            {"name": "On Plane OBB", "geometry": on_plane_obb},
+            {
+                "name": "On Plane oriented bounding box",
+                "geometry": on_plane_oriented_bounding_box,
+            },
             {"name": "Cloud", "geometry": cloud},
         ]
 
-        self.get_annotator_output_struct().set_geometries(x)
+        self.get_annotator_output_structure().set_geometries(x)
 
-        vis_mask = cv2.dilate(vis_mask, DILATION_KERNEL, iterations=1)
+        visualization_mask = cv2.dilate(
+            visualization_mask, DILATION_KERNEL, iterations=1
+        )
         # make mask a 3 channel mask in order to make it work with addWeighted
-        mask3d = np.stack((vis_mask, vis_mask, vis_mask), axis=2)
-
-        # Overlay the mask with the input RGB image
-        visualization_img = cv2.addWeighted(color, 0.5, mask3d, 0.5, 0)
-        draw_bounding_boxes_from_object_hypotheses(
-            visualization_img,
-            object_hypotheses,
-            lambda oh: f"ROI-{oh.id}({len(oh.points.points)})",
+        mask3d = np.stack(
+            (visualization_mask, visualization_mask, visualization_mask), axis=2
         )
 
-        self.get_annotator_output_struct().set_image(visualization_img)
+        # Overlay the mask with the input RGB image
+        visualization_image = cv2.addWeighted(color, 0.5, mask3d, 0.5, 0)
+        draw_bounding_boxes_from_object_hypotheses(
+            visualization_image,
+            object_hypotheses,
+            lambda object_hypothesis: f"ROI-{object_hypothesis.id}({len(object_hypothesis.points.points)})",
+        )
+
+        self.get_annotator_output_structure().set_image(visualization_image)
 
         end_timer = default_timer()
         self.feedback_message = f"Processing took {(end_timer - start_timer):.4f}s"
-        self.rk_logger.info("PCE Done")
+        self.robokudo_logger.info("PCE Done")
         return Status.SUCCESS
 
 
@@ -461,7 +504,7 @@ class NaivePointCloudClusterExtractor(ThreadedAnnotator):
                 self.min_on_plane_point_count: int = 90
                 """Minimum points above plane"""
 
-                self.eps: float = 0.04
+                self.dbscan_epsilon: float = 0.04
                 """DBSCAN epsilon parameter (density threshold)"""
 
         # Overwrite the parameters explicitly to enable auto-completion
@@ -487,25 +530,31 @@ class NaivePointCloudClusterExtractor(ThreadedAnnotator):
 
         * Clusters points directly using DBSCAN
         * Creates ObjectHypothesis annotations for each cluster
-        * Generates ROIs and masks for visualization
+        * Generates regions of interest and masks for visualization
         * Visualizes clusters with unique colors
 
         :return: SUCCESS if clusters found, FAILURE if no clusters or errors
         :raises EmptyPointCloud: If the input cloud is empty
         """
         start_timer = default_timer()
-        cloud = self.get_cas().get(CASViews.CLOUD)
-        color_to_depth_ratio = self.get_cas().get(CASViews.COLOR_TO_DEPTH_RATIO)
-        pointcloud_camera_intrinsics = self.get_cas().get(
-            CASViews.POINTCLOUD_CAMERA_INTRINSIC
+        cloud = self.get_common_analysis_structure().get(
+            CommonAnalysisStructureViews.CLOUD
+        )
+        color_to_depth_ratio = self.get_common_analysis_structure().get(
+            CommonAnalysisStructureViews.COLOR_TO_DEPTH_RATIO
+        )
+        pointcloud_camera_intrinsics = self.get_common_analysis_structure().get(
+            CommonAnalysisStructureViews.POINTCLOUD_CAMERA_INTRINSIC
         )
         assert isinstance(
             pointcloud_camera_intrinsics, o3d.camera.PinholeCameraIntrinsic
         )
 
-        color = self.get_cas().get(CASViews.COLOR_IMAGE)
-        height, width, d = color.shape
-        vis_mask = np.zeros((height, width), np.uint8)
+        color = self.get_common_analysis_structure().get(
+            CommonAnalysisStructureViews.COLOR_IMAGE
+        )
+        height, width, channel_count = color.shape
+        visualization_mask = np.zeros((height, width), np.uint8)
 
         if len(cloud.points) == 0:
             self.feedback_message = "Input cloud is empty - Can't compute clustering"
@@ -514,48 +563,48 @@ class NaivePointCloudClusterExtractor(ThreadedAnnotator):
         # Cluster the points above the plane to get a list of point indices for each cluster
         all_cluster_indices = cluster_points(
             input_cloud=cloud,
-            eps=self.descriptor.parameters.eps,
+            epsilon=self.descriptor.parameters.dbscan_epsilon,
             min_points=self.descriptor.parameters.dbscan_min_cluster_count,
-            rk_logger=self.rk_logger,
+            robokudo_logger=self.robokudo_logger,
         )
 
-        cmap = plt.get_cmap("tab20")
+        color_map = plt.get_cmap("tab20")
         clusters = {}
-        all_vis_clouds = []
+        all_visualization_clouds = []
         object_hypotheses = []
-        cluster_idx = 0
+        cluster_index = 0
         for cluster_indices in all_cluster_indices:
             if len(cluster_indices) < self.descriptor.parameters.min_cluster_count:
-                self.rk_logger.debug(
-                    f"Skipping cluster {cluster_idx} with {len(cluster_indices)} points"
+                self.robokudo_logger.debug(
+                    f"Skipping cluster {cluster_index} with {len(cluster_indices)} points"
                 )
                 continue
 
             cluster_cloud = cloud.select_by_index(list(cluster_indices))
 
-            clusters[cluster_idx] = {
+            clusters[cluster_index] = {
                 "cloud": cluster_cloud,
                 "vis_cloud": copy.deepcopy(cluster_cloud),
             }
 
-            clusters[cluster_idx]["vis_cloud"].paint_uniform_color(
-                cmap.colors[(cluster_idx % 20)]
+            clusters[cluster_index]["vis_cloud"].paint_uniform_color(
+                color_map.colors[(cluster_index % 20)]
             )  # limit to 0-19 range due to map size
-            all_vis_clouds.append(clusters[cluster_idx]["vis_cloud"])
+            all_visualization_clouds.append(clusters[cluster_index]["vis_cloud"])
 
-            self.rk_logger.debug(
-                f"Extracted cluster {cluster_idx} with {len(cluster_cloud.points)} points"
+            self.robokudo_logger.debug(
+                f"Extracted cluster {cluster_index} with {len(cluster_cloud.points)} points"
             )
 
-            # Add each cluster to CAS
+            # Add each cluster to common analysis structure
             object_hypothesis = ObjectHypothesis()
             object_hypothesis.source = self.name
             object_hypothesis.points = cluster_cloud
             object_hypothesis.point_indices = [cluster_indices]
 
-            object_hypothesis.id = str(cluster_idx)
-            object_hypothesis.roi, full_mask_cluster = (
-                generate_roi_with_mask_from_points(
+            object_hypothesis.id = str(cluster_index)
+            object_hypothesis.region_of_interest, full_mask_cluster = (
+                generate_region_of_interest_with_mask_from_points(
                     image_height=height,
                     image_width=width,
                     pointcloud_camera_intrinsics=pointcloud_camera_intrinsics,
@@ -564,43 +613,47 @@ class NaivePointCloudClusterExtractor(ThreadedAnnotator):
                 )
             )
             # Add the image pixel belonging to the cluster to the mask containing all found objects
-            vis_mask[full_mask_cluster == 255] = 255
+            visualization_mask[full_mask_cluster == 255] = 255
 
-            self.get_cas().annotations.append(object_hypothesis)
+            self.get_common_analysis_structure().annotations.append(object_hypothesis)
             object_hypotheses.append(object_hypothesis)
-            cluster_idx += 1
+            cluster_index += 1
 
         if len(object_hypotheses) == 0:
-            self.rk_logger.warning(f"No Clusters have been found.")
+            self.robokudo_logger.warning(f"No Clusters have been found.")
             end_timer = default_timer()
             self.feedback_message = f"Processing took {(end_timer - start_timer):.4f}s"
             return Status.FAILURE
 
-        ##### Visualization
+        # Visualization
         # 3D
-        visualization_cloud = concatenate_clouds(all_vis_clouds)
+        visualization_cloud = concatenate_clouds(all_visualization_clouds)
 
         x = [
             {"name": "Visualization cloud PCE", "geometry": visualization_cloud},
         ]
 
-        self.get_annotator_output_struct().set_geometries(x)
+        self.get_annotator_output_structure().set_geometries(x)
 
-        vis_mask = cv2.dilate(vis_mask, DILATION_KERNEL, iterations=1)
+        visualization_mask = cv2.dilate(
+            visualization_mask, DILATION_KERNEL, iterations=1
+        )
         # make mask a 3-channel mask in order to make it work with addWeighted
-        mask3d = np.stack((vis_mask, vis_mask, vis_mask), axis=2)
-
-        # Overlay the mask with the input RGB image
-        visualization_img = cv2.addWeighted(color, 0.5, mask3d, 0.5, 0)
-        draw_bounding_boxes_from_object_hypotheses(
-            visualization_img,
-            object_hypotheses,
-            lambda oh: f"ROI-{oh.id}({len(oh.points.points)})",
+        mask3d = np.stack(
+            (visualization_mask, visualization_mask, visualization_mask), axis=2
         )
 
-        self.get_annotator_output_struct().set_image(visualization_img)
+        # Overlay the mask with the input RGB image
+        visualization_image = cv2.addWeighted(color, 0.5, mask3d, 0.5, 0)
+        draw_bounding_boxes_from_object_hypotheses(
+            visualization_image,
+            object_hypotheses,
+            lambda object_hypothesis: f"ROI-{object_hypothesis.id}({len(object_hypothesis.points.points)})",
+        )
+
+        self.get_annotator_output_structure().set_image(visualization_image)
 
         end_timer = default_timer()
         self.feedback_message = f"Processing took {(end_timer - start_timer):.4f}s"
-        self.rk_logger.info("PCE Stop")
+        self.robokudo_logger.info("PCE Stop")
         return Status.SUCCESS

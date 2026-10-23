@@ -1,37 +1,41 @@
-from typing_extensions import Dict, Type, Union, Callable, TypeVar, Generic
+from __future__ import annotations
+from typing_extensions import Dict, Type, Union, Callable, TypeVar, Generic, Any
 
-from robokudo.cas import CAS
-from robokudo.types.core import Annotation, Type as RkType
-from robokudo.types.cv import ImageROI
+from robokudo.common_analysis_structure import CommonAnalysisStructure
+from robokudo.types.core import Annotation, Type as RoboKudoType
+from robokudo.types.cv import ImageRegionOfInterest
 from robokudo.types.scene import AnalyzableAnnotation, ObjectHypothesis
 from robokudo.utils.comparator_factories import FeatureComparatorFactory
 from robokudo.utils.comparators import FeatureComparator
 
-THyothesis = TypeVar("THyothesis", bound=AnalyzableAnnotation)
+HypothesisType = TypeVar("HypothesisType", bound=AnalyzableAnnotation)
 
 
-class HypothesisComparator(Generic[THyothesis]):
+class HypothesisComparator(Generic[HypothesisType]):
     """
     A comparator that can compare two hypotheses.
     """
 
-    def __init__(self, cas_fn: Callable[[], CAS]) -> None:
-        self.cas_fn = cas_fn
+    def __init__(
+        self, common_analysis_structure_function: Callable[[], CommonAnalysisStructure]
+    ) -> None:
+        self.common_analysis_structure_function = common_analysis_structure_function
         """
-        Function to get a CAS instance, to be used for annotation filtering.
+        Function to get a common analysis structure instance, to be used for annotation
+        filtering.
         """
         self.annotation_comparators: Dict[Type[Annotation], FeatureComparator] = {}
         """
         Feature comparators used by this hypothesis comparator to compare annotations.
         """
-        self.type_comparators: Dict[Type[RkType], FeatureComparator] = {}
+        self.type_comparators: Dict[Type[RoboKudoType], FeatureComparator] = {}
         """
         Feature comparators used by this hypothesis comparator to compare other robokudo
         types.
         """
 
     def compute_similarity(
-        self, hypothesis1: THyothesis, hypothesis2: THyothesis
+        self, hypothesis1: HypothesisType, hypothesis2: HypothesisType
     ) -> float:
         """
         Compute the similarity between two hypotheses.
@@ -45,10 +49,10 @@ class HypothesisComparator(Generic[THyothesis]):
 
     def with_comparator_for(
         self,
-        compared_type: Type[Union[Annotation, RkType]],
+        compared_type: Type[Union[Annotation, RoboKudoType]],
         weight: float,
-        **kwargs,
-    ) -> "HypothesisComparator":
+        **kwargs: Any,
+    ) -> HypothesisComparator:
         """
         Add a feature comparator for the given annotation using the given weight to the
         comparator.
@@ -69,7 +73,7 @@ class HypothesisComparator(Generic[THyothesis]):
                 raise KeyError(f"No comparator found for annotation {compared_type}")
 
             self.annotation_comparators[compared_type] = comparator
-        elif issubclass(compared_type, RkType):
+        elif issubclass(compared_type, RoboKudoType):
             comparator = FeatureComparatorFactory.for_type(
                 compared_type, weight, **kwargs
             )
@@ -97,23 +101,29 @@ class ObjectHypothesisComparator(HypothesisComparator[ObjectHypothesis]):
         total_weight = 0.0
         total_similarity = 0.0
 
-        # Compare ROI?
-        if ImageROI in self.type_comparators:
-            image_roi_comparator = self.type_comparators[ImageROI]
-            similarity = image_roi_comparator.compute_similarity(
-                hypothesis1.roi, hypothesis2.roi
+        # Compare region of interest?
+        if ImageRegionOfInterest in self.type_comparators:
+            image_region_of_interest_comparator = self.type_comparators[
+                ImageRegionOfInterest
+            ]
+            similarity = image_region_of_interest_comparator.compute_similarity(
+                hypothesis1.region_of_interest, hypothesis2.region_of_interest
             )
-            total_weight += image_roi_comparator.weight
-            total_similarity += similarity * image_roi_comparator.weight
+            total_weight += image_region_of_interest_comparator.weight
+            total_similarity += similarity * image_region_of_interest_comparator.weight
 
-        cas = self.cas_fn()
+        common_analysis_structure = self.common_analysis_structure_function()
 
         # Compare annotations
         for annotation_type in self.annotation_comparators.keys():
             comparator = self.annotation_comparators[annotation_type]
 
-            annotations1 = cas.filter_by_type(annotation_type, hypothesis1.annotations)
-            annotations2 = cas.filter_by_type(annotation_type, hypothesis2.annotations)
+            annotations1 = common_analysis_structure.filter_by_type(
+                annotation_type, hypothesis1.annotations
+            )
+            annotations2 = common_analysis_structure.filter_by_type(
+                annotation_type, hypothesis2.annotations
+            )
 
             total_compared = 0
             for ann1 in annotations1:

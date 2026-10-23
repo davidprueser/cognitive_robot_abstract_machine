@@ -19,8 +19,8 @@ class FileReaderCameraConfig(BaseCameraConfig, StaticCameraTransformComponent):
     ROS package directories and regular filesystem paths.
 
     .. note::
-        If target_ros_package is None, target_dir is used as an absolute or relative
-        path. Otherwise, target_dir is appended to the ROS package path.
+        If target_ros_package is None, target_directory is used as an absolute or relative
+        path. Otherwise, target_directory is appended to the ROS package path.
     """
 
     registry_name: ClassVar[str] = "file_reader"
@@ -51,15 +51,15 @@ class FileReaderCameraConfig(BaseCameraConfig, StaticCameraTransformComponent):
     target_ros_package: Optional[str] = None
     """
     Files for the FileReaderInterface should be in a ROS package If you don't want that,
-    leave target_ros_package to None and define target_dir either absolute or relative
+    leave target_ros_package to None and define target_directory either absolute or relative
     to your executable.
     """
 
-    target_dir: str = "/tmp"
+    target_directory: str = "/tmp"
     """
-    If target_ros_package is None, try to load target_dir directly.
+    If target_ros_package is None, try to load target_directory directly.
 
-    Otherwise, append target_dir to target_ros_package and load the files from there.
+    Otherwise, append target_directory to target_ros_package and load the files from there.
     """
 
     color_to_depth_ratio: ColorToDepthRatio | None = field(

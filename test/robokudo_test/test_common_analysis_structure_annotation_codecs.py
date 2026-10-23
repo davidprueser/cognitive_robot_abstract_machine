@@ -1,0 +1,236 @@
+from __future__ import annotations
+import numpy as np
+
+from robokudo.io import common_analysis_structure_annotation_codecs
+from robokudo.types.annotation import CloudAnnotation, Shape, Sphere, Cylinder
+from robokudo.types.human import (
+    BodyKeypoint,
+    BodyKeypointCloud,
+    KeypointAnnotation,
+    KeypointKind,
+)
+from semantic_digital_twin.world_description.geometry import (
+    Box as SemanticDigitalTwinBox,
+    Cylinder as SemanticDigitalTwinCylinder,
+    Sphere as SemanticDigitalTwinSphere,
+)
+from typing_extensions import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from typing_extensions import Any
+    import pytest
+
+
+def test_deserialize_annotations_none_returns_empty_list() -> None:
+    assert (
+        common_analysis_structure_annotation_codecs.deserialize_annotations(None) == []
+    )
+
+
+def test_deserialize_annotations_forwards_kwargs_for_lists(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[dict, dict]] = []
+
+    def fake_from_json(item: Any, **kwargs: Any) -> dict[str, Any]:
+        calls.append((item, kwargs))
+        return {"item": item, "kwargs": kwargs}
+
+    monkeypatch.setattr(
+        common_analysis_structure_annotation_codecs, "from_json", fake_from_json
+    )
+
+    payload = [{"id": 1}, {"id": 2}]
+    result = common_analysis_structure_annotation_codecs.deserialize_annotations(
+        payload, tracker="active"
+    )
+
+    assert len(result) == 2
+    assert [call[0] for call in calls] == payload
+    assert all(call[1] == {"tracker": "active"} for call in calls)
+
+
+def test_deserialize_annotations_forwards_kwargs_for_single_item(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[dict, dict]] = []
+
+    def fake_from_json(item: Any, **kwargs: Any) -> dict[str, Any]:
+        calls.append((item, kwargs))
+        return {"item": item, "kwargs": kwargs}
+
+    monkeypatch.setattr(
+        common_analysis_structure_annotation_codecs, "from_json", fake_from_json
+    )
+
+    payload = {"id": 3}
+    result = common_analysis_structure_annotation_codecs.deserialize_annotations(
+        payload, tracker="active"
+    )
+
+    assert len(result) == 1
+    assert calls == [(payload, {"tracker": "active"})]
+    assert result[0]["item"] == payload
+
+
+def test_numpy_scalar_json_serializer_roundtrip() -> None:
+    scalar = np.int16(42)
+    encoded = (
+        common_analysis_structure_annotation_codecs.NumpyScalarJSONSerializer.to_json(
+            scalar
+        )
+    )
+    restored = (
+        common_analysis_structure_annotation_codecs.NumpyScalarJSONSerializer.from_json(
+            encoded, np.generic
+        )
+    )
+
+    assert encoded["dtype"] == "int16"
+    assert restored == scalar.item()
+
+
+def test_cloud_annotation_serialization_roundtrip_preserves_point_cloud() -> None:
+    points = np.array(
+        [
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+        ],
+        dtype=np.float64,
+    )
+    point_cloud = common_analysis_structure_annotation_codecs.o3d.geometry.PointCloud()
+    point_cloud.points = (
+        common_analysis_structure_annotation_codecs.o3d.utility.Vector3dVector(points)
+    )
+    cloud_annotation = CloudAnnotation(source="cloud_annotator", points=point_cloud)
+
+    serialized = common_analysis_structure_annotation_codecs.serialize_annotations(
+        [cloud_annotation]
+    )
+    restored = common_analysis_structure_annotation_codecs.deserialize_annotations(
+        serialized
+    )
+
+    assert len(restored) == 1
+    restored_cloud = restored[0]
+    assert isinstance(restored_cloud, CloudAnnotation)
+    assert restored_cloud.source == "cloud_annotator"
+    np.testing.assert_allclose(np.asarray(restored_cloud.points.points), points)
+
+
+def test_shape_annotation_serialization_roundtrip_preserves_metadata() -> None:
+    shape = Shape(
+        source="shape_annotator", inliers=[1, 2, 3], geometry=SemanticDigitalTwinBox()
+    )
+    shape.geometry.scale.x = 0.31
+
+    serialized = common_analysis_structure_annotation_codecs.serialize_annotations(
+        [shape]
+    )
+    restored = common_analysis_structure_annotation_codecs.deserialize_annotations(
+        serialized
+    )
+
+    assert len(restored) == 1
+    restored_shape = restored[0]
+    assert isinstance(restored_shape, Shape)
+    assert restored_shape.source == "shape_annotator"
+    assert restored_shape.inliers == [1, 2, 3]
+    assert isinstance(restored_shape.geometry, SemanticDigitalTwinBox)
+    assert restored_shape.geometry.scale.x == 0.31
+
+
+def test_sphere_annotation_serialization_roundtrip_preserves_radius() -> None:
+    sphere = Sphere(
+        source="sphere_annotator",
+        inliers=[9, 8],
+        geometry=SemanticDigitalTwinSphere(radius=0.27),
+    )
+
+    serialized = common_analysis_structure_annotation_codecs.serialize_annotations(
+        [sphere]
+    )
+    restored = common_analysis_structure_annotation_codecs.deserialize_annotations(
+        serialized
+    )
+
+    assert len(restored) == 1
+    restored_sphere = restored[0]
+    assert isinstance(restored_sphere, Sphere)
+    assert restored_sphere.source == "sphere_annotator"
+    assert restored_sphere.inliers == [9, 8]
+    assert isinstance(restored_sphere.geometry, SemanticDigitalTwinSphere)
+    assert restored_sphere.geometry.radius == 0.27
+
+
+def test_cylinder_annotation_serialization_roundtrip_preserves_dimensions() -> None:
+    cylinder = Cylinder(
+        source="cylinder_annotator",
+        inliers=[3, 4],
+        geometry=SemanticDigitalTwinCylinder(width=0.2, height=0.6),
+    )
+
+    serialized = common_analysis_structure_annotation_codecs.serialize_annotations(
+        [cylinder]
+    )
+    restored = common_analysis_structure_annotation_codecs.deserialize_annotations(
+        serialized
+    )
+
+    assert len(restored) == 1
+    restored_cylinder = restored[0]
+    assert isinstance(restored_cylinder, Cylinder)
+    assert restored_cylinder.source == "cylinder_annotator"
+    assert restored_cylinder.inliers == [3, 4]
+    assert isinstance(restored_cylinder.geometry, SemanticDigitalTwinCylinder)
+    assert restored_cylinder.geometry.width == 0.2
+    assert restored_cylinder.geometry.height == 0.6
+
+
+def test_body_keypoint_annotation_serialization_roundtrip_preserves_keypoints_and_kind() -> (
+    None
+):
+    keypoint_annotation = KeypointAnnotation(
+        source="pose_annotator",
+        keypoints=[BodyKeypoint(x=12.5, y=30.0, confidence=0.9)],
+        kind=KeypointKind.IMAGE_POSITION,
+    )
+
+    serialized = common_analysis_structure_annotation_codecs.serialize_annotations(
+        [keypoint_annotation]
+    )
+    (restored,) = common_analysis_structure_annotation_codecs.deserialize_annotations(
+        serialized
+    )
+
+    assert restored == keypoint_annotation
+
+
+def test_body_keypoint_cloud_serialization_roundtrip_preserves_keypoint_and_points() -> (
+    None
+):
+    points = np.array([[0.0, 0.0, 1.0], [0.1, 0.0, 1.0]], dtype=np.float64)
+    point_cloud = common_analysis_structure_annotation_codecs.o3d.geometry.PointCloud()
+    point_cloud.points = (
+        common_analysis_structure_annotation_codecs.o3d.utility.Vector3dVector(points)
+    )
+    keypoint = BodyKeypoint(x=12.5, y=30.0, confidence=0.9)
+    keypoint_annotation = KeypointAnnotation(
+        source="pose_annotator",
+        keypoints=[BodyKeypointCloud(keypoint=keypoint, points=point_cloud)],
+        kind=KeypointKind.POINT_CLOUD,
+    )
+
+    serialized = common_analysis_structure_annotation_codecs.serialize_annotations(
+        [keypoint_annotation]
+    )
+    (restored,) = common_analysis_structure_annotation_codecs.deserialize_annotations(
+        serialized
+    )
+
+    (restored_keypoint_cloud,) = restored.keypoints
+    assert restored_keypoint_cloud.keypoint == keypoint
+    np.testing.assert_allclose(
+        np.asarray(restored_keypoint_cloud.points.points), points
+    )

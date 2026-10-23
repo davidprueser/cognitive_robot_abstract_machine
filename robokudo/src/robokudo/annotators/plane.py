@@ -30,7 +30,7 @@ import open3d as o3d
 from py_trees.common import Status
 
 from robokudo.annotators.core import BaseAnnotator, ThreadedAnnotator
-from robokudo.cas import CASViews
+from robokudo.common_analysis_structure import CommonAnalysisStructureViews
 from robokudo.types.annotation import Plane
 from robokudo.utils.transform import get_transform_from_plane_equation
 
@@ -86,7 +86,7 @@ class PlaneAnnotator(ThreadedAnnotator):
                 self.distance_threshold: float = 0.02
                 """"""
 
-                self.num_iterations: int = 50
+                self.number_of_iterations: int = 50
                 """"""
 
                 self.random_seed: Optional[int] = None
@@ -115,7 +115,7 @@ class PlaneAnnotator(ThreadedAnnotator):
 
         The method:
 
-        * Loads point cloud from CAS
+        * Loads point cloud from common analysis structure
         * Detects plane using RANSAC:
           * Distance threshold: 0.02
           * Sample size: 3 points
@@ -129,16 +129,20 @@ class PlaneAnnotator(ThreadedAnnotator):
 
         :return: SUCCESS after processing
         """
-        self.rk_logger.info("Plane compute start")
+        self.robokudo_logger.info("Plane compute start")
         start_timer = default_timer()
-        cloud = self.get_cas().get(CASViews.CLOUD)
-        color_image = self.get_cas().get(
-            CASViews.COLOR_IMAGE
+        cloud = self.get_common_analysis_structure().get(
+            CommonAnalysisStructureViews.CLOUD
+        )
+        color_image = self.get_common_analysis_structure().get(
+            CommonAnalysisStructureViews.COLOR_IMAGE
         )  # shape [H, W, 3], usually RGB
-        depth_image = self.get_cas().get(
-            CASViews.DEPTH_IMAGE
+        depth_image = self.get_common_analysis_structure().get(
+            CommonAnalysisStructureViews.DEPTH_IMAGE
         )  # shape [H, W], float or uint16
-        camera_intrinsics = self.get_cas().get(CASViews.CAMERA_INTRINSIC)
+        camera_intrinsics = self.get_common_analysis_structure().get(
+            CommonAnalysisStructureViews.CAMERA_INTRINSIC
+        )
         # print(f"Loaded cloud with {len(cloud.points)} points")
 
         random_seed = self.descriptor.parameters.random_seed
@@ -151,7 +155,7 @@ class PlaneAnnotator(ThreadedAnnotator):
             plane_model, inliers = cloud.segment_plane(
                 distance_threshold=self.descriptor.parameters.distance_threshold,
                 ransac_n=3,
-                num_iterations=self.descriptor.parameters.num_iterations,
+                num_iterations=self.descriptor.parameters.number_of_iterations,
             )
 
         [a, b, c, d] = plane_model
@@ -160,7 +164,7 @@ class PlaneAnnotator(ThreadedAnnotator):
         plane_annotation = Plane()
         plane_annotation.model = plane_model
         plane_annotation.inliers = inliers
-        self.get_cas().annotations.append(plane_annotation)
+        self.get_common_analysis_structure().annotations.append(plane_annotation)
 
         # Visualization
 
@@ -185,9 +189,9 @@ class PlaneAnnotator(ThreadedAnnotator):
             visualized_geometries.append(
                 {"name": "plane_model", "geometry": plane_model_mesh}
             )
-            self.get_annotator_output_struct().set_geometries(visualized_geometries)
+            self.get_annotator_output_structure().set_geometries(visualized_geometries)
 
         end_timer = default_timer()
         self.feedback_message = f"Processing took {(end_timer - start_timer):.4f}s"
-        self.rk_logger.info("Plane compute end")
+        self.robokudo_logger.info("Plane compute end")
         return Status.SUCCESS

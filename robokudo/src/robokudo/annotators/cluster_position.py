@@ -28,7 +28,10 @@ from py_trees.common import Status
 from typing_extensions import List, Type
 
 from robokudo.annotators.core import BaseAnnotator
-from robokudo.cas import CAS, CASViews
+from robokudo.common_analysis_structure import (
+    CommonAnalysisStructure,
+    CommonAnalysisStructureViews,
+)
 from robokudo.types import annotation, scene
 
 
@@ -81,7 +84,7 @@ class ClusterPositionAnnotator(BaseAnnotator):
         :param descriptor: Configuration descriptor
         """
         super().__init__(name, descriptor)
-        self.rk_logger.debug("%s.__init__()" % self.__class__.__name__)
+        self.robokudo_logger.debug("%s.__init__()" % self.__class__.__name__)
 
     def update(self) -> Status:
         """
@@ -89,7 +92,7 @@ class ClusterPositionAnnotator(BaseAnnotator):
 
         The method:
 
-        * Loads point cloud from CAS
+        * Loads point cloud from common analysis structure
         * For each object hypothesis:
           * Gets appropriate point cloud data
           * Computes centroid and covariance
@@ -100,11 +103,15 @@ class ClusterPositionAnnotator(BaseAnnotator):
         """
         start_timer = default_timer()
 
-        cloud = self.get_cas().get(CASViews.CLOUD)
+        cloud = self.get_common_analysis_structure().get(
+            CommonAnalysisStructureViews.CLOUD
+        )
         centroids_to_visualize: List[List[float]] = []
 
-        object_hypotheses = self.get_cas().filter_annotations_by_type(
-            scene.ObjectHypothesis
+        object_hypotheses = (
+            self.get_common_analysis_structure().filter_annotations_by_type(
+                scene.ObjectHypothesis
+            )
         )
 
         for object_hypothesis in object_hypotheses:
@@ -112,17 +119,19 @@ class ClusterPositionAnnotator(BaseAnnotator):
                 continue
 
             if self.descriptor.parameters.analysis_scope == annotation.CloudAnnotation:
-                o_clouds: List[annotation.CloudAnnotation] = CAS.filter_by_type(
-                    annotation.CloudAnnotation,
-                    object_hypothesis.annotations,
+                object_clouds: List[annotation.CloudAnnotation] = (
+                    CommonAnalysisStructure.filter_by_type(
+                        annotation.CloudAnnotation,
+                        object_hypothesis.annotations,
+                    )
                 )
-                if len(o_clouds) == 0:
-                    self.rk_logger.warning(
+                if len(object_clouds) == 0:
+                    self.robokudo_logger.warning(
                         "CloudAnnotation mode, but no CloudAnnotation found on object"
                     )
                     continue
 
-                cluster_cloud = o_clouds[0].points
+                cluster_cloud = object_clouds[0].points
             else:
                 cluster_cloud = object_hypothesis.points
             centroid, covariance = cluster_cloud.compute_mean_and_covariance()
@@ -138,7 +147,7 @@ class ClusterPositionAnnotator(BaseAnnotator):
         ]
         vis_geometries.extend(centroids_to_visualize)
 
-        self.get_annotator_output_struct().set_geometries(vis_geometries)
+        self.get_annotator_output_structure().set_geometries(vis_geometries)
 
         end_timer = default_timer()
         self.feedback_message = f"Processing took {(end_timer - start_timer):.4f}s"

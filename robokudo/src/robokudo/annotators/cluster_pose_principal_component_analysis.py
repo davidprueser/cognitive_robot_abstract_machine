@@ -4,7 +4,7 @@
 This module provides an annotator for:
 
 * Calculating 3D poses for object hypotheses
-* Using PCA for orientation estimation
+* Using principal component analysis for orientation estimation
 * Computing oriented bounding boxes
 * Generating visualization markers
 
@@ -28,7 +28,7 @@ import open3d as o3d
 from py_trees.common import Status
 
 from robokudo.annotators.core import BaseAnnotator
-from robokudo.cas import CASViews
+from robokudo.common_analysis_structure import CommonAnalysisStructureViews
 from robokudo.types.annotation import PoseAnnotation
 from robokudo.types.scene import ObjectHypothesis
 from robokudo.utils.transform import (
@@ -37,14 +37,14 @@ from robokudo.utils.transform import (
 )
 
 
-class ClusterPosePCAAnnotator(BaseAnnotator):
+class ClusterPosePrincipalComponentAnalysisAnnotator(BaseAnnotator):
     """
     3D pose estimation using principal component analysis.
 
     This annotator:
 
     * Calculates 3D poses for object point clusters
-    * Uses PCA for orientation estimation
+    * Uses principal component analysis for orientation estimation
     * Aligns coordinate frames with principal axes
     * Creates pose annotations
     * Generates visualization markers
@@ -53,14 +53,16 @@ class ClusterPosePCAAnnotator(BaseAnnotator):
        Requires minimum 10 points per object hypothesis.
     """
 
-    def __init__(self, name: str = "ClusterPosePCAAnnotator") -> None:
+    def __init__(
+        self, name: str = "ClusterPosePrincipalComponentAnalysisAnnotator"
+    ) -> None:
         """
-        Initialize the PCA pose estimator.
+        Initialize the principal component analysis pose estimator.
 
         :param name: Name of this annotator instance
         """
         super().__init__(name)
-        self.rk_logger.debug("%s.__init__()" % self.__class__.__name__)
+        self.robokudo_logger.debug("%s.__init__()" % self.__class__.__name__)
 
     def update(self) -> Status:
         """
@@ -68,7 +70,7 @@ class ClusterPosePCAAnnotator(BaseAnnotator):
 
         The method:
 
-        * Loads point cloud from CAS
+        * Loads point cloud from common analysis structure
         * For each object hypothesis:
           * Computes centroid and covariance
           * Performs eigenvalue decomposition
@@ -80,8 +82,10 @@ class ClusterPosePCAAnnotator(BaseAnnotator):
         """
         start_timer = default_timer()
 
-        cloud = self.get_cas().get(CASViews.CLOUD)
-        annotations = self.get_cas().annotations
+        cloud = self.get_common_analysis_structure().get(
+            CommonAnalysisStructureViews.CLOUD
+        )
+        annotations = self.get_common_analysis_structure().annotations
         geometries_to_visualize = []
 
         # Iterate over everything that is a Object hypothesis and calculate the centroid
@@ -106,13 +110,13 @@ class ClusterPosePCAAnnotator(BaseAnnotator):
             # w,vl,vr = scipy.linalg.eig(covariance)
 
             eigenvalues_copy = copy.deepcopy(eigenvalues)
-            first_eigen_vec_idx = eigenvalues_copy.argmax()  # z
-            z = eigenvectors[:, first_eigen_vec_idx]
-            eigenvalues_copy[first_eigen_vec_idx] = -1
+            first_eigenvector_index = eigenvalues_copy.argmax()  # z
+            z = eigenvectors[:, first_eigenvector_index]
+            eigenvalues_copy[first_eigenvector_index] = -1
 
-            second_eigen_vec_idx = eigenvalues_copy.argmax()  # x
-            x = eigenvectors[:, second_eigen_vec_idx]
-            eigenvalues_copy[second_eigen_vec_idx] = -1
+            second_eigenvector_index = eigenvalues_copy.argmax()  # x
+            x = eigenvectors[:, second_eigenvector_index]
+            eigenvalues_copy[second_eigenvector_index] = -1
 
             # third_eigen_vec_idx = eigenvalues_copy.argmax()  # y
             y = -np.cross(x, z)
@@ -137,8 +141,8 @@ class ClusterPosePCAAnnotator(BaseAnnotator):
             pose_annotation.source = type(self).__name__
             object_hypothesis.annotations.append(pose_annotation)
 
-            cluster_obb = cluster_cloud.get_oriented_bounding_box()
-            geometries_to_visualize.append(cluster_obb)
+            cluster_oriented_bounding_box = cluster_cloud.get_oriented_bounding_box()
+            geometries_to_visualize.append(cluster_oriented_bounding_box)
 
             geometries_to_visualize.append(cluster_frame)
 
@@ -148,7 +152,7 @@ class ClusterPosePCAAnnotator(BaseAnnotator):
         ]
         vis_geometries.extend(geometries_to_visualize)
 
-        self.get_annotator_output_struct().set_geometries(vis_geometries)
+        self.get_annotator_output_structure().set_geometries(vis_geometries)
 
         end_timer = default_timer()
         self.feedback_message = f"Processing took {(end_timer - start_timer):.4f}s"

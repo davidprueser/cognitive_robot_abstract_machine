@@ -57,7 +57,7 @@ class OpenCVCameraConfig(BaseCameraConfig):
     Flag argument to use when retrieving/reading the frames.
     """
 
-    normalize_rgb: bool = True
+    normalize_red_green_blue: bool = True
     """
     Normalize/stabilise rgb image contrast/brightness.
     """

@@ -2,14 +2,14 @@
 Pipeline implementation for RoboKudo.
 
 This module provides the Pipeline class, which is a specialized version of py_trees'
-Sequence behavior. A Pipeline manages its own Common Analysis Structure (CAS) and
+Sequence behavior. A Pipeline manages its own common analysis structure and
 provides visualization capabilities for its annotators.
 
 Key features:
 
-* Automatic CAS management for each pipeline iteration
+* Automatic common analysis structure management for each pipeline iteration
 * Visualization support through annotator outputs
-* Helper methods for accessing annotators and CAS
+* Helper methods for accessing annotators and common analysis structure
 * Nested pipeline support with proper scoping
 """
 
@@ -26,18 +26,18 @@ from typing_extensions import Any, List, Optional
 
 import robokudo.annotators.core
 import robokudo.annotators.outputs
-import robokudo.cas as cas
-import robokudo.defs as defs
+import robokudo.common_analysis_structure as common_analysis_structure
+import robokudo.definitions as definitions
 import robokudo.utils.tree
 
 
 class Pipeline(Sequence):
     """
-    A RoboKudo pipeline composed of annotators with its own CAS.
+    A RoboKudo pipeline composed of annotators with its own common analysis structure.
 
-    A Pipeline is a specialized sequence behavior that manages a Common Analysis
-    Structure (CAS) for its annotators. It provides visualization capabilities and
-    helper methods for accessing annotators and CAS data.
+    A Pipeline is a specialized sequence behavior that manages a common analysis
+    structure for its annotators. It provides visualization capabilities and
+    helper methods for accessing annotators and common analysis structure data.
     """
 
     def __init__(
@@ -54,36 +54,42 @@ class Pipeline(Sequence):
         :param name: Name of the pipeline, defaults to "Sequence"
         :param children: List of child behaviors, defaults to None
         """
-        self.cas: cas.CAS = None
+        self.common_analysis_structure: (
+            common_analysis_structure.CommonAnalysisStructure
+        ) = None
         """
         The Common Analysis Structure for this pipeline.
         """
-        self._cas_counter: int = 0
+        self._common_analysis_structure_counter: int = 0
         """
-        Monotonic CAS counter that is local to this pipeline instance.
+        Monotonic common analysis structure counter that is local to this pipeline instance.
         """
-        self.cas_start_timer: timeit.default_timer = None
+        self.common_analysis_structure_start_timer: timeit.default_timer = None
         """
         Timer for measuring pipeline execution time.
         """
-        self.rk_logger = logging.getLogger(defs.PACKAGE_NAME)
+        self.robokudo_logger = logging.getLogger(definitions.PACKAGE_NAME)
         """
         Logger instance for this pipeline.
         """
-        self.create_new_cas()
+        self.create_new_common_analysis_structure()
         # self.update_gui_for_this_pipeline = False
         # self.annotator_outputs = AnnotatorOutputs()
 
-    def create_new_cas(self) -> None:
+    def create_new_common_analysis_structure(self) -> None:
         """
-        Create a new Common Analysis Structure (CAS) for this pipeline.
+        Create a new common analysis structure for this pipeline.
 
         Also resets the execution timer.
         """
-        self._cas_counter += 1
-        self.cas = cas.CAS()
-        self.cas.cas_id = self._cas_counter
-        self.cas_start_timer = timeit.default_timer()
+        self._common_analysis_structure_counter += 1
+        self.common_analysis_structure = (
+            common_analysis_structure.CommonAnalysisStructure()
+        )
+        self.common_analysis_structure.common_analysis_structure_id = (
+            self._common_analysis_structure_counter
+        )
+        self.common_analysis_structure_start_timer = timeit.default_timer()
 
     def setup(self, **kwargs: Any) -> bool:
         """
@@ -102,18 +108,20 @@ class Pipeline(Sequence):
             )
 
         annotators = self.get_annotators()
-        for a in annotators:
-            a.add_self_to_annotator_output_struct()
+        for annotator in annotators:
+            annotator.add_self_to_annotator_output_structure()
         annotator_output_pipeline_map_buffer.map[self.name].redraw = True
         return True
 
-    def get_cas(self) -> cas.CAS:
+    def get_common_analysis_structure(
+        self,
+    ) -> common_analysis_structure.CommonAnalysisStructure:
         """
         Get the pipeline's Common Analysis Structure.
 
-        :return: The pipeline's CAS
+        :return: The pipeline's common analysis structure
         """
-        return self.cas
+        return self.common_analysis_structure
 
     def get_annotators(self) -> List[robokudo.annotators.core.BaseAnnotator]:
         """
@@ -153,9 +161,9 @@ class Pipeline(Sequence):
         Handles pipeline execution status and triggers GUI updates on failure.
         """
         super().update()
-        self.rk_logger.debug("%s.update()" % self.__class__.__name__)
+        self.robokudo_logger.debug("%s.update()" % self.__class__.__name__)
         if self.status == Status.FAILURE:
-            self.rk_logger.debug(
+            self.robokudo_logger.debug(
                 "%s: Previous execution was a failure. Update GUI." % self.status
             )
             blackboard = Blackboard()
@@ -173,7 +181,7 @@ class Pipeline(Sequence):
 
         :param new_status: New execution status
         """
-        self.rk_logger.debug(
+        self.robokudo_logger.debug(
             "%s.terminate()[%s->%s]"
             % (self.__class__.__name__, self.status, new_status)
         )
@@ -186,8 +194,8 @@ class Pipeline(Sequence):
             annotator_output_pipeline_map_buffer.map[self.name].redraw = True
 
         if new_status == Status.SUCCESS or new_status == Status.FAILURE:
-            self.feedback_message = f"Processing took {(timeit.default_timer() - self.cas_start_timer):.4f}s"
-            self.rk_logger.debug(
-                f"Pipeline Processing took in total {(timeit.default_timer() - self.cas_start_timer):.4f}s"
+            self.feedback_message = f"Processing took {(timeit.default_timer() - self.common_analysis_structure_start_timer):.4f}s"
+            self.robokudo_logger.debug(
+                f"Pipeline Processing took in total {(timeit.default_timer() - self.common_analysis_structure_start_timer):.4f}s"
             )
-            self.cas_start_timer = timeit.default_timer()
+            self.common_analysis_structure_start_timer = timeit.default_timer()

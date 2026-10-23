@@ -24,7 +24,10 @@ from robokudo.descriptors.camera_configs.config_mongodb_playback import (
 
 import open3d as o3d
 from robokudo.annotator_parameters import AnnotatorPredefinedParameters
-from robokudo.cas import CAS, CASViews
+from robokudo.common_analysis_structure import (
+    CommonAnalysisStructure,
+    CommonAnalysisStructureViews,
+)
 from robokudo.exceptions import StoredCameraTransformFrameMetadataMissing
 from robokudo.io.camera_interface import CameraInterface
 from robokudo.io.storage import Storage
@@ -38,7 +41,7 @@ class StorageReaderInterface(CameraInterface):
 
     This interface reads sensor data and annotations that were previously stored using
     the StorageWriter annotator. It handles data deserialization and restoration of the
-    Common Analysis Structure (CAS) views.
+    common analysis structure views.
     """
 
     def __init__(self, camera_config: MongoCameraConfig) -> None:
@@ -51,11 +54,13 @@ class StorageReaderInterface(CameraInterface):
         """
         super().__init__(camera_config)
 
-        self.storage: Storage = Storage(camera_config.db_name)
+        self.storage: Storage = Storage(camera_config.database_name)
         """
         MongoDB storage interface.
         """
-        self.reader: Storage.ListReader = self.storage.ListReader(camera_config.db_name)
+        self.reader: Storage.ListReader = self.storage.ListReader(
+            camera_config.database_name
+        )
         """
         List-based reader for MongoDB data.
         """
@@ -75,7 +80,7 @@ class StorageReaderInterface(CameraInterface):
 
         return self.reader.cursor_has_frames()
 
-    def set_data(self, cas: CAS) -> None:
+    def set_data(self, common_analysis_structure: CommonAnalysisStructure) -> None:
         """
         Update the Common Analysis Structure with data from storage.
 
@@ -85,44 +90,50 @@ class StorageReaderInterface(CameraInterface):
         * Updates camera intrinsics
         * Sets depth availability flag
 
-        :param cas: Common Analysis Structure to update
+        :param common_analysis_structure: Common Analysis Structure to update
         """
-        cas_frame = self.reader.get_next_frame()
-        if cas_frame is None:
-            self.rk_logger.debug(f"Reader has no next frame cas_frame:={cas_frame}")
+        common_analysis_structure_frame = self.reader.get_next_frame()
+        if common_analysis_structure_frame is None:
+            self.robokudo_logger.debug(
+                f"Reader has no next frame common_analysis_structure_frame:={common_analysis_structure_frame}"
+            )
             return
 
         # Restore the views from the individual documents. The camera transform is
         # rebound explicitly below because its stored frame references belong to
         # the recorded world, not the currently running world.
-        cas_frame["views"] = {}
-        self.storage.load_views_from_mongo_in_cas(
-            cas_frame,
-            excluded_view_names={CASViews.CAMERA_TO_WORLD_TRANSFORM},
+        common_analysis_structure_frame["views"] = {}
+        self.storage.load_views_from_mongo_in_common_analysis_structure(
+            common_analysis_structure_frame,
+            excluded_view_names={
+                CommonAnalysisStructureViews.CAMERA_TO_WORLD_TRANSFORM
+            },
         )
-        self._restore_camera_to_world_transform(cas_frame)
+        self._restore_camera_to_world_transform(common_analysis_structure_frame)
 
-        # Bring flat CAS representation into the proper CAS class
-        for view_name, view_content in cas_frame["views"].items():
-            cas.set(view_name, view_content)
+        # Bring flat common analysis structure representation into the proper common analysis structure class
+        for view_name, view_content in common_analysis_structure_frame["views"].items():
+            common_analysis_structure.set(view_name, view_content)
 
         # Restore annotations
         if self.camera_config.restore_annotations:
-            self.storage.load_annotations_from_mongo_in_cas(cas_frame, cas)
+            self.storage.load_annotations_from_mongo_in_common_analysis_structure(
+                common_analysis_structure_frame, common_analysis_structure
+            )
 
-        if cas.depth_image is None:
+        if common_analysis_structure.depth_image is None:
             # no depth image available
             AnnotatorPredefinedParameters.global_with_depth = False
 
         # Compute the camera intrinsic from the camera info.
         # this is harder to serialize and put transparently into mongo as of today, so we'll do it here
-        # Construct o3d camera intrinsics from camera info in CAS
+        # Construct o3d camera intrinsics from camera info in common analysis structure
 
         # TODO this can be unified with the camera intrinsic creation in the camera interface. Check
         #  ROSCameraInterface.set_o3d_camera_intrinsics_from_ros_camera_info
         #  => type_conversion.o3d_camera_intrinsics_from_ros_camera_info(camera_info):
-        if "cam_info" in cas_frame["views"]:
-            camera_info = cas_frame["views"]["cam_info"]
+        if "cam_info" in common_analysis_structure_frame["views"]:
+            camera_info = common_analysis_structure_frame["views"]["cam_info"]
 
             if camera_info is None:
                 # nothing to do
@@ -137,53 +148,64 @@ class StorageReaderInterface(CameraInterface):
             camera_intrinsic = o3d.camera.PinholeCameraIntrinsic(
                 width, height, fx, fy, cx, cy
             )
-            cas.set(CASViews.CAMERA_INTRINSIC, camera_intrinsic)
+            common_analysis_structure.set(
+                CommonAnalysisStructureViews.CAMERA_INTRINSIC, camera_intrinsic
+            )
 
-    def _restore_camera_to_world_transform(self, cas_frame: dict) -> None:
+    def _restore_camera_to_world_transform(
+        self, common_analysis_structure_frame: dict
+    ) -> None:
         """
         Restore the stored camera pose as a transform bound to the running world.
 
         The serialized ``CAMERA_TO_WORLD_TRANSFORM`` may reference bodies from the
         recorded world. This method decodes the numeric transform, resolves the intended
         frame names, creates/updates the matching bodies in the current RoboKudo world,
-        and stores the rebound transform in ``cas_frame["views"]``.
+        and stores the rebound transform in ``common_analysis_structure_frame["views"]``.
         """
-        view_ids = cas_frame.get("view_ids", {})
-        view_id = view_ids.get(CASViews.CAMERA_TO_WORLD_TRANSFORM)
+        view_ids = common_analysis_structure_frame.get("view_ids", {})
+        view_id = view_ids.get(CommonAnalysisStructureViews.CAMERA_TO_WORLD_TRANSFORM)
         if view_id is None:
             return
 
-        view_document = self.storage.db[Storage.VIEW_COLLECTION_NAME].find_one(
+        view_document = self.storage.database[Storage.VIEW_COLLECTION_NAME].find_one(
             {"_id": view_id}
         )
         if not view_document:
             raise RuntimeError(
-                f"Couldn't find view '{CASViews.CAMERA_TO_WORLD_TRANSFORM}' with id={view_id}."
+                f"Couldn't find view '{CommonAnalysisStructureViews.CAMERA_TO_WORLD_TRANSFORM}' with id={view_id}."
             )
 
-        # Non-SemDT transform payloads are left to the regular codec path.
+        # Non-semantic digital twin transform payloads are left to the regular codec path.
         if view_document["serializer_id"] != "semdt_homogeneous_transform_v1":
             decoded_view_name, decoded_view_value = Storage.decode_view_document(
                 view_document
             )
-            if decoded_view_name == CASViews.CAMERA_TO_WORLD_TRANSFORM:
-                cas_frame["views"][
-                    CASViews.CAMERA_TO_WORLD_TRANSFORM
+            if (
+                decoded_view_name
+                == CommonAnalysisStructureViews.CAMERA_TO_WORLD_TRANSFORM
+            ):
+                common_analysis_structure_frame["views"][
+                    CommonAnalysisStructureViews.CAMERA_TO_WORLD_TRANSFORM
                 ] = decoded_view_value
             return
 
         stored_transform, world_frame, camera_frame = (
-            self._decode_stored_camera_to_world_transform(view_document, cas_frame)
+            self._decode_stored_camera_to_world_transform(
+                view_document, common_analysis_structure_frame
+            )
         )
         rebound_transform = self._rebind_camera_to_world_transform(
             stored_transform=stored_transform,
             world_frame=world_frame,
             camera_frame=camera_frame,
         )
-        cas_frame["views"][CASViews.CAMERA_TO_WORLD_TRANSFORM] = rebound_transform
+        common_analysis_structure_frame["views"][
+            CommonAnalysisStructureViews.CAMERA_TO_WORLD_TRANSFORM
+        ] = rebound_transform
 
     def _decode_stored_camera_to_world_transform(
-        self, view_document: dict, cas_frame: dict
+        self, view_document: dict, common_analysis_structure_frame: dict
     ) -> tuple[HomogeneousTransformationMatrix, str, str]:
         """
         Decode a stored camera transform and determine its frame names.

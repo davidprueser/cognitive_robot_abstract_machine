@@ -1,6 +1,7 @@
+from __future__ import annotations
 from py_trees.common import Status
 
-import robokudo.world as rk_world
+import robokudo.world as robokudo_world
 from robokudo.annotators.world_descriptor_bootstrap import (
     WorldDescriptorBootstrapAnnotator,
 )
@@ -10,11 +11,13 @@ from semantic_digital_twin.world_description.world_entity import Region
 
 
 class TestWorldDescriptorBootstrapAnnotator:
-    def test_augment_world_keeps_existing_frame_references(self):
-        rk_world.init_world_with_entity_tracker()
-        rk_world.setup_world_for_camera_frame(world_frame="map", camera_frame="camera")
+    def test_augment_world_keeps_existing_frame_references(self) -> None:
+        robokudo_world.initialize_world_with_entity_tracker()
+        robokudo_world.setup_world_for_camera_frame(
+            world_frame="map", camera_frame="camera"
+        )
 
-        runtime_world = rk_world.world_instance()
+        runtime_world = robokudo_world.world_instance()
         camera_body = runtime_world.get_body_by_name("camera")
         map_body = runtime_world.get_body_by_name("map")
         camera_body_id = camera_body.id
@@ -57,13 +60,13 @@ class TestWorldDescriptorBootstrapAnnotator:
         }
         assert "kitchen_island" in region_names
 
-    def test_update_is_idempotent_for_same_world_instance(self):
-        rk_world.init_world_with_entity_tracker()
+    def test_update_is_idempotent_for_same_world_instance(self) -> None:
+        robokudo_world.initialize_world_with_entity_tracker()
         annotator = WorldDescriptorBootstrapAnnotator()
 
         first = annotator.update()
         second = annotator.update()
-        runtime_world = rk_world.world_instance()
+        runtime_world = robokudo_world.world_instance()
 
         assert first is Status.SUCCESS
         assert second is Status.SUCCESS

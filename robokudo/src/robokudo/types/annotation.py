@@ -12,16 +12,16 @@ from dataclasses import dataclass, field
 import cv2
 import open3d as o3d
 from semantic_digital_twin.world_description.geometry import (
-    Box as SemDTBox,
+    Box as SemanticDigitalTwinBox,
 )
 from semantic_digital_twin.world_description.geometry import (
-    Cylinder as SemDTCylinder,
+    Cylinder as SemanticDigitalTwinCylinder,
 )
 from semantic_digital_twin.world_description.geometry import (
-    Shape as SemDTShape,
+    Shape as SemanticDigitalTwinShape,
 )
 from semantic_digital_twin.world_description.geometry import (
-    Sphere as SemDTSphere,
+    Sphere as SemanticDigitalTwinSphere,
 )
 from typing_extensions import TYPE_CHECKING, Any, List, Optional, Sequence
 
@@ -130,7 +130,7 @@ class Plane(Annotation):
 class Shape(Annotation):
     """Base class for shape annotations.
 
-    This class stores a SemDT geometry shape and inlier point indices.
+    This class stores a semantic digital twin geometry shape and inlier point indices.
     """
 
     inliers: List[int] = field(default_factory=list)
@@ -138,9 +138,9 @@ class Shape(Annotation):
     List of pointcloud indices that belong to this shape
     """
 
-    geometry: SemDTShape = field(default_factory=SemDTBox)
+    geometry: SemanticDigitalTwinShape = field(default_factory=SemanticDigitalTwinBox)
     """
-    SemDT geometry shape represented by this annotation
+    semantic digital twin geometry shape represented by this annotation
     """
 
     @property
@@ -153,12 +153,12 @@ class Shape(Annotation):
 class Cuboid(Shape):
     """Cuboid shape annotation.
 
-    This class represents a cuboid shape as a SemDT box geometry.
+    This class represents a cuboid shape as a semantic digital twin box geometry.
     """
 
-    geometry: SemDTBox = field(default_factory=SemDTBox)
+    geometry: SemanticDigitalTwinBox = field(default_factory=SemanticDigitalTwinBox)
     """
-    SemDT box geometry represented by this annotation
+    semantic digital twin box geometry represented by this annotation
     """
 
 
@@ -166,12 +166,14 @@ class Cuboid(Shape):
 class Sphere(Shape):
     """Sphere shape annotation.
 
-    This class represents a sphere shape as a SemDT sphere geometry.
+    This class represents a sphere shape as a semantic digital twin sphere geometry.
     """
 
-    geometry: SemDTSphere = field(default_factory=SemDTSphere)
+    geometry: SemanticDigitalTwinSphere = field(
+        default_factory=SemanticDigitalTwinSphere
+    )
     """
-    SemDT sphere geometry represented by this annotation
+    semantic digital twin sphere geometry represented by this annotation
     """
 
 
@@ -179,12 +181,14 @@ class Sphere(Shape):
 class Cylinder(Shape):
     """Cylinder shape annotation.
 
-    This class represents a cylinder shape as a SemDT cylinder geometry.
+    This class represents a cylinder shape as a semantic digital twin cylinder geometry.
     """
 
-    geometry: SemDTCylinder = field(default_factory=SemDTCylinder)
+    geometry: SemanticDigitalTwinCylinder = field(
+        default_factory=SemanticDigitalTwinCylinder
+    )
     """
-    SemDT cylinder geometry represented by this annotation
+    semantic digital twin cylinder geometry represented by this annotation
     """
 
 
@@ -196,7 +200,7 @@ class ColorHistogram(Annotation):
     saturation information.
     """
 
-    hist: Optional[npt.NDArray] = None
+    histogram: Optional[npt.NDArray] = None
     """
     2D histogram array
     """
@@ -338,35 +342,35 @@ class SIFTAnnotation(Annotation):
 
 
 @dataclass
-class TSDFAnnotation(Annotation):
-    """A TSDF Volume annotation."""
+class TruncatedSignedDistanceFunctionAnnotation(Annotation):
+    """A truncated signed distance function Volume annotation."""
 
     volume: Optional[o3d.pipelines.integration.ScalableTSDFVolume] = None
-    """The Open3D TSDF Volume object."""
+    """The Open3D truncated signed distance function Volume object."""
 
     transform: Optional[npt.NDArray[np.float64]] = None
     """The transform from the reference frame to the object frame."""
 
     def get_coordinate_frame(self) -> o3d.geometry.TriangleMesh:
-        """Get the coordinate frame of the TSDF volume."""
+        """Get the coordinate frame of the truncated signed distance function volume."""
         frame = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.25)
         frame.transform(self.transform)
         return frame
 
     def get_mesh(self) -> o3d.geometry.TriangleMesh:
-        """Get the mesh representation of the TSDF volume."""
+        """Get the mesh representation of the truncated signed distance function volume."""
         mesh = self.volume.extract_triangle_mesh()
         mesh.transform(self.transform)
         return mesh
 
     def get_point_cloud(self) -> o3d.geometry.PointCloud:
-        """Get the point cloud representation of the TSDF volume."""
-        pcd = self.volume.extract_point_cloud()
-        pcd.transform(self.transform)
-        return pcd
+        """Get the point cloud representation of the truncated signed distance function volume."""
+        point_cloud = self.volume.extract_point_cloud()
+        point_cloud.transform(self.transform)
+        return point_cloud
 
     def get_voxel_point_cloud(self) -> o3d.geometry.PointCloud:
-        """Get the voxel point cloud representation of the TSDF volume."""
-        pcd = self.volume.extract_voxel_point_cloud()
-        pcd.transform(self.transform)
-        return pcd
+        """Get the voxel point cloud representation of the truncated signed distance function volume."""
+        point_cloud = self.volume.extract_voxel_point_cloud()
+        point_cloud.transform(self.transform)
+        return point_cloud

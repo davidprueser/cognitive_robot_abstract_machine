@@ -1,5 +1,5 @@
 """
-Simulated RGB-D camera interface backed by SemDT RayTracer.
+Simulated RGB-D camera interface backed by semantic digital twin RayTracer.
 """
 
 from __future__ import annotations
@@ -7,6 +7,7 @@ from __future__ import annotations
 import io
 import time
 from typing import Dict, Tuple
+from typing_extensions import TYPE_CHECKING
 
 import numpy as np
 import open3d as o3d
@@ -14,8 +15,11 @@ from PIL import Image as PILImage, UnidentifiedImageError
 from pyglet.canvas.xlib import NoSuchDisplayException
 from sensor_msgs.msg import CameraInfo
 
-import robokudo.world as rk_world
-from robokudo.cas import CASViews, CAS
+import robokudo.world as robokudo_world
+from robokudo.common_analysis_structure import (
+    CommonAnalysisStructureViews,
+    CommonAnalysisStructure,
+)
 from robokudo.io.camera_interface import CameraInterface, ROSCameraInterface
 from robokudo.utils.camera_model import (
     pinhole_camera_parameters_from_horizontal_field_of_view,
@@ -30,21 +34,26 @@ from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.connections import Connection6DoF
 from semantic_digital_twin.world_description.world_entity import Body
 
+if TYPE_CHECKING:
+    from robokudo.descriptors.camera_configs.config_semantic_digital_twin_raytracer import (
+        SemanticDigitalTwinRayTracerCameraConfig,
+    )
 
-class SemDTRayTracerCameraInterface(CameraInterface):
+
+class SemanticDigitalTwinRayTracerCameraInterface(CameraInterface):
     """
     Render RGB-D camera data from a Semantic Digital Twin world.
 
     The interface loads a configured world descriptor, places a virtual camera in
     that world, and writes the rendered color image, depth image, segmentation,
-    camera model, and ground-truth world reference into the CAS.
+    camera model, and ground-truth world reference into the common analysis structure.
 
     .. note::
         The configured camera pose uses ROS optical-frame convention, while the
-        SemDT ray tracer renders from a camera-link-like frame.
+        semantic digital twin ray tracer renders from a camera-link-like frame.
     """
 
-    def __init__(self, camera_config):
+    def __init__(self, camera_config: SemanticDigitalTwinRayTracerCameraConfig) -> None:
         """
         Initialize the camera interface.
 
@@ -53,7 +62,7 @@ class SemDTRayTracerCameraInterface(CameraInterface):
         super().__init__(camera_config)
         self.module_loader = ModuleLoader()
         """
-        Loader used to import configured SemDT world descriptors.
+        Loader used to import configured semantic digital twin world descriptors.
         """
 
     def has_new_data(self) -> bool:
@@ -65,11 +74,12 @@ class SemDTRayTracerCameraInterface(CameraInterface):
         # Simulated camera can always render a fresh frame.
         return True
 
-    def set_data(self, cas: CAS) -> None:
+    def set_data(self, common_analysis_structure: CommonAnalysisStructure) -> None:
         """
-        Render a simulated RGB-D frame and write it into the CAS.
+        Render a simulated RGB-D frame and write it into the common analysis structure.
 
-        :param cas: CAS that receives rendered camera data and frame metadata.
+        :param common_analysis_structure: common analysis structure that receives
+            rendered camera data and frame metadata.
         """
         world = self._load_runtime_world()
         world_frame_body = self._ensure_world_frame(world)
@@ -81,15 +91,16 @@ class SemDTRayTracerCameraInterface(CameraInterface):
 
         image_size = int(self.camera_config.resolution)
         resolution = CameraResolution(width=image_size, height=image_size)
-        fov_deg = float(self.camera_config.fov_deg)
+        field_of_view_degrees = float(self.camera_config.field_of_view_degrees)
         field_of_view = FieldOfView(
-            horizontal_angle=np.radians(fov_deg), vertical_angle=np.radians(fov_deg)
+            horizontal_angle=np.radians(field_of_view_degrees),
+            vertical_angle=np.radians(field_of_view_degrees),
         )
         min_distance = float(self.camera_config.min_distance)
         max_distance = float(self.camera_config.max_distance)
 
         ray_tracer = world.ray_tracer
-        segmentation, depth_m = self._render_segmentation_and_depth(
+        segmentation, depth_meters = self._render_segmentation_and_depth(
             ray_tracer=ray_tracer,
             camera_to_world=render_camera_to_world,
             resolution=resolution,
@@ -98,7 +109,7 @@ class SemDTRayTracerCameraInterface(CameraInterface):
             max_distance=max_distance,
         )
 
-        color_bgr, object_color_map = self._render_color_image(
+        color_in_blue_green_red, object_color_map = self._render_color_image(
             world=world,
             ray_tracer=ray_tracer,
             camera_to_world=render_camera_to_world,
@@ -106,44 +117,63 @@ class SemDTRayTracerCameraInterface(CameraInterface):
             resolution=resolution,
             field_of_view=field_of_view,
         )
-        depth_mm = self._depth_m_to_mm(depth_m)
+        depth_millimeters = self._depth_meters_to_millimeters(depth_meters)
 
         camera_info, camera_intrinsic = self._build_camera_models(
             frame_id=self.camera_config.camera_frame,
             resolution=image_size,
-            fov_deg=fov_deg,
+            field_of_view_degrees=field_of_view_degrees,
         )
 
-        timestamp_ns = time.time_ns()
-        camera_info.header.stamp.sec = int(timestamp_ns // 1_000_000_000)
-        camera_info.header.stamp.nanosec = int(timestamp_ns % 1_000_000_000)
+        timestamp_nanoseconds = time.time_ns()
+        camera_info.header.stamp.sec = int(timestamp_nanoseconds // 1_000_000_000)
+        camera_info.header.stamp.nanosec = int(timestamp_nanoseconds % 1_000_000_000)
 
-        cas.set(CASViews.COLOR_IMAGE, color_bgr)
-        cas.set(CASViews.DEPTH_IMAGE, depth_mm)
-        cas.set(CASViews.CAMERA_INFO, camera_info)
-        cas.set(CASViews.CAMERA_INTRINSIC, camera_intrinsic)
-        cas.set(CASViews.COLOR_TO_DEPTH_RATIO, self.camera_config.color_to_depth_ratio)
-        cas.set(CASViews.OBJECT_IMAGE, segmentation)
-        cas.set(CASViews.OBJECT_COLOR_MAP, object_color_map)
-        # Shared SemDT ground-truth world for this frame. Consumers must treat as read-only.
-        cas.set_ref(CASViews.GROUND_TRUTH_WORLD_REFERENCE, world)
+        common_analysis_structure.set(
+            CommonAnalysisStructureViews.COLOR_IMAGE, color_in_blue_green_red
+        )
+        common_analysis_structure.set(
+            CommonAnalysisStructureViews.DEPTH_IMAGE, depth_millimeters
+        )
+        common_analysis_structure.set(
+            CommonAnalysisStructureViews.CAMERA_INFO, camera_info
+        )
+        common_analysis_structure.set(
+            CommonAnalysisStructureViews.CAMERA_INTRINSIC, camera_intrinsic
+        )
+        common_analysis_structure.set(
+            CommonAnalysisStructureViews.COLOR_TO_DEPTH_RATIO,
+            self.camera_config.color_to_depth_ratio,
+        )
+        common_analysis_structure.set(
+            CommonAnalysisStructureViews.OBJECT_IMAGE, segmentation
+        )
+        common_analysis_structure.set(
+            CommonAnalysisStructureViews.OBJECT_COLOR_MAP, object_color_map
+        )
+        # Shared semantic digital twin ground-truth world for this frame. Consumers must treat as read-only.
+        common_analysis_structure.set_reference(
+            CommonAnalysisStructureViews.GROUND_TRUTH_WORLD_REFERENCE, world
+        )
 
-        cas.camera_to_world_transform = optical_camera_to_world
-        cas.data_timestamp = timestamp_ns
-        ROSCameraInterface.store_legacy_camera_to_world_transform_from_cas(cas)
+        common_analysis_structure.camera_to_world_transform = optical_camera_to_world
+        common_analysis_structure.data_timestamp = timestamp_nanoseconds
+        ROSCameraInterface.store_legacy_camera_to_world_transform_from_common_analysis_structure(
+            common_analysis_structure
+        )
 
     def _load_runtime_world(self) -> World:
         """
-        Load the configured SemDT world and install it as runtime world.
+        Load the configured semantic digital twin world and install it as runtime world.
 
         :return: Runtime world instance used for rendering.
         """
         world_descriptor = self.module_loader.load_world_descriptor(
-            ros_pkg_name=self.camera_config.world_descriptor_ros_package,
+            ros_package_name=self.camera_config.world_descriptor_ros_package,
             module_name=self.camera_config.world_descriptor_name,
         )
-        rk_world.set_world(world_descriptor.world)
-        return rk_world.world_instance()
+        robokudo_world.set_world(world_descriptor.world)
+        return robokudo_world.world_instance()
 
     def _ensure_world_frame(self, world: World) -> Body:
         """
@@ -222,12 +252,12 @@ class SemDTRayTracerCameraInterface(CameraInterface):
             reference_frame=world_frame_body,
             child_frame=camera_body,
         )
-        # SemDT ray tracer expects a camera_link-like frame:
+        # semantic digital twin ray tracer expects a camera_link-like frame:
         # x forward, y left, z up.
         camera_link_to_world = HomogeneousTransformationMatrix(
             data=(
                 camera_optical_to_world.to_np()
-                @ SemDTRayTracerCameraInterface._camera_optical_to_link_np()
+                @ SemanticDigitalTwinRayTracerCameraInterface._camera_optical_to_link_np()
             ),
             reference_frame=world_frame_body,
         )
@@ -262,7 +292,9 @@ class SemDTRayTracerCameraInterface(CameraInterface):
 
         :return: Numpy homogeneous transformation matrix.
         """
-        return np.linalg.inv(SemDTRayTracerCameraInterface._camera_link_to_optical_np())
+        return np.linalg.inv(
+            SemanticDigitalTwinRayTracerCameraInterface._camera_link_to_optical_np()
+        )
 
     @staticmethod
     def _render_segmentation_and_depth(
@@ -288,7 +320,7 @@ class SemDTRayTracerCameraInterface(CameraInterface):
         segmentation = (
             np.zeros((resolution.width, resolution.height), dtype=np.int32) - 1
         )
-        depth_m = (
+        depth_meters = (
             np.zeros((resolution.width, resolution.height), dtype=np.float32) - 1.0
         )
 
@@ -305,7 +337,7 @@ class SemDTRayTracerCameraInterface(CameraInterface):
         )
 
         if len(index_ray) == 0:
-            return segmentation, depth_m
+            return segmentation, depth_meters
 
         unique_index = np.unique(index_ray, return_index=True)[1]
         index_ray = index_ray[unique_index]
@@ -322,22 +354,22 @@ class SemDTRayTracerCameraInterface(CameraInterface):
         if isinstance(scene_camera_transform, tuple):
             scene_camera_transform = scene_camera_transform[0]
         world_to_camera = np.linalg.inv(np.asarray(scene_camera_transform))
-        points_h = np.concatenate(
+        homogeneous_points = np.concatenate(
             [points, np.ones((points.shape[0], 1), dtype=points.dtype)], axis=1
         )
-        points_camera = (world_to_camera @ points_h.T).T
+        points_camera = (world_to_camera @ homogeneous_points.T).T
         z_depth = -points_camera[:, 2]
         valid_depth = z_depth > 0.0
         pixel_ray = pixel_ray[valid_depth]
         z_depth = z_depth[valid_depth]
-        depth_m[pixel_ray[:, 0], pixel_ray[:, 1]] = z_depth.astype(np.float32)
+        depth_meters[pixel_ray[:, 0], pixel_ray[:, 1]] = z_depth.astype(np.float32)
 
-        return segmentation, depth_m
+        return segmentation, depth_meters
 
     def _render_color_image(
         self,
         world: World,
-        ray_tracer,
+        ray_tracer: RayTracer,
         camera_to_world: HomogeneousTransformationMatrix,
         segmentation: np.ndarray,
         resolution: CameraResolution,
@@ -347,16 +379,17 @@ class SemDTRayTracerCameraInterface(CameraInterface):
         Render a BGR color image for the current frame.
 
         :param world: Runtime world that provides semantic body colors.
-        :param ray_tracer: SemDT ray tracer used for optional mesh rendering.
+        :param ray_tracer: semantic digital twin ray tracer used for optional mesh
+            rendering.
         :param camera_to_world: Camera pose used by the RayTracer renderer.
         :param segmentation: Body-index segmentation image.
         :param resolution: Image resolution.
         :param field_of_view: Camera field of view.
         :return: BGR image and optional RGB-to-object-name color map.
         """
-        rgb_mode = str(self.camera_config.rgb_mode).strip().lower()
-        if rgb_mode == "trimesh":
-            trimesh_image = self._try_render_trimesh_rgb(
+        color_mode = str(self.camera_config.color_mode).strip().lower()
+        if color_mode == "trimesh":
+            trimesh_image = self._try_render_trimesh_color_image(
                 ray_tracer=ray_tracer,
                 camera_to_world=camera_to_world,
                 resolution=resolution,
@@ -364,18 +397,18 @@ class SemDTRayTracerCameraInterface(CameraInterface):
             )
             if trimesh_image is not None:
                 return trimesh_image, {}
-            self.rk_logger.warning(
-                "SemDTRayTracerCameraInterface: trimesh RGB rendering failed. Falling back to semantic colors."
+            self.robokudo_logger.warning(
+                "SemanticDigitalTwinRayTracerCameraInterface: trimesh RGB rendering failed. Falling back to semantic colors."
             )
 
-        semantic_rgb, object_color_map = self._render_semantic_rgb(
+        semantic_color_image, object_color_map = self._render_semantic_color_image(
             world=world, segmentation=segmentation
         )
-        return semantic_rgb[:, :, ::-1].copy(), object_color_map
+        return semantic_color_image[:, :, ::-1].copy(), object_color_map
 
-    def _try_render_trimesh_rgb(
+    def _try_render_trimesh_color_image(
         self,
-        ray_tracer,
+        ray_tracer: RayTracer,
         camera_to_world: HomogeneousTransformationMatrix,
         resolution: CameraResolution,
         field_of_view: FieldOfView,
@@ -383,7 +416,7 @@ class SemDTRayTracerCameraInterface(CameraInterface):
         """
         Render textured mesh colors through the RayTracer scene.
 
-        :param ray_tracer: SemDT ray tracer that owns the Trimesh scene.
+        :param ray_tracer: semantic digital twin ray tracer that owns the Trimesh scene.
         :param camera_to_world: Camera pose used by the RayTracer renderer.
         :param resolution: Image resolution.
         :param field_of_view: Camera field of view.
@@ -402,7 +435,7 @@ class SemDTRayTracerCameraInterface(CameraInterface):
         except (NoSuchDisplayException, UnidentifiedImageError, OSError, ValueError):
             return None
 
-    def _render_semantic_rgb(
+    def _render_semantic_color_image(
         self, world: World, segmentation: np.ndarray
     ) -> Tuple[np.ndarray, Dict[str, str]]:
         """
@@ -412,7 +445,7 @@ class SemDTRayTracerCameraInterface(CameraInterface):
         :param segmentation: Body-index segmentation image.
         :return: RGB image and RGB-to-object-name color map.
         """
-        rgb = np.zeros(
+        color_image = np.zeros(
             (segmentation.shape[0], segmentation.shape[1], 3), dtype=np.uint8
         )
         object_color_map: Dict[str, str] = {}
@@ -422,16 +455,16 @@ class SemDTRayTracerCameraInterface(CameraInterface):
                 continue
 
             body = world.kinematic_structure[int(body_index)]
-            body_rgb = self._rgb_for_body(body)
-            rgb[segmentation == body_index] = body_rgb
-            object_color_map[f"{body_rgb[0]},{body_rgb[1]},{body_rgb[2]}"] = (
+            body_color = self._color_for_body(body)
+            color_image[segmentation == body_index] = body_color
+            object_color_map[f"{body_color[0]},{body_color[1]},{body_color[2]}"] = (
                 body.name.name
             )
 
-        return rgb, object_color_map
+        return color_image, object_color_map
 
     @staticmethod
-    def _rgb_for_body(body: Body) -> np.ndarray:
+    def _color_for_body(body: Body) -> np.ndarray:
         """
         Return the semantic RGB color for a world body.
 
@@ -448,43 +481,43 @@ class SemDTRayTracerCameraInterface(CameraInterface):
         return np.array(
             [
                 int(np.clip(round(color.R * 255.0), 0, 255)),
-                int(np.clip(round(color.G * 255.0), 0, 255)),
+                int(np.clip(round(color.GeometryType * 255.0), 0, 255)),
                 int(np.clip(round(color.B * 255.0), 0, 255)),
             ],
             dtype=np.uint8,
         )
 
     @staticmethod
-    def _depth_m_to_mm(depth_m: np.ndarray) -> np.ndarray:
+    def _depth_meters_to_millimeters(depth_meters: np.ndarray) -> np.ndarray:
         """
         Convert meter depth values to unsigned millimeter depth values.
 
-        :param depth_m: Depth image in meters with negative values for misses.
+        :param depth_meters: Depth image in meters with negative values for misses.
         :return: Depth image in millimeters with misses encoded as zero.
         """
-        depth_mm = np.zeros(depth_m.shape, dtype=np.uint16)
-        valid_mask = depth_m >= 0.0
-        depth_mm[valid_mask] = np.clip(
-            np.round(depth_m[valid_mask] * 1000.0), 0, np.iinfo(np.uint16).max
+        depth_millimeters = np.zeros(depth_meters.shape, dtype=np.uint16)
+        valid_mask = depth_meters >= 0.0
+        depth_millimeters[valid_mask] = np.clip(
+            np.round(depth_meters[valid_mask] * 1000.0), 0, np.iinfo(np.uint16).max
         ).astype(np.uint16)
-        return depth_mm
+        return depth_millimeters
 
     @staticmethod
     def _build_camera_models(
-        frame_id: str, resolution: int, fov_deg: float
+        frame_id: str, resolution: int, field_of_view_degrees: float
     ) -> Tuple[CameraInfo, o3d.camera.PinholeCameraIntrinsic]:
         """
         Build ROS and Open3D pinhole camera models.
 
         :param frame_id: Camera frame name stored in the ROS camera info header.
         :param resolution: Square image resolution.
-        :param fov_deg: Horizontal camera field of view.
+        :param field_of_view_degrees: Horizontal camera field of view.
         :return: ROS camera info and matching Open3D intrinsic model.
         """
         camera_parameters = pinhole_camera_parameters_from_horizontal_field_of_view(
             width=int(resolution),
             height=int(resolution),
-            horizontal_field_of_view_degrees=float(fov_deg),
+            horizontal_field_of_view_degrees=float(field_of_view_degrees),
         )
 
         camera_info = CameraInfo()

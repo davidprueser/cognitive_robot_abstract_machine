@@ -1,9 +1,10 @@
+from __future__ import annotations
 from pathlib import Path
 
 import pooch
 from filelock import FileLock
 
-# ---- Configuration ----
+# %% configuration
 DATA_PACKAGE_NAME: str = "robokudo_test_data"
 DATA_VERSION: str = "b991b2f15cd734672f449349a9e566fb67aad81e"
 KNOWN_HASH: str = (
@@ -54,6 +55,6 @@ def test_data_path() -> Path:
 
     # Pooch returns list of extracted file paths
     # We usually want the root extracted directory:
-    extracted_dir = Path(extracted_files[0]).parents[0]
+    extracted_directory = Path(extracted_files[0]).parents[0]
 
-    return extracted_dir
+    return extracted_directory

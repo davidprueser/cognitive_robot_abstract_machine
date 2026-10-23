@@ -94,7 +94,7 @@ class CupScene(BlackWallScene):
         """
         :param color_to_depth_ratio: Size of the depth image relative to the color
             image.
-        :return: An annotator whose CAS holds a color image and a matching depth image.
+        :return: An annotator whose common analysis structure holds a color image and a matching depth image.
         """
         annotator = YoloAnnotator(descriptor=descriptor)
         self.place_in_pipeline(annotator, color_to_depth_ratio)
@@ -117,7 +117,7 @@ def scene(tmp_path: Path) -> CupScene:
 
 
 @pytest.fixture
-def model_loader(monkeypatch, scene: CupScene) -> MockModelLoader:
+def model_loader(monkeypatch: pytest.MonkeyPatch, scene: CupScene) -> MockModelLoader:
     """
     Make the annotator load mock models detecting the scene's cup instead of real ones.
     """
@@ -147,7 +147,9 @@ def _depth_descriptor(scene: CupScene) -> YoloAnnotator.Descriptor:
 
 
 def _hypotheses(annotator: YoloAnnotator) -> list[ObjectHypothesis]:
-    return annotator.get_cas().filter_annotations_by_type(ObjectHypothesis)
+    return annotator.get_common_analysis_structure().filter_annotations_by_type(
+        ObjectHypothesis
+    )
 
 
 def _only_hypothesis(annotator: YoloAnnotator) -> ObjectHypothesis:
@@ -166,23 +168,25 @@ def _classification(hypothesis: ObjectHypothesis) -> Classification:
 
 def _hypothesis_at(x: int, y: int, width: int, height: int) -> ObjectHypothesis:
     hypothesis = ObjectHypothesis()
-    hypothesis.roi.roi.pos.x = x
-    hypothesis.roi.roi.pos.y = y
-    hypothesis.roi.roi.width = width
-    hypothesis.roi.roi.height = height
+    hypothesis.region_of_interest.rectangle.position.x = x
+    hypothesis.region_of_interest.rectangle.position.y = y
+    hypothesis.region_of_interest.rectangle.width = width
+    hypothesis.region_of_interest.rectangle.height = height
     return hypothesis
 
 
 # %% model loading
 
 
-def test_models_directory_defaults_to_models_folder_of_robokudo_package():
+def test_models_directory_defaults_to_models_folder_of_robokudo_package() -> None:
     parameters = YoloAnnotator.Descriptor.Parameters()
 
     assert parameters.models_directory == Path(robokudo.__file__).parent / "models"
 
 
-def test_pretrained_model_is_loaded_from_models_directory(model_loader, scene):
+def test_pretrained_model_is_loaded_from_models_directory(
+    model_loader: MockModelLoader, scene: CupScene
+) -> None:
     descriptor = scene.descriptor()
 
     YoloAnnotator(descriptor=descriptor).setup()
@@ -192,7 +196,9 @@ def test_pretrained_model_is_loaded_from_models_directory(model_loader, scene):
     ]
 
 
-def test_segmentation_model_is_loaded_from_models_directory(model_loader, scene):
+def test_segmentation_model_is_loaded_from_models_directory(
+    model_loader: MockModelLoader, scene: CupScene
+) -> None:
     descriptor = scene.descriptor()
     descriptor.parameters.precision_mode = True
 
@@ -203,13 +209,17 @@ def test_segmentation_model_is_loaded_from_models_directory(model_loader, scene)
     ]
 
 
-def test_setup_creates_missing_models_directory(model_loader, scene):
+def test_setup_creates_missing_models_directory(
+    model_loader: MockModelLoader, scene: CupScene
+) -> None:
     YoloAnnotator(descriptor=scene.descriptor()).setup()
 
     assert scene.models_directory.is_dir()
 
 
-def test_annotator_without_model_raises(model_loader, scene):
+def test_annotator_without_model_raises(
+    model_loader: MockModelLoader, scene: CupScene
+) -> None:
     descriptor = scene.descriptor()
     descriptor.parameters.pretrained_model = None
 
@@ -218,13 +228,18 @@ def test_annotator_without_model_raises(model_loader, scene):
 
 
 def test_custom_weights_and_class_names_are_read_from_ros_package(
-    model_loader, scene, monkeypatch, tmp_path
-):
+    model_loader: MockModelLoader,
+    scene: CupScene,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
     monkeypatch.setattr(
         FileLoader,
         "get_path_to_file_in_ros_package",
         staticmethod(
-            lambda ros_pkg_name, relative_path: tmp_path / ros_pkg_name / relative_path
+            lambda ros_package_name, relative_path: tmp_path
+            / ros_package_name
+            / relative_path
         ),
     )
     descriptor = scene.descriptor()
@@ -250,7 +265,9 @@ def test_custom_weights_and_class_names_are_read_from_ros_package(
 # %% detection
 
 
-def test_detection_becomes_hypothesis_classified_as_detected_class(model_loader, scene):
+def test_detection_becomes_hypothesis_classified_as_detected_class(
+    model_loader: MockModelLoader, scene: CupScene
+) -> None:
     annotator = scene.annotator_in_pipeline(scene.descriptor())
 
     status = annotator.compute()
@@ -267,17 +284,21 @@ def test_detection_becomes_hypothesis_classified_as_detected_class(model_loader,
     assert classification.source == annotator.name
 
 
-def test_hypothesis_region_is_detection_bounding_box(model_loader, scene):
+def test_hypothesis_region_is_detection_bounding_box(
+    model_loader: MockModelLoader, scene: CupScene
+) -> None:
     annotator = scene.annotator_in_pipeline(scene.descriptor())
 
     annotator.compute()
 
-    assert _only_hypothesis(annotator).roi.roi.get_corner_points() == tuple(
-        scene.cup_corners()
-    )
+    assert _only_hypothesis(
+        annotator
+    ).region_of_interest.rectangle.get_corner_points() == tuple(scene.cup_corners())
 
 
-def test_person_detection_becomes_human_hypothesis(model_loader, scene):
+def test_person_detection_becomes_human_hypothesis(
+    model_loader: MockModelLoader, scene: CupScene
+) -> None:
     descriptor = scene.descriptor()
     person_class_id = next(
         class_id
@@ -293,8 +314,8 @@ def test_person_detection_becomes_human_hypothesis(model_loader, scene):
 
 
 def test_detection_of_configured_person_class_becomes_human_hypothesis(
-    model_loader, scene
-):
+    model_loader: MockModelLoader, scene: CupScene
+) -> None:
     descriptor = scene.descriptor()
     descriptor.parameters.person_class_name = scene.class_names[scene.cup_class_id]
     annotator = scene.annotator_in_pipeline(descriptor)
@@ -304,7 +325,9 @@ def test_detection_of_configured_person_class_becomes_human_hypothesis(
     assert type(_only_hypothesis(annotator)) is HumanHypothesis
 
 
-def test_detection_of_ignored_class_is_not_annotated(model_loader, scene):
+def test_detection_of_ignored_class_is_not_annotated(
+    model_loader: MockModelLoader, scene: CupScene
+) -> None:
     descriptor = scene.descriptor()
     descriptor.parameters.ignored_class_names = [
         f" {scene.class_names[scene.cup_class_id]} "
@@ -316,7 +339,9 @@ def test_detection_of_ignored_class_is_not_annotated(model_loader, scene):
     assert _hypotheses(annotator) == []
 
 
-def test_model_predicts_with_configured_threshold(model_loader, scene):
+def test_model_predicts_with_configured_threshold(
+    model_loader: MockModelLoader, scene: CupScene
+) -> None:
     descriptor = scene.descriptor()
     descriptor.parameters.threshold = 0.42
     annotator = scene.annotator_in_pipeline(descriptor)
@@ -329,14 +354,16 @@ def test_model_predicts_with_configured_threshold(model_loader, scene):
 # %% masks
 
 
-def test_mask_fills_bounding_box_without_precision_mode(model_loader, scene):
+def test_mask_fills_bounding_box_without_precision_mode(
+    model_loader: MockModelLoader, scene: CupScene
+) -> None:
     annotator = scene.annotator_in_pipeline(scene.descriptor())
 
     annotator.compute()
 
     x1, y1, x2, y2 = scene.cup_corners()
     np.testing.assert_array_equal(
-        _only_hypothesis(annotator).roi.mask,
+        _only_hypothesis(annotator).region_of_interest.mask,
         np.full((y2 - y1, x2 - x1), YoloAnnotator.mask_foreground, dtype=np.uint8),
     )
 
@@ -359,17 +386,22 @@ def _segmented_cup_mask(model_loader: MockModelLoader, scene: CupScene) -> np.nd
     return (segmentation[y1:y2, x1:x2] * YoloAnnotator.mask_foreground).astype(np.uint8)
 
 
-def test_precision_mode_mask_is_segmentation_of_detection(model_loader, scene):
+def test_precision_mode_mask_is_segmentation_of_detection(
+    model_loader: MockModelLoader, scene: CupScene
+) -> None:
     annotator = scene.annotator_in_pipeline(_precision_descriptor(scene))
 
     annotator.compute()
 
     np.testing.assert_array_equal(
-        _only_hypothesis(annotator).roi.mask, _segmented_cup_mask(model_loader, scene)
+        _only_hypothesis(annotator).region_of_interest.mask,
+        _segmented_cup_mask(model_loader, scene),
     )
 
 
-def test_precision_mode_erosion_shrinks_segmentation(model_loader, scene):
+def test_precision_mode_erosion_shrinks_segmentation(
+    model_loader: MockModelLoader, scene: CupScene
+) -> None:
     descriptor = _precision_descriptor(scene)
     descriptor.parameters.precision_mode_apply_erosion = True
     descriptor.parameters.precision_mode_erosion_kernel_size = 3
@@ -377,7 +409,10 @@ def test_precision_mode_erosion_shrinks_segmentation(model_loader, scene):
 
     annotator.compute()
 
-    eroded = _only_hypothesis(annotator).roi.mask == YoloAnnotator.mask_foreground
+    eroded = (
+        _only_hypothesis(annotator).region_of_interest.mask
+        == YoloAnnotator.mask_foreground
+    )
     segmented = (
         _segmented_cup_mask(model_loader, scene) == YoloAnnotator.mask_foreground
     )
@@ -389,8 +424,8 @@ def test_precision_mode_erosion_shrinks_segmentation(model_loader, scene):
 
 
 def test_visualization_draws_labelled_bounding_box_of_each_detection(
-    model_loader, scene
-):
+    model_loader: MockModelLoader, scene: CupScene
+) -> None:
     annotator = scene.annotator_in_pipeline(scene.descriptor())
 
     annotator.compute()
@@ -404,11 +439,13 @@ def test_visualization_draws_labelled_bounding_box_of_each_detection(
         lambda _: f"{classification.classname}, {classification.confidence:.2f}",
     )
     np.testing.assert_array_equal(
-        annotator.get_annotator_output_struct().image, expected_image
+        annotator.get_annotator_output_structure().image, expected_image
     )
 
 
-def test_precision_mode_visualization_paints_mask_in_palette_color(model_loader, scene):
+def test_precision_mode_visualization_paints_mask_in_palette_color(
+    model_loader: MockModelLoader, scene: CupScene
+) -> None:
     annotator = scene.annotator_in_pipeline(_precision_descriptor(scene))
 
     annotator.compute()
@@ -416,7 +453,7 @@ def test_precision_mode_visualization_paints_mask_in_palette_color(model_loader,
     x1, y1, x2, y2 = scene.cup_corners()
     segmented_rows = slice(y1 + 2, (y1 + y2) // 2)
     columns_inside_box = slice(x1 + 2, x2 - 2)
-    painted = annotator.get_annotator_output_struct().image[
+    painted = annotator.get_annotator_output_structure().image[
         segmented_rows, columns_inside_box
     ]
     assert np.all(painted == colors(0, bgr=True))
@@ -425,7 +462,9 @@ def test_precision_mode_visualization_paints_mask_in_palette_color(model_loader,
 # %% depth
 
 
-def test_point_cloud_holds_depth_measured_inside_bounding_box(model_loader, scene):
+def test_point_cloud_holds_depth_measured_inside_bounding_box(
+    model_loader: MockModelLoader, scene: CupScene
+) -> None:
     annotator = scene.annotator_in_pipeline(_depth_descriptor(scene))
 
     annotator.compute()
@@ -437,8 +476,8 @@ def test_point_cloud_holds_depth_measured_inside_bounding_box(model_loader, scen
 
 
 def test_region_detected_on_smaller_depth_resolution_is_in_color_pixels(
-    model_loader, scene
-):
+    model_loader: MockModelLoader, scene: CupScene
+) -> None:
     annotator = scene.annotator_in_pipeline(
         _depth_descriptor(scene), color_to_depth_ratio=0.5
     )
@@ -447,8 +486,13 @@ def test_region_detected_on_smaller_depth_resolution_is_in_color_pixels(
 
     hypothesis = _only_hypothesis(annotator)
     x1, y1, x2, y2 = scene.cup_corners()
-    assert hypothesis.roi.roi.get_corner_points() == (x1, y1, x2, y2)
-    assert hypothesis.roi.mask.shape == (y2 - y1, x2 - x1)
+    assert hypothesis.region_of_interest.rectangle.get_corner_points() == (
+        x1,
+        y1,
+        x2,
+        y2,
+    )
+    assert hypothesis.region_of_interest.mask.shape == (y2 - y1, x2 - x1)
 
 
 # %% existing hypotheses
@@ -464,11 +508,13 @@ def _annotator_with_existing_hypothesis(
     scene: CupScene, descriptor: YoloAnnotator.Descriptor, existing: ObjectHypothesis
 ) -> YoloAnnotator:
     annotator = scene.annotator_in_pipeline(descriptor)
-    annotator.get_cas().annotations.append(existing)
+    annotator.get_common_analysis_structure().annotations.append(existing)
     return annotator
 
 
-def test_detection_overlapping_existing_hypothesis_classifies_it(model_loader, scene):
+def test_detection_overlapping_existing_hypothesis_classifies_it(
+    model_loader: MockModelLoader, scene: CupScene
+) -> None:
     existing = scene.cup_shaped_hypothesis()
     annotator = _annotator_with_existing_hypothesis(
         scene, _existing_hypothesis_descriptor(scene), existing
@@ -480,7 +526,9 @@ def test_detection_overlapping_existing_hypothesis_classifies_it(model_loader, s
     assert _classification(existing).classname == scene.class_names[scene.cup_class_id]
 
 
-def test_detection_apart_from_existing_hypothesis_creates_new_one(model_loader, scene):
+def test_detection_apart_from_existing_hypothesis_creates_new_one(
+    model_loader: MockModelLoader, scene: CupScene
+) -> None:
     existing = _hypothesis_at(x=0, y=0, width=5, height=5)
     annotator = _annotator_with_existing_hypothesis(
         scene, _existing_hypothesis_descriptor(scene), existing
@@ -492,7 +540,9 @@ def test_detection_apart_from_existing_hypothesis_creates_new_one(model_loader, 
     assert existing.annotations == []
 
 
-def test_existing_hypotheses_are_left_alone_unless_enabled(model_loader, scene):
+def test_existing_hypotheses_are_left_alone_unless_enabled(
+    model_loader: MockModelLoader, scene: CupScene
+) -> None:
     existing = scene.cup_shaped_hypothesis()
     annotator = _annotator_with_existing_hypothesis(scene, scene.descriptor(), existing)
 

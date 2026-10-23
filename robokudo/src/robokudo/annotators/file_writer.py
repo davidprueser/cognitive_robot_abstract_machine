@@ -28,7 +28,7 @@ import cv2
 from py_trees.common import Status
 
 from robokudo.annotators.core import BaseAnnotator
-from robokudo.cas import CASViews
+from robokudo.common_analysis_structure import CommonAnalysisStructureViews
 from robokudo.utils.type_conversion import ros_camera_info_to_dict
 
 
@@ -54,7 +54,7 @@ class FileWriter(BaseAnnotator):
             """
 
             def __init__(self) -> None:
-                self.target_dir: str = "/tmp/"
+                self.target_directory: str = "/tmp/"
                 """Directory to store files in"""
 
                 self.filename_prefix: str = "rk_"
@@ -76,38 +76,42 @@ class FileWriter(BaseAnnotator):
         super().__init__(name, descriptor)
         self.initialized = False
 
-        self.rk_logger.debug("%s.__init__()" % self.__class__.__name__)
-        self.rk_logger.debug(
-            f"Writing files to {self.descriptor.parameters.target_dir}"
+        self.robokudo_logger.debug("%s.__init__()" % self.__class__.__name__)
+        self.robokudo_logger.debug(
+            f"Writing files to {self.descriptor.parameters.target_directory}"
         )
-        self.target_dir_path: Path = Path(self.descriptor.parameters.target_dir)
+        self.target_directory_path: Path = Path(
+            self.descriptor.parameters.target_directory
+        )
 
-        if self.target_dir_path.exists() and self.target_dir_path.is_dir():
+        if self.target_directory_path.exists() and self.target_directory_path.is_dir():
             self.initialized = True
         else:
-            self.rk_logger.error(
-                f"{self.descriptor.parameters.target_dir} is not existing or not a directory"
+            self.robokudo_logger.error(
+                f"{self.descriptor.parameters.target_directory} is not existing or not a directory"
             )
 
-    def generate_full_file_path_(self, cas_view: str, file_extension: str) -> str:
+    def generate_full_file_path_(
+        self, common_analysis_structure_view: str, file_extension: str
+    ) -> str:
         """Generate the full filename and path where data should be stored.
 
         Creates a filepath using:
 
         * Configured prefix
         * Current timestamp
-        * CAS view name
+        * common analysis structure view name
         * File extension
 
-        :param cas_view: One of the definitions from CASView.X
+        :param common_analysis_structure_view: One of the definitions from CommonAnalysisStructureView.X
         :param file_extension: File extension without dot (e.g. "jpg")
         :return: A string with the full path according to our naming scheme.
         """
-        fn_prefix = self.descriptor.parameters.filename_prefix
-        timestamp = self.get_cas().timestamp
+        filename_prefix = self.descriptor.parameters.filename_prefix
+        timestamp = self.get_common_analysis_structure().timestamp
         return str(
-            self.target_dir_path.joinpath(
-                f"{fn_prefix}{str(timestamp)}_{cas_view}.{file_extension}"
+            self.target_directory_path.joinpath(
+                f"{filename_prefix}{str(timestamp)}_{common_analysis_structure_view}.{file_extension}"
             )
         )
 
@@ -132,19 +136,27 @@ class FileWriter(BaseAnnotator):
             )
             return Status.FAILURE
 
-        color = self.get_cas().get(CASViews.COLOR_IMAGE)
-        depth = self.get_cas().get(CASViews.DEPTH_IMAGE)
-        camera_info = self.get_cas().get(CASViews.CAMERA_INFO)
+        color = self.get_common_analysis_structure().get(
+            CommonAnalysisStructureViews.COLOR_IMAGE
+        )
+        depth = self.get_common_analysis_structure().get(
+            CommonAnalysisStructureViews.DEPTH_IMAGE
+        )
+        camera_info = self.get_common_analysis_structure().get(
+            CommonAnalysisStructureViews.CAMERA_INFO
+        )
 
         cv2.imwrite(
             self.generate_full_file_path_(
-                cas_view=CASViews.COLOR_IMAGE, file_extension="jpg"
+                common_analysis_structure_view=CommonAnalysisStructureViews.COLOR_IMAGE,
+                file_extension="jpg",
             ),
             color,
         )
         cv2.imwrite(
             self.generate_full_file_path_(
-                cas_view=CASViews.DEPTH_IMAGE, file_extension="png"
+                common_analysis_structure_view=CommonAnalysisStructureViews.DEPTH_IMAGE,
+                file_extension="png",
             ),
             depth,
         )
@@ -153,12 +165,13 @@ class FileWriter(BaseAnnotator):
         with open(
             str(
                 self.generate_full_file_path_(
-                    cas_view=CASViews.CAMERA_INFO, file_extension="json"
+                    common_analysis_structure_view=CommonAnalysisStructureViews.CAMERA_INFO,
+                    file_extension="json",
                 )
             ),
             "w",
-        ) as fp:
-            json.dump(camera_info_dict, fp)
+        ) as file:
+            json.dump(camera_info_dict, file)
 
         end_timer = default_timer()
         self.feedback_message = f"Processing took {(end_timer - start_timer):.4f}s"

@@ -1,3 +1,4 @@
+from __future__ import annotations
 import os
 from collections.abc import Iterator
 from dataclasses import dataclass
@@ -11,12 +12,12 @@ from py_trees.blackboard import Blackboard
 from rclpy.node import Node
 from semantic_digital_twin.adapters.ros.node_registry import ROSNodeRegistry
 
-import robokudo.defs
+import robokudo.definitions
 from robokudo.annotators.outputs import AnnotatorOutputPerPipelineMap
 from robokudo.descriptors.camera_configs.config_mongodb_playback import (
     MongoCameraConfig,
 )
-from robokudo.identifier import BBIdentifier
+from robokudo.identifier import BlackboardIdentifier
 
 # %% Mongo storage preservation
 
@@ -37,9 +38,9 @@ class MongoStorageSnapshot:
     Whether RoboKudo's default storage database exists.
     """
 
-    cas_document_count: int | None
+    common_analysis_structure_document_count: int | None
     """
-    Number of persisted CAS documents when the database exists.
+    Number of persisted common analysis structure documents when the database exists.
     """
 
 
@@ -63,31 +64,33 @@ class MongoStoragePreservationCheck:
             port=int(os.getenv("RK_MONGO_PORT", 27017)),
             serverSelectionTimeoutMS=self.connection_timeout_milliseconds,
         )
-        database_name = MongoCameraConfig().db_name
+        database_name = MongoCameraConfig().database_name
         try:
             if database_name not in mongo_client.list_database_names():
                 return MongoStorageSnapshot(
                     is_available=True,
                     database_exists=False,
-                    cas_document_count=None,
+                    common_analysis_structure_document_count=None,
                 )
             return MongoStorageSnapshot(
                 is_available=True,
                 database_exists=True,
-                cas_document_count=mongo_client[database_name].cas.count_documents({}),
+                common_analysis_structure_document_count=mongo_client[
+                    database_name
+                ].common_analysis_structure.count_documents({}),
             )
         except ServerSelectionTimeoutError:
             return MongoStorageSnapshot(
                 is_available=False,
                 database_exists=False,
-                cas_document_count=None,
+                common_analysis_structure_document_count=None,
             )
         finally:
             mongo_client.close()
 
 
 @pytest.fixture(autouse=True, scope="session")
-def preserve_initial_robokudo_storage_database():
+def preserve_initial_robokudo_storage_database() -> Iterator[None]:
     """
     Verify that an existing default RoboKudo storage database survives the suite.
     """
@@ -103,11 +106,14 @@ def preserve_initial_robokudo_storage_database():
         return
 
     assert final_snapshot.database_exists
-    assert final_snapshot.cas_document_count == initial_snapshot.cas_document_count
+    assert (
+        final_snapshot.common_analysis_structure_document_count
+        == initial_snapshot.common_analysis_structure_document_count
+    )
 
 
 @pytest.fixture(scope="session", autouse=True)
-def ros_default():
+def ros_default() -> Iterator[None]:
     # RoboKudo keeps its own ROS lifecycle fixture on purpose.
     # We do not use test/conftest.py::rclpy_node here because:
     # 1) RoboKudo tests need a session-wide ROS context for many tests/files.
@@ -127,13 +133,13 @@ def ros_default():
 
 
 @pytest.fixture
-def node(ros_default):
+def node(ros_default: None) -> Iterator[Node]:
     node_registry = ROSNodeRegistry()
-    n = Node(robokudo.defs.TEST_ROS_NODE_NAME)
-    node_registry.register(n)
-    yield n
-    node_registry.clear(n)
-    n.destroy_node()
+    ros_node = Node(robokudo.definitions.TEST_ROS_NODE_NAME)
+    node_registry.register(ros_node)
+    yield ros_node
+    node_registry.clear(ros_node)
+    ros_node.destroy_node()
 
 
 def clear_blackboard() -> None:
@@ -141,8 +147,8 @@ def clear_blackboard() -> None:
     Destroy blackboard-owned ROS nodes before clearing shared state.
     """
     blackboard = Blackboard()
-    if blackboard.exists(BBIdentifier.QUERY_SERVER):
-        query_server = blackboard.get(BBIdentifier.QUERY_SERVER)
+    if blackboard.exists(BlackboardIdentifier.QUERY_SERVER):
+        query_server = blackboard.get(BlackboardIdentifier.QUERY_SERVER)
         query_server.destroy()
     Blackboard.clear()
 

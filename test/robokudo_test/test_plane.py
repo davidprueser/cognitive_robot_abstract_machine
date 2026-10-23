@@ -20,7 +20,10 @@ from py_trees.common import Status
 import robokudo.pipeline
 from robokudo.annotators.outputs import AnnotatorOutputPerPipelineMap, AnnotatorOutputs
 from robokudo.annotators.plane import PlaneAnnotator
-from robokudo.cas import CAS, CASViews
+from robokudo.common_analysis_structure import (
+    CommonAnalysisStructure,
+    CommonAnalysisStructureViews,
+)
 from robokudo.pipeline import Pipeline
 from robokudo.types.annotation import Plane
 
@@ -30,9 +33,9 @@ The seed the seeded annotators are given.
 """
 
 
-def cas_with_a_noisy_plane() -> CAS:
+def common_analysis_structure_with_a_noisy_plane() -> CommonAnalysisStructure:
     """
-    :return: A CAS whose cloud is a plane at ``z = 1`` with noise, under a scatter of
+    :return: A common analysis structure whose cloud is a plane at ``z = 1`` with noise, under a scatter of
         points above it, so that RANSAC has several nearly equally good planes to choose
         from; built afresh each time, since an annotator writes its plane into it.
     """
@@ -55,12 +58,20 @@ def cas_with_a_noisy_plane() -> CAS:
     cloud.points = o3d.utility.Vector3dVector(
         np.vstack([on_the_plane, above_the_plane])
     )
-    cas = CAS()
-    cas.set_ref(CASViews.CLOUD, cloud)
-    cas.set(CASViews.COLOR_IMAGE, np.zeros((200, 200, 3), dtype=np.uint8))
-    cas.set(CASViews.DEPTH_IMAGE, np.zeros((200, 200), dtype=np.uint16))
-    cas.set(CASViews.CAMERA_INTRINSIC, o3d.camera.PinholeCameraIntrinsic())
-    return cas
+    common_analysis_structure = CommonAnalysisStructure()
+    common_analysis_structure.set_reference(CommonAnalysisStructureViews.CLOUD, cloud)
+    common_analysis_structure.set(
+        CommonAnalysisStructureViews.COLOR_IMAGE,
+        np.zeros((200, 200, 3), dtype=np.uint8),
+    )
+    common_analysis_structure.set(
+        CommonAnalysisStructureViews.DEPTH_IMAGE, np.zeros((200, 200), dtype=np.uint16)
+    )
+    common_analysis_structure.set(
+        CommonAnalysisStructureViews.CAMERA_INTRINSIC,
+        o3d.camera.PinholeCameraIntrinsic(),
+    )
+    return common_analysis_structure
 
 
 def _plane_annotator_in_pipeline(random_seed: int | None) -> PlaneAnnotator:
@@ -73,7 +84,7 @@ def _plane_annotator_in_pipeline(random_seed: int | None) -> PlaneAnnotator:
     descriptor.parameters.visualize_plane_model = False
     descriptor.parameters.random_seed = random_seed
     pipeline = Pipeline("TestPipeline")
-    pipeline.cas = cas_with_a_noisy_plane()
+    pipeline.common_analysis_structure = common_analysis_structure_with_a_noisy_plane()
     annotator = PlaneAnnotator(descriptor=descriptor)
     pipeline.add_child(annotator)
     output_map = AnnotatorOutputPerPipelineMap()
@@ -90,13 +101,13 @@ def _detected_plane(annotator: PlaneAnnotator) -> Plane:
     assert annotator.compute() == Status.SUCCESS
     [plane] = [
         annotation
-        for annotation in annotator.get_cas().annotations
+        for annotation in annotator.get_common_analysis_structure().annotations
         if isinstance(annotation, Plane)
     ]
     return plane
 
 
-def test_a_seeded_annotator_finds_the_same_plane_every_time():
+def test_a_seeded_annotator_finds_the_same_plane_every_time() -> None:
     first = _detected_plane(_plane_annotator_in_pipeline(SEED))
     second = _detected_plane(_plane_annotator_in_pipeline(SEED))
 
@@ -104,5 +115,5 @@ def test_a_seeded_annotator_finds_the_same_plane_every_time():
     assert first.inliers == second.inliers
 
 
-def test_the_seed_is_off_by_default():
+def test_the_seed_is_off_by_default() -> None:
     assert PlaneAnnotator.Descriptor().parameters.random_seed is None

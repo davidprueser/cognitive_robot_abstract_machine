@@ -11,7 +11,7 @@ from uuid import UUID
 
 from py_trees.common import Status
 
-import robokudo.world as rk_world
+import robokudo.world as robokudo_world
 from robokudo.annotators.core import BaseAnnotator
 from robokudo.exceptions import WorldDescriptorBootstrapError
 from robokudo.utils.world_descriptor import load_world_descriptor
@@ -100,9 +100,11 @@ class WorldDescriptorBootstrapAnnotator(BaseAnnotator):
         """
         Keep tracker state synchronized after world augmentation.
         """
-        if rk_world.get_world_entity_tracker() is None:
+        if robokudo_world.get_world_entity_tracker() is None:
             return
-        rk_world.init_world_entity_tracker_from_world(rk_world.world_instance())
+        robokudo_world.initialize_world_entity_tracker_from_world(
+            robokudo_world.world_instance()
+        )
 
     @staticmethod
     def _snapshot_world_entities(world: Any) -> _WorldEntitySnapshot:
@@ -114,7 +116,9 @@ class WorldDescriptorBootstrapAnnotator(BaseAnnotator):
                 entity.id for entity in world.kinematic_structure_entities
             },
             connection_object_ids={id(connection) for connection in world.connections},
-            degree_of_freedom_ids={dof.id for dof in world.degrees_of_freedom},
+            degree_of_freedom_ids={
+                degree_of_freedom.id for degree_of_freedom in world.degrees_of_freedom
+            },
             semantic_annotation_ids={
                 annotation.id for annotation in world.semantic_annotations
             },
@@ -139,9 +143,9 @@ class WorldDescriptorBootstrapAnnotator(BaseAnnotator):
                 if id(connection) not in before.connection_object_ids
             ],
             degree_of_freedom_ids={
-                dof.id
-                for dof in world.degrees_of_freedom
-                if dof.id not in before.degree_of_freedom_ids
+                degree_of_freedom.id
+                for degree_of_freedom in world.degrees_of_freedom
+                if degree_of_freedom.id not in before.degree_of_freedom_ids
             },
             semantic_annotation_ids={
                 annotation.id
@@ -177,9 +181,12 @@ class WorldDescriptorBootstrapAnnotator(BaseAnnotator):
                     if id(connection) in connection_object_ids:
                         runtime_world.remove_connection(connection)
 
-                for dof in list(runtime_world.degrees_of_freedom):
-                    if dof.id in self._merged_descriptor_entities.degree_of_freedom_ids:
-                        runtime_world.remove_degree_of_freedom(dof)
+                for degree_of_freedom in list(runtime_world.degrees_of_freedom):
+                    if (
+                        degree_of_freedom.id
+                        in self._merged_descriptor_entities.degree_of_freedom_ids
+                    ):
+                        runtime_world.remove_degree_of_freedom(degree_of_freedom)
 
                 for entity in reversed(
                     list(runtime_world.kinematic_structure_entities)
@@ -200,7 +207,7 @@ class WorldDescriptorBootstrapAnnotator(BaseAnnotator):
         """
         Merge descriptor entities into the current shared world.
         """
-        runtime_world = rk_world.world_instance()
+        runtime_world = robokudo_world.world_instance()
         runtime_world_id = id(runtime_world)
         reload_on_update = self.descriptor.parameters.reload_on_update
 
@@ -231,7 +238,7 @@ class WorldDescriptorBootstrapAnnotator(BaseAnnotator):
         Load descriptor world and merge it into the current world.
         """
         start_timer = default_timer()
-        runtime_world_id = id(rk_world.world_instance())
+        runtime_world_id = id(robokudo_world.world_instance())
         if (
             self._last_augmented_world_id == runtime_world_id
             and not self.descriptor.parameters.reload_on_update

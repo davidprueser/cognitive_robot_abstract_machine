@@ -1,3 +1,4 @@
+from __future__ import annotations
 import numpy as np
 
 from robokudo.annotators.image_cluster_extractor import ImageClusterExtractor
@@ -5,8 +6,10 @@ from robokudo.annotators.image_cluster_extractor import ImageClusterExtractor
 
 class TestImageClusterExtractorHsvThreshold:
     """
-    True red sits at the hue wheel's 0/255 seam, so a naive contiguous
-    ``cv2.inRange`` only ever matches one side of it. Confirmed live on the real
+    True red sits at the hue wheel's 0/255 seam, so a naive contiguous ``cv2.inRange``
+    only ever matches one side of it.
+
+    Confirmed live on the real
     Stretch demo: a plain ``[215,255]`` hue range matched 124 of 101760 pixels on a
     red object; wrapping the range around the seam recovered 1748.
     """
@@ -23,7 +26,7 @@ class TestImageClusterExtractorHsvThreshold:
             dtype=np.uint8,
         )
 
-    def test_contiguous_range_does_not_wrap(self):
+    def test_contiguous_range_does_not_wrap(self) -> None:
         """
         A normal range (min hue <= max hue, e.g. the "blue" preset) must behave exactly
         like a plain ``cv2.inRange`` call, matching only within the stated bounds.
@@ -35,7 +38,7 @@ class TestImageClusterExtractorHsvThreshold:
 
         assert list(mask[0]) == [0, 255, 255, 0]
 
-    def test_wrapped_range_matches_both_sides_of_the_hue_seam(self):
+    def test_wrapped_range_matches_both_sides_of_the_hue_seam(self) -> None:
         """
         A wrapped range (min hue > max hue) must match hues close to 255 AND hues close
         to 0, not just one side.
@@ -47,7 +50,7 @@ class TestImageClusterExtractorHsvThreshold:
 
         assert list(mask[0]) == [255, 255, 255, 0, 0, 0, 255, 255]
 
-    def test_wrapped_range_still_respects_saturation_and_value_bounds(self):
+    def test_wrapped_range_still_respects_saturation_and_value_bounds(self) -> None:
         """
         Wrapping only changes how the hue channel is matched; saturation/value bounds
         must still exclude low-saturation pixels (e.g. gray/white background) that

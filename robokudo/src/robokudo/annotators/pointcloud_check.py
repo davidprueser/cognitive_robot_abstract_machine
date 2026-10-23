@@ -15,7 +15,7 @@ The annotator supports:
 * Detailed logging of check results
 
 .. note::
-   Point cloud must be available in CAS under CASViews.CLOUD.
+   Point cloud must be available in common analysis structure under CommonAnalysisStructureViews.CLOUD.
 """
 
 from __future__ import annotations
@@ -26,16 +26,16 @@ import open3d as o3d
 from py_trees.common import Status
 
 from robokudo.annotators.core import BaseAnnotator
-from robokudo.cas import CASViews
+from robokudo.common_analysis_structure import CommonAnalysisStructureViews
 from robokudo.exceptions import PointCloudThresholdError, PointCloudThresholdRelation
 from robokudo.utils.error_handling import catch_and_raise_to_blackboard
 
 
 class PointcloudCheckAnnotator(BaseAnnotator):
-    """Check if the CASViews.Cloud contains more than X points.
+    """Check if the CommonAnalysisStructureViews.Cloud contains more than X points.
 
     .. warning::
-       Will raise exception if point cloud not found in CAS.
+       Will raise exception if point cloud not found in common analysis structure.
     """
 
     class Descriptor(BaseAnnotator.Descriptor):
@@ -47,7 +47,7 @@ class PointcloudCheckAnnotator(BaseAnnotator):
             def __init__(self) -> None:
                 #
                 self.point_threshold: int = 100
-                """Decision boundary for: if CASViews.CLOUD has less than this amount of points"""
+                """Decision boundary for: if CommonAnalysisStructureViews.CLOUD has less than this amount of points"""
 
                 self.status_below_threshold: Status = Status.FAILURE
                 """Status when below threshold"""
@@ -79,7 +79,7 @@ class PointcloudCheckAnnotator(BaseAnnotator):
 
         The method:
 
-        * Loads point cloud from CAS
+        * Loads point cloud from common analysis structure
         * Counts number of points
         * Compares against threshold:
           * Below: Returns status_below_threshold
@@ -92,7 +92,9 @@ class PointcloudCheckAnnotator(BaseAnnotator):
         """
         start_timer = default_timer()
 
-        cloud = self.get_cas().get(CASViews.CLOUD)
+        cloud = self.get_common_analysis_structure().get(
+            CommonAnalysisStructureViews.CLOUD
+        )
         assert isinstance(cloud, o3d.geometry.PointCloud)
         point_count = len(cloud.points)
         if point_count < self.descriptor.parameters.point_threshold:
@@ -106,7 +108,7 @@ class PointcloudCheckAnnotator(BaseAnnotator):
                     relation=PointCloudThresholdRelation.BELOW,
                 )
 
-            self.rk_logger.info(
+            self.robokudo_logger.info(
                 f"Scene Pointcloud size({point_count}) is below "
                 f"threshold of {self.descriptor.parameters.point_threshold}"
             )
@@ -124,7 +126,7 @@ class PointcloudCheckAnnotator(BaseAnnotator):
                     relation=PointCloudThresholdRelation.ABOVE,
                 )
 
-            self.rk_logger.info(
+            self.robokudo_logger.info(
                 f"Scene Pointcloud size({point_count}) is above "
                 f"threshold of {self.descriptor.parameters.point_threshold}"
             )

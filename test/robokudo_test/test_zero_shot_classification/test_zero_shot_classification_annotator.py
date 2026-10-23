@@ -1,6 +1,6 @@
 """
 Tests for routing zero-shot classifications of whole images and object hypotheses into
-the CAS, independent of the model that classifies them.
+the common analysis structure, independent of the model that classifies them.
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ from py_trees.common import Status
 from robokudo.annotators.zero_shot_classification_annotator import (
     ZeroShotClassificationAnnotator,
 )
-from robokudo.cas import CASViews
+from robokudo.common_analysis_structure import CommonAnalysisStructureViews
 from robokudo.pipeline import Pipeline
 from robokudo.types.annotation import Classification
 from robokudo.types.scene import ObjectHypothesis
@@ -81,7 +81,7 @@ def _annotator_in_pipeline(
     descriptor: ZeroShotClassificationAnnotator.Descriptor, color_image: np.ndarray
 ) -> ChannelMeanClassificationAnnotator:
     """
-    :return: An annotator whose CAS holds the given color image.
+    :return: An annotator whose common analysis structure holds the given color image.
     """
     annotator = ChannelMeanClassificationAnnotator(
         name="ChannelMeanClassificationAnnotator", descriptor=descriptor
@@ -89,14 +89,18 @@ def _annotator_in_pipeline(
     pipeline = Pipeline("Sequence")
     pipeline.add_child(annotator)
     pipeline.setup()
-    annotator.get_cas().set(CASViews.COLOR_IMAGE, color_image)
+    annotator.get_common_analysis_structure().set(
+        CommonAnalysisStructureViews.COLOR_IMAGE, color_image
+    )
     return annotator
 
 
 def _scene_classifications(
     annotator: ZeroShotClassificationAnnotator,
 ) -> list[Classification]:
-    return annotator.get_cas().filter_annotations_by_type(Classification)
+    return annotator.get_common_analysis_structure().filter_annotations_by_type(
+        Classification
+    )
 
 
 def _classnames(classifications: list[Classification]) -> list[str]:
@@ -106,7 +110,9 @@ def _classnames(classifications: list[Classification]) -> list[str]:
 # %% scene scope
 
 
-def test_scene_scope_adds_the_image_classifications_to_the_cas():
+def test_scene_scope_adds_the_image_classifications_to_the_common_analysis_structure() -> (
+    None
+):
     color = COLOR_BY_WORD["green"]
     annotator = _annotator_in_pipeline(_color_descriptor(), solid_image(color))
 
@@ -118,9 +124,10 @@ def test_scene_scope_adds_the_image_classifications_to_the_cas():
     )
 
 
-def test_images_are_classified_in_rgb_channel_order():
+def test_images_are_classified_in_red_green_blue_channel_order() -> None:
     """
-    The CAS color image is stored in BGR channel order; classifiers receive it in RGB.
+    The common analysis structure color image is stored in BGR channel order;
+    classifiers receive it in RGB.
     """
     annotator = _annotator_in_pipeline(
         _color_descriptor(), solid_image(COLOR_BY_WORD["red"])
@@ -134,13 +141,15 @@ def test_images_are_classified_in_rgb_channel_order():
 # %% object hypothesis scope
 
 
-def test_object_hypothesis_scope_classifies_each_hypothesis_by_its_region():
+def test_object_hypothesis_scope_classifies_each_hypothesis_by_its_region() -> None:
     annotator = _annotator_in_pipeline(
         _object_hypothesis_descriptor(), two_color_scene()
     )
     red_object = object_hypothesis(x=0, y=0, width=10, height=10)
     blue_object = object_hypothesis(x=30, y=0, width=10, height=10)
-    annotator.get_cas().annotations.extend([red_object, blue_object])
+    annotator.get_common_analysis_structure().annotations.extend(
+        [red_object, blue_object]
+    )
 
     status = annotator.compute()
 
@@ -149,15 +158,17 @@ def test_object_hypothesis_scope_classifies_each_hypothesis_by_its_region():
     assert hypothesis_classifications(blue_object)[0].classname == "blue"
 
 
-def test_object_hypothesis_scope_skips_hypotheses_rejected_by_filter():
+def test_object_hypothesis_scope_skips_hypotheses_rejected_by_filter() -> None:
     descriptor = _object_hypothesis_descriptor()
     rejected_object = object_hypothesis(x=0, y=0, width=10, height=10)
-    descriptor.parameters.filter_fn = (
+    descriptor.parameters.filter_function = (
         lambda hypothesis: hypothesis is not rejected_object
     )
     annotator = _annotator_in_pipeline(descriptor, two_color_scene())
     accepted_object = object_hypothesis(x=30, y=0, width=10, height=10)
-    annotator.get_cas().annotations.extend([rejected_object, accepted_object])
+    annotator.get_common_analysis_structure().annotations.extend(
+        [rejected_object, accepted_object]
+    )
 
     annotator.compute()
 
@@ -167,7 +178,7 @@ def test_object_hypothesis_scope_skips_hypotheses_rejected_by_filter():
     )
 
 
-def test_object_hypothesis_scope_without_hypotheses_adds_nothing():
+def test_object_hypothesis_scope_without_hypotheses_adds_nothing() -> None:
     annotator = _annotator_in_pipeline(
         _object_hypothesis_descriptor(), two_color_scene()
     )
@@ -175,15 +186,15 @@ def test_object_hypothesis_scope_without_hypotheses_adds_nothing():
     status = annotator.compute()
 
     assert status == Status.SUCCESS
-    assert annotator.get_cas().annotations == []
+    assert annotator.get_common_analysis_structure().annotations == []
 
 
 # %% unsupported scope
 
 
-def test_unsupported_analysis_scope_fails():
+def test_unsupported_analysis_scope_fails() -> None:
     descriptor = _color_descriptor()
-    descriptor.parameters.analysis_scope = CASViews.DEPTH_IMAGE
+    descriptor.parameters.analysis_scope = CommonAnalysisStructureViews.DEPTH_IMAGE
     annotator = _annotator_in_pipeline(descriptor, solid_image(COLOR_BY_WORD["red"]))
 
     assert annotator.compute() == Status.FAILURE

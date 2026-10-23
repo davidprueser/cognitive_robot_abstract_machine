@@ -18,14 +18,14 @@ import open3d as o3d
 from py_trees.common import Status
 from semantic_digital_twin.world_description.world_entity import Region
 
-import robokudo.world as rk_world
+import robokudo.world as robokudo_world
 from robokudo.annotators.core import BaseAnnotator, ThreadedAnnotator
-from robokudo.cas import CASViews
+from robokudo.common_analysis_structure import CommonAnalysisStructureViews
 from robokudo.types.scene import RegionHypothesis
 from robokudo.utils.annotator_helper import get_world_to_camera_transform_matrix
 from robokudo.utils.error_handling import catch_and_raise_to_blackboard
 from robokudo.utils.region import (
-    region_obb_in_camera_coordinates,
+    region_oriented_bounding_box_in_camera_coordinates,
     region_pose_annotation,
 )
 
@@ -77,26 +77,32 @@ class RegionFilter(ThreadedAnnotator):
 
         The method:
 
-        * Loads point cloud and query from CAS
+        * Loads point cloud and query from common analysis structure
         * Loads world descriptor and active regions
         * For each active region:
           * Transforms region to camera frame
           * Creates oriented bounding box
           * Filters points within box
           * Creates region hypothesis with pose
-        * Updates CAS with filtered cloud
+        * Updates common analysis structure with filtered cloud
 
         :return: SUCCESS after processing
         :raises Exception: If queried region not found in map
         """
         start_timer = default_timer()
-        cloud = self.get_cas().get(CASViews.CLOUD)
+        cloud = self.get_common_analysis_structure().get(
+            CommonAnalysisStructureViews.CLOUD
+        )
 
         query = None
-        if self.get_cas().contains(CASViews.QUERY):
-            query = self.get_cas().get(CASViews.QUERY)
+        if self.get_common_analysis_structure().contains(
+            CommonAnalysisStructureViews.QUERY
+        ):
+            query = self.get_common_analysis_structure().get(
+                CommonAnalysisStructureViews.QUERY
+            )
 
-        runtime_world = rk_world.world_instance()
+        runtime_world = robokudo_world.world_instance()
 
         regions = runtime_world.get_kinematic_structure_entity_by_type(Region)
         all_regions = {str(region.name): region for region in regions}
@@ -106,7 +112,7 @@ class RegionFilter(ThreadedAnnotator):
         if query is not None:
             queried_location = query.obj.location
             if queried_location != "" and queried_location != self.active_region:
-                self.rk_logger.info(
+                self.robokudo_logger.info(
                     f"Setting region filter to check for location '{queried_location}'"
                 )
                 active_regions = dict()
@@ -120,14 +126,16 @@ class RegionFilter(ThreadedAnnotator):
         visualized_geometries = []
         filtered_indices = set()
 
-        self.rk_logger.debug(f"Analyzing {len(active_regions.keys())}")
+        self.robokudo_logger.debug(f"Analyzing {len(active_regions.keys())}")
 
         try:
             world_to_camera_transform = get_world_to_camera_transform_matrix(
-                self.get_cas()
+                self.get_common_analysis_structure()
             )
-        except KeyError as err:
-            self.rk_logger.warning(f"Couldn't find viewpoint in the CAS: {err}")
+        except KeyError as error:
+            self.robokudo_logger.warning(
+                f"Couldn't find viewpoint in the common analysis structure: {error}"
+            )
             return Status.FAILURE
 
         for key, region in active_regions.items():
@@ -137,14 +145,18 @@ class RegionFilter(ThreadedAnnotator):
             # RegionHypothetis for this specific region
             region_hypothesis = RegionHypothesis()
 
-            obb = region_obb_in_camera_coordinates(
+            oriented_bounding_box = region_oriented_bounding_box_in_camera_coordinates(
                 runtime_world, region, world_to_camera_transform
             )
             region_hypothesis.annotations.append(region_pose_annotation(region))
 
             # To avoid copying the whole points per region into a new cloud, we'll only collect and save
             # the indices of matching points
-            region_indices = obb.get_point_indices_within_bounding_box(cloud.points)
+            region_indices = (
+                oriented_bounding_box.get_point_indices_within_bounding_box(
+                    cloud.points
+                )
+            )
             filtered_indices.update(region_indices)
 
             # Update the indices which belong to the region and save the cloud and name of region in RegionHypothesis
@@ -154,13 +166,17 @@ class RegionFilter(ThreadedAnnotator):
             )
             region_hypothesis.points = filtered_cloud_for_this_region
             region_hypothesis.name = str(region.name)
-            self.get_cas().annotations.append(region_hypothesis)
+            self.get_common_analysis_structure().annotations.append(region_hypothesis)
 
-            visualized_geometries.append({"name": str(region.name), "geometry": obb})
+            visualized_geometries.append(
+                {"name": str(region.name), "geometry": oriented_bounding_box}
+            )
 
-        # Place the filtered PointCloud into the CAS, overwriting the previous one
+        # Place the filtered PointCloud into the common analysis structure, overwriting the previous one
         filtered_cloud = cloud.select_by_index(list(filtered_indices))
-        self.get_cas().set(CASViews.CLOUD, filtered_cloud)
+        self.get_common_analysis_structure().set(
+            CommonAnalysisStructureViews.CLOUD, filtered_cloud
+        )
 
         visualized_geometries.append(
             {"name": "filtered cloud", "geometry": filtered_cloud}
@@ -173,7 +189,7 @@ class RegionFilter(ThreadedAnnotator):
                 "geometry": world_frame.transform(world_to_camera_transform),
             }
         )
-        self.get_annotator_output_struct().set_geometries(visualized_geometries)
+        self.get_annotator_output_structure().set_geometries(visualized_geometries)
 
         end_timer = default_timer()
         self.feedback_message = f"Processing took {(end_timer - start_timer):.4f}s"

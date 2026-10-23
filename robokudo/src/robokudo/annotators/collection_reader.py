@@ -1,16 +1,16 @@
-"""Sensor data collection and CAS initialization.
+"""Sensor data collection and common analysis structure initialization.
 
 This module provides an annotator for:
 
 * Reading sensor data from multiple interfaces
-* Initializing the CAS with sensor data
+* Initializing the common analysis structure with sensor data
 * Managing multiple collection readers
 * Handling data synchronization
 
 The module uses:
 
 * Camera interface abstraction
-* Pipeline CAS management
+* Pipeline common analysis structure management
 * Data availability monitoring
 * Query preservation
 
@@ -36,12 +36,12 @@ if TYPE_CHECKING:
 
 
 class CollectionReaderAnnotator(BaseAnnotator):
-    """Sensor data collection and CAS initialization.
+    """Sensor data collection and common analysis structure initialization.
 
     This annotator:
 
     * Reads sensor data from camera interfaces
-    * Initializes new CAS instances
+    * Initializes new common analysis structure instances
     * Manages multiple collection readers
     * Monitors data availability
     * Preserves existing queries
@@ -87,7 +87,7 @@ class CollectionReaderAnnotator(BaseAnnotator):
         :param name: Name of this annotator instance
         """
         super().__init__(name, descriptor)
-        self.rk_logger.debug("%s.__init__()" % self.__class__.__name__)
+        self.robokudo_logger.debug("%s.__init__()" % self.__class__.__name__)
 
         self.collection_readers: List[CollectionReaderAnnotator.Descriptor] = [
             descriptor
@@ -106,7 +106,7 @@ class CollectionReaderAnnotator(BaseAnnotator):
 
         Clears feedback messages for all children.
         """
-        self.rk_logger.debug("%s.initialise()" % self.__class__.__name__)
+        self.robokudo_logger.debug("%s.initialise()" % self.__class__.__name__)
 
         # Clear all feedback messages when Collection Reader starts over
         assert isinstance(self.parent, Sequence)
@@ -127,12 +127,12 @@ class CollectionReaderAnnotator(BaseAnnotator):
         )
 
     def update(self) -> Status:
-        """Process sensor data and update CAS.
+        """Process sensor data and update common analysis structure.
 
         The method:
 
         * Checks for new data from all readers
-        * Creates new CAS when data available
+        * Creates new common analysis structure when data available
         * Preserves existing queries
         * Updates feedback messages
         * Monitors data availability
@@ -142,56 +142,58 @@ class CollectionReaderAnnotator(BaseAnnotator):
         if self.start_timer is None:
             self.start_timer = timer()
 
-        all_crs_have_data = True
+        all_collection_readers_have_data = True
         for collection_reader in self.collection_readers:
-            all_crs_have_data = (
-                all_crs_have_data
+            all_collection_readers_have_data = (
+                all_collection_readers_have_data
                 & collection_reader.parameters.camera_interface.has_new_data()
             )
 
-        if all_crs_have_data:
+        if all_collection_readers_have_data:
             self.iterations_since_last_data = 0
-            self.rk_logger.debug(
-                "%s.update(): All CRs have new data! Creating a new CAS."
+            self.robokudo_logger.debug(
+                "%s.update(): All collection readers have new data! Creating a new common analysis structure."
                 % self.__class__.__name__
             )
             end_timer = timer()
             time_difference = end_timer - self.start_timer
-            self.rk_logger.debug("Waited for %f seconds \n" % time_difference)
+            self.robokudo_logger.debug("Waited for %f seconds \n" % time_difference)
             self.start_timer = None
             pipeline = self.get_parent_pipeline()
             if pipeline is None:
                 self.feedback_message = "Pipeline is not set!"
                 return Status.FAILURE
 
-            # Special case: If there is already a query present in this CAS, we need to temporarily save it and set
-            # it in the new CAS
-            query = pipeline.cas.query
+            # Special case: If there is already a query present in this common analysis structure, we need to temporarily save it and set
+            # it in the new common analysis structure
+            query = pipeline.common_analysis_structure.query
 
-            # Create a fresh CAS for the pipeline
-            pipeline.create_new_cas()
-            self.rk_logger.debug(
-                f"{self.__class__.__name__}.update(): New CAS id={pipeline.cas.cas_id}"
+            # Create a fresh common analysis structure for the pipeline
+            pipeline.create_new_common_analysis_structure()
+            self.robokudo_logger.debug(
+                f"{self.__class__.__name__}.update(): New common analysis structure id={pipeline.common_analysis_structure.common_analysis_structure_id}"
             )
 
             camera_config = self.descriptor.parameters.camera_config
             if issubclass(type(camera_config), TfComponent):
-                cas = self.get_cas()
-                cas.world_frame = camera_config.tf_to
-                cas.camera_frame = camera_config.tf_from
+                common_analysis_structure = self.get_common_analysis_structure()
+                common_analysis_structure.world_frame = camera_config.tf_to
+                common_analysis_structure.camera_frame = camera_config.tf_from
 
             # Restore any existing queries
             if query:
-                pipeline.cas.query = query
+                pipeline.common_analysis_structure.query = query
 
             for collection_reader in self.collection_readers:
-                collection_reader.parameters.camera_interface.set_data(self.get_cas())
+                collection_reader.parameters.camera_interface.set_data(
+                    self.get_common_analysis_structure()
+                )
 
             self.feedback_message = (
                 f"Got sensor data... Waited for {time_difference} seconds"
             )
             if self.parent:
-                self.rk_logger.info("Current Behavior Tree:")
+                self.robokudo_logger.info("Current Behavior Tree:")
                 print(unicode_tree(self.parent))
 
             return Status.SUCCESS
@@ -203,11 +205,11 @@ class CollectionReaderAnnotator(BaseAnnotator):
                 self.iterations_since_last_data
                 >= self.iterations_since_last_data_warn_threshold
             ):
-                self.rk_logger.warning(
+                self.robokudo_logger.warning(
                     f"Didn't receive sensor data since {self.iterations_since_last_data} iterations."
                 )
                 for collection_reader in self.collection_readers:
-                    self.rk_logger.warning(
+                    self.robokudo_logger.warning(
                         f"  CR data available?: {collection_reader.parameters.camera_interface.has_new_data()}"
                     )
                 self.iterations_since_last_data = 0
@@ -218,7 +220,7 @@ class CollectionReaderAnnotator(BaseAnnotator):
 
         :param new_status: New status (SUCCESS, FAILURE or INVALID)
         """
-        self.rk_logger.debug(
+        self.robokudo_logger.debug(
             "%s.terminate()[%s->%s]"
             % (self.__class__.__name__, self.status, new_status)
         )

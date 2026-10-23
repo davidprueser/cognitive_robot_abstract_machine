@@ -8,6 +8,7 @@ This module provides error handling utilities for behavior trees.
 """
 
 # import logging
+from __future__ import annotations
 import traceback
 from functools import wraps
 
@@ -15,9 +16,9 @@ from py_trees.blackboard import Blackboard
 from py_trees.common import Status
 from typing_extensions import Any, Callable, Optional
 
-from robokudo.identifier import BBIdentifier
+from robokudo.identifier import BlackboardIdentifier
 
-# rk_logger = logging.getLogger(robokudo.defs.PACKAGE_NAME)
+# robokudo_logger = logging.getLogger(robokudo.definitions.PACKAGE_NAME)
 
 
 def raise_to_blackboard(exception: Optional[Exception]) -> None:
@@ -36,7 +37,7 @@ def raise_to_blackboard(exception: Optional[Exception]) -> None:
         except Exception as e:
             raise_to_blackboard(e)
     """
-    Blackboard().set(BBIdentifier.BLACKBOARD_EXCEPTION_NAME, exception)
+    Blackboard().set(BlackboardIdentifier.BLACKBOARD_EXCEPTION_NAME, exception)
 
 
 def has_blackboard_exception() -> bool:
@@ -54,7 +55,7 @@ def has_blackboard_exception() -> bool:
             pass
     """
     return (
-        Blackboard().exists(BBIdentifier.BLACKBOARD_EXCEPTION_NAME)
+        Blackboard().exists(BlackboardIdentifier.BLACKBOARD_EXCEPTION_NAME)
         and get_blackboard_exception() is not None
     )
 
@@ -74,7 +75,7 @@ def get_blackboard_exception() -> Optional[Exception]:
             # Handle exception
             pass
     """
-    return Blackboard().get(BBIdentifier.BLACKBOARD_EXCEPTION_NAME)
+    return Blackboard().get(BlackboardIdentifier.BLACKBOARD_EXCEPTION_NAME)
 
 
 def clear_blackboard_exception() -> None:
@@ -118,17 +119,17 @@ def catch_and_raise_to_blackboard(
     """
 
     @wraps(function)
-    def wrapper(*args, **kwargs):
+    def wrapper(*args: Any, **kwargs: Any) -> Any:
         # This wrapper should NOT be used on ThreadedAnnotators!  See docstring.
         # assert (not (isinstance(args[0], ThreadedAnnotator)))
         if has_blackboard_exception():
             return Status.FAILURE
         try:
-            r = function(*args, **kwargs)
-        except Exception as e:
+            result = function(*args, **kwargs)
+        except Exception as exception:
             traceback.print_exc()
-            raise_to_blackboard(e)
+            raise_to_blackboard(exception)
             return Status.FAILURE
-        return r
+        return result
 
     return wrapper

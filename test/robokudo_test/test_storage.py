@@ -1,3 +1,4 @@
+from __future__ import annotations
 import copy
 import os
 import uuid
@@ -8,18 +9,26 @@ import pytest
 import pymongo
 import numpy as np
 
-import robokudo.cas
-from robokudo import world as rk_world
-from robokudo.cas import CAS, CASViews
+import robokudo.common_analysis_structure
+from robokudo import world as robokudo_world
+from robokudo.common_analysis_structure import (
+    CommonAnalysisStructure,
+    CommonAnalysisStructureViews,
+)
 from robokudo.descriptors.camera_configs.config_mongodb_playback import (
     MongoCameraConfig,
 )
 from robokudo.exceptions import StoredCameraTransformFrameMetadataMissing
 from robokudo.io.storage import Storage
 from robokudo.io.storage_reader_interface import StorageReaderInterface
-from robokudo.types.cv import ImageROI
+from robokudo.types.cv import ImageRegionOfInterest
 from robokudo.types.scene import ObjectHypothesis
 from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
+from typing_extensions import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from pymongo.results import InsertOneResult
+    from typing_extensions import Iterator
 
 
 @dataclass
@@ -35,39 +44,51 @@ pytestmark = pytest.mark.skipif(
 
 
 @pytest.fixture(scope="module")
-def storage_instance():
-    db_name = "ONLY_UNITTESTS_test_db"
-    storage = Storage(db_name)
+def storage_instance() -> Iterator[Storage]:
+    database_name = "ONLY_UNITTESTS_test_db"
+    storage = Storage(database_name)
     yield storage
     # Cleanup after tests
     storage.drop_database()
 
 
 @pytest.fixture()
-def cas_data():
-    cas = CAS()
+def common_analysis_structure_data() -> CommonAnalysisStructure:
+    common_analysis_structure = CommonAnalysisStructure()
     """
-    Mock CAS data for testing.
+    Mock common analysis structure data for testing.
     """
-    cas.set(CASViews.COLOR_IMAGE, np.random.rand(100, 100, 3))
-    cas.set(CASViews.DEPTH_IMAGE, np.random.rand(100, 100))
+    common_analysis_structure.set(
+        CommonAnalysisStructureViews.COLOR_IMAGE, np.random.rand(100, 100, 3)
+    )
+    common_analysis_structure.set(
+        CommonAnalysisStructureViews.DEPTH_IMAGE, np.random.rand(100, 100)
+    )
 
-    return cas
+    return common_analysis_structure
 
 
-def store_cas_in_storage(storage_instance, cas_data):
-    flat_cas = storage_instance.generate_dict_from_real_cas(cas_data)
-    flat_cas["view_ids"] = {}
+def store_common_analysis_structure_in_storage(
+    storage_instance: Storage, common_analysis_structure_data: CommonAnalysisStructure
+) -> InsertOneResult:
+    flat_common_analysis_structure = (
+        storage_instance.generate_dict_from_real_common_analysis_structure(
+            common_analysis_structure_data
+        )
+    )
+    flat_common_analysis_structure["view_ids"] = {}
 
     # step 1: persist each view
-    storage_instance.store_views_in_mongo(flat_cas)
+    storage_instance.store_views_in_mongo(flat_common_analysis_structure)
 
-    # step 2: persist cas and pointers to each view
-    del flat_cas["views"]
-    return storage_instance.store_cas_dict(flat_cas)
+    # step 2: persist common_analysis_structure and pointers to each view
+    del flat_common_analysis_structure["views"]
+    return storage_instance.store_common_analysis_structure_dict(
+        flat_common_analysis_structure
+    )
 
 
-def create_point_cloud():
+def create_point_cloud() -> o3d.geometry.PointCloud:
     """
     Create an Open3D point cloud with some sample data.
     """
@@ -84,7 +105,7 @@ def create_point_cloud():
     return point_cloud
 
 
-def create_camera_intrinsic():
+def create_camera_intrinsic() -> o3d.camera.PinholeCameraIntrinsic:
     """
     Create an Open3D pinhole camera intrinsic for testing.
     """
@@ -92,8 +113,8 @@ def create_camera_intrinsic():
 
 
 class TestStorage:
-    def test_drop_database(self, storage_instance):
-        db_name = storage_instance.db_name
+    def test_drop_database(self, storage_instance: Storage) -> None:
+        database_name = storage_instance.database_name
         storage_instance.drop_database()
 
         # Verify the database no longer exists
@@ -104,154 +125,259 @@ class TestStorage:
         mongo_host = os.getenv("RK_MONGO_HOST", "localhost")
         mongo_port = int(os.getenv("RK_MONGO_PORT", 27017))
         client = pymongo.MongoClient(host=mongo_host, port=mongo_port)
-        assert db_name not in client.list_database_names()
+        assert database_name not in client.list_database_names()
 
-    def test_store_and_retrieve_cas(self, storage_instance, cas_data):
-        result = store_cas_in_storage(storage_instance, cas_data)
-        # Generate a dict from the CAS and store it
-        flat_cas = storage_instance.generate_dict_from_real_cas(cas_data)
-        flat_cas["view_ids"] = {}
+    def test_store_and_retrieve_common_analysis_structure(
+        self,
+        storage_instance: Storage,
+        common_analysis_structure_data: CommonAnalysisStructure,
+    ) -> None:
+        result = store_common_analysis_structure_in_storage(
+            storage_instance, common_analysis_structure_data
+        )
+        # Generate a dict from the common analysis structure and store it
+        flat_common_analysis_structure = (
+            storage_instance.generate_dict_from_real_common_analysis_structure(
+                common_analysis_structure_data
+            )
+        )
+        flat_common_analysis_structure["view_ids"] = {}
 
         # step 1: persist each view
-        storage_instance.store_views_in_mongo(flat_cas)
+        storage_instance.store_views_in_mongo(flat_common_analysis_structure)
 
-        # step 2: persist cas and pointers to each view
-        del flat_cas["views"]
-        result = storage_instance.store_cas_dict(flat_cas)
+        # step 2: persist common_analysis_structure and pointers to each view
+        del flat_common_analysis_structure["views"]
+        result = storage_instance.store_common_analysis_structure_dict(
+            flat_common_analysis_structure
+        )
 
         assert result.acknowledged
 
-        # Retrieve the stored CAS
-        retrieved_cas = storage_instance.db.cas.find_one({"_id": result.inserted_id})
-        assert retrieved_cas is not None
-        assert retrieved_cas["timestamp"] == cas_data.timestamp
-        assert retrieved_cas["timestamp_readable"] == cas_data.timestamp_readable
-
-    def test_store_and_retrieve_cas_with_single_oh(self, storage_instance, cas_data):
-        # Generate a dict from the CAS and store it
-        oh = ObjectHypothesis()
-        oh.source = "test_storage"
-        oh.id = 1
-        oh.roi = ImageROI()
-        oh.roi.roi.pos.x = 1
-        oh.roi.roi.pos.y = 2
-        oh.roi.roi.width = 20
-        oh.roi.roi.height = 40
-        oh.points = create_point_cloud()
-
-        cas_data.annotations.append(oh)
-
-        result = store_cas_in_storage(storage_instance, cas_data)
-
-        flat_cas = storage_instance.generate_dict_from_real_cas(cas_data)
-        flat_cas["view_ids"] = {}
-
-        # step 1: persist each view
-        storage_instance.store_views_in_mongo(flat_cas)
-
-        # step 2: persist cas and pointers to each view
-        del flat_cas["views"]
-        result = storage_instance.store_cas_dict(flat_cas)
-
-        assert result.acknowledged
-
-        # Retrieve the stored CAS
-        retrieved_cas_record = storage_instance.db.cas.find_one(
+        # Retrieve the stored common analysis structure
+        retrieved_common_analysis_structure = storage_instance.database.cas.find_one(
             {"_id": result.inserted_id}
         )
-        assert retrieved_cas_record is not None
-        assert retrieved_cas_record["timestamp"] == cas_data.timestamp
-        assert retrieved_cas_record["timestamp_readable"] == cas_data.timestamp_readable
+        assert retrieved_common_analysis_structure is not None
+        assert (
+            retrieved_common_analysis_structure["timestamp"]
+            == common_analysis_structure_data.timestamp
+        )
+        assert (
+            retrieved_common_analysis_structure["timestamp_readable"]
+            == common_analysis_structure_data.timestamp_readable
+        )
 
-        retrieved_cas = robokudo.cas.CAS()
-        retrieved_cas_record["views"] = {}
-        storage_instance.load_views_from_mongo_in_cas(retrieved_cas_record)
+    def test_store_and_retrieve_common_analysis_structure_with_single_object_hypothesis(
+        self,
+        storage_instance: Storage,
+        common_analysis_structure_data: CommonAnalysisStructure,
+    ) -> None:
+        # Generate a dict from the common analysis structure and store it
+        object_hypothesis = ObjectHypothesis()
+        object_hypothesis.source = "test_storage"
+        object_hypothesis.id = 1
+        object_hypothesis.region_of_interest = ImageRegionOfInterest()
+        object_hypothesis.region_of_interest.rectangle.position.x = 1
+        object_hypothesis.region_of_interest.rectangle.position.y = 2
+        object_hypothesis.region_of_interest.rectangle.width = 20
+        object_hypothesis.region_of_interest.rectangle.height = 40
+        object_hypothesis.points = create_point_cloud()
 
-        # Bring flat CAS representation into the proper CAS class
-        for view_name, view_content in retrieved_cas_record["views"].items():
-            retrieved_cas.set(view_name, view_content)
+        common_analysis_structure_data.annotations.append(object_hypothesis)
 
-        storage_instance.load_annotations_from_mongo_in_cas(
-            retrieved_cas_record, retrieved_cas
+        result = store_common_analysis_structure_in_storage(
+            storage_instance, common_analysis_structure_data
+        )
+
+        flat_common_analysis_structure = (
+            storage_instance.generate_dict_from_real_common_analysis_structure(
+                common_analysis_structure_data
+            )
+        )
+        flat_common_analysis_structure["view_ids"] = {}
+
+        # step 1: persist each view
+        storage_instance.store_views_in_mongo(flat_common_analysis_structure)
+
+        # step 2: persist common_analysis_structure and pointers to each view
+        del flat_common_analysis_structure["views"]
+        result = storage_instance.store_common_analysis_structure_dict(
+            flat_common_analysis_structure
+        )
+
+        assert result.acknowledged
+
+        # Retrieve the stored common analysis structure
+        retrieved_common_analysis_structure_record = (
+            storage_instance.database.cas.find_one({"_id": result.inserted_id})
+        )
+        assert retrieved_common_analysis_structure_record is not None
+        assert (
+            retrieved_common_analysis_structure_record["timestamp"]
+            == common_analysis_structure_data.timestamp
+        )
+        assert (
+            retrieved_common_analysis_structure_record["timestamp_readable"]
+            == common_analysis_structure_data.timestamp_readable
+        )
+
+        retrieved_common_analysis_structure = (
+            robokudo.common_analysis_structure.CommonAnalysisStructure()
+        )
+        retrieved_common_analysis_structure_record["views"] = {}
+        storage_instance.load_views_from_mongo_in_common_analysis_structure(
+            retrieved_common_analysis_structure_record
+        )
+
+        # Bring flat common analysis structure representation into the proper common analysis structure class
+        for view_name, view_content in retrieved_common_analysis_structure_record[
+            "views"
+        ].items():
+            retrieved_common_analysis_structure.set(view_name, view_content)
+
+        storage_instance.load_annotations_from_mongo_in_common_analysis_structure(
+            retrieved_common_analysis_structure_record,
+            retrieved_common_analysis_structure,
         )
 
         # Compare the most important views: COLOR and DEPTH Image
         assert np.array_equal(
-            cas_data.get(CASViews.COLOR_IMAGE), retrieved_cas.get(CASViews.COLOR_IMAGE)
+            common_analysis_structure_data.get(
+                CommonAnalysisStructureViews.COLOR_IMAGE
+            ),
+            retrieved_common_analysis_structure.get(
+                CommonAnalysisStructureViews.COLOR_IMAGE
+            ),
         )
         assert np.array_equal(
-            cas_data.get(CASViews.DEPTH_IMAGE), retrieved_cas.get(CASViews.DEPTH_IMAGE)
+            common_analysis_structure_data.get(
+                CommonAnalysisStructureViews.DEPTH_IMAGE
+            ),
+            retrieved_common_analysis_structure.get(
+                CommonAnalysisStructureViews.DEPTH_IMAGE
+            ),
         )
 
-        assert len(retrieved_cas.annotations) == 1
-        retrieved_oh = retrieved_cas.annotations[0]
+        assert len(retrieved_common_analysis_structure.annotations) == 1
+        retrieved_object_hypothesis = retrieved_common_analysis_structure.annotations[0]
 
-        assert oh.source == retrieved_oh.source
-        assert oh.id == retrieved_oh.id
-        assert oh.roi.roi.pos.x == retrieved_oh.roi.roi.pos.x
-        assert oh.roi.roi.pos.y == retrieved_oh.roi.roi.pos.y
-        assert oh.roi.roi.width == retrieved_oh.roi.roi.width
-        assert oh.roi.roi.height == retrieved_oh.roi.roi.height
+        assert object_hypothesis.source == retrieved_object_hypothesis.source
+        assert object_hypothesis.id == retrieved_object_hypothesis.id
+        assert (
+            object_hypothesis.region_of_interest.rectangle.position.x
+            == retrieved_object_hypothesis.region_of_interest.rectangle.position.x
+        )
+        assert (
+            object_hypothesis.region_of_interest.rectangle.position.y
+            == retrieved_object_hypothesis.region_of_interest.rectangle.position.y
+        )
+        assert (
+            object_hypothesis.region_of_interest.rectangle.width
+            == retrieved_object_hypothesis.region_of_interest.rectangle.width
+        )
+        assert (
+            object_hypothesis.region_of_interest.rectangle.height
+            == retrieved_object_hypothesis.region_of_interest.rectangle.height
+        )
 
         # Compare PointCloud
-        test_pcd = create_point_cloud()
+        test_point_cloud = create_point_cloud()
 
         np.testing.assert_array_equal(
-            np.asarray(test_pcd.points), np.asarray(retrieved_oh.points.points)
+            np.asarray(test_point_cloud.points),
+            np.asarray(retrieved_object_hypothesis.points.points),
         )
 
-    def test_annotations_are_serialized_with_krrood(self, storage_instance, cas_data):
-        oh = ObjectHypothesis()
-        oh.source = "test_storage"
-        oh.id = 1
-        cas_data.annotations.append(oh)
+    def test_annotations_are_serialized_with_krrood(
+        self,
+        storage_instance: Storage,
+        common_analysis_structure_data: CommonAnalysisStructure,
+    ) -> None:
+        object_hypothesis = ObjectHypothesis()
+        object_hypothesis.source = "test_storage"
+        object_hypothesis.id = 1
+        common_analysis_structure_data.annotations.append(object_hypothesis)
 
-        result = store_cas_in_storage(storage_instance, cas_data)
+        result = store_common_analysis_structure_in_storage(
+            storage_instance, common_analysis_structure_data
+        )
         assert result.acknowledged
 
-        retrieved_cas_record = storage_instance.db.cas.find_one(
-            {"_id": result.inserted_id}
+        retrieved_common_analysis_structure_record = (
+            storage_instance.database.cas.find_one({"_id": result.inserted_id})
         )
-        assert retrieved_cas_record is not None
-        assert retrieved_cas_record["annotations_format"] == "krrood_v1"
-        assert isinstance(retrieved_cas_record["annotations"], list)
-        assert "__json_type__" in retrieved_cas_record["annotations"][0]
+        assert retrieved_common_analysis_structure_record is not None
+        assert (
+            retrieved_common_analysis_structure_record["annotations_format"]
+            == "krrood_v1"
+        )
+        assert isinstance(
+            retrieved_common_analysis_structure_record["annotations"], list
+        )
+        assert (
+            "__json_type__"
+            in retrieved_common_analysis_structure_record["annotations"][0]
+        )
 
-    def test_store_and_retrieve_dynamic_extra_views(self, storage_instance, cas_data):
-        cas_data.set("custom_json", {"labels": ["cup", "plate"], "valid": True})
-        cas_data.set("custom_tuple", (1.2, 3.4))
-        cas_data.set("custom_numpy", np.array([[1, 2], [3, 4]], dtype=np.int16))
-        cas_data.set("custom_cloud", create_point_cloud())
-        cas_data.set("pc_cam_intrinsic", create_camera_intrinsic())
+    def test_store_and_retrieve_dynamic_extra_views(
+        self,
+        storage_instance: Storage,
+        common_analysis_structure_data: CommonAnalysisStructure,
+    ) -> None:
+        common_analysis_structure_data.set(
+            "custom_json", {"labels": ["cup", "plate"], "valid": True}
+        )
+        common_analysis_structure_data.set("custom_tuple", (1.2, 3.4))
+        common_analysis_structure_data.set(
+            "custom_numpy", np.array([[1, 2], [3, 4]], dtype=np.int16)
+        )
+        common_analysis_structure_data.set("custom_cloud", create_point_cloud())
+        common_analysis_structure_data.set(
+            "pc_cam_intrinsic", create_camera_intrinsic()
+        )
 
-        result = store_cas_in_storage(storage_instance, cas_data)
+        result = store_common_analysis_structure_in_storage(
+            storage_instance, common_analysis_structure_data
+        )
         assert result.acknowledged
 
-        retrieved_cas_record = storage_instance.db.cas.find_one(
-            {"_id": result.inserted_id}
+        retrieved_common_analysis_structure_record = (
+            storage_instance.database.cas.find_one({"_id": result.inserted_id})
         )
-        assert retrieved_cas_record is not None
-        assert "extra_views" not in retrieved_cas_record
-        assert "view_ids" in retrieved_cas_record
-        assert len(retrieved_cas_record["view_ids"]) >= 6
+        assert retrieved_common_analysis_structure_record is not None
+        assert "extra_views" not in retrieved_common_analysis_structure_record
+        assert "view_ids" in retrieved_common_analysis_structure_record
+        assert len(retrieved_common_analysis_structure_record["view_ids"]) >= 6
 
-        retrieved_cas_record["views"] = {}
-        storage_instance.load_views_from_mongo_in_cas(retrieved_cas_record)
+        retrieved_common_analysis_structure_record["views"] = {}
+        storage_instance.load_views_from_mongo_in_common_analysis_structure(
+            retrieved_common_analysis_structure_record
+        )
 
-        assert retrieved_cas_record["views"]["custom_json"] == {
+        assert retrieved_common_analysis_structure_record["views"]["custom_json"] == {
             "labels": ["cup", "plate"],
             "valid": True,
         }
-        assert retrieved_cas_record["views"]["custom_tuple"] == (1.2, 3.4)
+        assert retrieved_common_analysis_structure_record["views"]["custom_tuple"] == (
+            1.2,
+            3.4,
+        )
         np.testing.assert_array_equal(
-            retrieved_cas_record["views"]["custom_numpy"],
+            retrieved_common_analysis_structure_record["views"]["custom_numpy"],
             np.array([[1, 2], [3, 4]], dtype=np.int16),
         )
         np.testing.assert_array_equal(
-            np.asarray(retrieved_cas_record["views"]["custom_cloud"].points),
+            np.asarray(
+                retrieved_common_analysis_structure_record["views"][
+                    "custom_cloud"
+                ].points
+            ),
             np.asarray(create_point_cloud().points),
         )
-        restored_intrinsic = retrieved_cas_record["views"]["pc_cam_intrinsic"]
+        restored_intrinsic = retrieved_common_analysis_structure_record["views"][
+            "pc_cam_intrinsic"
+        ]
         expected_intrinsic = create_camera_intrinsic()
         assert restored_intrinsic.width == expected_intrinsic.width
         assert restored_intrinsic.height == expected_intrinsic.height
@@ -261,53 +387,69 @@ class TestStorage:
         )
 
     def test_extra_views_krrood_fallback_for_dataclass(
-        self, storage_instance, cas_data
-    ):
-        cas_data.set(
+        self,
+        storage_instance: Storage,
+        common_analysis_structure_data: CommonAnalysisStructure,
+    ) -> None:
+        common_analysis_structure_data.set(
             "custom_dataclass", CustomDataclassView(label="cup", confidence=0.9)
         )
 
-        result = store_cas_in_storage(storage_instance, cas_data)
+        result = store_common_analysis_structure_in_storage(
+            storage_instance, common_analysis_structure_data
+        )
         assert result.acknowledged
 
-        retrieved_cas_record = storage_instance.db.cas.find_one(
-            {"_id": result.inserted_id}
+        retrieved_common_analysis_structure_record = (
+            storage_instance.database.cas.find_one({"_id": result.inserted_id})
         )
-        assert retrieved_cas_record is not None
+        assert retrieved_common_analysis_structure_record is not None
 
-        retrieved_cas_record["views"] = {}
-        storage_instance.load_views_from_mongo_in_cas(retrieved_cas_record)
+        retrieved_common_analysis_structure_record["views"] = {}
+        storage_instance.load_views_from_mongo_in_common_analysis_structure(
+            retrieved_common_analysis_structure_record
+        )
 
-        restored = retrieved_cas_record["views"]["custom_dataclass"]
+        restored = retrieved_common_analysis_structure_record["views"][
+            "custom_dataclass"
+        ]
         assert isinstance(restored, CustomDataclassView)
         assert restored.label == "cup"
         assert restored.confidence == 0.9
 
-    def test_unknown_dynamic_view_type_raises(self):
+    def test_unknown_dynamic_view_type_raises(self) -> None:
         class UnsupportedView:
             pass
 
-        cas = CAS()
-        cas.set(CASViews.COLOR_IMAGE, np.random.rand(10, 10, 3))
-        cas.set(CASViews.DEPTH_IMAGE, np.random.rand(10, 10))
-        cas.set("custom_unsupported", UnsupportedView())
+        common_analysis_structure = CommonAnalysisStructure()
+        common_analysis_structure.set(
+            CommonAnalysisStructureViews.COLOR_IMAGE, np.random.rand(10, 10, 3)
+        )
+        common_analysis_structure.set(
+            CommonAnalysisStructureViews.DEPTH_IMAGE, np.random.rand(10, 10)
+        )
+        common_analysis_structure.set("custom_unsupported", UnsupportedView())
 
         with pytest.raises(TypeError):
-            Storage.generate_dict_from_real_cas(cas)
+            Storage.generate_dict_from_real_common_analysis_structure(
+                common_analysis_structure
+            )
 
     def test_camera_to_world_transform_roundtrip_preserves_world_references(
-        self, storage_instance, cas_data
-    ):
+        self,
+        storage_instance: Storage,
+        common_analysis_structure_data: CommonAnalysisStructure,
+    ) -> None:
         world_frame = f"map_{uuid.uuid4().hex[:8]}"
         camera_frame = f"camera_{uuid.uuid4().hex[:8]}"
 
-        rk_world.init_world_with_entity_tracker()
-        rk_world.setup_world_for_camera_frame(
+        robokudo_world.initialize_world_with_entity_tracker()
+        robokudo_world.setup_world_for_camera_frame(
             world_frame=world_frame, camera_frame=camera_frame
         )
-        sem_world = rk_world.world_instance()
-        camera_body = sem_world.get_body_by_name(camera_frame)
-        world_body = sem_world.get_body_by_name(world_frame)
+        semantic_world = robokudo_world.world_instance()
+        camera_body = semantic_world.get_body_by_name(camera_frame)
+        world_body = semantic_world.get_body_by_name(world_frame)
 
         transform = HomogeneousTransformationMatrix.from_xyz_quaternion(
             pos_x=0.1,
@@ -320,21 +462,23 @@ class TestStorage:
             child_frame=camera_body,
             reference_frame=world_body,
         )
-        cas_data.camera_to_world_transform = transform
+        common_analysis_structure_data.camera_to_world_transform = transform
 
-        result = store_cas_in_storage(storage_instance, cas_data)
+        result = store_common_analysis_structure_in_storage(
+            storage_instance, common_analysis_structure_data
+        )
         assert result.acknowledged
 
-        retrieved_cas_record = storage_instance.db.cas.find_one(
-            {"_id": result.inserted_id}
+        retrieved_common_analysis_structure_record = (
+            storage_instance.database.cas.find_one({"_id": result.inserted_id})
         )
-        assert retrieved_cas_record is not None
-        transform_view_document = storage_instance.db[
+        assert retrieved_common_analysis_structure_record is not None
+        transform_view_document = storage_instance.database[
             Storage.VIEW_COLLECTION_NAME
         ].find_one(
             {
-                "_id": retrieved_cas_record["view_ids"][
-                    CASViews.CAMERA_TO_WORLD_TRANSFORM
+                "_id": retrieved_common_analysis_structure_record["view_ids"][
+                    CommonAnalysisStructureViews.CAMERA_TO_WORLD_TRANSFORM
                 ]
             }
         )
@@ -345,10 +489,12 @@ class TestStorage:
             camera_body.name
         )
 
-        retrieved_cas_record["views"] = {}
-        storage_instance.load_views_from_mongo_in_cas(retrieved_cas_record)
-        restored_transform = retrieved_cas_record["views"][
-            CASViews.CAMERA_TO_WORLD_TRANSFORM
+        retrieved_common_analysis_structure_record["views"] = {}
+        storage_instance.load_views_from_mongo_in_common_analysis_structure(
+            retrieved_common_analysis_structure_record
+        )
+        restored_transform = retrieved_common_analysis_structure_record["views"][
+            CommonAnalysisStructureViews.CAMERA_TO_WORLD_TRANSFORM
         ]
 
         assert isinstance(restored_transform, HomogeneousTransformationMatrix)
@@ -359,17 +505,19 @@ class TestStorage:
         assert str(restored_transform.reference_frame.name) == str(world_body.name)
 
     def test_storage_reader_rebinds_camera_to_world_transform_to_running_world(
-        self, storage_instance, cas_data
-    ):
+        self,
+        storage_instance: Storage,
+        common_analysis_structure_data: CommonAnalysisStructure,
+    ) -> None:
         stored_world_frame = f"stored_map_{uuid.uuid4().hex[:8]}"
         stored_camera_frame = f"stored_camera_{uuid.uuid4().hex[:8]}"
 
-        rk_world.init_world_with_entity_tracker()
-        rk_world.setup_world_for_camera_frame(
+        robokudo_world.initialize_world_with_entity_tracker()
+        robokudo_world.setup_world_for_camera_frame(
             world_frame=stored_world_frame,
             camera_frame=stored_camera_frame,
         )
-        stored_world = rk_world.world_instance()
+        stored_world = robokudo_world.world_instance()
         stored_world_body = stored_world.get_body_by_name(stored_world_frame)
         stored_camera_body = stored_world.get_body_by_name(stored_camera_frame)
         transform = HomogeneousTransformationMatrix.from_xyz_quaternion(
@@ -383,31 +531,37 @@ class TestStorage:
             child_frame=stored_camera_body,
             reference_frame=stored_world_body,
         )
-        cas_data.camera_to_world_transform = transform
+        common_analysis_structure_data.camera_to_world_transform = transform
 
-        result = store_cas_in_storage(storage_instance, cas_data)
-        assert result.acknowledged
-        retrieved_cas_record = storage_instance.db.cas.find_one(
-            {"_id": result.inserted_id}
+        result = store_common_analysis_structure_in_storage(
+            storage_instance, common_analysis_structure_data
         )
-        assert retrieved_cas_record is not None
+        assert result.acknowledged
+        retrieved_common_analysis_structure_record = (
+            storage_instance.database.cas.find_one({"_id": result.inserted_id})
+        )
+        assert retrieved_common_analysis_structure_record is not None
 
-        rk_world.init_world_with_entity_tracker()
-        running_world = rk_world.world_instance()
+        robokudo_world.initialize_world_with_entity_tracker()
+        running_world = robokudo_world.world_instance()
         assert len(running_world.bodies) == 0
 
         reader = StorageReaderInterface(
-            MongoCameraConfig(db_name=storage_instance.db_name)
+            MongoCameraConfig(database_name=storage_instance.database_name)
         )
-        retrieved_cas_record["views"] = {}
-        storage_instance.load_views_from_mongo_in_cas(
-            retrieved_cas_record,
-            excluded_view_names={CASViews.CAMERA_TO_WORLD_TRANSFORM},
+        retrieved_common_analysis_structure_record["views"] = {}
+        storage_instance.load_views_from_mongo_in_common_analysis_structure(
+            retrieved_common_analysis_structure_record,
+            excluded_view_names={
+                CommonAnalysisStructureViews.CAMERA_TO_WORLD_TRANSFORM
+            },
         )
-        reader._restore_camera_to_world_transform(retrieved_cas_record)
+        reader._restore_camera_to_world_transform(
+            retrieved_common_analysis_structure_record
+        )
 
-        restored_transform = retrieved_cas_record["views"][
-            CASViews.CAMERA_TO_WORLD_TRANSFORM
+        restored_transform = retrieved_common_analysis_structure_record["views"][
+            CommonAnalysisStructureViews.CAMERA_TO_WORLD_TRANSFORM
         ]
         assert isinstance(restored_transform, HomogeneousTransformationMatrix)
         np.testing.assert_allclose(restored_transform.to_np(), transform.to_np())
@@ -422,7 +576,7 @@ class TestStorage:
 
     def test_storage_reader_raises_custom_error_when_camera_transform_frame_metadata_is_missing(
         self,
-    ):
+    ) -> None:
         reader = StorageReaderInterface.__new__(StorageReaderInterface)
         view_document = {
             "payload": {},

@@ -30,23 +30,23 @@ from ultralytics import SAM, YOLO
 from ultralytics.utils.plotting import colors
 
 from robokudo.annotators.core import ThreadedAnnotator
-from robokudo.cas import CASViews
-from robokudo.defs import PACKAGE_NAME
+from robokudo.common_analysis_structure import CommonAnalysisStructureViews
+from robokudo.definitions import PACKAGE_NAME
 from robokudo.exceptions import DetectionModelNotConfigured
 from robokudo.types.annotation import Classification
-from robokudo.types.cv import Rect
+from robokudo.types.cv import Rectangle
 from robokudo.types.scene import HumanHypothesis, ObjectHypothesis
 from robokudo.utils.annotator_helper import (
     draw_bounding_boxes_from_object_hypotheses,
     resize_mask,
     scale_camera_intrinsics,
 )
-from robokudo.utils.comparators import RoiComparator
+from robokudo.utils.comparators import RegionOfInterestComparator
 from robokudo.utils.cv_helper import crop_image, get_scaled_color_image_for_depth_image
 from robokudo.utils.decorators import timer_decorator
 from robokudo.utils.file_loader import FileLoader
 from robokudo.utils.module_loader import ModuleLoader
-from robokudo.utils.o3d_helper import get_cloud_from_rgb_depth_and_mask
+from robokudo.utils.o3d_helper import get_cloud_from_color_depth_and_mask
 
 if TYPE_CHECKING:
     import numpy.typing as npt
@@ -65,7 +65,7 @@ class YoloDetection:
     The detected class and the confidence of the detection.
     """
 
-    bounding_box: Rect
+    bounding_box: Rectangle
     """
     The bounding box of the detected object, in detection image pixels.
     """
@@ -212,7 +212,7 @@ class YoloAnnotator(ThreadedAnnotator):
                 :return: The absolute path of the file.
                 """
                 return FileLoader.get_path_to_file_in_ros_package(
-                    ros_pkg_name=self.ros_package_name, relative_path=relative_path
+                    ros_package_name=self.ros_package_name, relative_path=relative_path
                 )
 
     @classproperty
@@ -250,7 +250,7 @@ class YoloAnnotator(ThreadedAnnotator):
         """
         Intrinsics of the camera at the resolution of the depth image.
         """
-        self.roi_comparator = RoiComparator(weight=1.0)
+        self.region_of_interest_comparator = RegionOfInterestComparator(weight=1.0)
         """
         Comparator measuring how much a detection overlaps an existing hypothesis.
         """
@@ -287,12 +287,16 @@ class YoloAnnotator(ThreadedAnnotator):
         """
         parameters: YoloAnnotator.Descriptor.Parameters = self.descriptor.parameters
         if parameters.global_with_depth:
-            self.camera_intrinsics = self.get_cas().get_copy(CASViews.CAMERA_INTRINSIC)
+            self.camera_intrinsics = self.get_common_analysis_structure().get_copy(
+                CommonAnalysisStructureViews.CAMERA_INTRINSIC
+            )
             scale_camera_intrinsics(self)
 
         detection_image = self._detection_image()
         existing_hypotheses = (
-            self.get_cas().filter_annotations_by_type(ObjectHypothesis)
+            self.get_common_analysis_structure().filter_annotations_by_type(
+                ObjectHypothesis
+            )
             if parameters.classify_existing_hypotheses
             else []
         )
@@ -303,7 +307,7 @@ class YoloAnnotator(ThreadedAnnotator):
             if detection.classification.classname.strip()
             not in self._ignored_class_names()
         ]
-        self.get_cas().annotations.extend(
+        self.get_common_analysis_structure().annotations.extend(
             annotated.hypothesis
             for annotated in annotated_detections
             if annotated.is_new
@@ -318,10 +322,14 @@ class YoloAnnotator(ThreadedAnnotator):
         :return: The color image, scaled to the depth image resolution when depth is
             used.
         """
-        color_image = self.get_cas().get_copy(CASViews.COLOR_IMAGE)
+        color_image = self.get_common_analysis_structure().get_copy(
+            CommonAnalysisStructureViews.COLOR_IMAGE
+        )
         if not self.descriptor.parameters.global_with_depth:
             return color_image
-        return get_scaled_color_image_for_depth_image(self.get_cas(), color_image)
+        return get_scaled_color_image_for_depth_image(
+            self.get_common_analysis_structure(), color_image
+        )
 
     def _detect(self, detection_image: npt.NDArray[np.uint8]) -> List[YoloDetection]:
         """
@@ -343,7 +351,7 @@ class YoloAnnotator(ThreadedAnnotator):
                             confidence=float(confidence),
                             class_id=int(class_id),
                         ),
-                        bounding_box=Rect.from_corner_points(*corners),
+                        bounding_box=Rectangle.from_corner_points(*corners),
                     )
                 )
         return detections
@@ -387,15 +395,17 @@ class YoloAnnotator(ThreadedAnnotator):
             detection=detection, hypothesis=hypothesis, is_new=is_new
         )
 
-    def _color_image_region(self, detection: YoloDetection) -> Rect:
+    def _color_image_region(self, detection: YoloDetection) -> Rectangle:
         """
         :return: The bounding box of the detection, in color image pixels.
         """
         if not self.descriptor.parameters.global_with_depth:
             return detection.bounding_box
-        color_to_depth_ratio = self.get_cas().get(CASViews.COLOR_TO_DEPTH_RATIO)
+        color_to_depth_ratio = self.get_common_analysis_structure().get(
+            CommonAnalysisStructureViews.COLOR_TO_DEPTH_RATIO
+        )
         left, top, right, bottom = detection.bounding_box.get_corner_points()
-        return Rect.from_corner_points(
+        return Rectangle.from_corner_points(
             x1=left / color_to_depth_ratio.horizontal,
             y1=top / color_to_depth_ratio.vertical,
             x2=right / color_to_depth_ratio.horizontal,
@@ -403,7 +413,7 @@ class YoloAnnotator(ThreadedAnnotator):
         )
 
     def _most_overlapped_hypothesis(
-        self, region: Rect, hypotheses: List[ObjectHypothesis]
+        self, region: Rectangle, hypotheses: List[ObjectHypothesis]
     ) -> Optional[ObjectHypothesis]:
         """
         :return: The hypothesis overlapping the region the most, if it overlaps by more
@@ -413,12 +423,12 @@ class YoloAnnotator(ThreadedAnnotator):
             return None
         most_overlapped = max(
             hypotheses,
-            key=lambda hypothesis: self.roi_comparator.compute_similarity(
-                hypothesis.roi.roi, region
+            key=lambda hypothesis: self.region_of_interest_comparator.compute_similarity(
+                hypothesis.region_of_interest.rectangle, region
             ),
         )
-        overlap = self.roi_comparator.compute_similarity(
-            most_overlapped.roi.roi, region
+        overlap = self.region_of_interest_comparator.compute_similarity(
+            most_overlapped.region_of_interest.rectangle, region
         )
         if overlap <= self.descriptor.parameters.minimum_hypothesis_overlap:
             return None
@@ -428,7 +438,7 @@ class YoloAnnotator(ThreadedAnnotator):
         self,
         detection: YoloDetection,
         detection_image: npt.NDArray[np.uint8],
-        region: Rect,
+        region: Rectangle,
     ) -> ObjectHypothesis:
         """
         :return: A hypothesis for the detected object covering the given color image
@@ -441,14 +451,14 @@ class YoloAnnotator(ThreadedAnnotator):
             else ObjectHypothesis()
         )
         hypothesis.source = self.name
-        hypothesis.roi.roi = region
+        hypothesis.region_of_interest.rectangle = region
 
         detection_mask = self._detection_mask(detection, detection_image)
         if self.descriptor.parameters.global_with_depth:
             hypothesis.points = self._point_cloud(detection_mask, detection_image)
-        hypothesis.roi.mask = crop_image(
+        hypothesis.region_of_interest.mask = crop_image(
             resize_mask(self, detection_mask),
-            (region.pos.x, region.pos.y),
+            (region.position.x, region.position.y),
             (region.width, region.height),
         )
         return hypothesis
@@ -489,9 +499,11 @@ class YoloAnnotator(ThreadedAnnotator):
         """
         :return: The point cloud of the depth measurements inside the detection mask.
         """
-        return get_cloud_from_rgb_depth_and_mask(
-            rgb_image=cv2.cvtColor(detection_image, cv2.COLOR_BGR2RGB),
-            depth_image=self.get_cas().get(CASViews.DEPTH_IMAGE),
+        return get_cloud_from_color_depth_and_mask(
+            red_green_blue_image=cv2.cvtColor(detection_image, cv2.COLOR_BGR2RGB),
+            depth_image=self.get_common_analysis_structure().get(
+                CommonAnalysisStructureViews.DEPTH_IMAGE
+            ),
             mask=detection_mask,
             camera_intrinsics=self.camera_intrinsics,
             depth_truncate=self.descriptor.parameters.depth_truncate,
@@ -504,11 +516,15 @@ class YoloAnnotator(ThreadedAnnotator):
         precision mode, and output the point clouds of the new hypotheses.
         """
         parameters: YoloAnnotator.Descriptor.Parameters = self.descriptor.parameters
-        visualization_image = self.get_cas().get_copy(CASViews.COLOR_IMAGE)
+        visualization_image = self.get_common_analysis_structure().get_copy(
+            CommonAnalysisStructureViews.COLOR_IMAGE
+        )
         for index, annotated in enumerate(annotated_detections):
             if parameters.precision_mode and annotated.is_new:
-                x1, y1, _, _ = annotated.hypothesis.roi.roi.get_corner_points()
-                mask = annotated.hypothesis.roi.mask
+                x1, y1, _, _ = (
+                    annotated.hypothesis.region_of_interest.rectangle.get_corner_points()
+                )
+                mask = annotated.hypothesis.region_of_interest.mask
                 region = visualization_image[
                     y1 : y1 + mask.shape[0], x1 : x1 + mask.shape[1]
                 ]
@@ -519,9 +535,9 @@ class YoloAnnotator(ThreadedAnnotator):
                 [annotated.hypothesis],
                 lambda _: f"{classification.classname}, {classification.confidence:.2f}",
             )
-        self.get_annotator_output_struct().set_image(visualization_image)
+        self.get_annotator_output_structure().set_image(visualization_image)
         if parameters.global_with_depth:
-            self.get_annotator_output_struct().set_geometries(
+            self.get_annotator_output_structure().set_geometries(
                 [
                     annotated.hypothesis.points
                     for annotated in annotated_detections

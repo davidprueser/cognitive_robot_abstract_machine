@@ -24,7 +24,7 @@ import numpy as np
 import open3d as o3d
 import trimesh
 from typing_extensions import TYPE_CHECKING, Tuple, List
-from robokudo.cas import CASViews
+from robokudo.common_analysis_structure import CommonAnalysisStructureViews
 from robokudo.utils.transform import (
     get_transform_matrix,
     get_translation_from_transform_matrix,
@@ -34,109 +34,121 @@ from robokudo.utils.transform import (
 if TYPE_CHECKING:
     import cv2.typing as cv2t
     import numpy.typing as npt
-    from robokudo.cas import CAS
+    from robokudo.common_analysis_structure import CommonAnalysisStructure
     from semantic_digital_twin.world_description.geometry import Mesh
 
 
-def put_obb_on_target_obb(
-    input_obb: o3d.geometry.OrientedBoundingBox,
-    target_obb: o3d.geometry.OrientedBoundingBox,
+def put_oriented_bounding_box_on_target_oriented_bounding_box(
+    input_oriented_bounding_box: o3d.geometry.OrientedBoundingBox,
+    target_oriented_bounding_box: o3d.geometry.OrientedBoundingBox,
 ) -> o3d.geometry.OrientedBoundingBox:
     """
     Place one oriented bounding box on top of another.
 
-    Places input_obb on top of target_obb by aligning their centers and adjusting height
+    Places input_oriented_bounding_box on top of target_oriented_bounding_box by aligning their centers and adjusting height
     based on extents. Assumes positive Z is up.
 
-    :param input_obb: Bounding box to place
-    :param target_obb: Target bounding box to place on
+    :param input_oriented_bounding_box: Bounding box to place
+    :param target_oriented_bounding_box: Target bounding box to place on
     :return: Transformed input bounding box
     """
     put_on_translation = np.eye(4)
-    # set the z(height) based on the extents of the input_obb
-    # OBB origins are center of bounds
-    put_on_translation[2, 3] = input_obb.extent[2] / 2 + target_obb.extent[2] / 2
+    # set the z(height) based on the extents of the input_oriented_bounding_box
+    # oriented bounding box origins are center of bounds
+    put_on_translation[2, 3] = (
+        input_oriented_bounding_box.extent[2] / 2
+        + target_oriented_bounding_box.extent[2] / 2
+    )
 
-    return transform_obb_relative_to_obb_center(
-        input_obb, target_obb, put_on_translation
+    return transform_oriented_bounding_box_relative_to_oriented_bounding_box_center(
+        input_oriented_bounding_box, target_oriented_bounding_box, put_on_translation
     )
 
 
-def transform_obb_relative_to_obb_center(
-    input_obb: o3d.geometry.OrientedBoundingBox,
-    target_obb: o3d.geometry.OrientedBoundingBox,
+def transform_oriented_bounding_box_relative_to_oriented_bounding_box_center(
+    input_oriented_bounding_box: o3d.geometry.OrientedBoundingBox,
+    target_oriented_bounding_box: o3d.geometry.OrientedBoundingBox,
     transform_matrix: npt.NDArray,
 ) -> o3d.geometry.OrientedBoundingBox:
     """
     Transform a bounding box relative to another's center.
 
-    :param input_obb: Bounding box to transform
-    :param target_obb: Reference bounding box
+    :param input_oriented_bounding_box: Bounding box to transform
+    :param target_oriented_bounding_box: Reference bounding box
     :param transform_matrix: 4x4 transform matrix relative to target center
     :return: Transformed bounding box
     """
-    target_obb_transform = get_transform_matrix(target_obb.R, target_obb.center)
-    input_to_target_transform = np.matmul(target_obb_transform, transform_matrix)
+    target_oriented_bounding_box_transform = get_transform_matrix(
+        target_oriented_bounding_box.R, target_oriented_bounding_box.center
+    )
+    input_to_target_transform = np.matmul(
+        target_oriented_bounding_box_transform, transform_matrix
+    )
 
-    # Build a new OBB from the input_obb by reusing the size
-    # of the input OBB and then use the transformation we computed
-    transformed_obb = o3d.geometry.OrientedBoundingBox(
+    # Build a new oriented bounding box from the input_oriented_bounding_box by reusing the size
+    # of the input oriented bounding box and then use the transformation we computed
+    transformed_oriented_bounding_box = o3d.geometry.OrientedBoundingBox(
         center=input_to_target_transform[:3, 3],
         R=input_to_target_transform[:3, :3],
-        extent=input_obb.extent,
+        extent=input_oriented_bounding_box.extent,
     )
-    return transformed_obb
+    return transformed_oriented_bounding_box
 
 
-def get_obb_from_size_and_transform(
-    bb_size: npt.NDArray, transform_matrix: npt.NDArray
+def get_oriented_bounding_box_from_size_and_transform(
+    bounding_box_size: npt.NDArray, transform_matrix: npt.NDArray
 ) -> o3d.geometry.OrientedBoundingBox:
     """
     Create an oriented bounding box from size and transform.
 
-    :param bb_size: Numpy array with 3 elements for BoundingBox size in X,Y,Z
+    :param bounding_box_size: Numpy array with 3 elements for BoundingBox size in X,Y,Z
     :param transform_matrix: 4x4 numpy array
     :return: Oriented bounding box
     """
     return o3d.geometry.OrientedBoundingBox(
         center=get_translation_from_transform_matrix(transform_matrix),
         R=get_rotation_from_transform_matrix(transform_matrix),
-        extent=bb_size,
+        extent=bounding_box_size,
     )
 
 
-def get_2d_corner_points_from_3d_bb(
-    cas: CAS, object_bb: o3d.geometry.OrientedBoundingBox
+def get_2d_corner_points_from_3d_bounding_box(
+    common_analysis_structure: CommonAnalysisStructure,
+    object_bounding_box: o3d.geometry.OrientedBoundingBox,
 ) -> cv2t.Rect:
     """
     Project 3D bounding box corners to 2D image points.
 
-    :param cas: CAS containing camera parameters
-    :param object_bb: 3D bounding box to project
+    :param common_analysis_structure: common analysis structure containing camera parameters
+    :param object_bounding_box: 3D bounding box to project
     :return: Array of 2D corner points
     """
-    # Create the 2D Boundingbox/ROI based on the OBB
-    pointcloud_camera_intrinsics = cas.get(CASViews.POINTCLOUD_CAMERA_INTRINSIC)
+    # Create the 2D Boundingbox/region of interest based on the oriented bounding box
+    pointcloud_camera_intrinsics = common_analysis_structure.get(
+        CommonAnalysisStructureViews.POINTCLOUD_CAMERA_INTRINSIC
+    )
     assert isinstance(pointcloud_camera_intrinsics, o3d.camera.PinholeCameraIntrinsic)
     k = pointcloud_camera_intrinsics.intrinsic_matrix
-    corner_points = np.asarray(object_bb.get_box_points())
+    corner_points = np.asarray(object_bounding_box.get_box_points())
     uvd = corner_points @ k.T
     if np.any(uvd[:, 2] == 0):
         raise ValueError("Division by zero: Bounding box has zero depth.")
     corner_points_in_2d_x = (uvd[:, 0] / uvd[:, 2]).astype(int)
     corner_points_in_2d_y = (uvd[:, 1] / uvd[:, 2]).astype(int)
-    return cas.get(CASViews.COLOR_TO_DEPTH_RATIO).color_pixels(
-        np.stack((corner_points_in_2d_x, corner_points_in_2d_y), axis=1)
-    )
+    return common_analysis_structure.get(
+        CommonAnalysisStructureViews.COLOR_TO_DEPTH_RATIO
+    ).color_pixels(np.stack((corner_points_in_2d_x, corner_points_in_2d_y), axis=1))
 
 
 def project_points_to_image(
-    cas: CAS, points_camera: npt.NDArray
+    common_analysis_structure: CommonAnalysisStructure, points_camera: npt.NDArray
 ) -> Tuple[npt.NDArray, npt.NDArray]:
     """
     Project 3D camera-frame points to 2D image pixels and validity mask.
     """
-    pointcloud_camera_intrinsics = cas.get(CASViews.POINTCLOUD_CAMERA_INTRINSIC)
+    pointcloud_camera_intrinsics = common_analysis_structure.get(
+        CommonAnalysisStructureViews.POINTCLOUD_CAMERA_INTRINSIC
+    )
     k = pointcloud_camera_intrinsics.intrinsic_matrix
     uvd = points_camera @ k.T
     z = uvd[:, 2]
@@ -144,7 +156,9 @@ def project_points_to_image(
     u = (uvd[valid, 0] / z[valid]).astype(int)
     v = (uvd[valid, 1] / z[valid]).astype(int)
 
-    color_to_depth_ratio = cas.get(CASViews.COLOR_TO_DEPTH_RATIO)
+    color_to_depth_ratio = common_analysis_structure.get(
+        CommonAnalysisStructureViews.COLOR_TO_DEPTH_RATIO
+    )
     return color_to_depth_ratio.color_pixels(np.stack([u, v], axis=1)), valid
 
 
@@ -152,64 +166,71 @@ def draw_mesh_wireframe_on_image(
     image: npt.NDArray,
     mesh_shape: Mesh,
     object_transform: npt.NDArray,
-    cas: CAS,
+    common_analysis_structure: CommonAnalysisStructure,
     color: Tuple[int, int, int] = (0, 255, 0),
     thickness: int = 1,
 ) -> None:
     """
     Draw the mesh wireframe by projecting its edges into the image.
     """
-    tm = mesh_shape.mesh.copy()
-    tm.apply_transform(mesh_shape.origin.to_np())
-    tm.apply_transform(object_transform)
+    trimesh_mesh = mesh_shape.mesh.copy()
+    trimesh_mesh.apply_transform(mesh_shape.origin.to_np())
+    trimesh_mesh.apply_transform(object_transform)
 
-    vertices = np.asarray(tm.vertices)
-    points_2d, valid = project_points_to_image(cas, vertices)
+    vertices = np.asarray(trimesh_mesh.vertices)
+    points_2d, valid = project_points_to_image(common_analysis_structure, vertices)
 
     index_map = -np.ones(len(vertices), dtype=int)
-    valid_idx = np.where(valid)[0]
-    index_map[valid_idx] = np.arange(len(valid_idx))
+    valid_indices = np.where(valid)[0]
+    index_map[valid_indices] = np.arange(len(valid_indices))
 
-    for edge in tm.edges_unique:
-        a, b = edge
-        ia = index_map[a]
-        ib = index_map[b]
-        if ia < 0 or ib < 0:
+    for edge in trimesh_mesh.edges_unique:
+        first_vertex, second_vertex = edge
+        first_index = index_map[first_vertex]
+        second_index = index_map[second_vertex]
+        if first_index < 0 or second_index < 0:
             continue
-        pt1 = tuple(points_2d[ia])
-        pt2 = tuple(points_2d[ib])
-        cv2.line(image, pt1, pt2, color, thickness)
+        first_corner = tuple(points_2d[first_index])
+        second_corner = tuple(points_2d[second_index])
+        cv2.line(image, first_corner, second_corner, color, thickness)
 
 
-def get_2d_bounding_rect_from_3d_bb(
-    cas: CAS, object_bb: o3d.geometry.OrientedBoundingBox
+def get_2d_bounding_rectangle_from_3d_bounding_box(
+    common_analysis_structure: CommonAnalysisStructure,
+    object_bounding_box: o3d.geometry.OrientedBoundingBox,
 ) -> cv2t.Rect:
     """
     Get a cv2.boundingRect which represents the space taken by a open3d boundingbox.
     Perspective projection and color-to-depth ratio are taken into account.
 
-    :param cas:
-    :param object_bb:
+    :param common_analysis_structure:
+    :param object_bounding_box:
     :return: cv2.boundingRect
     """
-    corner_points_in_2d_xy = get_2d_corner_points_from_3d_bb(cas, object_bb)
+    corner_points_in_2d_xy = get_2d_corner_points_from_3d_bounding_box(
+        common_analysis_structure, object_bounding_box
+    )
     # 0: x, 1: y, 2: w, 3: h
     return cv2.boundingRect(corner_points_in_2d_xy)
 
 
-def draw_wireframe_of_obb_into_image(
-    cas: CAS, image: npt.NDArray, obb: o3d.geometry.OrientedBoundingBox
+def draw_wireframe_of_oriented_bounding_box_into_image(
+    common_analysis_structure: CommonAnalysisStructure,
+    image: npt.NDArray,
+    oriented_bounding_box: o3d.geometry.OrientedBoundingBox,
 ) -> None:
     """
     Draw 3D bounding box wireframe on image.
 
     Projects 3D box edges to image plane and draws lines.
 
-    :param cas: CAS containing camera parameters
+    :param common_analysis_structure: common analysis structure containing camera parameters
     :param image: Image to draw on
-    :param obb: 3D bounding box to visualize
+    :param oriented_bounding_box: 3D bounding box to visualize
     """
-    projected_corners = get_2d_corner_points_from_3d_bb(cas, obb)
+    projected_corners = get_2d_corner_points_from_3d_bounding_box(
+        common_analysis_structure, oriented_bounding_box
+    )
     edges = [
         (0, 1),
         (1, 7),
@@ -226,31 +247,31 @@ def draw_wireframe_of_obb_into_image(
     ]
 
     for edge in edges:
-        pt1 = tuple(projected_corners[edge[0]])
-        pt2 = tuple(projected_corners[edge[1]])
-        cv2.line(image, pt1, pt2, (0, 255, 0), 2)
+        first_corner = tuple(projected_corners[edge[0]])
+        second_corner = tuple(projected_corners[edge[1]])
+        cv2.line(image, first_corner, second_corner, (0, 255, 0), 2)
 
 
 def get_mask_from_pointcloud(
     input_cloud: o3d.geometry.PointCloud,
-    ref_image: npt.NDArray,
+    reference_image: npt.NDArray,
     camera_intrinsics: o3d.camera.PinholeCameraIntrinsic,
     mask_scale_factor: float = None,
-    crop_to_ref: bool = None,
+    crop_to_reference: bool = None,
 ) -> npt.NDArray:
     """
-    Generate a binary mask image by projecting the input_cloud to the ref_image mask.
+    Generate a binary mask image by projecting the input_cloud to the reference_image mask.
 
     :param input_cloud: 3d points which should be projected to the result mask image
-    :param ref_image: A reference image for the dimensionality of the mask
+    :param reference_image: A reference image for the dimensionality of the mask
     :param camera_intrinsics: Camera intrinsics that have been used to generate
         input_cloud
     :param mask_scale_factor: If your color and depth image size mismatches, you might
         have to scale your depth-based mask image to the dimensions of your color image.
         Please provide that factor here. Example: Kinect has 1280x images were as the
         depth images are only 640x . This would require a scale factor of 2.0
-    :param crop_to_ref: This is usually set to True, if mask_scale_factor has been set.
-        Crop the result of the scale operation to the size of ref_image (0:height) and
+    :param crop_to_reference: This is usually set to True, if mask_scale_factor has been set.
+        Crop the result of the scale operation to the size of reference_image (0:height) and
         (0:width)
     :return: A binary mask image for OpenCV
     """
@@ -263,12 +284,12 @@ def get_mask_from_pointcloud(
     cropped_x = (uvd[:, 0] / uvd[:, 2]).astype(int)
     cropped_y = (uvd[:, 1] / uvd[:, 2]).astype(int)
 
-    height, width, d = ref_image.shape
+    height, width, channel_count = reference_image.shape
 
     cropped_x = np.clip(cropped_x, 0, width - 1)
     cropped_y = np.clip(cropped_y, 0, height - 1)
 
-    mask = np.zeros((height, width, d), np.uint8)
+    mask = np.zeros((height, width, channel_count), np.uint8)
     mask[cropped_y, cropped_x] = (255, 255, 255)
 
     if mask_scale_factor:
@@ -280,35 +301,35 @@ def get_mask_from_pointcloud(
             interpolation=cv2.INTER_NEAREST,
         )
 
-    if crop_to_ref:
+    if crop_to_reference:
         mask = mask[0:height, 0:width]
 
     return mask
 
 
 def scale_o3d_camera_intrinsics(
-    camera_intrinsic: o3d.camera.PinholeCameraIntrinsic, scalex: float, scaley: float
+    camera_intrinsic: o3d.camera.PinholeCameraIntrinsic, scale_x: float, scale_y: float
 ) -> o3d.camera.PinholeCameraIntrinsic:
     """Scale camera intrinsics by x and y factors.
 
     Create and return a new camera intrinsic by scaling an input camera_intrinsic
-    based on a scale factor scalex and scaley.
+    based on a scale factor scale_x and scale_y.
     Scaling will be done by multipling the factors with the relevant properties.
-    Example: new_height = height * scaley
+    Example: new_height = height * scale_y
 
     :param camera_intrinsic: Original camera intrinsics
-    :param scalex: Scale factor for width/x
-    :param scaley: Scale factor for height/y
+    :param scale_x: Scale factor for width/x
+    :param scale_y: Scale factor for height/y
     :return: Scaled camera intrinsics
     """
     new_camera_intrinsic = o3d.camera.PinholeCameraIntrinsic()
 
-    width = int(camera_intrinsic.width * scalex)
-    height = int(camera_intrinsic.height * scaley)
-    fx = camera_intrinsic.intrinsic_matrix[0][0] * scalex
-    cx = camera_intrinsic.intrinsic_matrix[0][2] * scalex
-    fy = camera_intrinsic.intrinsic_matrix[1][1] * scaley
-    cy = camera_intrinsic.intrinsic_matrix[1][2] * scaley
+    width = int(camera_intrinsic.width * scale_x)
+    height = int(camera_intrinsic.height * scale_y)
+    fx = camera_intrinsic.intrinsic_matrix[0][0] * scale_x
+    cx = camera_intrinsic.intrinsic_matrix[0][2] * scale_x
+    fy = camera_intrinsic.intrinsic_matrix[1][1] * scale_y
+    cy = camera_intrinsic.intrinsic_matrix[1][2] * scale_y
 
     new_camera_intrinsic.set_intrinsics(width, height, fx, fy, cx, cy)
 
@@ -328,16 +349,16 @@ def concatenate_clouds(
     """
     visualization_cloud = o3d.geometry.PointCloud()
 
-    all_points = np.concatenate([c.points for c in clouds])
-    all_colors = np.concatenate([c.colors for c in clouds])
+    all_points = np.concatenate([cloud.points for cloud in clouds])
+    all_colors = np.concatenate([cloud.colors for cloud in clouds])
     visualization_cloud.points = o3d.utility.Vector3dVector(all_points)
     visualization_cloud.colors = o3d.utility.Vector3dVector(all_colors)
 
     return visualization_cloud
 
 
-def get_cloud_from_rgb_depth_and_mask(
-    rgb_image: npt.NDArray,
+def get_cloud_from_color_depth_and_mask(
+    red_green_blue_image: npt.NDArray,
     depth_image: npt.NDArray,
     mask: npt.NDArray,
     camera_intrinsics: o3d.camera.PinholeCameraIntrinsic,
@@ -349,7 +370,7 @@ def get_cloud_from_rgb_depth_and_mask(
 
     The color image, the depth image and the mask must have the same resolution.
 
-    :param rgb_image: Color image in RGB order.
+    :param red_green_blue_image: Color image in RGB order.
     :param depth_image: Depth image in millimeters.
     :param mask: Mask on the depth image.
     :param camera_intrinsics: Intrinsics of the camera at the depth image resolution.
@@ -359,7 +380,7 @@ def get_cloud_from_rgb_depth_and_mask(
     :return: The colored point cloud of the masked depth measurements.
     """
     depth_image = np.where(mask == mask_true_value, depth_image, 0)
-    o3d_color = o3d.geometry.Image(rgb_image)
+    o3d_color = o3d.geometry.Image(red_green_blue_image)
     o3d_depth = o3d.geometry.Image(depth_image)
     rgbd_image = o3d.geometry.RGBDImage.create_from_color_and_depth(
         o3d_color, o3d_depth, convert_rgb_to_intensity=False, depth_trunc=depth_truncate

@@ -77,17 +77,17 @@ class SharedROSVisualizer(Visualizer, Visualizer.Observer, Node):
         if self.update_output:
             self.update_output = False
             # 2D imshow output
-            img = None
+            image = None
             if active_annotator_instance.name not in annotator_outputs.outputs:
                 # We do not yet have visual output set up for this annotator
                 # This might happen in dynamic perception pipelines, where annotators have not been set up
                 # during construction of the tree AND don't generate image outputs.
                 # Create an empty image to show in the visualizer
-                img = np.zeros((640, 480, 3), dtype="uint8")
+                image = np.zeros((640, 480, 3), dtype="uint8")
             else:
-                img = annotator_outputs.outputs[active_annotator_instance.name].image
-            img_with_annotator_text = cv2.putText(
-                img,
+                image = annotator_outputs.outputs[active_annotator_instance.name].image
+            image_with_annotator_text = cv2.putText(
+                image,
                 active_annotator_instance.name,
                 (15, 15),
                 cv2.FONT_HERSHEY_SIMPLEX,
@@ -96,7 +96,7 @@ class SharedROSVisualizer(Visualizer, Visualizer.Observer, Node):
                 2,
             )
             self.ros_image_publisher.publish(
-                self.ros_image_cv_bridge.cv2_to_imgmsg(img_with_annotator_text)
+                self.ros_image_cv_bridge.cv2_to_imgmsg(image_with_annotator_text)
             )
 
     def notify(
@@ -186,9 +186,9 @@ class AllAnnotatorROSVisualizer(Visualizer, Node):
             self.update_ros_image_publishers()
 
             for annotator_name, annotator_output in annotator_outputs.outputs.items():
-                img = annotator_output.image
+                image = annotator_output.image
                 self.ros_image_publishers[annotator_name].publish(
-                    self.ros_image_cv_bridge.cv2_to_imgmsg(img)
+                    self.ros_image_cv_bridge.cv2_to_imgmsg(image)
                 )
 
     def notify(

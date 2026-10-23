@@ -1,11 +1,12 @@
+from __future__ import annotations
 from importlib.util import find_spec
 from pathlib import Path
 
 from robokudo.world_descriptor import (
     BaseWorldDescriptor,
-    ObjectSpec,
+    ObjectSpecification,
     PredefinedObject,
-    RegionSpec,
+    RegionSpecification,
 )
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
@@ -16,7 +17,10 @@ from semantic_digital_twin.world_description.world_entity import Body
 
 
 class WorldDescriptor(BaseWorldDescriptor):
-    """A compact tabletop world for SemDT RayTracer-based camera simulation."""
+    """
+    A compact tabletop world for semantic digital twin RayTracer-based camera
+    simulation.
+    """
 
     def __init__(self) -> None:
         super().__init__()
@@ -24,17 +28,22 @@ class WorldDescriptor(BaseWorldDescriptor):
 
         table_top_z = 0.78
         table_thickness = 0.06
-        pycram_spec = find_spec("coraplex")
-        if pycram_spec is None or pycram_spec.origin is None:
+        coraplex_module_specification = find_spec("coraplex")
+        if (
+            coraplex_module_specification is None
+            or coraplex_module_specification.origin is None
+        ):
             raise ImportError("Could not locate the coraplex package for mesh loading.")
-        object_mesh_dir = (
-            Path(pycram_spec.origin).resolve().parents[2] / "resources" / "objects"
+        object_mesh_directory = (
+            Path(coraplex_module_specification.origin).resolve().parents[2]
+            / "resources"
+            / "objects"
         )
-        cup_mesh_path = object_mesh_dir / "jeroen_cup.stl"
-        milk_mesh_path = object_mesh_dir / "milk.stl"
+        cup_mesh_path = object_mesh_directory / "jeroen_cup.stl"
+        milk_mesh_path = object_mesh_directory / "milk.stl"
 
         object_specs = [
-            ObjectSpec(
+            ObjectSpecification(
                 name="table",
                 box_scale=Scale(1.20, 0.80, table_thickness),
                 color=Color(0.65, 0.58, 0.48, 1.0),
@@ -45,7 +54,7 @@ class WorldDescriptor(BaseWorldDescriptor):
                     reference_frame=root,
                 ),
             ),
-            ObjectSpec(
+            ObjectSpecification(
                 name="box_red",
                 box_scale=Scale(0.10, 0.08, 0.10),
                 color=Color(0.83, 0.20, 0.20, 1.0),
@@ -56,7 +65,7 @@ class WorldDescriptor(BaseWorldDescriptor):
                     reference_frame=root,
                 ),
             ),
-            ObjectSpec(
+            ObjectSpecification(
                 name="box_blue",
                 box_scale=Scale(0.08, 0.08, 0.14),
                 color=Color(0.22, 0.37, 0.82, 1.0),
@@ -71,7 +80,7 @@ class WorldDescriptor(BaseWorldDescriptor):
         ]
 
         region_specs = [
-            RegionSpec(
+            RegionSpecification(
                 name="table_surface_region",
                 box_scale=Scale(1.00, 0.60, 0.03),
                 color=Color(0.10, 0.70, 0.30, 0.20),

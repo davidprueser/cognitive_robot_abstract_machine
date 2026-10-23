@@ -3,10 +3,6 @@
 # License: BSD
 #   https://raw.githubusercontent.com/stonier/py_trees/devel/LICENSE
 #
-##############################################################################
-# Documentation
-##############################################################################
-
 """
 Visualization utilities for behavior trees in RoboKudo.
 
@@ -22,9 +18,6 @@ The module supports:
 * Customizing node appearance based on node type and status
 """
 
-##############################################################################
-# Imports
-##############################################################################
 from __future__ import annotations
 
 import csv
@@ -44,9 +37,7 @@ if TYPE_CHECKING:
     from py_trees.behaviour import Behaviour
 
 
-##############################################################################
-# Methods
-##############################################################################
+# %% dot graph generation
 
 
 def generate_pydot_graph(
@@ -219,18 +210,18 @@ def generate_pydot_graph(
         if isinstance(root, Decorator) and collapse_decorators:
             return
         if visibility_level < root.blackbox_level:
-            for c in root.children:
+            for child in root.children:
                 node_shape, node_colour, node_font_colour = get_node_attributes(
-                    c, visibility_level
+                    child, visibility_level
                 )
-                proposed_dot_name = c.name
+                proposed_dot_name = child.name
                 while proposed_dot_name in names:
                     proposed_dot_name = proposed_dot_name + "*"
                 timing_info_dict[proposed_dot_name] = 0
-                if isinstance(c, BaseAnnotator):
+                if isinstance(child, BaseAnnotator):
                     # Check for the compute or update method timing
-                    if hasattr(c, "_times"):
-                        time_dict = c._times
+                    if hasattr(child, "_times"):
+                        time_dict = child._times
                     else:
                         time_dict = {}
 
@@ -253,9 +244,9 @@ def generate_pydot_graph(
                 graph.add_node(node)
                 edge = Edge(root_dot_name, proposed_dot_name)
                 graph.add_edge(edge)
-                if c.children != []:
+                if child.children != []:
                     add_edges(
-                        c,
+                        child,
                         proposed_dot_name,
                         visibility_level,
                         collapse_decorators,
@@ -328,28 +319,28 @@ def render_dot_tree(
     graph, timing_info_dict = generate_pydot_graph(
         root, visibility_level, collapse_decorators
     )
-    filename_wo_extension = (
+    filename_without_extension = (
         root.name.lower().replace(" ", "_") if name is None else name
     )
-    print("Writing %s.dot/svg/png" % filename_wo_extension)
+    print("Writing %s.dot/svg/png" % filename_without_extension)
     if path_prefix:
-        filename_wo_extension = f"{path_prefix}{filename_wo_extension}"
+        filename_without_extension = f"{path_prefix}{filename_without_extension}"
 
     if threadpool_executor:
-        threadpool_executor.submit(graph.write_png, filename_wo_extension + ".png")
-        threadpool_executor.submit(graph.write, filename_wo_extension + ".dot")
+        threadpool_executor.submit(graph.write_png, filename_without_extension + ".png")
+        threadpool_executor.submit(graph.write, filename_without_extension + ".dot")
         threadpool_executor.submit(
-            write_timing_info_to_csv, filename_wo_extension, timing_info_dict
+            write_timing_info_to_csv, filename_without_extension, timing_info_dict
         )
     else:
-        graph.write_png(filename_wo_extension + ".png")
-        graph.write(filename_wo_extension + ".dot")
-        write_timing_info_to_csv(filename_wo_extension, timing_info_dict)
-    # graph.write_svg(filename_wo_extension + '.svg')
+        graph.write_png(filename_without_extension + ".png")
+        graph.write(filename_without_extension + ".dot")
+        write_timing_info_to_csv(filename_without_extension, timing_info_dict)
+    # graph.write_svg(filename_without_extension + '.svg')
 
 
 def write_timing_info_to_csv(
-    filename_wo_extension: str, timing_info_dict: Dict[str, float]
+    filename_without_extension: str, timing_info_dict: Dict[str, float]
 ) -> None:
     """
     Write timing information for annotators to a CSV file.
@@ -357,12 +348,13 @@ def write_timing_info_to_csv(
     Creates a CSV file containing the runtime information for each annotator in the
     behavior tree. The CSV has two columns: AnnotatorName and Runtime.
 
-    :param filename_wo_extension: Base filename without extension to write the CSV to
+    :param filename_without_extension: Base filename without extension to write the CSV
+        to
     :param timing_info_dict: Dictionary mapping annotator names to their runtime in
         seconds
     """
     # Open the CSV file with write permission
-    with open(f"{filename_wo_extension}.csv", "w", newline="") as csvfile:
+    with open(f"{filename_without_extension}.csv", "w", newline="") as csvfile:
         # Create a CSV writer using the field/column names
         writer = csv.writer(csvfile)
         writer.writerow(["AnnotatorName", "Runtime"])

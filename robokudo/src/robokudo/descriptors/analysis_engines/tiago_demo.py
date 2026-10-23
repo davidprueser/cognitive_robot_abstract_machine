@@ -10,7 +10,7 @@ The pipeline implements the following functionality:
 * Query-based perception control
 * TIAGo camera data processing
 * Point cloud analysis and segmentation
-* Object pose estimation using PCA
+* Object pose estimation using principal component analysis
 * Query result generation and response
 
 .. note::
@@ -20,17 +20,19 @@ The pipeline implements the following functionality:
 """
 
 from robokudo.analysis_engine import AnalysisEngineInterface
-from robokudo.annotators.cluster_pose_pca import ClusterPosePCAAnnotator
+from robokudo.annotators.cluster_pose_principal_component_analysis import (
+    ClusterPosePrincipalComponentAnalysisAnnotator,
+)
 from robokudo.annotators.collection_reader import CollectionReaderAnnotator
 from robokudo.annotators.image_preprocessor import ImagePreprocessorAnnotator
 from robokudo.annotators.plane import PlaneAnnotator
 from robokudo.annotators.pointcloud_cluster_extractor import PointCloudClusterExtractor
 from robokudo.annotators.pointcloud_crop import PointcloudCropAnnotator
 from robokudo.annotators.query import GenerateQueryResult, QueryAnnotator
-from robokudo.descriptors.factories.cr_descriptor_factory import (
+from robokudo.descriptors.factories.collection_reader_descriptor_factory import (
     CollectionReaderDescriptorFactory,
 )
-from robokudo.idioms import pipeline_init
+from robokudo.idioms import pipeline_initialization
 from robokudo.pipeline import Pipeline
 
 
@@ -47,11 +49,11 @@ class AnalysisEngine(AnalysisEngineInterface):
     * Query handling for perception control
     * TIAGo camera data collection and preprocessing
     * Point cloud analysis and segmentation
-    * Object pose estimation using PCA
+    * Object pose estimation using principal component analysis
     * Query result generation and response
 
     .. note::
-        The pipeline uses PCA-based pose estimation by default, but can be
+        The pipeline uses principal component analysis-based pose estimation by default, but can be
         configured to use bounding box-based estimation by uncommenting the
         relevant annotator.
     """
@@ -81,7 +83,7 @@ class AnalysisEngine(AnalysisEngineInterface):
         5. Crop point cloud
         6. Detect table plane
         7. Extract object clusters
-        8. Estimate object poses (PCA)
+        8. Estimate object poses (principal component analysis)
         9. Generate and send query response
 
         :return: The configured pipeline for TIAGo perception
@@ -94,15 +96,15 @@ class AnalysisEngine(AnalysisEngineInterface):
         seq = Pipeline("ContPipeline")
         seq.add_children(
             [
-                pipeline_init(),
+                pipeline_initialization(),
                 QueryAnnotator(),
                 CollectionReaderAnnotator(descriptor=tiago_config),
                 ImagePreprocessorAnnotator("ImagePreprocessor"),
                 PointcloudCropAnnotator(),
                 PlaneAnnotator(),
                 PointCloudClusterExtractor(),
-                # ClusterPoseBBAnnotator(),
-                ClusterPosePCAAnnotator(),
+                # ClusterPoseBoundingBoxAnnotator(),
+                ClusterPosePrincipalComponentAnalysisAnnotator(),
                 GenerateQueryResult(),
             ]
         )

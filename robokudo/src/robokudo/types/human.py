@@ -19,12 +19,12 @@ import open3d as o3d
 from typing_extensions import Any
 
 from robokudo.types.core import Annotation
-from robokudo.types.cv import Points3D, ImageROI
+from robokudo.types.cv import Points3D, ImageRegionOfInterest
 from robokudo.types.tf import Pose
 
 
 @dataclass
-class FaceAnnotation(ImageROI, Points3D, Pose):
+class FaceAnnotation(ImageRegionOfInterest, Points3D, Pose):
     """Face detection result combining 2D, 3D and pose information.
 
     Provides:

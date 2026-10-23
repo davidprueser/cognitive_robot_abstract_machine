@@ -26,13 +26,13 @@ NAME: str = "robokudo"
 
 #:
 LOGGING_IDENTIFIER_MAIN: str = PACKAGE_NAME
-"""Logging name constant for core RoboKudo functionality. Other RK packages may choose to use others!"""
+"""Logging name constant for core RoboKudo functionality. Other RoboKudo packages may choose to use others!"""
 
 LOGGING_IDENTIFIER_MAIN_EXECUTABLE: str = "robokudo.main"
-"""Logging name constant for core RoboKudo functionality. Other RK packages may choose to use others!"""
+"""Logging name constant for core RoboKudo functionality. Other RoboKudo packages may choose to use others!"""
 
 LOGGING_IDENTIFIER_QUERY: str = "robokudo.query"
-"""Logging name constant for core RoboKudo functionality. Other RK packages may choose to use others!"""
+"""Logging name constant for core RoboKudo functionality. Other RoboKudo packages may choose to use others!"""
 
 
 @dataclass

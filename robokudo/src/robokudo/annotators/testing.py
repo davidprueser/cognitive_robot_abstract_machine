@@ -31,7 +31,10 @@ from py_trees.common import Status
 from py_trees.composites import Sequence
 
 from robokudo.annotators.core import BaseAnnotator, ThreadedAnnotator
-from robokudo.cas import CAS, CASViews
+from robokudo.common_analysis_structure import (
+    CommonAnalysisStructure,
+    CommonAnalysisStructureViews,
+)
 from robokudo.types.scene import ObjectHypothesis
 from robokudo.utils.error_handling import catch_and_raise_to_blackboard
 
@@ -48,16 +51,18 @@ class SlowAnnotator(ThreadedAnnotator):
     * Visual feedback testing
     """
 
-    def __init__(self, name: str = "SlowAnnotator", sleep_in_s: float = 1.0) -> None:
+    def __init__(
+        self, name: str = "SlowAnnotator", sleep_in_seconds: float = 1.0
+    ) -> None:
         """
         Initialize the slow annotator.
 
         :param name: Name of the annotator instance
-        :param sleep_in_s: Sleep duration in seconds
+        :param sleep_in_seconds: Sleep duration in seconds
         """
         super().__init__(name)
 
-        self.sleep_in_s = sleep_in_s
+        self.sleep_in_seconds = sleep_in_seconds
         """Sleep duration in seconds"""
 
     def compute(self) -> Status:
@@ -66,18 +71,20 @@ class SlowAnnotator(ThreadedAnnotator):
 
         This method:
 
-        * Retrieves the color image from CAS
+        * Retrieves the color image from common analysis structure
         * Adds timestamp and visual markers
         * Sleeps for configured duration
         * Sets feedback message
 
         :return: Success status after completion
         """
-        self.rk_logger.debug(
+        self.robokudo_logger.debug(
             "%s.compute(): Start doing the heavy stuff" % self.__class__.__name__
         )
 
-        self.color = self.get_cas().get(CASViews.COLOR_IMAGE)
+        self.color = self.get_common_analysis_structure().get(
+            CommonAnalysisStructureViews.COLOR_IMAGE
+        )
         vis = copy.deepcopy(self.color)
 
         vis = cv2.putText(
@@ -90,11 +97,11 @@ class SlowAnnotator(ThreadedAnnotator):
             2,
         )
         vis = cv2.rectangle(vis, (400, 400), (650, 650), (0, 0, 255), 2)
-        self.get_annotator_output_struct().set_image(vis)
+        self.get_annotator_output_structure().set_image(vis)
 
-        time.sleep(self.sleep_in_s)  # in s
+        time.sleep(self.sleep_in_seconds)  # in s
 
-        self.rk_logger.debug(
+        self.robokudo_logger.debug(
             "%s.compute(): Stop doing the heavy stuff" % self.__class__.__name__
         )
         self.feedback_message = "SlowAnnotator was successful."
@@ -110,11 +117,13 @@ class EmptyAnnotator(BaseAnnotator):
     Used for testing visualization and output handling.
     """
 
-    def __init__(self, name: str = "EmptyAnnotator", sleep_in_s: float = 1) -> None:
+    def __init__(
+        self, name: str = "EmptyAnnotator", sleep_in_seconds: float = 1
+    ) -> None:
         """Initialize the empty annotator.
 
         :param name: Annotator name
-        :param sleep_in_s: Sleep duration in seconds
+        :param sleep_in_seconds: Sleep duration in seconds
         """
         super().__init__(name)
 
@@ -127,7 +136,7 @@ class EmptyAnnotator(BaseAnnotator):
         :return: SUCCESS status
         """
         vis = np.zeros((640, 480, 3), dtype="uint8")
-        self.get_annotator_output_struct().set_image(vis)
+        self.get_annotator_output_structure().set_image(vis)
 
         return Status.SUCCESS
 
@@ -165,7 +174,7 @@ class FailingAnnotator(ThreadedAnnotator):
 
         :return: SUCCESS or FAILURE status
         """
-        self.rk_logger.debug(
+        self.robokudo_logger.debug(
             "%s.compute(): Start doing the heavy stuff" % self.__class__.__name__
         )
         time.sleep(0.5)  # in s
@@ -179,7 +188,7 @@ class FailingAnnotator(ThreadedAnnotator):
             self.feedback_message_queue.put("Action successful")
             return Status.SUCCESS
 
-        self.rk_logger.debug(
+        self.robokudo_logger.debug(
             "%s.compute(): Stop doing the heavy stuff" % self.__class__.__name__
         )
 
@@ -191,7 +200,7 @@ class FakeCollectionReaderAnnotator(BaseAnnotator):
     This annotator simulates a collection reader by:
 
     * Waiting for a configurable number of iterations
-    * Creating synthetic CAS data
+    * Creating synthetic common analysis structure data
     * Managing feedback messages
     * Testing pipeline flow control
 
@@ -200,7 +209,7 @@ class FakeCollectionReaderAnnotator(BaseAnnotator):
     * Pipeline integration testing
     * Flow control verification
     * Feedback message handling
-    * CAS creation testing
+    * common analysis structure creation testing
     """
 
     def __init__(self, name: str = "FakeCollectionReader") -> None:
@@ -210,11 +219,11 @@ class FakeCollectionReaderAnnotator(BaseAnnotator):
         :param name: Name of the annotator instance
         """
         super().__init__(name)
-        self.rk_logger.debug("%s.__init__()" % (self.__class__.__name__))
+        self.robokudo_logger.debug("%s.__init__()" % (self.__class__.__name__))
 
         self.collection_readers = [self.descriptor]
         """List of collection reader descriptors"""
-        # self.rk_logger.debug("%s" % (get_line_context(self)))
+        # self.robokudo_logger.debug("%s" % (get_line_context(self)))
 
     def setup(self, timeout: float) -> bool:
         """
@@ -223,7 +232,7 @@ class FakeCollectionReaderAnnotator(BaseAnnotator):
         :param timeout: Maximum time to wait for setup completion
         :return: True if setup successful
         """
-        self.rk_logger.debug("%s.setup()" % self.__class__.__name__)
+        self.robokudo_logger.debug("%s.setup()" % self.__class__.__name__)
         return True
 
     def initialise(self) -> None:
@@ -233,7 +242,7 @@ class FakeCollectionReaderAnnotator(BaseAnnotator):
         Called on first tick and whenever status changes from non-running.
         Resets counter and clears feedback messages for all children in sequence.
         """
-        self.rk_logger.debug("%s.initialise()" % (self.__class__.__name__))
+        self.robokudo_logger.debug("%s.initialise()" % (self.__class__.__name__))
         self.counter = 0
 
         # Clear all feedback messages when Collection Reader starts over
@@ -248,7 +257,7 @@ class FakeCollectionReaderAnnotator(BaseAnnotator):
         This method:
 
         * Increments internal counter
-        * Creates new CAS data after 3 iterations
+        * Creates new common analysis structure data after 3 iterations
         * Sets appropriate feedback messages
         * Updates processing status
 
@@ -258,15 +267,15 @@ class FakeCollectionReaderAnnotator(BaseAnnotator):
         new_status = Status.SUCCESS if self.counter == 3 else Status.RUNNING
         if new_status == Status.SUCCESS:
             self.feedback_message = "Got sensor data!"
-            # Create a new CAS
+            # Create a new common analysis structure
             blackboard = Blackboard()
-            cas = CAS()
-            cas.percepts = [time.time()]
-            blackboard.set("CAS", cas)
+            common_analysis_structure = CommonAnalysisStructure()
+            common_analysis_structure.percepts = [time.time()]
+            blackboard.set("common_analysis_structure", common_analysis_structure)
 
         else:
             self.feedback_message = "Waiting for incoming sensor data ..."
-        self.rk_logger.debug(
+        self.robokudo_logger.debug(
             "%s.update()[%s->%s][%s]"
             % (self.__class__.__name__, self.status, new_status, self.feedback_message)
         )
@@ -278,7 +287,7 @@ class FakeCollectionReaderAnnotator(BaseAnnotator):
 
         :param new_status: New status being transitioned to
         """
-        self.rk_logger.debug(
+        self.robokudo_logger.debug(
             "%s.terminate()[%s->%s]"
             % (self.__class__.__name__, self.status, new_status)
         )
@@ -312,7 +321,10 @@ class ScopedAnnotator(BaseAnnotator):
 
             def __init__(self) -> None:
                 """Initialize parameters with default analysis scope."""
-                self.analysis_scope = [CASViews.COLOR_IMAGE, CASViews.CLOUD]
+                self.analysis_scope = [
+                    CommonAnalysisStructureViews.COLOR_IMAGE,
+                    CommonAnalysisStructureViews.CLOUD,
+                ]
                 """ List of data types to analyze """
 
         # Overwrite the parameters explicitly to enable auto-completion
@@ -339,7 +351,7 @@ class ScopedAnnotator(BaseAnnotator):
         This method:
 
         * Retrieves data based on the analysis scope
-        * Determines the processing mode (OH or Scene analysis)
+        * Determines the processing mode (object hypothesis or Scene analysis)
         * Processes object hypotheses if present
         * Handles scene-level analysis otherwise
 
@@ -347,7 +359,7 @@ class ScopedAnnotator(BaseAnnotator):
         :raises: Any exceptions are caught and raised to the blackboard
         """
         # self.descriptor.parameters.analysis_scope = [ObjectHypothesis]  # test overwrite
-        # self.descriptor.parameters.analysis_scope = [CASViews.COLOR_IMAGE, CASViews.CLOUD]  # test overwrite
+        # self.descriptor.parameters.analysis_scope = [CommonAnalysisStructureViews.COLOR_IMAGE, CommonAnalysisStructureViews.CLOUD]  # test overwrite
         self.descriptor.parameters.analysis_scope = []  # test overwrite => error case
 
         data_to_analyze = self.get_data_from_analysis_scope(
@@ -356,14 +368,14 @@ class ScopedAnnotator(BaseAnnotator):
 
         # Your Annotator now has to decide which kinds of data it expects and how it would process them
         if ObjectHypothesis in data_to_analyze:
-            print(f"Annotator is in OH-Analysis mode")
+            print(f"Annotator is in object hypothesis-Analysis mode")
             object_hypotheses = data_to_analyze[ObjectHypothesis]
             for object_hypothesis in object_hypotheses:
                 assert isinstance(object_hypothesis, ObjectHypothesis)
-                print(f"OH ID: {object_hypothesis.id}")
+                print(f"object hypothesis ID: {object_hypothesis.id}")
         else:
             print(f"Annotator is in Scene-Analysis mode")
-            cloud = data_to_analyze[CASViews.CLOUD]
+            cloud = data_to_analyze[CommonAnalysisStructureViews.CLOUD]
             print(f"Cloud points: {len(cloud.points)}")
 
         return Status.SUCCESS

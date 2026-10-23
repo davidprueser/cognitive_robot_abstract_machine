@@ -1,3 +1,4 @@
+from __future__ import annotations
 from typing import Generator
 
 import py_trees
@@ -5,7 +6,7 @@ import pytest
 from py_trees.blackboard import Blackboard
 
 from robokudo.annotators.core import BaseAnnotator
-from robokudo.identifier import BBIdentifier
+from robokudo.identifier import BlackboardIdentifier
 from robokudo.utils.error_handling import (
     raise_to_blackboard,
     has_blackboard_exception,
@@ -16,7 +17,7 @@ from robokudo.utils.error_handling import (
 
 
 class DummyAnnotator(BaseAnnotator):
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__()
         self.published = False
 
@@ -36,22 +37,22 @@ class TestUtilsErrorHandling(object):
         yield blackboard
         blackboard.clear()
 
-    def test_raise_to_blackboard(self, blackboard: Blackboard):
+    def test_raise_to_blackboard(self, blackboard: Blackboard) -> None:
         exception = Exception("Test")
         try:
             raise exception
-        except Exception as e:
-            raise_to_blackboard(e)
+        except Exception as caught_exception:
+            raise_to_blackboard(caught_exception)
         assert (
-            blackboard.get(BBIdentifier.BLACKBOARD_EXCEPTION_NAME) == exception
+            blackboard.get(BlackboardIdentifier.BLACKBOARD_EXCEPTION_NAME) == exception
         ), "Blackboard should contain exception"
 
-    def test_has_blackboard_exception(self, blackboard: Blackboard):
+    def test_has_blackboard_exception(self, blackboard: Blackboard) -> None:
         assert has_blackboard_exception() == False
         raise_to_blackboard(Exception("Test"))
         assert has_blackboard_exception() == True
 
-    def test_get_blackboard_exception(self, blackboard: Blackboard):
+    def test_get_blackboard_exception(self, blackboard: Blackboard) -> None:
         exception = Exception("Test")
 
         assert pytest.raises(
@@ -62,7 +63,7 @@ class TestUtilsErrorHandling(object):
             get_blackboard_exception() == exception
         ), "Blackboard should contain exception"
 
-    def test_clear_blackboard_exception(self, blackboard: Blackboard):
+    def test_clear_blackboard_exception(self, blackboard: Blackboard) -> None:
         exception = Exception("Test")
         assert pytest.raises(
             KeyError, get_blackboard_exception
@@ -78,7 +79,7 @@ class TestUtilsErrorHandling(object):
             get_blackboard_exception() is None
         ), "Blackboard should no longer contain exception"
 
-    def test_catch_and_raise_to_blackboard(self, blackboard: Blackboard):
+    def test_catch_and_raise_to_blackboard(self, blackboard: Blackboard) -> None:
         dummy = DummyAnnotator()
         assert has_blackboard_exception() == False
 

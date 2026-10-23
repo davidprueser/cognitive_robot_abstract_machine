@@ -9,7 +9,7 @@ It includes types for:
 * Part-whole relationships
 * Occupancy annotations
 
-The types support 3D point clouds, image ROIs, and nested annotations.
+The types support 3D point clouds, image regions of interest, and nested annotations.
 """
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ import open3d as o3d
 from typing_extensions import TYPE_CHECKING, Any, List
 
 from robokudo.types.core import Annotation, IdentifiableAnnotation, Nameable
-from robokudo.types.cv import ImageROI
+from robokudo.types.cv import ImageRegionOfInterest
 
 if TYPE_CHECKING:
     from semantic_digital_twin.world_description.world_entity import Body
@@ -34,7 +34,7 @@ class AnalyzableAnnotation(IdentifiableAnnotation):
     Examples for this are: Detected objects, Detected humans, but also subparts of detected objects.
     The latter includes specific features of an object or subcomponents that need their individual analysis.
 
-    Analyzables can get their own Annotations, might have 3D/6D points and their own ROI.
+    Analyzables can get their own Annotations, might have 3D/6D points and their own region of interest.
     """
 
     annotations: List = field(default_factory=list)
@@ -54,10 +54,12 @@ class AnalyzableAnnotation(IdentifiableAnnotation):
 
     object_knowledge: Body | None = None
     """
-    A reference to an SDT Body, if present
+    A reference to a semantic digital twin Body, if present
     """
 
-    roi: ImageROI = field(default_factory=ImageROI)
+    region_of_interest: ImageRegionOfInterest = field(
+        default_factory=ImageRegionOfInterest
+    )
     """
     Image region of interest
     """
@@ -77,13 +79,13 @@ class HumanHypothesis(ObjectHypothesis):
     """Hypothesis about a human in the scene.
 
     In contrast to ObjectHypothesis, we have many different aspects on a Object to annotate.
-    Therefore, the semantics of self.points, self.centroid and self.roi on this Hypothesis are a bit different.
+    Therefore, the semantics of self.points, self.centroid and self.region_of_interest on this Hypothesis are a bit different.
     These variables should always contain the maximum region of the person we have been able to detect so far.
     Examples:
-      - When running only a face detection, they should be adjusted to the ROI for the face.
+      - When running only a face detection, they should be adjusted to the region of interest for the face.
       - When running a full body detection + face detection,
         they should be adjusted to everything the full body detection and the face recognition was able to see.
-        Basically a Union over the ROIs generated for both.
+        Basically a Union over the regions of interest generated for both.
     In general, PersonHypotheses should rely more on Annotations and also annotate the individual detected features,
     like body parts or activities.
     """

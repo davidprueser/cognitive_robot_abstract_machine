@@ -29,7 +29,10 @@ from message_filters import Subscriber
 from sensor_msgs.msg import CameraInfo, Image
 from typing_extensions import Any, Tuple, TYPE_CHECKING, Optional, List
 
-from robokudo.cas import CASViews
+from robokudo.common_analysis_structure import (
+    CommonAnalysisStructure,
+    CommonAnalysisStructureViews,
+)
 from robokudo.io.camera_interface import ROSCameraInterface
 from robokudo.types.cv import ColorToDepthRatio
 from robokudo.utils.cv_bridge_workaround import CVBridgeWorkaround
@@ -71,16 +74,16 @@ class ROSCameraWithoutDepthInterface(ROSCameraInterface):
         """
         Subscriber for camera info topic.
         """
-        ts = message_filters.ApproximateTimeSynchronizer(
+        time_synchronizer = message_filters.ApproximateTimeSynchronizer(
             [self.color_subscriber, self.camera_info_subscriber],
             queue_size=10,
             slop=0.4,
         )
-        ts.registerCallback(self.callback)
+        time_synchronizer.registerCallback(self.callback)
 
-        self.rk_logger.info("Subscribed to: ")
-        self.rk_logger.info(f"  {camera_config.topic_color}")
-        self.rk_logger.info(f"  {camera_config.topic_camera_info}")
+        self.robokudo_logger.info("Subscribed to: ")
+        self.robokudo_logger.info(f"  {camera_config.topic_color}")
+        self.robokudo_logger.info(f"  {camera_config.topic_camera_info}")
 
         self.color: Optional[Tuple[npt.NDArray]] = None
         """Latest RGB image data"""
@@ -155,29 +158,29 @@ class ROSCameraWithoutDepthInterface(ROSCameraInterface):
         return new_K, new_size
 
     def rotate_image_and_intrinsics(
-        self, img: npt.NDArray, K: npt.NDArray, rotation: str = "90_ccw"
+        self, image: npt.NDArray, K: npt.NDArray, rotation: str = "90_ccw"
     ) -> Tuple[npt.NDArray, npt.NDArray, Tuple[int, int]]:
         """
         Rotate an image and adjust its camera intrinsics accordingly.
 
-        :param img: Input image to rotate
+        :param image: Input image to rotate
         :param K: Camera intrinsics matrix
         :param rotation: Type of rotation to apply, defaults to '90_ccw'
         :return: Tuple of (rotated image, new intrinsics matrix, new dimensions)
         :raises ValueError: If rotation type is not supported
         """
-        h, w = img.shape[:2]
+        height, width = image.shape[:2]
         if rotation == "90_ccw":
-            img_rotated = cv2.rotate(img, cv2.ROTATE_90_COUNTERCLOCKWISE)
+            rotated_image = cv2.rotate(image, cv2.ROTATE_90_COUNTERCLOCKWISE)
         elif rotation == "90_cw":
-            img_rotated = cv2.rotate(img, cv2.ROTATE_90_CLOCKWISE)
+            rotated_image = cv2.rotate(image, cv2.ROTATE_90_CLOCKWISE)
         elif rotation == "180":
-            img_rotated = cv2.rotate(img, cv2.ROTATE_180)
+            rotated_image = cv2.rotate(image, cv2.ROTATE_180)
         else:
             raise ValueError("Unsupported rotation type.")
 
-        K_new, new_size = self.rotate_camera_intrinsics(K, (w, h), rotation)
-        return img_rotated, K_new, new_size
+        K_new, new_size = self.rotate_camera_intrinsics(K, (width, height), rotation)
+        return rotated_image, K_new, new_size
 
     def callback(
         self,
@@ -212,24 +215,24 @@ class ROSCameraWithoutDepthInterface(ROSCameraInterface):
         self._has_new_data = True
         self.lock.release()
 
-    def set_data(self, cas: CAS) -> None:
+    def set_data(self, common_analysis_structure: CommonAnalysisStructure) -> None:
         """
         Update the Common Analysis Structure with latest camera data.
 
         This method:
         * Applies any configured image rotation
         * Updates camera intrinsics accordingly
-        * Sets RGB image, camera info, and transform data in the CAS
+        * Sets RGB image, camera info, and transform data in the common analysis structure
         * Handles thread synchronization
 
-        :param cas: Common Analysis Structure to update
+        :param common_analysis_structure: Common Analysis Structure to update
         """
         if not self.has_new_data():
             return
 
         self.lock.acquire()
 
-        # Construct o3d camera intrinsics from camera info in CAS
+        # Construct o3d camera intrinsics from camera info in common analysis structure
         self.camera_intrinsic = o3d.camera.PinholeCameraIntrinsic()
         width = self.camera_info.width
         height = self.camera_info.height
@@ -245,10 +248,10 @@ class ROSCameraWithoutDepthInterface(ROSCameraInterface):
             K = np.array([[fx, 0, cx], [0, fy, cy], [0, 0, 1]])
             # 1) calculate camera intrinsics
             # 2) modify ROS camera info setting
-            rotated_img, K_rotated, new_size = self.rotate_image_and_intrinsics(
+            rotated_image, K_rotated, new_size = self.rotate_image_and_intrinsics(
                 self.color, K=K, rotation=self.camera_config.rotate_image
             )
-            self.color = rotated_img
+            self.color = rotated_image
             k_flat = K_rotated.flatten()
             fx = k_flat[0]
             cx = k_flat[2]
@@ -259,12 +262,22 @@ class ROSCameraWithoutDepthInterface(ROSCameraInterface):
             self.camera_info.K = (fx, 0, cx, 0, fy, cy, 0, 0, 1)
             self.camera_intrinsic.set_intrinsics(width, height, fx, fy, cx, cy)
 
-        cas.set(CASViews.COLOR_IMAGE, self.color)
-        cas.set(CASViews.DEPTH_IMAGE, None)
-        cas.set(CASViews.CAMERA_INFO, self.camera_info)
-        cas.set(CASViews.CAMERA_INTRINSIC, self.camera_intrinsic)
-        cas.set(CASViews.COLOR_TO_DEPTH_RATIO, self.color_to_depth_ratio)
-        self.store_camera_to_world_transform_from_tf(cas, self.timestamp)
+        common_analysis_structure.set(
+            CommonAnalysisStructureViews.COLOR_IMAGE, self.color
+        )
+        common_analysis_structure.set(CommonAnalysisStructureViews.DEPTH_IMAGE, None)
+        common_analysis_structure.set(
+            CommonAnalysisStructureViews.CAMERA_INFO, self.camera_info
+        )
+        common_analysis_structure.set(
+            CommonAnalysisStructureViews.CAMERA_INTRINSIC, self.camera_intrinsic
+        )
+        common_analysis_structure.set(
+            CommonAnalysisStructureViews.COLOR_TO_DEPTH_RATIO, self.color_to_depth_ratio
+        )
+        self.store_camera_to_world_transform_from_tf(
+            common_analysis_structure, self.timestamp
+        )
 
         self._has_new_data = False
         self.lock.release()

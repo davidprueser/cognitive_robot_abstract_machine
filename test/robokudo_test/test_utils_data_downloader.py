@@ -1,3 +1,4 @@
+from __future__ import annotations
 import shutil
 import threading
 import time
@@ -63,20 +64,22 @@ class UnpackingRecorder:
     """
 
     def unpack_recorded(
-        self, unzip: pooch.Unzip, archive: str, extract_dir: str
+        self, unzip: pooch.Unzip, archive: str, extract_directory: str
     ) -> None:
         """
-        Unpack ``archive`` into ``extract_dir`` as ``unzip`` would, and record that it happened.
+        Unpack ``archive`` into ``extract_directory`` as ``unzip`` would, and record that it happened.
         """
         self.unpacking_count += 1
         if self.unpacking_count == 1:
             self.first_unpacking_started.set()
             time.sleep(UNPACKING_DELAY_SECONDS)
-        self.unpack(unzip, archive, extract_dir)
+        self.unpack(unzip, archive, extract_directory)
 
 
 @pytest.fixture
-def unpacking_recorder(tmp_path, monkeypatch) -> UnpackingRecorder:
+def unpacking_recorder(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> UnpackingRecorder:
     """
     Make :func:`robokudo.utils.data_downloader.test_data_path` fetch a local archive into a fresh
     cache, as a CI run starting without the test data does, and record its unpacking.
@@ -92,8 +95,8 @@ def unpacking_recorder(tmp_path, monkeypatch) -> UnpackingRecorder:
     monkeypatch.setattr(
         pooch.Unzip,
         "_extract_file",
-        lambda unzip, archive, extract_dir: recorder.unpack_recorded(
-            unzip, archive, extract_dir
+        lambda unzip, archive, extract_directory: recorder.unpack_recorded(
+            unzip, archive, extract_directory
         ),
     )
     return recorder
@@ -103,8 +106,8 @@ def unpacking_recorder(tmp_path, monkeypatch) -> UnpackingRecorder:
 
 
 def test_a_caller_arriving_during_unpacking_does_not_unpack_again(
-    unpacking_recorder,
-):
+    unpacking_recorder: UnpackingRecorder,
+) -> None:
     with ThreadPoolExecutor(max_workers=2) as executor:
         first_caller = executor.submit(robokudo.utils.data_downloader.test_data_path)
         assert unpacking_recorder.first_unpacking_started.wait(timeout=60)

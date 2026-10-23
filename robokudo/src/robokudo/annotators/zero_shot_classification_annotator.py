@@ -11,7 +11,7 @@ from py_trees.common import Status
 from typing_extensions import TYPE_CHECKING, Callable
 
 from robokudo.annotators.core import ThreadedAnnotator
-from robokudo.cas import CASViews
+from robokudo.common_analysis_structure import CommonAnalysisStructureViews
 from robokudo.types.annotation import Classification
 from robokudo.types.scene import ObjectHypothesis
 
@@ -47,16 +47,16 @@ class ZeroShotClassificationAnnotator(ThreadedAnnotator, ABC):
                 """
                 The vocabulary used for object classification.
                 """
-                self.analysis_scope = CASViews.COLOR_IMAGE
+                self.analysis_scope = CommonAnalysisStructureViews.COLOR_IMAGE
                 """
                 The analysis scope of the annotator.
 
                 Possible values:
 
-                * CASViews.COLOR_IMAGE: Analyze the entire color image at once.
+                * CommonAnalysisStructureViews.COLOR_IMAGE: Analyze the entire color image at once.
                 * ObjectHypothesis: Analyze each object hypothesis individually.
                 """
-                self.filter_fn: Callable[[ObjectHypothesis], bool] | None = None
+                self.filter_function: Callable[[ObjectHypothesis], bool] | None = None
                 """
                 An optional filter function used to filter object hypotheses before
                 analyzing them.
@@ -84,9 +84,9 @@ class ZeroShotClassificationAnnotator(ThreadedAnnotator, ABC):
         """
 
     @staticmethod
-    def _rgb_image(color_image: npt.NDArray[np.uint8]) -> Image.Image:
+    def _red_green_blue_image(color_image: npt.NDArray[np.uint8]) -> Image.Image:
         """
-        :param color_image: A color image in the BGR channel order of the CAS.
+        :param color_image: A color image in the BGR channel order of the common analysis structure.
         :return: The color image in the RGB channel order :meth:`classify` expects.
         """
         return Image.fromarray(cv2.cvtColor(color_image, cv2.COLOR_BGR2RGB))
@@ -98,17 +98,17 @@ class ZeroShotClassificationAnnotator(ThreadedAnnotator, ABC):
         :param color_image: The color image to analyze.
         :return: The py_trees status.
         """
-        classifications = self.classify([self._rgb_image(color_image)])[0]
-        self.get_cas().annotations.extend(classifications)
+        classifications = self.classify([self._red_green_blue_image(color_image)])[0]
+        self.get_common_analysis_structure().annotations.extend(classifications)
 
-        visualization_img = color_image.copy()
+        visualization_image = color_image.copy()
 
-        self.rk_logger.info("Image Classification Results:")
-        self.rk_logger.info("Label \t\t Score")
+        self.robokudo_logger.info("Image Classification Results:")
+        self.robokudo_logger.info("Label \t\t Score")
         for i, classification in enumerate(classifications):
             text = f"{classification.confidence:.2f} /{classification.classname}"
-            visualization_img = cv2.putText(
-                visualization_img,
+            visualization_image = cv2.putText(
+                visualization_image,
                 text,
                 (10, 40 + 20 * i),
                 self.visualization_font,
@@ -118,12 +118,12 @@ class ZeroShotClassificationAnnotator(ThreadedAnnotator, ABC):
                 2,
             )
 
-            self.rk_logger.info(
+            self.robokudo_logger.info(
                 f"Top {i} prediction: Class {classification.classname} with "
                 f"confidence\t {classification.confidence:.4f}"
             )
 
-        self.get_annotator_output_struct().set_image(visualization_img)
+        self.get_annotator_output_structure().set_image(visualization_image)
         return Status.SUCCESS
 
     def _analyze_object_hypotheses(self, color_image: npt.NDArray[np.uint8]) -> Status:
@@ -133,30 +133,39 @@ class ZeroShotClassificationAnnotator(ThreadedAnnotator, ABC):
         :param color_image: The color image to use for analyzation.
         :return: The py_trees status.
         """
-        ohs: list[ObjectHypothesis] = self.get_cas().filter_annotations_by_type(
+        object_hypotheses: list[
+            ObjectHypothesis
+        ] = self.get_common_analysis_structure().filter_annotations_by_type(
             ObjectHypothesis
         )
-        if len(ohs) == 0:
-            self.rk_logger.info("Found 0 object hypotheses to analyze")
+        if len(object_hypotheses) == 0:
+            self.robokudo_logger.info("Found 0 object hypotheses to analyze")
             return Status.SUCCESS
 
-        if self.descriptor.parameters.filter_fn is not None:
-            ohs = list(filter(self.descriptor.parameters.filter_fn, ohs))
+        if self.descriptor.parameters.filter_function is not None:
+            object_hypotheses = list(
+                filter(self.descriptor.parameters.filter_function, object_hypotheses)
+            )
 
-            if len(ohs) == 0:
-                self.rk_logger.info("All object hypotheses were filtered out")
+            if len(object_hypotheses) == 0:
+                self.robokudo_logger.info("All object hypotheses were filtered out")
                 return Status.SUCCESS
 
         # Create per-object image crop
-        rgb_image = self._rgb_image(color_image)
-        cropped_images = [rgb_image.crop(oh.roi.roi.get_corner_points()) for oh in ohs]
+        red_green_blue_image = self._red_green_blue_image(color_image)
+        cropped_images = [
+            red_green_blue_image.crop(
+                object_hypothesis.region_of_interest.rectangle.get_corner_points()
+            )
+            for object_hypothesis in object_hypotheses
+        ]
 
-        visualization_img = color_image.copy()
+        visualization_image = color_image.copy()
 
         for object_hypothesis, classifications in zip(
-            ohs, self.classify(cropped_images)
+            object_hypotheses, self.classify(cropped_images)
         ):
-            self.rk_logger.info(
+            self.robokudo_logger.info(
                 f"Classification results for Object hypothesis ID: '{object_hypothesis.id}'"
             )
 
@@ -165,12 +174,14 @@ class ZeroShotClassificationAnnotator(ThreadedAnnotator, ABC):
                 f"{best_classification.confidence:.4f} / "
                 f"{best_classification.classname}"
             )
-            x1, y1, x2, y2 = object_hypothesis.roi.roi.get_corner_points()
-            visualization_img = cv2.rectangle(
-                visualization_img, (x1, y1), (x2, y2), (255, 255, 255), 2
+            x1, y1, x2, y2 = (
+                object_hypothesis.region_of_interest.rectangle.get_corner_points()
             )
-            visualization_img = cv2.putText(
-                visualization_img,
+            visualization_image = cv2.rectangle(
+                visualization_image, (x1, y1), (x2, y2), (255, 255, 255), 2
+            )
+            visualization_image = cv2.putText(
+                visualization_image,
                 text,
                 (x1, y1 - 20),
                 self.visualization_font,
@@ -182,12 +193,12 @@ class ZeroShotClassificationAnnotator(ThreadedAnnotator, ABC):
 
             object_hypothesis.annotations.extend(classifications)
             for i, classification in enumerate(classifications):
-                self.rk_logger.info(
+                self.robokudo_logger.info(
                     f"Top {i}: Classified as {classification.classname} "
                     f"with confidence {classification.confidence:.4f}"
                 )
 
-        self.get_annotator_output_struct().set_image(visualization_img)
+        self.get_annotator_output_structure().set_image(visualization_image)
         return Status.SUCCESS
 
     def compute(self) -> Status:
@@ -200,9 +211,13 @@ class ZeroShotClassificationAnnotator(ThreadedAnnotator, ABC):
         start_time = time.perf_counter()
         analysis_scope = self.descriptor.parameters.analysis_scope
 
-        color_image = self.get_cas().get(CASViews.COLOR_IMAGE).copy()
+        color_image = (
+            self.get_common_analysis_structure()
+            .get(CommonAnalysisStructureViews.COLOR_IMAGE)
+            .copy()
+        )
 
-        if analysis_scope == CASViews.COLOR_IMAGE:
+        if analysis_scope == CommonAnalysisStructureViews.COLOR_IMAGE:
             status = self._analyze_scene(color_image)
         elif analysis_scope == ObjectHypothesis:
             status = self._analyze_object_hypotheses(color_image)

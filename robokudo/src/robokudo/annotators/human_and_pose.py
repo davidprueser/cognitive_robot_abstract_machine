@@ -26,10 +26,10 @@ from ultralytics import YOLO
 
 from robokudo.annotators.core import ThreadedAnnotator
 from robokudo.annotators.exceptions import NotAPoseModelException
-from robokudo.cas import CASViews
-from robokudo.defs import PACKAGE_NAME
+from robokudo.common_analysis_structure import CommonAnalysisStructureViews
+from robokudo.definitions import PACKAGE_NAME
 from robokudo.types.annotation import Classification, CloudAnnotation
-from robokudo.types.cv import Rect
+from robokudo.types.cv import Rectangle
 from robokudo.types.human import (
     BodyKeypoint,
     BodyKeypointCloud,
@@ -42,7 +42,7 @@ from robokudo.utils.decorators import record_time
 from robokudo.utils.module_loader import ModuleLoader
 from robokudo.utils.o3d_helper import (
     concatenate_clouds,
-    get_cloud_from_rgb_depth_and_mask,
+    get_cloud_from_color_depth_and_mask,
     scale_o3d_camera_intrinsics,
 )
 
@@ -93,7 +93,7 @@ class DepthFrame:
     The depth image.
     """
 
-    rgb_image: npt.NDArray[np.uint8]
+    red_green_blue_image: npt.NDArray[np.uint8]
     """
     The color image in RGB order, scaled to the depth image resolution.
     """
@@ -115,7 +115,9 @@ class DepthFrame:
         """
         return 255
 
-    def box_cloud(self, box: Rect, depth_truncate: float) -> o3d.geometry.PointCloud:
+    def box_cloud(
+        self, box: Rectangle, depth_truncate: float
+    ) -> o3d.geometry.PointCloud:
         """
         Build the point cloud of the depth measurements inside a box.
 
@@ -160,11 +162,11 @@ class DepthFrame:
         :param mask: Mask on the depth image whose pixels with value
             :attr:`mask_foreground` the cloud is built from.
         :param cloud_settings: Further settings of
-            :func:`~robokudo.utils.o3d_helper.get_cloud_from_rgb_depth_and_mask`.
+            :func:`~robokudo.utils.o3d_helper.get_cloud_from_color_depth_and_mask`.
         :return: The colored point cloud of the depth measurements inside the mask.
         """
-        return get_cloud_from_rgb_depth_and_mask(
-            rgb_image=self.rgb_image,
+        return get_cloud_from_color_depth_and_mask(
+            red_green_blue_image=self.red_green_blue_image,
             depth_image=self.depth_image,
             mask=mask,
             camera_intrinsics=self.camera_intrinsics,
@@ -325,8 +327,8 @@ class HumanAndPoseAnnotator(ThreadedAnnotator):
     @record_time
     def compute(self) -> Status:
         """
-        Detect humans in the color image of the CAS and add one human hypothesis with
-        its keypoints per detection to the CAS.
+        Detect humans in the color image of the common analysis structure and add one human hypothesis with
+        its keypoints per detection to the common analysis structure.
 
         :return: :attr:`Status.SUCCESS` once the hypotheses are added.
         :raises NotAPoseModelException: If the model reports no keypoints for a
@@ -336,13 +338,17 @@ class HumanAndPoseAnnotator(ThreadedAnnotator):
             self.descriptor.parameters
         )
         depth_frame = self._depth_frame() if parameters.global_with_depth else None
-        result = self._predict(self.get_cas().get(CASViews.COLOR_IMAGE))
+        result = self._predict(
+            self.get_common_analysis_structure().get(
+                CommonAnalysisStructureViews.COLOR_IMAGE
+            )
+        )
 
         hypotheses = [
             self._hypothesis(result, index, depth_frame)
             for index in range(len(result.boxes))
         ]
-        self.get_cas().annotations.extend(hypotheses)
+        self.get_common_analysis_structure().annotations.extend(hypotheses)
 
         if parameters.global_with_visualization:
             self._visualize(result, hypotheses)
@@ -350,22 +356,29 @@ class HumanAndPoseAnnotator(ThreadedAnnotator):
 
     def _depth_frame(self) -> DepthFrame:
         """
-        Collect the depth measurements of the CAS and scale the color image and the
+        Collect the depth measurements of the common analysis structure and scale the color image and the
         camera intrinsics to the depth image resolution.
 
-        :return: The depth measurements of the CAS with the matching color image.
+        :return: The depth measurements of the common analysis structure with the matching color image.
         """
-        cas = self.get_cas()
-        color_to_depth_ratio = cas.get(CASViews.COLOR_TO_DEPTH_RATIO)
+        common_analysis_structure = self.get_common_analysis_structure()
+        color_to_depth_ratio = common_analysis_structure.get(
+            CommonAnalysisStructureViews.COLOR_TO_DEPTH_RATIO
+        )
         scaled_color = get_scaled_color_image_for_depth_image(
-            cas, cas.get(CASViews.COLOR_IMAGE)
+            common_analysis_structure,
+            common_analysis_structure.get(CommonAnalysisStructureViews.COLOR_IMAGE),
         )
         return DepthFrame(
-            depth_image=cas.get(CASViews.DEPTH_IMAGE),
-            rgb_image=cv2.cvtColor(scaled_color, cv2.COLOR_BGR2RGB),
+            depth_image=common_analysis_structure.get(
+                CommonAnalysisStructureViews.DEPTH_IMAGE
+            ),
+            red_green_blue_image=cv2.cvtColor(scaled_color, cv2.COLOR_BGR2RGB),
             color_to_depth_ratio=color_to_depth_ratio,
             camera_intrinsics=scale_o3d_camera_intrinsics(
-                cas.get(CASViews.CAMERA_INTRINSIC),
+                common_analysis_structure.get(
+                    CommonAnalysisStructureViews.CAMERA_INTRINSIC
+                ),
                 color_to_depth_ratio.horizontal,
                 color_to_depth_ratio.vertical,
             ),
@@ -393,7 +406,7 @@ class HumanAndPoseAnnotator(ThreadedAnnotator):
             raise NotAPoseModelException(
                 annotator_name=self.name, model=parameters.pretrained_model
             )
-        box = Rect.from_corner_points(*result.boxes.xyxy[index].cpu().numpy())
+        box = Rectangle.from_corner_points(*result.boxes.xyxy[index].cpu().numpy())
         shrunk_box = (
             box if parameters.shrink_bounding_box is None else self._shrink_box(box)
         )
@@ -402,7 +415,7 @@ class HumanAndPoseAnnotator(ThreadedAnnotator):
         hypothesis = HumanHypothesis()
         hypothesis.id = index
         hypothesis.source = self.name
-        hypothesis.roi.roi = box if keeps_full_box else shrunk_box
+        hypothesis.region_of_interest.rectangle = box if keeps_full_box else shrunk_box
         hypothesis.annotations.append(
             Classification(
                 source=self.name,
@@ -426,7 +439,7 @@ class HumanAndPoseAnnotator(ThreadedAnnotator):
             return hypothesis
 
         hypothesis.points = depth_frame.box_cloud(
-            hypothesis.roi.roi, parameters.depth_truncate
+            hypothesis.region_of_interest.rectangle, parameters.depth_truncate
         )
         if parameters.shrink_bounding_box is not None and keeps_full_box:
             hypothesis.annotations.append(
@@ -445,7 +458,7 @@ class HumanAndPoseAnnotator(ThreadedAnnotator):
             )
         return hypothesis
 
-    def _shrink_box(self, box: Rect) -> Rect:
+    def _shrink_box(self, box: Rectangle) -> Rectangle:
         """
         Shrink a box around its center by
         :attr:`Descriptor.Parameters.shrink_bounding_box` of its width and height.
@@ -456,11 +469,11 @@ class HumanAndPoseAnnotator(ThreadedAnnotator):
         shrink_fraction = self.descriptor.parameters.shrink_bounding_box
         horizontal_margin = box.width * shrink_fraction / 2
         vertical_margin = box.height * shrink_fraction / 2
-        return Rect.from_corner_points(
-            x1=box.pos.x + horizontal_margin,
-            y1=box.pos.y + vertical_margin,
-            x2=box.pos.x + box.width - horizontal_margin,
-            y2=box.pos.y + box.height - vertical_margin,
+        return Rectangle.from_corner_points(
+            x1=box.position.x + horizontal_margin,
+            y1=box.position.y + vertical_margin,
+            x2=box.position.x + box.width - horizontal_margin,
+            y2=box.position.y + box.height - vertical_margin,
         )
 
     def _keypoint_clouds(
@@ -501,13 +514,13 @@ class HumanAndPoseAnnotator(ThreadedAnnotator):
         :param result: The detections of the pose model on the color image.
         :param hypotheses: The human hypotheses made from the detections.
         """
-        self.get_annotator_output_struct().set_image(result.plot())
+        self.get_annotator_output_structure().set_image(result.plot())
         clouds = [
             hypothesis.points
             for hypothesis in hypotheses
             if hypothesis.points is not None
         ]
         if len(clouds) > 0:
-            self.get_annotator_output_struct().set_geometries(
+            self.get_annotator_output_structure().set_geometries(
                 concatenate_clouds(clouds)
             )

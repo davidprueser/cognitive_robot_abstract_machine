@@ -2,8 +2,8 @@
 Transformation utilities for RoboKudo.
 
 This module provides conversion methods for common transformation calculations.
-It operates on ROS types and NumPy data structures, independent of RK Annotation Types.
-For RK Annotation type conversions, see :mod:`robokudo.utils.type_conversion`.
+It operates on ROS types and NumPy data structures, independent of RoboKudo Annotation Types.
+For RoboKudo Annotation type conversions, see :mod:`robokudo.utils.type_conversion`.
 
 The module supports:
 
@@ -82,11 +82,11 @@ def get_transform_matrix_from_pose(pose: Pose) -> npt.NDArray:
         ]
     )
 
-    r = Rotation.from_quat(orientation).as_matrix()
+    rotation = Rotation.from_quat(orientation).as_matrix()
 
-    pose_t = get_transform_matrix(r, translation)
+    pose_transform = get_transform_matrix(rotation, translation)
 
-    return pose_t
+    return pose_transform
 
 
 def get_transform_matrix(rotation: Iterable, translation: Iterable) -> npt.NDArray:
@@ -138,11 +138,11 @@ def get_transform_matrix_for_rotation_around_axis(
     :param axis: 3D vector defining rotation axis
     :return: 4x4 homogeneous transformation matrix
     """
-    quat = quaternion_about_axis(angle, axis)
-    return get_transform_matrix_from_q(quat, np.array([0, 0, 0]))
+    quaternion = quaternion_about_axis(angle, axis)
+    return get_transform_matrix_from_quaternion(quaternion, np.array([0, 0, 0]))
 
 
-def get_transform_matrix_from_q(
+def get_transform_matrix_from_quaternion(
     quaternion: Union[npt.NDArray, List[float], Tuple[float, float, float, float]],
     translation: Union[npt.NDArray, List[float], Tuple[float, float, float]],
 ) -> npt.NDArray:
@@ -153,10 +153,10 @@ def get_transform_matrix_from_q(
     :param translation: 3D translation vector
     :return: 4x4 homogeneous transformation matrix
     """
-    r = Rotation.from_quat(quaternion)
+    rotation = Rotation.from_quat(quaternion)
 
     T = np.eye(4)  # 4x4 rotation + translation matrix
-    T[:3, :3] = r.as_matrix()
+    T[:3, :3] = rotation.as_matrix()
     T[:3, 3] = translation
     return T
 
@@ -176,7 +176,7 @@ def get_rotation_matrix_from_euler_angles(x: float, y: float, z: float) -> npt.N
     return Rotation.from_euler("xyz", [x, y, z]).as_matrix()
 
 
-def get_rotation_matrix_from_q(quaternion: npt.NDArray) -> npt.NDArray:
+def get_rotation_matrix_from_quaternion(quaternion: npt.NDArray) -> npt.NDArray:
     """
     Create a 3x3 rotation matrix from quaternion.
 
@@ -249,19 +249,27 @@ def get_transform_from_plane_equation(plane_equation: npt.NDArray) -> npt.NDArra
     plane_translation = (-d / normal_length) * unit_normal
 
     # 2. Build rotation
-    un_x = unit_normal[0]
-    un_y = unit_normal[1]
-    un_z = unit_normal[2]
-    un_xy_sqrt = math.sqrt(un_x**2 + un_y**2)
+    unit_normal_x = unit_normal[0]
+    unit_normal_y = unit_normal[1]
+    unit_normal_z = unit_normal[2]
+    unit_normal_xy_length = math.sqrt(unit_normal_x**2 + unit_normal_y**2)
 
-    if un_xy_sqrt < 1e-6:
+    if unit_normal_xy_length < 1e-6:
         plane_rotation = np.eye(3)
     else:
         plane_rotation = np.array(
             [
-                [un_y / un_xy_sqrt, -un_x / un_xy_sqrt, 0],
-                [(un_x * un_z) / un_xy_sqrt, (un_y * un_z) / un_xy_sqrt, -un_xy_sqrt],
-                [un_x, un_y, un_z],
+                [
+                    unit_normal_y / unit_normal_xy_length,
+                    -unit_normal_x / unit_normal_xy_length,
+                    0,
+                ],
+                [
+                    (unit_normal_x * unit_normal_z) / unit_normal_xy_length,
+                    (unit_normal_y * unit_normal_z) / unit_normal_xy_length,
+                    -unit_normal_xy_length,
+                ],
+                [unit_normal_x, unit_normal_y, unit_normal_z],
             ]
         )
 
@@ -339,5 +347,5 @@ def get_rotation_matrix_from_direction_vector(
     y_axis /= np.linalg.norm(y_axis)
 
     # Compose 3x3 rotation matrix
-    rot = np.column_stack((x_axis, y_axis, z_axis))
-    return rot
+    rotation = np.column_stack((x_axis, y_axis, z_axis))
+    return rotation
