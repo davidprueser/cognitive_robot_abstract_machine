@@ -18,24 +18,17 @@ from dataclasses import dataclass, field
 
 from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
 
-from robokudo.analysis_engine import AnalysisEngineInterface
-from robokudo.annotators.cluster_pose_bb import ClusterPoseBBAnnotator
 from robokudo.annotators.collection_reader import CollectionReaderAnnotator
-from robokudo.annotators.image_preprocessor import ImagePreprocessorAnnotator
-from robokudo.annotators.plane import PlaneAnnotator
-from robokudo.annotators.pointcloud_cluster_extractor import PointCloudClusterExtractor
-from robokudo.annotators.pointcloud_crop import PointcloudCropAnnotator
 from robokudo.descriptors.factories.cr_descriptor_factory import (
     CollectionReaderDescriptorFactory,
 )
-from robokudo.idioms import pipeline_init
-from robokudo.pipeline import Pipeline
+from robokudo.examples.tabletop_objects import TabletopObjectsEngine
 
 # %% analysis engine
 
 
 @dataclass
-class AnalysisEngine(AnalysisEngineInterface):
+class AnalysisEngine(TabletopObjectsEngine):
     """
     Segments the objects on the table in the recorded scene and adds them to the
     perception world.
@@ -55,8 +48,8 @@ class AnalysisEngine(AnalysisEngineInterface):
     def name(self) -> str:
         return "shared_world_from_files"
 
-    def implementation(self) -> Pipeline:
-        file_reader_config = CollectionReaderDescriptorFactory.create_descriptor(
+    def camera_descriptor(self) -> CollectionReaderAnnotator.Descriptor:
+        return CollectionReaderDescriptorFactory.create_descriptor(
             "file_reader",
             loop=True,
             target_ros_package="robokudo_test_data",
@@ -65,17 +58,3 @@ class AnalysisEngine(AnalysisEngineInterface):
             static_camera_transform_enabled=True,
             static_world_T_camera=self.world_T_camera,
         )
-
-        pipeline = Pipeline("SharedWorldFromFilesPipeline")
-        pipeline.add_children(
-            [
-                pipeline_init(),
-                CollectionReaderAnnotator(descriptor=file_reader_config),
-                ImagePreprocessorAnnotator("ImagePreprocessor"),
-                PointcloudCropAnnotator(),
-                PlaneAnnotator(),
-                PointCloudClusterExtractor(),
-                ClusterPoseBBAnnotator(),
-            ]
-        )
-        return pipeline
