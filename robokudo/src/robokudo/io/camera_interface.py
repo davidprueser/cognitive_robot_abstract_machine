@@ -560,7 +560,7 @@ class KinectCameraInterface(ROSCameraInterface):
         self.camera_info = camera_info
 
         # self.rk_logger.info("Callback processing done - Final steps")
-        if not self.lookup_transform():
+        if not self.lookup_transform(Time.from_msg(self.timestamp)):
             self._has_new_data = False
             self.lock.release()
             return

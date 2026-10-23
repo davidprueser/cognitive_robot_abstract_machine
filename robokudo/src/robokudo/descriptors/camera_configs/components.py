@@ -1,6 +1,7 @@
 from dataclasses import dataclass, field
 
 from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
+from typing_extensions import Optional
 
 from robokudo.types.cv import ColorToDepthRatio
 
@@ -103,3 +104,56 @@ class RGBDComponent(DepthComponent, ColorComponent):
 
     hi_res_mode: bool = False
     """Setting this to true will apply some workarounds to match the depth data to RGB on the Kinect."""
+
+
+@dataclass(kw_only=True)
+class RayTracedSceneComponent:
+    """Camera component with configuration for rendering a world descriptor's scene."""
+
+    world_descriptor_ros_package: str = "robokudo"
+    """
+    ROS package containing the world descriptor module.
+    """
+
+    world_descriptor_name: str = "world_semdt_raytracer_tabletop"
+    """
+    Module name in descriptors/worlds that defines class WorldDescriptor.
+    """
+
+    world_frame: Optional[str] = None
+    """
+    World frame to use as camera pose reference.
+
+    If None, descriptor root is used.
+    """
+
+    camera_frame: str = "semdt_camera_optical_frame"
+    """
+    Name of the camera optical frame in the SemDT world.
+    """
+
+    resolution: int = 512
+    """
+    Square output resolution in pixels (width == height).
+    """
+
+    fov_deg: float = 90.0
+    """
+    Symmetric horizontal/vertical field of view in degrees.
+    """
+
+    min_distance: float = 0.05
+    max_distance: float = 8.0
+    """
+    RayTracer hit distance interval in meters.
+    """
+
+    color_to_depth_ratio: ColorToDepthRatio = field(default_factory=ColorToDepthRatio)
+    """
+    Scale factor from RGB image to depth image resolution.
+    """
+
+    rgb_mode: str = "semantic"
+    """
+    RGB rendering mode: 'semantic' or 'trimesh' (falls back to semantic on failure).
+    """

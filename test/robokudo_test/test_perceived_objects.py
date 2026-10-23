@@ -82,6 +82,7 @@ def add_perceivable_object(
     position: tuple[float, float, float],
     yaw: float = 0.0,
     class_label: str | None = None,
+    semantic_class: type[IsPerceivable] = Milk,
     fixed: bool = False,
 ) -> Body:
     """
@@ -92,6 +93,7 @@ def add_perceivable_object(
     :param position: Position of the object in the world frame.
     :param yaw: Rotation of the object about the z axis of the world frame.
     :param class_label: The class label of the object's annotation.
+    :param semantic_class: The semantic annotation of the object.
     :param fixed: Whether the object is attached with a fixed connection instead of a
         connection with six degrees of freedom.
     :return: The body of the object.
@@ -122,7 +124,9 @@ def add_perceivable_object(
                     world=world, parent=world_body, child=body
                 )
             )
-        world.add_semantic_annotations([Milk(root=body, class_label=class_label)])
+        world.add_semantic_annotations(
+            [semantic_class(root=body, class_label=class_label)]
+        )
     if not fixed:
         body.parent_connection.origin = world_T_object
     return body
@@ -714,6 +718,77 @@ class TestPerceivableObjectsOfTheWorld:
         [annotation] = annotations_of(world, body_id)
         assert body_id == body.id
         assert type(annotation) is Milk
+
+
+# %% body names
+
+
+class TestBodyNames:
+    def test_new_object_is_named_after_its_class_label(
+        self, world: World, perceived_objects: PerceivedObjects
+    ) -> None:
+        class_label = "teacup"
+
+        [body_id] = perceived_objects.apply(
+            cas_holding(
+                cas_seen_from(world, camera_pose()),
+                make_object_hypothesis(class_label=class_label),
+            )
+        )
+
+        body = world.get_kinematic_structure_entity_by_id(body_id)
+        assert body.name == PrefixedName(
+            f"{class_label}_{body_id.hex[: perceived_objects.body_name_id_digits]}"
+        )
+
+    def test_unclassified_object_is_named_after_its_semantic_annotation(
+        self, world: World, perceived_objects: PerceivedObjects
+    ) -> None:
+        [body_id] = perceived_objects.apply(
+            cas_holding(cas_seen_from(world, camera_pose()), make_object_hypothesis())
+        )
+
+        body = world.get_kinematic_structure_entity_by_id(body_id)
+        assert body.name == PrefixedName(
+            f"{PerceivedObject.__name__}_{body_id.hex[: perceived_objects.body_name_id_digits]}"
+        )
+
+    def test_perceived_object_is_renamed_after_its_class_label_once_classified(
+        self, world: World, perceived_objects: PerceivedObjects
+    ) -> None:
+        class_label = "cup"
+        [body_id] = perceived_objects.apply(
+            cas_holding(cas_seen_from(world, camera_pose()), make_object_hypothesis())
+        )
+
+        perceived_objects.apply(
+            cas_holding(
+                cas_seen_from(world, camera_pose()),
+                make_object_hypothesis(class_label=class_label),
+            )
+        )
+
+        body = world.get_kinematic_structure_entity_by_id(body_id)
+        assert body.name == PrefixedName(
+            f"{class_label}_{body_id.hex[: perceived_objects.body_name_id_digits]}"
+        )
+
+    def test_perceivable_body_keeps_its_name_once_classified(
+        self, world: World, perceived_objects: PerceivedObjects
+    ) -> None:
+        cas = cas_seen_from(world, camera_pose())
+        body = add_perceivable_object(
+            world, position=(0.0, 0.0, 1.0), semantic_class=PerceivedObject
+        )
+        name_before = body.name
+
+        perceived_objects.apply(
+            cas_holding(cas, make_object_hypothesis(class_label="cup"))
+        )
+
+        [annotation] = annotations_of(world, body.id)
+        assert type(annotation) is Cup
+        assert body.name == name_before
 
 
 # %% world poses
