@@ -228,9 +228,8 @@ class PointCloudClusterExtractor(ThreadedAnnotator):
 
         # Do we need to fix the Plane OBB orientation?
         # The normal should point 'up' from the detected plane
-        vec_plane_obb_normal = np.matmul(
-            np.array([0, 0, 1]), plane_obb.R
-        )  # transform normal vector with plane rotation
+        # The z axis of the OBB, expressed in the cloud frame
+        vec_plane_obb_normal = np.matmul(plane_obb.R, np.array([0, 0, 1]))
         # Dot product between the vector pointing to the plane center from 0,0,0 and the plane obb normal
         val = np.dot(plane_obb.center, vec_plane_obb_normal)
         # print(f"Dot product between VP and Plane OBB Normal: {val}")
