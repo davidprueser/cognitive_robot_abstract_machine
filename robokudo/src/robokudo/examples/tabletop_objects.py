@@ -32,6 +32,12 @@ class TabletopObjectsEngine(AnalysisEngineInterface, ABC):
             the camera in the perception world.
         """
 
+    def crop_descriptor(self) -> PointcloudCropAnnotator.Descriptor:
+        """
+        :return: The descriptor of the crop to the region the table is in.
+        """
+        return PointcloudCropAnnotator.Descriptor()
+
     def implementation(self) -> Pipeline:
         pipeline = Pipeline("TabletopObjectsPipeline")
         pipeline.add_children(
@@ -39,7 +45,7 @@ class TabletopObjectsEngine(AnalysisEngineInterface, ABC):
                 pipeline_init(),
                 CollectionReaderAnnotator(descriptor=self.camera_descriptor()),
                 ImagePreprocessorAnnotator("ImagePreprocessor"),
-                PointcloudCropAnnotator(),
+                PointcloudCropAnnotator(descriptor=self.crop_descriptor()),
                 PlaneAnnotator(),
                 PointCloudClusterExtractor(),
                 ClusterPoseBBAnnotator(),

@@ -13,7 +13,6 @@ learns about and shows the world in RViz::
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from uuid import UUID
 
 import rclpy
 from rclpy.executors import MultiThreadedExecutor
@@ -26,7 +25,8 @@ from semantic_digital_twin.adapters.ros.world_synchronizer import WorldSynchroni
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.world_entity import Body
-from typing_extensions import Set
+
+from robokudo.examples.new_body_reporter import NewBodyReporter
 
 # %% served world
 
@@ -52,9 +52,9 @@ class SharedWorldServer:
     The served world, holding only :attr:`world_frame` until others change it.
     """
 
-    reported_body_ids: Set[UUID] = field(init=False, default_factory=set)
+    reporter: NewBodyReporter = field(init=False)
     """
-    The bodies already reported.
+    Prints the bodies other processes add to the world.
     """
 
     server: FetchWorldServer = field(init=False)
@@ -76,24 +76,10 @@ class SharedWorldServer:
         self.world = World()
         with self.world.modify_world():
             self.world.add_body(Body(name=PrefixedName(self.world_frame)))
-        self.reported_body_ids = {body.id for body in self.world.bodies}
+        self.reporter = NewBodyReporter(world=self.world)
         self.server = FetchWorldServer(node=self.node, world=self.world)
         self.synchronizer = WorldSynchronizer(node=self.node, _world=self.world)
         self.marker_publisher = VizMarkerPublisher(_world=self.world, node=self.node)
-
-    def report_new_bodies(self) -> None:
-        """
-        Print the bodies that joined the world since the last report, at their current
-        position.
-        """
-        for body in self.world.bodies:
-            if body.id in self.reported_body_ids:
-                continue
-            self.reported_body_ids.add(body.id)
-            x, y, z = body.global_transform.to_np()[:3, 3]
-            print(
-                f"New body {body.name.name} ({body.id}) at x={x:.2f} y={y:.2f} z={z:.2f}"
-            )
 
     def close(self) -> None:
         """
@@ -115,7 +101,7 @@ def main(report_period: float = 1.0) -> None:
     rclpy.init()
     node = rclpy.create_node("shared_world_server")
     served_world = SharedWorldServer(node=node)
-    node.create_timer(report_period, served_world.report_new_bodies)
+    node.create_timer(report_period, served_world.reporter.report)
     # One thread runs the callbacks one at a time; unlike the single-threaded
     # executor, this one ends its spin quietly when ROS shuts down.
     executor = MultiThreadedExecutor(num_threads=1)
