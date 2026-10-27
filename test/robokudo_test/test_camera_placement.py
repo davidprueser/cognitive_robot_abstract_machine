@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import numpy as np
 import pytest
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
@@ -7,7 +9,11 @@ from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
 from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.world_entity import Body
 
-from robokudo.io.camera_placement import CameraPlacement, MeasuredCameraPose
+from robokudo.io.camera_placement import (
+    CameraPlacement,
+    CameraPoseMeasurement,
+    MeasuredCameraPose,
+)
 from robokudo.cas import CAS
 from robokudo.exceptions import UnknownWorldFrameError
 
@@ -29,6 +35,16 @@ def measured_at(world_T_camera: HomogeneousTransformationMatrix) -> MeasuredCame
         camera_frame=FrameName.CAMERA,
         world_T_camera=world_T_camera,
     )
+
+
+@dataclass
+class UnmeasurableCameraPose(CameraPoseMeasurement):
+    """
+    A camera pose that fails the test when it is measured.
+    """
+
+    def measure(self) -> HomogeneousTransformationMatrix:
+        pytest.fail("The camera pose was measured.")
 
 
 # %% world frame
@@ -122,6 +138,21 @@ class TestCameraOfTheWorld:
         assert cas.camera_to_world_transform.child_frame is camera_body
         assert np.allclose(cas.camera_to_world_transform.to_np(), camera_pose_before)
         assert cas.world_frame == world.root.name.name
+
+    def test_camera_of_the_world_is_not_measured(self) -> None:
+        world = world_with_a_head_camera()
+        cas = CAS()
+
+        CameraPlacement(world).place(
+            cas,
+            UnmeasurableCameraPose(
+                world_frame=FrameName.WORLD, camera_frame=FrameName.CAMERA
+            ),
+        )
+
+        assert cas.camera_to_world_transform.child_frame is world.get_body_by_name(
+            FrameName.CAMERA
+        )
 
     def test_camera_of_the_world_needs_no_known_world_frame(self) -> None:
         world = world_with_a_head_camera()
