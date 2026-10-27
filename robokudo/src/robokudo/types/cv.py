@@ -15,6 +15,7 @@ The types support integration with:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from enum import StrEnum
 
 import cv2
 import open3d as o3d
@@ -153,6 +154,79 @@ class ColorToDepthRatio:
             per row.
         """
         return (depth_pixels * (1 / self.horizontal, 1 / self.vertical)).astype(int)
+
+
+class ImageRotation(StrEnum):
+    """
+    A rotation of an image by a multiple of a quarter turn.
+    """
+
+    QUARTER_TURN_COUNTERCLOCKWISE = "90_ccw"
+    """
+    A quarter turn counterclockwise.
+    """
+
+    QUARTER_TURN_CLOCKWISE = "90_cw"
+    """
+    A quarter turn clockwise.
+    """
+
+    HALF_TURN = "180"
+    """
+    A half turn.
+    """
+
+    def rotate(self, image: npt.NDArray) -> npt.NDArray:
+        """
+        :param image: The image to rotate.
+        :return: ``image``, rotated by this rotation.
+        """
+        match self:
+            case ImageRotation.QUARTER_TURN_COUNTERCLOCKWISE:
+                return cv2.rotate(image, cv2.ROTATE_90_COUNTERCLOCKWISE)
+            case ImageRotation.QUARTER_TURN_CLOCKWISE:
+                return cv2.rotate(image, cv2.ROTATE_90_CLOCKWISE)
+            case ImageRotation.HALF_TURN:
+                return cv2.rotate(image, cv2.ROTATE_180)
+
+    def rotate_intrinsics(
+        self, intrinsics: o3d.camera.PinholeCameraIntrinsic
+    ) -> o3d.camera.PinholeCameraIntrinsic:
+        """
+        :param intrinsics: The intrinsics of an image.
+        :return: The intrinsics of the image after :meth:`rotate`.
+        """
+        width, height = intrinsics.width, intrinsics.height
+        focal_length_x, focal_length_y = intrinsics.get_focal_length()
+        center_x, center_y = intrinsics.get_principal_point()
+        match self:
+            case ImageRotation.QUARTER_TURN_COUNTERCLOCKWISE:
+                return o3d.camera.PinholeCameraIntrinsic(
+                    height,
+                    width,
+                    focal_length_y,
+                    focal_length_x,
+                    center_y,
+                    width - center_x,
+                )
+            case ImageRotation.QUARTER_TURN_CLOCKWISE:
+                return o3d.camera.PinholeCameraIntrinsic(
+                    height,
+                    width,
+                    focal_length_y,
+                    focal_length_x,
+                    height - center_y,
+                    center_x,
+                )
+            case ImageRotation.HALF_TURN:
+                return o3d.camera.PinholeCameraIntrinsic(
+                    width,
+                    height,
+                    focal_length_x,
+                    focal_length_y,
+                    width - center_x,
+                    height - center_y,
+                )
 
 
 @dataclass(kw_only=True)

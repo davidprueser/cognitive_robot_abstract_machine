@@ -226,6 +226,32 @@ class ROSCameraInterface(CameraInterface):
             """
             TF buffer populated by the per-node transform listener.
             """
+        self.bridge: CVBridgeWorkaround = CVBridgeWorkaround()
+        """
+        NumPy-compatible replacement for cv_bridge.
+        """
+
+    def compressed_color_configured(self) -> bool:
+        """
+        Check if compressed color images are configured.
+
+        :return: True if compressed color is configured, False otherwise
+        """
+        return (
+            hasattr(self.camera_config, "color_hints")
+            and self.camera_config.color_hints == "compressed"
+        )
+
+    def decode_color_image(self, color_data: Image | CompressedImage) -> npt.NDArray:
+        """
+        :param color_data: A color image message of the configured kind.
+        :return: The color image of ``color_data`` in BGR.
+        """
+        if self.compressed_color_configured():
+            return cv2.imdecode(
+                np.frombuffer(color_data.data, np.uint8), cv2.IMREAD_COLOR
+            )
+        return self.bridge.imgmsg_to_cv2(color_data, "bgr8")
 
     def place_camera(
         self, cas: CAS, world: World, timestamp: builtin_interfaces.msg.Time
@@ -398,10 +424,6 @@ class KinectCameraInterface(ROSCameraInterface):
         """
         Thread synchronization lock.
         """
-        self.bridge: CVBridgeWorkaround = CVBridgeWorkaround()
-        """
-        NumPy-compatible replacement for cv_bridge.
-        """
 
     def compressed_depth_configured(self) -> bool:
         """
@@ -412,17 +434,6 @@ class KinectCameraInterface(ROSCameraInterface):
         return (
             hasattr(self.camera_config, "depth_hints")
             and self.camera_config.depth_hints == "compressedDepth"
-        )
-
-    def compressed_color_configured(self) -> bool:
-        """
-        Check if compressed color images are configured.
-
-        :return: True if compressed color is configured, False otherwise
-        """
-        return (
-            hasattr(self.camera_config, "color_hints")
-            and self.camera_config.color_hints == "compressed"
         )
 
     def callback(
@@ -473,11 +484,7 @@ class KinectCameraInterface(ROSCameraInterface):
                         f"  Color time - Camera Info time: {(color_time - camera_info_time).nanoseconds / 1e9:.6f}"
                     )
 
-            if self.compressed_color_configured():
-                color_arr = np.frombuffer(color_data.data, np.uint8)
-                self.color = cv2.imdecode(color_arr, cv2.IMREAD_COLOR)
-            else:
-                self.color = self.bridge.imgmsg_to_cv2(color_data, "bgr8")
+            self.color = self.decode_color_image(color_data)
 
             self.timestamp = color_data.header.stamp
 
