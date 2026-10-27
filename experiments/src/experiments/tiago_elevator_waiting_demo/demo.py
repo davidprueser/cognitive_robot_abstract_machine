@@ -1,7 +1,7 @@
 """
-Tiago waits in the waiting zone in front of the open elevator of the ARISE office,
-senses the people around it through ROS4HRI and hands its base over to the social
-navigation module (IRII), which drives it around the people into the cabin.
+Tiago waits in the waiting zone in front of the open elevator of a building, the lab by
+default, senses the people around it through ROS4HRI and hands its base over to the
+social navigation module (IRII), which drives it around the people into the cabin.
 
 The people come from a ROS4HRI person manager: on the real TIAGo PAL's, in the Gazebo
 simulator ``tiago_arise_humans`` (scenario ``elevator_waiting``). Only the persons
@@ -32,6 +32,7 @@ from coraplex.datastructures.enums import ExecutionType
 from coraplex.plans.factories import sequential
 from coraplex.plans.plan_node import PlanNode
 from coraplex.robot_plans.actions.core.navigation import NavigateAction
+from coraplex.robot_plans.actions.core.robot_body import ParkArmsAction
 from experiments.ra_fetch_elevator_people.elevator_people import ElevatorPeople
 from experiments.tiago_elevator_demo.demo import TiagoElevatorRideDemonstration
 from experiments.tiago_elevator_waiting_demo.exceptions import (
@@ -302,11 +303,15 @@ class TiagoElevatorWaitingDemonstration(TiagoElevatorRideDemonstration):
 
     def build_plan(self, context: Context) -> PlanNode:
         """
-        Drive to the waiting zone.
+        Park the arms and drive to the waiting zone.
         """
         elevator = context.world.get_semantic_annotations_by_type(Elevator)[0]
         return sequential(
-            [NavigateAction(self.waiting_pose(elevator))], context=context
+            [
+                ParkArmsAction(context.robot.all_arms),
+                NavigateAction(self.waiting_pose(elevator)),
+            ],
+            context=context,
         )
 
     def conclude(self, world: World) -> None:

@@ -1,11 +1,13 @@
 """
-Tiago rides the elevator of the ARISE office from the ground floor to the first floor.
+Tiago rides the elevator of a building, the lab by default, from the ground floor to the
+first floor.
 
-Running with :attr:`~coraplex.datastructures.enums.ExecutionType.REAL` drives the robot
-of the TIAGo ARISE Gazebo simulator, or the real TIAGo: the world comes from the running
+Running with :attr:`~coraplex.datastructures.enums.ExecutionType.REAL` drives the real
+TIAGo, or the robot of the TIAGo ARISE Gazebo simulator: the world comes from the running
 controller, the base lidar from ``/scan``, and the cabin's height from the elevator's joint
-states. The elevator itself is operated outside the plan, by a person on the real robot and
-by the simulator's elevator operator in Gazebo.
+states. The elevator itself is operated
+outside the plan, by a person on the real robot and by the simulator's elevator operator
+in Gazebo.
 
 In a kinematic simulation an :class:`ElevatorOperator` stands in for whoever operates
 the elevator.
@@ -21,17 +23,22 @@ from coraplex.demonstrations import RobotDemonstration
 from coraplex.plans.factories import sequential
 from coraplex.plans.plan_node import PlanNode
 from coraplex.robot_plans.actions.core.navigation import ElevatorNavigation
+from coraplex.robot_plans.actions.core.robot_body import ParkArmsAction
 from experiments.ra_fetch_elevator_people.elevator_people import (
     ElevatorDrive,
     SimulatorTopic,
 )
 from semantic_digital_twin.callbacks.callback import ModelChangeCallback
-from semantic_digital_twin.predefined_maps.arise_office import AriseOfficeBuilding
+from semantic_digital_twin.predefined_maps.elevator_building import ElevatorBuilding
+from semantic_digital_twin.predefined_maps.foyer_and_hallway_ground_floor.lab_building import (
+    LabBuilding,
+)
 from semantic_digital_twin.robots.robot_parts import AbstractRobot
 from semantic_digital_twin.robots.tiago import Tiago
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Elevator,
     FirstFloor,
+    GroundFloor,
     Level,
 )
 from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
@@ -78,13 +85,13 @@ class ElevatorOperator(ModelChangeCallback):
 @dataclass
 class TiagoElevatorRideDemonstration(RobotDemonstration):
     """
-    Tiago drives from the ground floor of the ARISE office into the elevator and leaves
-    it on the first floor.
+    Tiago drives from the ground floor of a building into the elevator and leaves it on
+    the first floor.
     """
 
     ros_node_name: str = "tiago_elevator_demo_node"
 
-    office: AriseOfficeBuilding = field(default_factory=AriseOfficeBuilding)
+    building: ElevatorBuilding = field(default_factory=LabBuilding)
     """
     The building the robot rides the elevator in.
     """
@@ -93,7 +100,7 @@ class TiagoElevatorRideDemonstration(RobotDemonstration):
         default_factory=HomogeneousTransformationMatrix
     )
     """
-    Where a simulated Tiago starts, as it is spawned in the Gazebo simulator.
+    Where a simulated Tiago starts, relative to the start pose of :attr:`building`.
     """
 
     elevator_joint_state_topic: str = SimulatorTopic.ELEVATOR_JOINT_STATES
@@ -125,13 +132,15 @@ class TiagoElevatorRideDemonstration(RobotDemonstration):
 
     def build_simulated_world(self) -> World:
         """
-        Put the Tiago on its drive in a world holding nothing but a map body.
+        Put the Tiago on its drive in a world holding nothing but a map body, with its
+        odom at the start pose of :attr:`building`.
         """
         return WorldSpecification(
             world_parser=None,
             robots=[
                 RobotSpecification(
                     semantic_annotation_type=self.used_robot,
+                    world_T_odom=self.building.world_T_robot_start,
                     odom_T_robot_start=self.odom_T_robot_start,
                 )
             ],
@@ -142,11 +151,11 @@ class TiagoElevatorRideDemonstration(RobotDemonstration):
 
     def populate_scene(self, world: World) -> None:
         """
-        Spawn the office.
+        Spawn the building.
 
         In a kinematic simulation the elevator waits with open doors.
         """
-        elevator = self.office.spawn(world)
+        elevator = self.building.spawn(world)
         if self.execution_type is not ExecutionType.REAL:
             elevator.open()
 
@@ -197,7 +206,9 @@ class TiagoElevatorRideDemonstration(RobotDemonstration):
         self.elevator_drive = ElevatorDrive(
             node=self.ros_node,
             topic_name=self.elevator_joint_state_topic,
-            position_offset=self.office.ground_floor_height,
+            position_offset=elevator.drive_position_for_floor(
+                elevator._world.get_semantic_annotations_by_type(GroundFloor)[0]
+            ),
         )
         self.ros_node.create_timer(
             self.elevator_drive_update_period,
@@ -206,17 +217,18 @@ class TiagoElevatorRideDemonstration(RobotDemonstration):
 
     def build_plan(self, context: Context) -> PlanNode:
         """
-        Ride the elevator to the first floor.
+        Park the arms and ride the elevator to the first floor.
         """
         elevator = context.world.get_semantic_annotations_by_type(Elevator)[0]
         first_floor = context.world.get_semantic_annotations_by_type(FirstFloor)[0]
         return sequential(
             [
+                ParkArmsAction(context.robot.all_arms),
                 ElevatorNavigation(
                     elevator,
                     first_floor,
                     arrival_threshold=self.elevator_arrival_threshold,
-                )
+                ),
             ],
             context=context,
         )

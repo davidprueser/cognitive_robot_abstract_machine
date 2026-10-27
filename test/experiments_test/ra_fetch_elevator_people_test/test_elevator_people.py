@@ -21,12 +21,19 @@ from semantic_digital_twin.semantic_annotations.semantic_annotations import (
 )
 from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
 
+from ...semantic_digital_twin_test.test_worlds.test_elevator_areas import cabin_to_world
+
 # %% fixtures
 
 
 @pytest.fixture
-def elevator(arise_office_world):
-    return arise_office_world.get_semantic_annotations_by_type(Elevator)[0]
+def elevator(lab_building_world):
+    return lab_building_world.get_semantic_annotations_by_type(Elevator)[0]
+
+
+@pytest.fixture
+def ground_floor(lab_building_world):
+    return lab_building_world.get_semantic_annotations_by_type(GroundFloor)[0]
 
 
 def person_frame_at(
@@ -43,81 +50,68 @@ def person_frame_at(
 # %% mirroring persons
 
 
-def test_placed_person_becomes_a_human_at_its_frame(arise_office_world, arise_office):
-    mirror = PersonMirror(arise_office_world)
+def test_placed_person_becomes_a_human_at_its_frame(lab_building_world, ground_floor):
+    mirror = PersonMirror(lab_building_world)
     world_T_person = person_frame_at(
-        arise_office_world, 1.0, -2.0, arise_office.ground_floor_height
+        lab_building_world, 1.0, -2.0, float(ground_floor.floor_plane[0].z)
     )
     human = mirror.place("anna", world_T_person)
-    assert human in arise_office_world.get_semantic_annotations_by_type(Human)
+    assert human in lab_building_world.get_semantic_annotations_by_type(Human)
     assert human.root.global_transform.to_np() == pytest.approx(world_T_person.to_np())
 
 
-def test_placing_a_person_again_moves_its_human(arise_office_world, arise_office):
-    mirror = PersonMirror(arise_office_world)
+def test_placing_a_person_again_moves_its_human(lab_building_world, ground_floor):
+    mirror = PersonMirror(lab_building_world)
     first = mirror.place(
         "anna",
         person_frame_at(
-            arise_office_world, 1.0, -2.0, arise_office.ground_floor_height
+            lab_building_world, 1.0, -2.0, float(ground_floor.floor_plane[0].z)
         ),
     )
     world_T_person = person_frame_at(
-        arise_office_world, 2.0, -1.0, arise_office.ground_floor_height
+        lab_building_world, 2.0, -1.0, float(ground_floor.floor_plane[0].z)
     )
     second = mirror.place("anna", world_T_person)
     assert second is first
     assert second.root.global_transform.to_np() == pytest.approx(world_T_person.to_np())
 
 
-def test_persons_no_longer_tracked_leave_the_world(arise_office_world, arise_office):
-    mirror = PersonMirror(arise_office_world)
+def test_persons_no_longer_tracked_leave_the_world(lab_building_world, ground_floor):
+    mirror = PersonMirror(lab_building_world)
     gone = mirror.place(
         "anna",
         person_frame_at(
-            arise_office_world, 1.0, -2.0, arise_office.ground_floor_height
+            lab_building_world, 1.0, -2.0, float(ground_floor.floor_plane[0].z)
         ),
     )
     mirror.place(
         "ben",
         person_frame_at(
-            arise_office_world, 2.0, -2.0, arise_office.ground_floor_height
+            lab_building_world, 2.0, -2.0, float(ground_floor.floor_plane[0].z)
         ),
     )
     mirror.keep_only(["ben"])
     assert list(mirror.humans) == ["ben"]
-    assert gone not in arise_office_world.get_semantic_annotations_by_type(Human)
-    assert not arise_office_world.is_kinematic_structure_entity_in_world_by_name(
+    assert gone not in lab_building_world.get_semantic_annotations_by_type(Human)
+    assert not lab_building_world.is_kinematic_structure_entity_in_world_by_name(
         gone.root.name.name
     )
 
 
 def test_persons_are_sorted_into_the_elevator_areas(
-    arise_office_world, elevator, arise_office
+    lab_building_world, elevator, ground_floor
 ):
-    mirror = PersonMirror(arise_office_world)
-    mirror.place(
-        "rider",
-        person_frame_at(
-            arise_office_world,
-            arise_office.cabin_centre.x,
-            arise_office.cabin_centre.y,
-            arise_office.ground_floor_height,
-        ),
-    )
-    mirror.place(
-        "waiting",
-        person_frame_at(
-            arise_office_world, 0.45, 1.2, arise_office.ground_floor_height
-        ),
-    )
-    mirror.place(
-        "walker",
-        person_frame_at(
-            arise_office_world, -5.0, -2.5, arise_office.ground_floor_height
-        ),
-    )
-    ground_floor = arise_office_world.get_semantic_annotations_by_type(GroundFloor)[0]
-    first_floor = arise_office_world.get_semantic_annotations_by_type(FirstFloor)[0]
+    mirror = PersonMirror(lab_building_world)
+    floor_height = float(ground_floor.floor_plane[0].z)
+    door_x = -elevator.scale.x / 2
+    for person_id, (cabin_x, cabin_y) in (
+        ("rider", (0.0, 0.0)),
+        ("waiting", (door_x - 0.925, 0.45)),
+        ("walker", (door_x - 5.0, 2.5)),
+    ):
+        x, y, _ = cabin_to_world(elevator, cabin_x, cabin_y, 0.0)
+        mirror.place(person_id, person_frame_at(lab_building_world, x, y, floor_height))
+    first_floor = lab_building_world.get_semantic_annotations_by_type(FirstFloor)[0]
     assert mirror.persons_in(ElevatorCabinArea(elevator)) == ["rider"]
     assert mirror.persons_in(ElevatorWaitingArea(elevator, ground_floor)) == ["waiting"]
     assert mirror.persons_in(ElevatorWaitingArea(elevator, first_floor)) == []
@@ -127,18 +121,17 @@ def test_persons_are_sorted_into_the_elevator_areas(
 
 
 def test_drive_moves_the_cabin_to_the_received_joint_position(
-    rclpy_node, elevator, arise_office
+    rclpy_node, elevator, ground_floor
 ):
+    ground_floor_position = elevator.drive_position_for_floor(ground_floor)
     drive = ElevatorDrive(
         node=rclpy_node,
         topic_name="/test/elevator/joint_states",
-        position_offset=arise_office.ground_floor_height,
+        position_offset=ground_floor_position,
     )
     drive.buffer_message(JointState(name=[drive.joint_name], position=[2.0]))
     drive.apply_to(elevator)
-    assert elevator.movable_joint.position == pytest.approx(
-        2.0 + arise_office.ground_floor_height
-    )
+    assert elevator.movable_joint.position == pytest.approx(2.0 + ground_floor_position)
 
 
 def test_drive_leaves_the_cabin_without_a_joint_state(rclpy_node, elevator):
@@ -172,24 +165,22 @@ def robot_base_at_height(world, height: float) -> TransformStamped:
     return transform
 
 
-def test_robot_stands_on_the_level_under_its_base(
-    rclpy_node, arise_office_world, arise_office
-):
+def test_robot_stands_on_the_level_under_its_base(rclpy_node, lab_building_world):
     elevator_people = ElevatorPeople.for_world(
-        rclpy_node, arise_office_world, RobotFrame.BASE, None
+        rclpy_node, lab_building_world, RobotFrame.BASE, None
     )
+    first_floor = lab_building_world.get_semantic_annotations_by_type(FirstFloor)[0]
     elevator_people.tf.tf_buffer.set_transform_static(
-        robot_base_at_height(arise_office_world, arise_office.first_floor_height),
+        robot_base_at_height(lab_building_world, float(first_floor.floor_plane[0].z)),
         "test",
     )
-    first_floor = arise_office_world.get_semantic_annotations_by_type(FirstFloor)[0]
     assert elevator_people.robot_level() is first_floor
 
 
 def test_robot_level_is_unknown_without_the_robots_frame(
-    rclpy_node, arise_office_world
+    rclpy_node, lab_building_world
 ):
     elevator_people = ElevatorPeople.for_world(
-        rclpy_node, arise_office_world, RobotFrame.BASE, None
+        rclpy_node, lab_building_world, RobotFrame.BASE, None
     )
     assert elevator_people.robot_level() is None

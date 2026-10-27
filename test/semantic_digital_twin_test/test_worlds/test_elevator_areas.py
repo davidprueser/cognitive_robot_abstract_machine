@@ -1,3 +1,4 @@
+import numpy as np
 import pytest
 
 from semantic_digital_twin.reasoning.elevator_areas import (
@@ -15,145 +16,139 @@ from semantic_digital_twin.spatial_types import Point3
 
 
 @pytest.fixture
-def elevator(arise_office_world):
-    return arise_office_world.get_semantic_annotations_by_type(Elevator)[0]
+def elevator(lab_building_world):
+    return lab_building_world.get_semantic_annotations_by_type(Elevator)[0]
 
 
 @pytest.fixture
-def ground_floor(arise_office_world):
-    return arise_office_world.get_semantic_annotations_by_type(GroundFloor)[0]
+def ground_floor(lab_building_world):
+    return lab_building_world.get_semantic_annotations_by_type(GroundFloor)[0]
 
 
 @pytest.fixture
-def first_floor(arise_office_world):
-    return arise_office_world.get_semantic_annotations_by_type(FirstFloor)[0]
+def first_floor(lab_building_world):
+    return lab_building_world.get_semantic_annotations_by_type(FirstFloor)[0]
 
 
-def head_of_person_at(world, x: float, y: float, floor_height: float) -> Point3:
-    return Point3(x, y, floor_height + 1.65, reference_frame=world.root)
+def cabin_to_world(
+    elevator: Elevator, cabin_x: float, cabin_y: float, cabin_z: float
+) -> np.ndarray:
+    """
+    :return: The world coordinates of the point at ``(cabin_x, cabin_y, cabin_z)`` in
+        the cabin's frame.
+    """
+    world = elevator._world
+    return world.transform(
+        Point3(cabin_x, cabin_y, cabin_z, reference_frame=elevator.root), world.root
+    ).to_np()[:3]
+
+
+def head_of_person_at(
+    elevator: Elevator, cabin_x: float, cabin_y: float, floor_height: float
+) -> Point3:
+    """
+    :return: The head of a person standing at ``(cabin_x, cabin_y)`` in the cabin's
+        frame on the floor at ``floor_height``.
+    """
+    x, y, _ = cabin_to_world(elevator, cabin_x, cabin_y, 0.0)
+    return Point3(x, y, floor_height + 1.65, reference_frame=elevator._world.root)
+
+
+def corners_of(points: list[Point3]) -> np.ndarray:
+    """
+    :return: The coordinates of ``points``, sorted so that two outlines compare equal
+        regardless of their winding.
+    """
+    return np.array(sorted((float(p.x), float(p.y), float(p.z)) for p in points))
 
 
 # %% cabin
 
 
-def test_person_inside_the_cabin_is_in_the_cabin_area(
-    arise_office_world, elevator, arise_office
-):
+def test_person_inside_the_cabin_is_in_the_cabin_area(elevator, ground_floor):
     person = head_of_person_at(
-        arise_office_world,
-        arise_office.cabin_centre.x + 0.25,
-        arise_office.cabin_centre.y + 0.2,
-        arise_office.ground_floor_height,
+        elevator, 0.25, 0.2, float(ground_floor.floor_plane[0].z)
     )
     assert ElevatorCabinArea(elevator).contains(person)
 
 
-def test_person_in_front_of_the_doors_is_not_in_the_cabin_area(
-    arise_office_world, elevator, arise_office
-):
+def test_person_in_front_of_the_doors_is_not_in_the_cabin_area(elevator, ground_floor):
     person = head_of_person_at(
-        arise_office_world, 0.0, 1.5, arise_office.ground_floor_height
+        elevator,
+        -elevator.scale.x / 2 - 0.625,
+        0.0,
+        float(ground_floor.floor_plane[0].z),
     )
     assert not ElevatorCabinArea(elevator).contains(person)
 
 
-def test_cabin_area_moves_with_the_cabin(
-    arise_office_world, elevator, first_floor, arise_office
-):
+def test_cabin_area_moves_with_the_cabin(elevator, ground_floor, first_floor):
     upstairs = head_of_person_at(
-        arise_office_world,
-        arise_office.cabin_centre.x,
-        arise_office.cabin_centre.y,
-        arise_office.first_floor_height,
+        elevator, 0.0, 0.0, float(first_floor.floor_plane[0].z)
     )
     downstairs = head_of_person_at(
-        arise_office_world,
-        arise_office.cabin_centre.x,
-        arise_office.cabin_centre.y,
-        arise_office.ground_floor_height,
+        elevator, 0.0, 0.0, float(ground_floor.floor_plane[0].z)
     )
     elevator.drive_to_floor(first_floor)
     assert ElevatorCabinArea(elevator).contains(upstairs)
     assert not ElevatorCabinArea(elevator).contains(downstairs)
 
 
-def test_cabin_area_footprint_is_the_cabin_floor(elevator, arise_office):
-    corners = {
-        (
-            round(float(corner.x), 6),
-            round(float(corner.y), 6),
-            round(float(corner.z), 6),
-        )
-        for corner in ElevatorCabinArea(elevator).footprint()
-    }
-    assert corners == {
-        (round(x, 6), round(y, 6), round(arise_office.ground_floor_height, 6))
-        for x in (
-            float(arise_office.cabin_centre.x) - elevator.scale.y / 2,
-            float(arise_office.cabin_centre.x) + elevator.scale.y / 2,
-        )
-        for y in (
-            float(arise_office.cabin_centre.y) - elevator.scale.x / 2,
-            float(arise_office.cabin_centre.y) + elevator.scale.x / 2,
-        )
-    }
+def test_cabin_area_footprint_is_the_cabin_floor(elevator):
+    scale = elevator.scale
+    cabin_floor = [
+        cabin_to_world(elevator, x, y, -scale.z / 2)
+        for x in (-scale.x / 2, scale.x / 2)
+        for y in (-scale.y / 2, scale.y / 2)
+    ]
+    assert corners_of(ElevatorCabinArea(elevator).footprint()) == pytest.approx(
+        np.array(sorted(map(tuple, cabin_floor))), abs=1e-6
+    )
 
 
 # %% waiting area
 
 
 def test_person_in_front_of_the_doors_waits_on_its_level(
-    arise_office_world, elevator, ground_floor, first_floor, arise_office
+    elevator, ground_floor, first_floor
 ):
     person = head_of_person_at(
-        arise_office_world, 0.45, 1.2, arise_office.ground_floor_height
+        elevator,
+        -elevator.scale.x / 2 - 0.925,
+        0.45,
+        float(ground_floor.floor_plane[0].z),
     )
     assert ElevatorWaitingArea(elevator, ground_floor).contains(person)
     assert not ElevatorWaitingArea(elevator, first_floor).contains(person)
 
 
-def test_person_inside_the_cabin_is_not_waiting(
-    arise_office_world, elevator, ground_floor, arise_office
-):
-    person = head_of_person_at(
-        arise_office_world,
-        arise_office.cabin_centre.x,
-        arise_office.cabin_centre.y,
-        arise_office.ground_floor_height,
-    )
+def test_person_inside_the_cabin_is_not_waiting(elevator, ground_floor):
+    person = head_of_person_at(elevator, 0.0, 0.0, float(ground_floor.floor_plane[0].z))
     assert not ElevatorWaitingArea(elevator, ground_floor).contains(person)
 
 
-def test_person_beyond_the_waiting_depth_is_not_waiting(
-    arise_office_world, elevator, ground_floor, arise_office
-):
+def test_person_beyond_the_waiting_depth_is_not_waiting(elevator, ground_floor):
     area = ElevatorWaitingArea(elevator, ground_floor)
-    door_y = float(arise_office.cabin_centre.y) - elevator.scale.x / 2
     person = head_of_person_at(
-        arise_office_world,
+        elevator,
+        -elevator.scale.x / 2 - area.depth - 0.1,
         0.0,
-        door_y - area.depth - 0.1,
-        arise_office.ground_floor_height,
+        float(ground_floor.floor_plane[0].z),
     )
     assert not area.contains(person)
 
 
 def test_waiting_area_footprint_lies_in_front_of_the_doors_on_the_level(
-    elevator, ground_floor, arise_office
+    elevator, ground_floor
 ):
     area = ElevatorWaitingArea(elevator, ground_floor)
-    door_y = float(arise_office.cabin_centre.y) - elevator.scale.x / 2
+    door_x = -elevator.scale.x / 2
     half_width = elevator.scale.y / 2 + area.side_margin
-    corners = {
-        (
-            round(float(corner.x), 6),
-            round(float(corner.y), 6),
-            round(float(corner.z), 6),
-        )
-        for corner in area.footprint()
-    }
-    assert corners == {
-        (round(x, 6), round(y, 6), round(arise_office.ground_floor_height, 6))
-        for x in (-half_width, half_width)
-        for y in (door_y - area.depth, door_y)
-    }
+    in_front_of_the_doors = [
+        cabin_to_world(elevator, x, y, -elevator.scale.z / 2)
+        for x in (door_x - area.depth, door_x)
+        for y in (-half_width, half_width)
+    ]
+    assert corners_of(area.footprint()) == pytest.approx(
+        np.array(sorted(map(tuple, in_front_of_the_doors))), abs=1e-6
+    )

@@ -90,6 +90,7 @@ class TiagoJoint(StrEnum):
     RIGHT_ARM_7 = "arm_right_7_joint"
     RIGHT_GRIPPER_FINGER = "gripper_right_finger_joint"
 
+
 class TiagoTopic(StrEnum):
     ODOMETRY = "direct_laser_odometry/odom"
     """
@@ -327,7 +328,7 @@ class TiagoLeftArm(Arm[TiagoLeftGripper]):
             mapping=dict(
                 zip(
                     self.active_connections,
-                    [0, -0.8, 1.57, 1.57, -2.0, 1.1, 0.0],
+                    [1.32, 1.0, 0.63, 2.19, 1.21, 1.24, 0.51],
                 )
             ),
             state_type=StaticJointState.PARK,
@@ -373,7 +374,7 @@ class TiagoRightArm(Arm[TiagoRightGripper]):
             mapping=dict(
                 zip(
                     self.active_connections,
-                    [0, -0.8, 1.57, 1.57, -2.0, 1.1, 0.0],
+                    [1.32, 1.0, 0.63, 2.19, 1.21, 1.24, 0.51],
                 )
             ),
             state_type=StaticJointState.PARK,

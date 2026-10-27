@@ -19,6 +19,7 @@ from semantic_digital_twin.robots.tiago import Tiago
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Elevator,
     FirstFloor,
+    GroundFloor,
 )
 from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
 from semantic_digital_twin.world import World
@@ -39,7 +40,7 @@ def test_tiago_rides_the_elevator_to_the_first_floor(rclpy_node):
     first_floor = world.get_semantic_annotations_by_type(FirstFloor)[0]
     elevator = world.get_semantic_annotations_by_type(Elevator)[0]
     assert float(robot.root.global_transform.z) == pytest.approx(
-        float(first_floor.floor_plane[0].z) - demonstration.office.ground_floor_height
+        float(first_floor.floor_plane[0].z)
     )
     assert elevator.movable_joint.position == pytest.approx(
         elevator.drive_position_for_floor(first_floor)
@@ -57,19 +58,19 @@ def waiting_demonstration() -> TiagoElevatorWaitingDemonstration:
 
 
 @pytest.fixture
-def office_world(waiting_demonstration) -> World:
+def building_world(waiting_demonstration) -> World:
     world = waiting_demonstration.build_simulated_world()
     waiting_demonstration.populate_scene(world)
     return world
 
 
 def test_tiago_waits_in_front_of_the_doors_facing_the_cabin(
-    waiting_demonstration, office_world
+    waiting_demonstration, building_world
 ):
-    elevator = office_world.get_semantic_annotations_by_type(Elevator)[0]
+    elevator = building_world.get_semantic_annotations_by_type(Elevator)[0]
 
-    waiting_pose = office_world.transform(
-        waiting_demonstration.waiting_pose(elevator), office_world.root
+    waiting_pose = building_world.transform(
+        waiting_demonstration.waiting_pose(elevator), building_world.root
     ).to_np()
 
     description = ElevatorDescription.of(elevator)
@@ -86,58 +87,71 @@ def test_tiago_waits_in_front_of_the_doors_facing_the_cabin(
 
 
 def test_elevator_description_gives_doors_and_cabin_on_the_cabin_floor(
-    waiting_demonstration, office_world
+    waiting_demonstration, building_world
 ):
-    office = waiting_demonstration.office
-    elevator = office_world.get_semantic_annotations_by_type(Elevator)[0]
+    elevator_room = waiting_demonstration.building.elevator_room
+    elevator = building_world.get_semantic_annotations_by_type(Elevator)[0]
 
     description = ElevatorDescription.of(elevator)
 
-    cabin_x, cabin_y = float(office.cabin_centre.x), float(office.cabin_centre.y)
+    map_T_cabin = (elevator_room.map_T_room @ elevator_room.room_T_elevator).to_np()
+    cabin_scale = elevator_room.elevator.scale
+    cabin_floor_center = map_T_cabin[:3, 3] - np.array([0.0, 0.0, cabin_scale.z / 2])
+    inward = map_T_cabin[:3, 0]
     assert description.cabin_center == pytest.approx(
-        [cabin_x, cabin_y, office.ground_floor_height]
+        cabin_floor_center.tolist(), abs=1e-6
     )
     assert description.door_center == pytest.approx(
-        [cabin_x, cabin_y - office.cabin_scale.x / 2, office.ground_floor_height]
+        (cabin_floor_center - inward * cabin_scale.x / 2).tolist(), abs=1e-6
     )
-    # The office's doors face -y
-    assert description.inward_yaw == pytest.approx(np.pi / 2)
+    assert description.inward_yaw == pytest.approx(np.arctan2(inward[1], inward[0]))
     assert (description.cabin_width, description.cabin_depth) == pytest.approx(
-        (office.cabin_scale.y, office.cabin_scale.x)
+        (cabin_scale.y, cabin_scale.x)
     )
 
 
 def test_boarding_request_names_the_persons_in_the_cabin_and_the_waiting_area(
-    rclpy_node, waiting_demonstration, office_world
+    rclpy_node, waiting_demonstration, building_world
 ):
-    office = waiting_demonstration.office
-    elevator = office_world.get_semantic_annotations_by_type(Elevator)[0]
-    robot = office_world.get_semantic_annotations_by_type(Tiago)[0]
+    elevator = building_world.get_semantic_annotations_by_type(Elevator)[0]
+    robot = building_world.get_semantic_annotations_by_type(Tiago)[0]
+    ground_floor = building_world.get_semantic_annotations_by_type(GroundFloor)[0]
     elevator_people = ElevatorPeople.for_world(
-        rclpy_node, office_world, robot.root.name.name, None
+        rclpy_node, building_world, robot.root.name.name, None
     )
     elevator_people.tf.tf_buffer.set_transform_static(
-        robot_base_at_height(office_world, float(robot.root.global_transform.z)),
+        robot_base_at_height(building_world, float(robot.root.global_transform.z)),
         "test",
     )
-    head_height = office.ground_floor_height + 1.65
+    head_height = float(ground_floor.floor_plane[0].z) + 1.65
+    world_T_cabin = elevator.root.global_transform.to_np()
+    inward, sideways = world_T_cabin[:3, 0], world_T_cabin[:3, 1]
+    door_center = world_T_cabin[:3, 3] - inward * elevator.scale.x / 2
+    waiting_position = door_center - inward * 1.0 + sideways * 0.3
+    walker_position = door_center - inward * 5.0 + sideways * 2.5
     world_T_rider = HomogeneousTransformationMatrix.from_xyz_rpy(
-        office.cabin_centre.x,
-        office.cabin_centre.y,
+        world_T_cabin[0, 3],
+        world_T_cabin[1, 3],
         head_height,
-        reference_frame=office_world.root,
+        reference_frame=building_world.root,
     )
     elevator_people.mirror.place("rider", world_T_rider)
     elevator_people.mirror.place(
         "waiting",
         HomogeneousTransformationMatrix.from_xyz_rpy(
-            0.45, 1.2, head_height, reference_frame=office_world.root
+            waiting_position[0],
+            waiting_position[1],
+            head_height,
+            reference_frame=building_world.root,
         ),
     )
     elevator_people.mirror.place(
         "walker",
         HomogeneousTransformationMatrix.from_xyz_rpy(
-            -5.0, -2.5, head_height, reference_frame=office_world.root
+            walker_position[0],
+            walker_position[1],
+            head_height,
+            reference_frame=building_world.root,
         ),
     )
 

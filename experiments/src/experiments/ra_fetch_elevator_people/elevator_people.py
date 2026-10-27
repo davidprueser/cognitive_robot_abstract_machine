@@ -31,7 +31,9 @@ from semantic_digital_twin.adapters.ros.latest_message_subscriber import (
 from semantic_digital_twin.adapters.ros.ros2_node import HasROS2Node
 from semantic_digital_twin.adapters.ros.tfwrapper import TFWrapper
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
-from semantic_digital_twin.predefined_maps.arise_office import AriseOfficeBuilding
+from semantic_digital_twin.predefined_maps.foyer_and_hallway_ground_floor.lab_building import (
+    LabBuilding,
+)
 from semantic_digital_twin.reasoning.elevator_areas import (
     ElevatorArea,
     ElevatorCabinArea,
@@ -39,6 +41,7 @@ from semantic_digital_twin.reasoning.elevator_areas import (
 )
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Elevator,
+    GroundFloor,
     Human,
     Level,
 )
@@ -429,7 +432,7 @@ class ElevatorPeople(HasROS2Node):
 
 def main(rate: float = 5.0, robot_frame: str = RobotFrame.BASE) -> None:
     """
-    Watch the elevator of the ARISE Gazebo office.
+    Watch the elevator of the lab building in the Gazebo simulator.
 
     :param rate: Updates per second.
     :param robot_frame: TF frame of the simulated robot's base.
@@ -437,12 +440,14 @@ def main(rate: float = 5.0, robot_frame: str = RobotFrame.BASE) -> None:
     rclpy.init()
     node = rclpy.create_node("ra_fetch_elevator_people")
     node.set_parameters([rclpy.parameter.Parameter("use_sim_time", value=True)])
-    office = AriseOfficeBuilding()
-    world = office.create_world()
+    world = LabBuilding().create_world()
+    elevator = world.get_semantic_annotations_by_type(Elevator)[0]
     elevator_drive = ElevatorDrive(
         node=node,
         topic_name=SimulatorTopic.ELEVATOR_JOINT_STATES,
-        position_offset=office.ground_floor_height,
+        position_offset=elevator.drive_position_for_floor(
+            world.get_semantic_annotations_by_type(GroundFloor)[0]
+        ),
     )
     elevator_people = ElevatorPeople.for_world(node, world, robot_frame, elevator_drive)
     node.create_timer(1.0 / rate, elevator_people.update)
