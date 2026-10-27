@@ -16,11 +16,6 @@ class CameraConfigWithoutTF:
     Minimal camera config that does not request TF lookup.
     """
 
-    interface_type: str = "ROSCameraInterface"
-    """
-    Selects the ROS camera interface implementation.
-    """
-
 
 @dataclass
 class RegisteredNode:

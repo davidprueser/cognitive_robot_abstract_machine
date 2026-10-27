@@ -32,8 +32,6 @@ class OpenCVCameraConfig(BaseCameraConfig):
 
     registry_name: ClassVar[str] = "opencv"
 
-    interface_type: str = "OpenCV"
-
     device: Union[int, str] = 0
     """
     Input source identifier (camera index, file path, or URL).
@@ -95,9 +93,4 @@ class OpenCVCameraConfig(BaseCameraConfig):
     color_to_depth_ratio: ColorToDepthRatio = field(default_factory=ColorToDepthRatio)
     """
     Size of the depth image relative to the color image.
-    """
-
-    viewpoint_camera_to_world = None
-    """
-    Camera to world transformation.
     """

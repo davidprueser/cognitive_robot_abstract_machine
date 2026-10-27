@@ -33,8 +33,6 @@ class RealsenseCameraConfig(
 
     registry_name: ClassVar[str] = "realsense"
 
-    interface_type: str = "Kinect"
-
     topic_depth: str = "/camera/aligned_depth_to_color/image_raw/compressedDepth"
 
     topic_color: str = "/camera/color/image_raw/compressed"

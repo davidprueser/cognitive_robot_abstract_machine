@@ -58,7 +58,9 @@ def bounded_build_time() -> Iterator[None]:
     """
 
     def raise_timeout(signal_number: int, frame: FrameType | None) -> None:
-        """Raise the build timeout exception for the active alarm."""
+        """
+        Raise the build timeout exception for the active alarm.
+        """
         raise AnalysisEngineBuildTimedOut(
             f"implementation() did not return within {BUILD_TIMEOUT_SECONDS}s."
         )
@@ -81,18 +83,12 @@ class FakeCameraConfig:
     Camera config for composition tests that do not exercise ROS camera I/O.
     """
 
-    interface_type: str = "FakeCameraInterface"
-    """Camera-interface identifier expected by the collection reader."""
-
 
 @dataclass
 class FakeCameraInterface:
     """
     Camera interface for composition tests that only inspect pipeline nodes.
     """
-
-    interface_type: str = "FakeCameraInterface"
-    """Camera-interface identifier expected by the collection reader."""
 
     def has_new_data(self) -> bool:
         """

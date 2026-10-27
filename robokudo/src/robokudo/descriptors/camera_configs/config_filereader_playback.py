@@ -25,8 +25,6 @@ class FileReaderCameraConfig(BaseCameraConfig, StaticCameraTransformComponent):
 
     registry_name: ClassVar[str] = "file_reader"
 
-    interface_type: str = "FileReader"
-
     lookup_viewpoint: bool = False
     """
     File reader does not support live TF lookup; use static_camera_transform_enabled

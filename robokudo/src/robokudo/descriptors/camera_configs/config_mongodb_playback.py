@@ -22,8 +22,6 @@ class MongoCameraConfig(BaseCameraConfig, WorldDescriptorComponent):
 
     registry_name: ClassVar[str] = "mongo"
 
-    interface_type: str = "StorageReader"
-
     loop: bool = True
     """
     Flag to enable looping over database entries.

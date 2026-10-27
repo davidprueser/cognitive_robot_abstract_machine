@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import copy
 import time
-import warnings
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from enum import StrEnum
@@ -36,8 +35,6 @@ from typing_extensions import (
     Type,
     TypeVar,
 )
-
-from robokudo.types.tf import StampedTransform
 
 if TYPE_CHECKING:
     from semantic_digital_twin.spatial_types.spatial_types import (
@@ -90,11 +87,6 @@ class CASViews(StrEnum):
 
     CAMERA_FRAME = "camera_frame"
     """Name of the camera frame."""
-
-    VIEWPOINT_CAMERA_TO_WORLD = "viewpoint_cam_to_world"
-    """Deprecated: Use CAMERA_TO_WORLD_TRANSFORM instead.
-    Camera to world transform.
-    Type: robokudo.types.tf.StampedTransform"""
 
     CAMERA_TO_WORLD_TRANSFORM = "cam_to_world_transform"
     """Camera to world. 
@@ -243,26 +235,6 @@ class CAS:
     @camera_frame.setter
     def camera_frame(self, value: str) -> None:
         self.views[CASViews.CAMERA_FRAME] = value
-
-    @property
-    def viewpoint_camera_to_world(self) -> Optional[StampedTransform]:
-        warnings.warn(
-            "CAS.viewpoint_camera_to_world is deprecated. "
-            "Use CAS.camera_to_world_transform instead.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return self.views.get(CASViews.VIEWPOINT_CAMERA_TO_WORLD)
-
-    @viewpoint_camera_to_world.setter
-    def viewpoint_camera_to_world(self, value: StampedTransform) -> None:
-        warnings.warn(
-            "CAS.viewpoint_camera_to_world is deprecated. "
-            "Use CAS.camera_to_world_transform instead.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        self.views[CASViews.VIEWPOINT_CAMERA_TO_WORLD] = value
 
     @property
     def camera_to_world_transform(self) -> Optional[HomogeneousTransformationMatrix]:

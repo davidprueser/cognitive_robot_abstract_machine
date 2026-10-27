@@ -112,19 +112,6 @@ class CollectionReaderAnnotator(BaseAnnotator):
         for child in self.parent.children:
             child.feedback_message = ""
 
-    def add_collection_reader(
-        self, descriptor: CollectionReaderAnnotator.Descriptor
-    ) -> None:
-        """Add another collection reader descriptor.
-
-        :param descriptor: Configuration descriptor for additional reader
-        """
-        interface_type = descriptor.parameters.camera_interface.interface_type
-        self.collection_readers.append(descriptor)
-        self.logger.debug(
-            f"added descriptor to collection readers with camera interface '{interface_type}'"
-        )
-
     def update(self) -> Status:
         """Process sensor data and update CAS.
 

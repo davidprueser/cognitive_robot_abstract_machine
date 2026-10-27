@@ -33,11 +33,6 @@ class KinectCameraConfig(
     Overwrite BaseCameraConfig.
     """
 
-    interface_type: str = "Kinect"
-    """
-    Overwrite BaseCameraConfig.
-    """
-
     topic_depth: str = "/kinect_head/depth_registered/image_raw/compressedDepth"
     """
     Overwrite RGBDComponent.
