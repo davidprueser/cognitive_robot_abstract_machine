@@ -2,12 +2,13 @@
 Placement of the camera that recorded a pipeline pass, in the world perception perceives
 into.
 
-A camera interface measures where its camera was; a :class:`CameraPlacement` puts the
-camera there in the world and binds the pose of the pass to it.
+A camera interface says how to measure where its camera was; a :class:`CameraPlacement`
+puts the camera there in the world and binds the pose of the pass to it.
 """
 
 from __future__ import annotations
 
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
 import trimesh.creation
@@ -25,18 +26,18 @@ from semantic_digital_twin.world_description.world_entity import Body
 from robokudo.cas import CAS
 from robokudo.exceptions import UnknownWorldFrameError
 
-# %% measured camera pose
+# %% camera pose measurement
 
 
 @dataclass
-class MeasuredCameraPose:
+class CameraPoseMeasurement(ABC):
     """
-    Where a camera interface measured its camera to be when it recorded its latest data.
+    How to measure where a camera was when it recorded its latest data.
     """
 
     world_frame: str
     """
-    The name of the frame the pose was measured against.
+    The name of the frame the pose is measured against.
     """
 
     camera_frame: str
@@ -44,11 +45,28 @@ class MeasuredCameraPose:
     The name of the frame of the camera.
     """
 
+    @abstractmethod
+    def measure(self) -> HomogeneousTransformationMatrix:
+        """
+        :return: The pose of the camera relative to :attr:`world_frame`, without frames
+            bound to a world.
+        """
+
+
+@dataclass
+class MeasuredCameraPose(CameraPoseMeasurement):
+    """
+    Where a camera interface already measured its camera to be.
+    """
+
     world_T_camera: HomogeneousTransformationMatrix
     """
     The pose of the camera relative to :attr:`world_frame`, without frames bound to a
     world.
     """
+
+    def measure(self) -> HomogeneousTransformationMatrix:
+        return self.world_T_camera
 
 
 # %% camera placement
@@ -59,12 +77,12 @@ class CameraPlacement:
     """
     Puts the camera of a pipeline pass into :attr:`world`.
 
-    A camera :attr:`world` already holds under the measured camera frame, such as the
-    camera of a robot whose joints another process keeps current, is located by the
-    world. Any other camera is located by its measured pose relative to its world frame.
-    In a world of its own, perception hangs such a camera below its world frame on a
-    connection perception owns and moves it to where it was measured. A world other
-    processes share gets no camera body.
+    A camera :attr:`world` already holds under the camera frame, such as the camera of a
+    robot whose joints another process keeps current, is located by the world and its
+    pose is not measured. Any other camera is located by its measured pose relative to
+    its world frame. In a world of its own, perception hangs such a camera below its
+    world frame on a connection perception owns and moves it to where it was measured. A
+    world other processes share gets no camera body.
     """
 
     world: World
@@ -72,32 +90,32 @@ class CameraPlacement:
     The world the camera is placed in.
     """
 
-    def place(self, cas: CAS, measured_pose: MeasuredCameraPose) -> None:
+    def place(self, cas: CAS, measurement: CameraPoseMeasurement) -> None:
         """
         Put the camera of ``cas`` into :attr:`world` and store its pose, bound to the
         bodies of :attr:`world`, and the names of its frames in ``cas``.
 
         :param cas: The CAS of the pass the camera recorded.
-        :param measured_pose: Where the camera was measured to be.
+        :param measurement: How to measure where the camera was.
         :raises UnknownWorldFrameError: If :attr:`world` holds bodies but none of the
             measured world frame, and does not locate the camera itself.
         """
-        world_T_camera = self._bound_camera_pose(measured_pose)
+        world_T_camera = self._bound_camera_pose(measurement)
         cas.world_frame = world_T_camera.reference_frame.name.name
-        cas.camera_frame = measured_pose.camera_frame
+        cas.camera_frame = measurement.camera_frame
         cas.camera_to_world_transform = world_T_camera
 
     def _bound_camera_pose(
-        self, measured_pose: MeasuredCameraPose
+        self, measurement: CameraPoseMeasurement
     ) -> HomogeneousTransformationMatrix:
         """
-        :param measured_pose: Where the camera was measured to be.
+        :param measurement: How to measure where the camera was.
         :return: The pose of the camera, bound to the bodies of :attr:`world`: the one
             :attr:`world` holds for a camera it locates itself, otherwise the measured
             one relative to the world frame body, with the camera moved there unless
             :attr:`world` is shared.
         """
-        camera_bodies = self.world.get_bodies_by_name(name=measured_pose.camera_frame)
+        camera_bodies = self.world.get_bodies_by_name(name=measurement.camera_frame)
         if camera_bodies and not self._is_attached_by_perception(camera_bodies[0]):
             camera_body = camera_bodies[0]
             return HomogeneousTransformationMatrix(
@@ -106,18 +124,19 @@ class CameraPlacement:
                 child_frame=camera_body,
             )
 
-        world_body = self._world_frame_body(measured_pose.world_frame)
+        world_body = self._world_frame_body(measurement.world_frame)
+        measured_world_T_camera = measurement.measure()
         if WorldSynchronizer.all_callbacks_of_this_type_from_world(self.world):
             return HomogeneousTransformationMatrix(
-                data=measured_pose.world_T_camera, reference_frame=world_body
+                data=measured_world_T_camera, reference_frame=world_body
             )
         camera_body = (
             camera_bodies[0]
             if camera_bodies
-            else self._attached_camera_body(measured_pose.camera_frame, world_body)
+            else self._attached_camera_body(measurement.camera_frame, world_body)
         )
         world_T_camera = HomogeneousTransformationMatrix(
-            data=measured_pose.world_T_camera,
+            data=measured_world_T_camera,
             reference_frame=world_body,
             child_frame=camera_body,
         )

@@ -13,8 +13,3 @@ class BaseCameraConfig:
 
     Must be unique.
     """
-
-    interface_type: str
-    """
-    Type of camera interface.
-    """

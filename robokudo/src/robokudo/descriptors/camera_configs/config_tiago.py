@@ -33,8 +33,6 @@ class TiagoCameraConfig(
 
     registry_name: ClassVar[str] = "tiago"
 
-    interface_type: str = "Kinect"
-
     topic_depth: str = "/xtion/depth_registered/image_raw/compressedDepth"
 
     topic_camera_info: str = "/xtion/rgb/camera_info"

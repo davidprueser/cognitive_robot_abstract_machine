@@ -1,8 +1,16 @@
 import os
 
 import pytest
+from rclpy.node import Node
+
+from robokudo.descriptors.camera_configs.config_hsr_handcam import (
+    HsrHandCameraConfig,
+)
 from robokudo.descriptors.camera_configs.config_mongodb_playback import (
     MongoCameraConfig,
+)
+from robokudo.io.ros_camera_without_depth_interface import (
+    ROSCameraWithoutDepthInterface,
 )
 from robokudo.io.storage_reader_interface import StorageReaderInterface
 from robokudo.descriptors.factories.cr_descriptor_factory import (
@@ -23,6 +31,18 @@ class TestCrDescriptorFactory(object):
 
         assert type(descriptor.parameters.camera_config) == MongoCameraConfig
         assert type(descriptor.parameters.camera_interface) == StorageReaderInterface
+
+    def test_cr_descriptor_factory_creates_the_hand_camera_interface(
+        self, node: Node
+    ) -> None:
+        descriptor = CollectionReaderDescriptorFactory.create_descriptor(
+            HsrHandCameraConfig.registry_name, lookup_viewpoint=False
+        )
+
+        assert (
+            type(descriptor.parameters.camera_interface)
+            == ROSCameraWithoutDepthInterface
+        )
 
     def test_cr_descriptor_factory_invalid_interface_name(self) -> None:
         """

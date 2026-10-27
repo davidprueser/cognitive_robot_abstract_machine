@@ -9,6 +9,7 @@ from robokudo.descriptors.camera_configs.components import (
     StableViewpointComponent,
     WorldDescriptorComponent,
 )
+from robokudo.types.cv import ImageRotation
 
 
 @dataclass(slots=True)
@@ -25,10 +26,10 @@ class HsrHandCameraConfig(
 
     registry_name: ClassVar[str] = "hsr_handcam"
 
-    rotate_image: str = "90_ccw"
-    """Rotate the image cw = clockwise, ccw = counter-clockwise. Possible values: None, 90_{cw, ccw}, 180_{cw, ccw}."""
-
-    interface_type: str = "ROSCameraWithoutDepthInterface"
+    image_rotation: ImageRotation | None = ImageRotation.QUARTER_TURN_COUNTERCLOCKWISE
+    """
+    How to rotate each image; None keeps it as it is.
+    """
 
     topic_color: str = "hsrb/head_rgbd_sensor/rgb/image_raw/compressed"
 

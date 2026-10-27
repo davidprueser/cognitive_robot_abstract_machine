@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import logging
 import struct
-import warnings
+from dataclasses import dataclass, field
 from threading import Lock
 
 import builtin_interfaces.msg
@@ -32,21 +32,23 @@ import cv2
 import message_filters
 import numpy as np
 import open3d as o3d
-import rclpy
 from message_filters import ApproximateTimeSynchronizer, Subscriber
 from rclpy.duration import Duration
 from rclpy.node import Node
 from rclpy.time import Time
 from sensor_msgs.msg import CompressedImage, CameraInfo, Image
 from tf2_ros import Buffer
-from typing_extensions import Optional, List, Any, TYPE_CHECKING, Union
+from typing_extensions import Optional, Any, TYPE_CHECKING, Union
 
-from robokudo.io.camera_placement import CameraPlacement, MeasuredCameraPose
+from robokudo.io.camera_placement import (
+    CameraPlacement,
+    CameraPoseMeasurement,
+    MeasuredCameraPose,
+)
 from robokudo.cas import CASViews, CAS
 from robokudo.defs import PACKAGE_NAME
 from robokudo.exceptions import CameraDataMissing
 from robokudo.io.tf_listener_proxy import TFListenerProxy
-from robokudo.types.tf import StampedTransform
 from robokudo.utils.cv_bridge_workaround import CVBridgeWorkaround
 from semantic_digital_twin.adapters.ros.node_registry import ROSNodeRegistry
 from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
@@ -56,6 +58,9 @@ if TYPE_CHECKING:
     import numpy.typing as npt
 
     from robokudo.types.cv import ColorToDepthRatio
+
+
+# %% camera interface
 
 
 class CameraInterface(object):
@@ -128,12 +133,63 @@ class CameraInterface(object):
         raise NotImplementedError
 
 
+# %% camera pose in TF
+
+
+@dataclass
+class CameraPoseLookup(CameraPoseMeasurement):
+    """
+    Measures a camera's pose by looking up where TF held it at :attr:`time`.
+    """
+
+    tf_buffer: Buffer
+    """
+    The TF buffer the pose is looked up in.
+    """
+
+    time: Time
+    """
+    When the camera was at the pose.
+    """
+
+    timeout: Duration = field(default_factory=lambda: Duration(seconds=1.0 / 30.0))
+    """
+    How long to wait for TF to hold the pose.
+    """
+
+    def measure(self) -> HomogeneousTransformationMatrix:
+        """
+        :meth:`CameraPoseMeasurement.measure`, looked up in TF.
+
+        :raises tf2_ros.TransformException: If TF does not hold the pose within
+            :attr:`timeout`.
+        """
+        transform = self.tf_buffer.lookup_transform(
+            target_frame=self.world_frame,
+            source_frame=self.camera_frame,
+            time=self.time,
+            timeout=self.timeout,
+        ).transform
+        return HomogeneousTransformationMatrix.from_xyz_quaternion(
+            pos_x=transform.translation.x,
+            pos_y=transform.translation.y,
+            pos_z=transform.translation.z,
+            quat_x=transform.rotation.x,
+            quat_y=transform.rotation.y,
+            quat_z=transform.rotation.z,
+            quat_w=transform.rotation.w,
+        )
+
+
+# %% ROS camera
+
+
 class ROSCameraInterface(CameraInterface):
     """
     Base class for ROS-based camera interfaces.
 
     This class extends the base camera interface with ROS-specific functionality like
-    transform lookups and camera intrinsics handling.
+    placing the camera at its pose in TF.
     """
 
     def __init__(self, camera_config: Any, node: Optional[Node] = None) -> None:
@@ -162,148 +218,71 @@ class ROSCameraInterface(CameraInterface):
             """
         else:
             self.lookup_viewpoint: bool = False
-            """Whether to look up camera transforms"""
-
-        self.camera_translation: List[float] = [0.0, 0.0, 0.0]
-        """Camera translation from TF"""
-
-        self.camera_quaternion: List[float] = [0.0, 0.0, 0.0, 1.0]
-        """Camera rotation from TF"""
-
+            """
+            Whether to look up camera transforms.
+            """
         if self.lookup_viewpoint:
             self.tf_buffer: Buffer = TFListenerProxy().buffer_for_node(self.node)
-            """TF buffer populated by the per-node transform listener."""
-
-    def lookup_transform(self, timestamp: Time = Time()) -> bool:
-        """Look up the camera transform from TF.
-
-        :return: True if transform lookup succeeded, False otherwise
+            """
+            TF buffer populated by the per-node transform listener.
+            """
+        self.bridge: CVBridgeWorkaround = CVBridgeWorkaround()
         """
-        if self.lookup_viewpoint:
-            try:
-                world_T_camera = self.tf_buffer.lookup_transform(
-                    target_frame=self.tf_to,
-                    source_frame=self.tf_from,
-                    time=timestamp,
-                    timeout=Duration(seconds=1.0 / 30.0),
-                )
-                transform = world_T_camera.transform
-                translation = transform.translation
-                rotation = transform.rotation
+        NumPy-compatible replacement for cv_bridge.
+        """
 
-                self.camera_translation = [
-                    float(translation.x),
-                    float(translation.y),
-                    float(translation.z),
-                ]
-                self.camera_quaternion = [
-                    float(rotation.x),
-                    float(rotation.y),
-                    float(rotation.z),
-                    float(rotation.w),
-                ]
-            except Exception as err:
-                self.rk_logger.warning(
-                    f"cannot transform from {self.tf_from} to {self.tf_to} at ts {timestamp}: {err}"
-                )
-                return False
-        return True
+    def compressed_color_configured(self) -> bool:
+        """
+        Check if compressed color images are configured.
 
-    def place_camera_from_tf(
+        :return: True if compressed color is configured, False otherwise
+        """
+        return (
+            hasattr(self.camera_config, "color_hints")
+            and self.camera_config.color_hints == "compressed"
+        )
+
+    def decode_color_image(self, color_data: Image | CompressedImage) -> npt.NDArray:
+        """
+        :param color_data: A color image message of the configured kind.
+        :return: The color image of ``color_data`` in BGR.
+        """
+        if self.compressed_color_configured():
+            return cv2.imdecode(
+                np.frombuffer(color_data.data, np.uint8), cv2.IMREAD_COLOR
+            )
+        return self.bridge.imgmsg_to_cv2(color_data, "bgr8")
+
+    def place_camera(
         self, cas: CAS, world: World, timestamp: builtin_interfaces.msg.Time
     ) -> None:
         """
-        Place the camera of ``cas`` in ``world`` at the pose last looked up from TF, for
-        the data received at ``timestamp``, which is stored in ``cas`` as the time of the
-        data. A camera that does not look up its pose is not placed.
+        Place the camera of ``cas`` in ``world`` for the data received at ``timestamp``,
+        which is stored in ``cas`` as the time of the data. A camera ``world`` holds is
+        placed where ``world`` holds it, any other camera where TF held it at
+        ``timestamp``. A camera that does not look up its pose is not placed.
 
         :param cas: The CAS of the data.
         :param world: The world perception perceives into.
         :param timestamp: When the data was received.
+        :raises tf2_ros.TransformException: If the camera has to be looked up in TF and
+            TF does not hold it at ``timestamp``.
         """
         if not self.lookup_viewpoint:
             return
         cas.data_timestamp = timestamp.sec * 1_000_000_000 + timestamp.nanosec
         CameraPlacement(world).place(
             cas,
-            MeasuredCameraPose(
+            CameraPoseLookup(
                 world_frame=self.tf_to,
                 camera_frame=self.tf_from,
-                world_T_camera=HomogeneousTransformationMatrix.from_xyz_quaternion(
-                    pos_x=self.camera_translation[0],
-                    pos_y=self.camera_translation[1],
-                    pos_z=self.camera_translation[2],
-                    quat_x=self.camera_quaternion[0],
-                    quat_y=self.camera_quaternion[1],
-                    quat_z=self.camera_quaternion[2],
-                    quat_w=self.camera_quaternion[3],
-                ),
+                tf_buffer=self.tf_buffer,
+                time=Time.from_msg(timestamp),
             ),
         )
 
-    @staticmethod
-    def store_legacy_camera_to_world_transform_from_cas(cas: CAS) -> None:
-        """Create legacy StampedTransform from CAS camera_to_world_transform and data_timestamp.
 
-        :param cas: The CAS to store the transform in
-        """
-        warnings.warn(
-            "store_legacy_camera_to_world_transform_from_cas() is deprecated. "
-            "Use CASViews.CAMERA_TO_WORLD_TRANSFORM instead.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        camera_to_world_transform = cas.camera_to_world_transform
-        if camera_to_world_transform is None:
-            raise KeyError("camera_to_world_transform not set in CAS")
-
-        timestamp_ns = cas.data_timestamp
-        if timestamp_ns is None:
-            raise KeyError("timestamp_ns not set in CAS")
-
-        timestamp = builtin_interfaces.msg.Time(
-            sec=int(timestamp_ns // 1_000_000_000),
-            nanosec=int(timestamp_ns % 1_000_000_000),
-        )
-
-        translation = (
-            np.asarray(camera_to_world_transform.position.to_np())
-            .reshape(-1)[:3]
-            .astype(float)
-            .tolist()
-        )
-        rotation = (
-            np.asarray(camera_to_world_transform.quaternion.to_np())
-            .reshape(-1)[:4]
-            .astype(float)
-            .tolist()
-        )
-
-        st = StampedTransform()
-        st.rotation = rotation
-        st.translation = translation
-        if camera_to_world_transform.child_frame is not None:
-            st.frame = str(camera_to_world_transform.child_frame.name)
-        if camera_to_world_transform.reference_frame is not None:
-            st.child_frame = str(camera_to_world_transform.reference_frame.name)
-        st.timestamp = timestamp
-        cas.views[CASViews.VIEWPOINT_CAMERA_TO_WORLD] = st
-
-    def set_o3d_camera_intrinsics_from_ros_camera_info(self) -> None:
-        """Convert ROS camera info to Open3D camera intrinsics.
-
-        Creates an Open3D camera intrinsics object from the ROS camera calibration
-        parameters.
-        """
-        # Construct o3d camera intrinsics from camera info in CAS
-        self.camera_intrinsic = o3d.camera.PinholeCameraIntrinsic()
-        width = self.camera_info.width
-        height = self.camera_info.height
-        fx = self.camera_info.K[0]
-        cx = self.camera_info.K[2]
-        fy = self.camera_info.K[4]
-        cy = self.camera_info.K[5]
-        self.camera_intrinsic.set_intrinsics(width, height, fx, fy, cx, cy)
+# %% Kinect camera
 
 
 def depth_convert_workaround(msg: CompressedImage) -> npt.NDArray:
@@ -396,15 +375,15 @@ class KinectCameraInterface(ROSCameraInterface):
             CompressedImage if self.compressed_depth_configured() else Image,
             camera_config.topic_depth,
         )
-        """Depth image subscriber"""
-
+        """
+        Depth image subscriber.
+        """
         self.camera_info_subscriber: message_filters.Subscriber = Subscriber(
             self.node, CameraInfo, camera_config.topic_camera_info
         )
-        """Camera info subscriber"""
-        # self.camera_info_sub = self.node.create_subscription(CameraInfo, camera_config.topic_camera_info,
-        #                                                   self.blackhole_callback, 10)
-
+        """
+        Camera info subscriber.
+        """
         ts = ApproximateTimeSynchronizer(
             [self.color_subscriber, self.depth_subscriber, self.camera_info_subscriber],
             queue_size=10,
@@ -423,34 +402,28 @@ class KinectCameraInterface(ROSCameraInterface):
         """
         self.depth: Optional[npt.NDArray] = None
         """
-        Latest depth image
+        Latest depth image.
         """
-
         self.camera_info: Optional[CameraInfo] = None
         """
-        Latest camera info message
+        Latest camera info message.
         """
-
         self.camera_intrinsic: Optional[o3d.camera.PinholeCameraIntrinsic] = None
         """
-        Open3D camera intrinsics
+        Open3D camera intrinsics.
         """
-
         self.color_to_depth_ratio: ColorToDepthRatio | None = None
         """
-        Ratio between color and depth image sizes
+        Ratio between color and depth image sizes.
         """
-
         self.timestamp: Optional[builtin_interfaces.msg.Time] = None
         """
-        Latest message timestamp
+        Latest message timestamp.
         """
-
         self.lock: Lock = Lock()
-        """Thread synchronization lock"""
-
-        self.bridge: CVBridgeWorkaround = CVBridgeWorkaround()
-        """NumPy-compatible replacement for cv_bridge."""
+        """
+        Thread synchronization lock.
+        """
 
     def compressed_depth_configured(self) -> bool:
         """
@@ -462,29 +435,6 @@ class KinectCameraInterface(ROSCameraInterface):
             hasattr(self.camera_config, "depth_hints")
             and self.camera_config.depth_hints == "compressedDepth"
         )
-
-    def compressed_color_configured(self) -> bool:
-        """
-        Check if compressed color images are configured.
-
-        :return: True if compressed color is configured, False otherwise
-        """
-        return (
-            hasattr(self.camera_config, "color_hints")
-            and self.camera_config.color_hints == "compressed"
-        )
-
-    def get_node(self) -> rclpy.node.Node:
-        return self.node
-
-    def blackhole_callback(self, data: Any) -> None:
-        """
-        This callback is just a dummy to receive data coming from a workaround
-        subscription to handle problems with the ApproximateTimeSynchronizer.
-
-        :param data: Dummy data
-        """
-        pass
 
     def callback(
         self,
@@ -507,66 +457,55 @@ class KinectCameraInterface(ROSCameraInterface):
         :param depth_data: Depth image message
         :param camera_info: Camera calibration message
         """
-        self.lock.acquire()
-        if self.rk_logger.isEnabledFor(logging.DEBUG):
-            self.rk_logger.debug("Received data:")
+        with self.lock:
+            if self.rk_logger.isEnabledFor(logging.DEBUG):
+                self.rk_logger.debug("Received data:")
 
-            color_time = Time(
-                seconds=color_data.header.stamp.sec,
-                nanoseconds=color_data.header.stamp.nanosec,
-            )
-
-            if depth_data is not None:
-                depth_time = Time(
-                    seconds=depth_data.header.stamp.sec,
-                    nanoseconds=depth_data.header.stamp.nanosec,
-                )
-                self.rk_logger.debug(
-                    f"  Color time - Depth time: {(color_time - depth_time).nanoseconds / 1e9:.6f}"
+                color_time = Time(
+                    seconds=color_data.header.stamp.sec,
+                    nanoseconds=color_data.header.stamp.nanosec,
                 )
 
-            if camera_info is not None:
-                camera_info_time = Time(
-                    seconds=camera_info.header.stamp.sec,
-                    nanoseconds=camera_info.header.stamp.nanosec,
-                )
-                self.rk_logger.debug(
-                    f"  Color time - Camera Info time: {(color_time - camera_info_time).nanoseconds / 1e9:.6f}"
-                )
+                if depth_data is not None:
+                    depth_time = Time(
+                        seconds=depth_data.header.stamp.sec,
+                        nanoseconds=depth_data.header.stamp.nanosec,
+                    )
+                    self.rk_logger.debug(
+                        f"  Color time - Depth time: {(color_time - depth_time).nanoseconds / 1e9:.6f}"
+                    )
 
-        if self.compressed_color_configured():
-            color_arr = np.frombuffer(color_data.data, np.uint8)
-            self.color = cv2.imdecode(color_arr, cv2.IMREAD_COLOR)
-        else:
-            self.color = self.bridge.imgmsg_to_cv2(color_data, "bgr8")
+                if camera_info is not None:
+                    camera_info_time = Time(
+                        seconds=camera_info.header.stamp.sec,
+                        nanoseconds=camera_info.header.stamp.nanosec,
+                    )
+                    self.rk_logger.debug(
+                        f"  Color time - Camera Info time: {(color_time - camera_info_time).nanoseconds / 1e9:.6f}"
+                    )
 
-        self.timestamp = color_data.header.stamp
+            self.color = self.decode_color_image(color_data)
 
-        if self.compressed_depth_configured():
-            if depth_data is None:
-                raise CameraDataMissing(
-                    data_name="Depth data",
-                    context="compressed depth conversion",
-                )
-            self.depth = depth_convert_workaround(depth_data)
-        else:
-            if depth_data is None:
-                raise CameraDataMissing(
-                    data_name="Depth data",
-                    context="uncompressed depth conversion",
-                )
-            self.depth = self.bridge.imgmsg_to_cv2(depth_data, "32FC1")
+            self.timestamp = color_data.header.stamp
 
-        self.camera_info = camera_info
+            if self.compressed_depth_configured():
+                if depth_data is None:
+                    raise CameraDataMissing(
+                        data_name="Depth data",
+                        context="compressed depth conversion",
+                    )
+                self.depth = depth_convert_workaround(depth_data)
+            else:
+                if depth_data is None:
+                    raise CameraDataMissing(
+                        data_name="Depth data",
+                        context="uncompressed depth conversion",
+                    )
+                self.depth = self.bridge.imgmsg_to_cv2(depth_data, "32FC1")
 
-        # self.rk_logger.info("Callback processing done - Final steps")
-        if not self.lookup_transform():
-            self._has_new_data = False
-            self.lock.release()
-            return
+            self.camera_info = camera_info
 
-        self._has_new_data = True
-        self.lock.release()
+            self._has_new_data = True
 
     def set_data(self, cas: CAS, world: World) -> None:
         if not self.has_new_data():
@@ -596,6 +535,6 @@ class KinectCameraInterface(ROSCameraInterface):
             cas.set(CASViews.CAMERA_INTRINSIC, self.camera_intrinsic)
             cas.set(CASViews.COLOR_TO_DEPTH_RATIO, self.color_to_depth_ratio)
 
-            self.place_camera_from_tf(cas, world, self.timestamp)
+            self.place_camera(cas, world, self.timestamp)
 
             self._has_new_data = False

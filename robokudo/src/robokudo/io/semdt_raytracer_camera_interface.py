@@ -16,7 +16,7 @@ from sensor_msgs.msg import CameraInfo
 
 from robokudo.io.camera_placement import CameraPlacement, MeasuredCameraPose
 from robokudo.cas import CASViews, CAS
-from robokudo.io.camera_interface import CameraInterface, ROSCameraInterface
+from robokudo.io.camera_interface import CameraInterface
 from robokudo.utils.camera_model import (
     pinhole_camera_parameters_from_horizontal_field_of_view,
 )
@@ -144,7 +144,6 @@ class SemDTRayTracerCameraInterface(CameraInterface):
                 ),
             ),
         )
-        ROSCameraInterface.store_legacy_camera_to_world_transform_from_cas(cas)
 
     def _load_scene_world(self) -> World:
         """

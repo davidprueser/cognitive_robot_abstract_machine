@@ -14,8 +14,6 @@ class SemDTRayTracerCameraConfig(BaseCameraConfig):
 
     registry_name: ClassVar[str] = "semdt_raytracer"
 
-    interface_type: str = "SemDTRayTracer"
-
     world_descriptor_ros_package: str = "robokudo"
     """
     ROS package containing the world descriptor module.

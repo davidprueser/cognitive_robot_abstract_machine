@@ -25,8 +25,6 @@ class HsrCameraConfig(
 
     registry_name: ClassVar[str] = "hsr"
 
-    interface_type: str = "Kinect"
-
     topic_depth: str = "hsrb/head_rgbd_sensor/depth_registered/image/compressedDepth"
 
     topic_color: str = "hsrb/head_rgbd_sensor/rgb/image_raw/compressed"
