@@ -3380,6 +3380,184 @@
       "A": 1.0
      }
     }
+   },
+   {
+    "__json_type__": "semantic_digital_twin.predefined_maps.foyer_and_hallway_ground_floor.floor_plan.OfficeRoom",
+    "number": "0.73",
+    "outline_frame": {
+     "__json_type__": "semantic_digital_twin.predefined_maps.foyer_and_hallway_ground_floor.floor_plan.OutlineFrame",
+     "name": "HALLWAY_EAST_STRETCH"
+    },
+    "layout": {
+     "__json_type__": "semantic_digital_twin.predefined_maps.foyer_and_hallway_ground_floor.rectilinear_room.RectilinearRoom",
+     "outline": {
+      "__collection_type__": "builtins.list",
+      "__items__": [
+       {
+        "__json_type__": "semantic_digital_twin.spatial_types.spatial_types.Point2",
+        "data": [
+         -5.162,
+         32.02
+        ]
+       },
+       {
+        "__json_type__": "semantic_digital_twin.spatial_types.spatial_types.Point2",
+        "data": [
+         -2.782,
+         32.02
+        ]
+       },
+       {
+        "__json_type__": "semantic_digital_twin.spatial_types.spatial_types.Point2",
+        "data": [
+         -2.782,
+         33.85
+        ]
+       },
+       {
+        "__json_type__": "semantic_digital_twin.spatial_types.spatial_types.Point2",
+        "data": [
+         -5.162,
+         33.85
+        ]
+       }
+      ]
+     },
+     "doorways": {
+      "__collection_type__": "builtins.list",
+      "__items__": [
+       {
+        "__json_type__": "semantic_digital_twin.predefined_maps.foyer_and_hallway_ground_floor.rectilinear_room.Doorway",
+        "start": {
+         "__json_type__": "semantic_digital_twin.spatial_types.spatial_types.Point2",
+         "data": [
+          -2.782,
+          33.17
+         ]
+        },
+        "end": {
+         "__json_type__": "semantic_digital_twin.spatial_types.spatial_types.Point2",
+         "data": [
+          -2.782,
+          32.162
+         ]
+        },
+        "height": 2.0
+       },
+       {
+        "__json_type__": "semantic_digital_twin.predefined_maps.foyer_and_hallway_ground_floor.rectilinear_room.Doorway",
+        "start": {
+         "__json_type__": "semantic_digital_twin.spatial_types.spatial_types.Point2",
+         "data": [
+          -5.162,
+          33.17
+         ]
+        },
+        "end": {
+         "__json_type__": "semantic_digital_twin.spatial_types.spatial_types.Point2",
+         "data": [
+          -5.162,
+          32.16
+         ]
+        },
+        "height": 2.0
+       }
+      ]
+     },
+     "open_edges": {
+      "__collection_type__": "builtins.list",
+      "__items__": []
+     },
+     "wall_height": 3.45,
+     "wall_thickness": 0.1,
+     "wall_color": {
+      "__json_type__": "semantic_digital_twin.world_description.geometry.Color",
+      "R": 1.0,
+      "G": 0.827,
+      "B": 0.6078,
+      "A": 1.0
+     }
+    }
+   },
+   {
+    "__json_type__": "semantic_digital_twin.predefined_maps.foyer_and_hallway_ground_floor.floor_plan.OfficeRoom",
+    "number": "T.0.4.1",
+    "outline_frame": {
+     "__json_type__": "semantic_digital_twin.predefined_maps.foyer_and_hallway_ground_floor.floor_plan.OutlineFrame",
+     "name": "HALLWAY_EAST_STRETCH"
+    },
+    "layout": {
+     "__json_type__": "semantic_digital_twin.predefined_maps.foyer_and_hallway_ground_floor.rectilinear_room.RectilinearRoom",
+     "outline": {
+      "__collection_type__": "builtins.list",
+      "__items__": [
+       {
+        "__json_type__": "semantic_digital_twin.spatial_types.spatial_types.Point2",
+        "data": [
+         -7.782,
+         32.02
+        ]
+       },
+       {
+        "__json_type__": "semantic_digital_twin.spatial_types.spatial_types.Point2",
+        "data": [
+         -5.282,
+         32.02
+        ]
+       },
+       {
+        "__json_type__": "semantic_digital_twin.spatial_types.spatial_types.Point2",
+        "data": [
+         -5.282,
+         33.85
+        ]
+       },
+       {
+        "__json_type__": "semantic_digital_twin.spatial_types.spatial_types.Point2",
+        "data": [
+         -7.782,
+         33.85
+        ]
+       }
+      ]
+     },
+     "doorways": {
+      "__collection_type__": "builtins.list",
+      "__items__": [
+       {
+        "__json_type__": "semantic_digital_twin.predefined_maps.foyer_and_hallway_ground_floor.rectilinear_room.Doorway",
+        "start": {
+         "__json_type__": "semantic_digital_twin.spatial_types.spatial_types.Point2",
+         "data": [
+          -5.282,
+          32.16
+         ]
+        },
+        "end": {
+         "__json_type__": "semantic_digital_twin.spatial_types.spatial_types.Point2",
+         "data": [
+          -5.282,
+          33.17
+         ]
+        },
+        "height": 2.0
+       }
+      ]
+     },
+     "open_edges": {
+      "__collection_type__": "builtins.list",
+      "__items__": []
+     },
+     "wall_height": 3.45,
+     "wall_thickness": 0.1,
+     "wall_color": {
+      "__json_type__": "semantic_digital_twin.world_description.geometry.Color",
+      "R": 1.0,
+      "G": 0.827,
+      "B": 0.6078,
+      "A": 1.0
+     }
+    }
    }
   ]
  },
