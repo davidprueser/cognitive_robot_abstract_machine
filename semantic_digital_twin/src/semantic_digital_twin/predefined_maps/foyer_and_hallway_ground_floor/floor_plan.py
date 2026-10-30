@@ -105,7 +105,12 @@ class FloorPlan:
 
     rooms: list[OfficeRoom]
     """
-    The rooms and hallways of the storey.
+    The rooms of the storey, each standing on a floor of its own.
+    """
+
+    hallway: list[OfficeRoom]
+    """
+    The pieces of the storey's hallway, which stand on one floor together.
     """
 
     @classmethod

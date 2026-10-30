@@ -4,34 +4,14 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.predefined_maps.foyer_and_hallway_ground_floor.exceptions import (
     DoorwayOffOutlineError,
     DoorwayOnOpenEdgeError,
     NonRectilinearOutlineError,
     OpenEdgeOffOutlineError,
 )
-from semantic_digital_twin.semantic_annotations.semantic_annotations import (
-    Aperture,
-    Floor,
-    Room,
-    Wall,
-)
-from semantic_digital_twin.specifications.kinematic_structure_entities import (
-    BodySpecification,
-)
 from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix, Point2
-from semantic_digital_twin.world import World
-from semantic_digital_twin.world_description.geometry import (
-    Box,
-    Color,
-    PlanarBoundingBox,
-    Scale,
-)
-from semantic_digital_twin.world_description.shape_collection import ShapeCollection
-from semantic_digital_twin.world_description.world_entity import (
-    KinematicStructureEntity,
-)
+from semantic_digital_twin.world_description.geometry import Color, PlanarBoundingBox
 
 # %% plan geometry
 
@@ -186,9 +166,9 @@ class OutlineEdge:
 class RectilinearRoom:
     """
     World-independent description of a room whose floor plan has only axis-parallel
-    edges, such as one traced from an occupancy grid map: a floor covering the outline
-    and a wall standing outside each outline edge that is not left open, with doorways
-    cut into them.
+    edges, such as one traced from an occupancy grid map: its floor outline, the
+    outline edges left open, and the doorways cut into the walls standing outside the
+    other edges.
     """
 
     outline: list[Point2]
@@ -215,22 +195,13 @@ class RectilinearRoom:
 
     wall_thickness: float = 0.1
     """
-    Thickness of every wall, measured outward from the outline.
-    """
-
-    floor_thickness: float = 0.05
-    """
-    Thickness of the floor slab, measured downward from the floor surface.
+    Thickness of every wall that no other room faces, measured outward from the
+    outline.
     """
 
     wall_color: Color = field(default_factory=Color.BEIGE)
     """
     Color of every wall.
-    """
-
-    floor_color: Color = field(default_factory=Color.GRAY)
-    """
-    Color of the floor.
     """
 
     def __post_init__(self):
@@ -372,149 +343,3 @@ class RectilinearRoom:
                     HomogeneousTransformationMatrix(),
                 )
         return finished + list(open_rectangles.values())
-
-    def spawn(
-        self,
-        world: World,
-        name: str,
-        parent: KinematicStructureEntity | None = None,
-        parent_T_self: HomogeneousTransformationMatrix | None = None,
-    ) -> Room:
-        """
-        Materialize this room in ``world``: a floor covering the outline, a wall outside
-        each outline edge that is not open, and an aperture for each doorway.
-
-        :param world: The world the room is added to.
-        :param name: Prefix for the names of every entity this room creates.
-        :param parent: The entity the room's floor attaches to. If None, ``world.root``
-            is used.
-        :param parent_T_self: Placement of the outline's frame in ``parent``'s frame.
-            Identity if None.
-        :return: The room annotation.
-        """
-        floor = self._spawn_floor(world, name, parent, parent_T_self)
-        for index, edge in enumerate(self.edges):
-            if self.is_open(edge):
-                continue
-            self._spawn_wall(world, f"{name}_wall_{index}", floor, edge)
-        room = Room(name=PrefixedName(name), floor=floor)
-        with world.modify_world():
-            world.add_semantic_annotation(room)
-        return room
-
-    def _spawn_floor(
-        self,
-        world: World,
-        name: str,
-        parent: KinematicStructureEntity | None,
-        parent_T_self: HomogeneousTransformationMatrix | None,
-    ) -> Floor:
-        """
-        Spawn a floor slab whose top surface covers the outline at height zero.
-
-        :return: The floor annotation.
-        """
-        floor_name = f"{name}_floor"
-        slabs = ShapeCollection(
-            [
-                Box(
-                    origin=HomogeneousTransformationMatrix.from_xyz_rpy(
-                        (rectangle.min_x + rectangle.max_x) / 2,
-                        (rectangle.min_y + rectangle.max_y) / 2,
-                        -self.floor_thickness / 2,
-                    ),
-                    scale=Scale(rectangle.depth, rectangle.width, self.floor_thickness),
-                )
-                for rectangle in self.floor_rectangles
-            ]
-        )
-        floor = Floor.get_annotation_specification(
-            floor_name, BodySpecification(name=floor_name, shapes=slabs)
-        ).spawn(world, parent=parent, parent_T_self=parent_T_self)
-        floor.root.dye(self.floor_color)
-        return floor
-
-    def _spawn_wall(
-        self, world: World, name: str, floor: Floor, edge: OutlineEdge
-    ) -> Wall:
-        """
-        Spawn the wall standing outside ``edge`` and cut the doorways on that edge into
-        it.
-
-        At a convex corner the wall reaches past the vertex by its thickness, so that
-        the corner is closed. The wall is dyed after the doorways are cut, since
-        cutting replaces its shapes.
-
-        :return: The wall annotation.
-        """
-        start_extension = self.wall_thickness if edge.is_convex_at_start else 0.0
-        end_extension = self.wall_thickness if edge.is_convex_at_end else 0.0
-        middle_along_edge = (edge.length + end_extension - start_extension) / 2
-        middle = (
-            edge.start
-            + edge.direction * middle_along_edge
-            + edge.outward_normal * self.wall_thickness / 2
-        )
-        wall = Wall.get_annotation_specification(
-            name,
-            Wall.get_default_root_kinematic_structure_entity_specification(
-                scale=Scale(
-                    self.wall_thickness,
-                    edge.length + start_extension + end_extension,
-                    self.wall_height,
-                )
-            ),
-        ).spawn(
-            world,
-            parent=floor.root,
-            parent_T_self=HomogeneousTransformationMatrix.from_xyz_rpy(
-                middle[0],
-                middle[1],
-                0,
-                yaw=edge.outward_yaw,
-            ),
-        )
-        for index, doorway in enumerate(
-            doorway for doorway in self.doorways if edge.holds(doorway)
-        ):
-            self._cut_doorway(
-                world, f"{name}_doorway_{index}", wall, edge, doorway, middle_along_edge
-            )
-        wall.root.dye(self.wall_color)
-        return wall
-
-    def _cut_doorway(
-        self,
-        world: World,
-        name: str,
-        wall: Wall,
-        edge: OutlineEdge,
-        doorway: Doorway,
-        wall_middle_along_edge: float,
-    ) -> Aperture:
-        """
-        Cut ``doorway`` into ``wall`` as an aperture.
-
-        :param wall_middle_along_edge: How far the wall's origin lies from the start of
-            ``edge``, along the edge.
-        :return: The aperture annotation.
-        """
-        doorway_middle_along_edge = (
-            edge.distance_along(doorway.start) + edge.distance_along(doorway.end)
-        ) / 2
-        aperture = Aperture.get_annotation_specification(
-            name,
-            Aperture.get_default_root_kinematic_structure_entity_specification(
-                scale=Scale(self.wall_thickness, doorway.width, doorway.height)
-            ),
-        ).spawn(
-            world,
-            parent=wall.root,
-            parent_T_self=HomogeneousTransformationMatrix.from_xyz_rpy(
-                y=doorway_middle_along_edge - wall_middle_along_edge,
-                z=doorway.height / 2,
-            ),
-        )
-        with world.modify_world():
-            wall.add(aperture)
-        return aperture
