@@ -1,0 +1,38 @@
+<?xml version="1.0" ?>
+<sdf version="1.7">
+  <world name="welded_door_world">
+    <model name="welded_door">
+      <pose>1.0 2.0 0 0 0 0</pose>
+      <link name="frame">
+        <visual name="frame_visual">
+          <geometry>
+            <box>
+              <size>0.1 1.0 2.0</size>
+            </box>
+          </geometry>
+        </visual>
+      </link>
+      <link name="door">
+        <pose>0 0.5 1.0 0 0 0</pose>
+        <visual name="door_visual">
+          <geometry>
+            <box>
+              <size>0.05 0.9 1.9</size>
+            </box>
+          </geometry>
+        </visual>
+      </link>
+      <joint name="hinge" type="revolute">
+        <parent>frame</parent>
+        <child>door</child>
+        <axis>
+          <xyz>0 0 1</xyz>
+        </axis>
+      </joint>
+      <joint name="fixed_to_world" type="fixed">
+        <parent>world</parent>
+        <child>frame</child>
+      </joint>
+    </model>
+  </world>
+</sdf>

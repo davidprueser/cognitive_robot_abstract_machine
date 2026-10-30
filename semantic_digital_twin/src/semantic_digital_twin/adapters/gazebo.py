@@ -4,6 +4,7 @@ import logging
 import os
 import xml.etree.ElementTree as ElementTree
 from dataclasses import dataclass, field
+from enum import StrEnum
 from typing_extensions import ClassVar
 
 
@@ -17,6 +18,7 @@ from semantic_digital_twin.adapters.package_resolver import (
 )
 from semantic_digital_twin.adapters.world_model_parser import (
     JointDescription,
+    MimicDescription,
     WorldModelParser,
 )
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
@@ -33,6 +35,7 @@ from semantic_digital_twin.spatial_types.spatial_types import (
 from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.connection_properties import JointDynamics
 from semantic_digital_twin.world_description.connections import (
+    ActiveConnection1DOF,
     Connection6DoF,
     FixedConnection,
     PrismaticConnection,
@@ -60,12 +63,118 @@ from semantic_digital_twin.world_description.world_entity import Body, Connectio
 logger = logging.getLogger(__name__)
 
 
+# %% vocabulary
+
+
+class SDFElement(StrEnum):
+    """
+    The names of the SDF elements that describe worlds, their lighting and systems,
+    models, links and joints.
+    """
+
+    SDF = "sdf"
+    WORLD = "world"
+    SCENE = "scene"
+    LIGHT = "light"
+    CAST_SHADOWS = "cast_shadows"
+    DIRECTION = "direction"
+    PLUGIN = "plugin"
+    ENGINE = "engine"
+    FILENAME = "filename"
+    MODEL = "model"
+    STATIC = "static"
+    POSE = "pose"
+    LINK = "link"
+    JOINT = "joint"
+    PARENT = "parent"
+    CHILD = "child"
+    AXIS = "axis"
+    XYZ = "xyz"
+    LIMIT = "limit"
+    LOWER = "lower"
+    UPPER = "upper"
+    VELOCITY = "velocity"
+    DYNAMICS = "dynamics"
+    DAMPING = "damping"
+    FRICTION = "friction"
+    INERTIAL = "inertial"
+    MASS = "mass"
+    INERTIA = "inertia"
+    IXX = "ixx"
+    IXY = "ixy"
+    IXZ = "ixz"
+    IYY = "iyy"
+    IYZ = "iyz"
+    IZZ = "izz"
+    VISUAL = "visual"
+    COLLISION = "collision"
+    GEOMETRY = "geometry"
+    BOX = "box"
+    SIZE = "size"
+    SPHERE = "sphere"
+    RADIUS = "radius"
+    CYLINDER = "cylinder"
+    LENGTH = "length"
+    MESH = "mesh"
+    URI = "uri"
+    SCALE = "scale"
+    MATERIAL = "material"
+    AMBIENT = "ambient"
+    DIFFUSE = "diffuse"
+    MIMIC = "mimic"
+    MULTIPLIER = "multiplier"
+    OFFSET = "offset"
+    REFERENCE = "reference"
+
+
+class SDFAttribute(StrEnum):
+    """
+    The names of the SDF attributes that identify a document's version, an element's
+    name and type, the joint a mimic joint follows, and the library of a plugin.
+    """
+
+    VERSION = "version"
+    NAME = "name"
+    TYPE = "type"
+    JOINT = "joint"
+    FILENAME = "filename"
+
+
+class SDFLightType(StrEnum):
+    """
+    The SDF light types that light a written world.
+    """
+
+    DIRECTIONAL = "directional"
+    """
+    A light shining in one direction from infinitely far away, like the sun.
+    """
+
+
+class SDFJointType(StrEnum):
+    """
+    The SDF joint types that fixed, revolute and prismatic connections correspond to.
+    """
+
+    FIXED = "fixed"
+    REVOLUTE = "revolute"
+    CONTINUOUS = "continuous"
+    """
+    A revolute joint without position limits.
+    """
+
+    PRISMATIC = "prismatic"
+
+
+# %% parsing
+
+
 @dataclass
 class GazeboParser(WorldModelParser):
     """
     Parses Gazebo SDF model and world descriptions into worlds.
 
-    Files of SDF 1.4 through 1.8 are accepted: both the pre-1.7 ``frame`` and the
+    Files of SDF 1.4 through 1.11 are accepted: both the pre-1.7 ``frame`` and the
     post-1.7 ``relative_to`` pose syntax are read, and both are only supported with
     default frame semantics. Constructs outside the supported subset, such as named
     frame references, axes expressed in another frame, and joint or geometry types
@@ -269,7 +378,8 @@ class GazeboParser(WorldModelParser):
                 world,
                 sub_world,
                 self.parse_pose(model_element.find("pose")),
-                self.parse_boolean(model_element.find("static")),
+                self.parse_boolean(model_element.find("static"))
+                or bool(self.links_fixed_to_world(model_element)),
             )
 
         for skipped_element in container:
@@ -311,27 +421,33 @@ class GazeboParser(WorldModelParser):
             static_element = model_element.find("static")
 
         sub_world = self.parse_model(model_element, name.strip())
-        self.merge_at_pose(world, sub_world, pose, self.parse_boolean(static_element))
+        self.merge_at_pose(
+            world,
+            sub_world,
+            pose,
+            self.parse_boolean(static_element)
+            or bool(self.links_fixed_to_world(model_element)),
+        )
 
     def merge_at_pose(
         self,
         world: World,
         sub_world: World,
         pose: HomogeneousTransformationMatrix,
-        is_static: bool,
+        is_attached_rigidly: bool,
     ) -> None:
         """
         Merges a model into the world at a pose relative to the world root.
 
-        A static model is attached rigidly, so that it does not gain the degrees of
-        freedom a free-floating model would.
+        A model that is static or fixed to the world is attached rigidly, so that it
+        does not gain the degrees of freedom a free-floating model would.
 
         :param world: The world the model is merged into.
         :param sub_world: The world holding the model.
         :param pose: The pose of the model relative to the root of the world.
-        :param is_static: Whether the model is declared static.
+        :param is_attached_rigidly: Whether the model stays where it is placed.
         """
-        if not is_static:
+        if not is_attached_rigidly:
             world.merge_world_at_pose(sub_world, pose)
             return
 
@@ -440,6 +556,7 @@ class GazeboParser(WorldModelParser):
             joint_element.findtext("child").strip() for joint_element in joint_elements
         }
         is_static = self.parse_boolean(element.find("static"))
+        links_fixed_to_world = self.links_fixed_to_world(element)
 
         joint_descriptions = [
             self.parse_joint(joint_element, bodies, model_T_link, instance_name)
@@ -452,7 +569,11 @@ class GazeboParser(WorldModelParser):
 
         with world.modify_world():
             world.add_kinematic_structure_entity(root_body)
-            for description in joint_descriptions:
+            # a mimic joint needs the degree of freedom of its leader to exist
+            for description in sorted(
+                joint_descriptions,
+                key=lambda description: description.mimic is not None,
+            ):
                 world.add_connection(self.create_connection(world, description))
 
             model_T_root = model_T_link[root_body.name.name]
@@ -464,7 +585,7 @@ class GazeboParser(WorldModelParser):
                     root_body,
                     body,
                     model_T_root.inverse() @ model_T_link[link_name],
-                    is_static,
+                    is_static or link_name in links_fixed_to_world,
                 )
 
         self.attach_contained_models(world, element)
@@ -493,21 +614,23 @@ class GazeboParser(WorldModelParser):
         root_body: Body,
         body: Body,
         root_T_link: HomogeneousTransformationMatrix,
-        is_static: bool,
+        is_fixed_in_place: bool,
     ) -> None:
         """
-        Attaches a link that no joint connects to the root of its model.
+        Attaches a link that no joint connects to another link of its model to the root
+        of its model.
 
-        Such a link is a free body, unless the model is static, in which case it is
-        fixed in place like the rest of the model.
+        Such a link is a free body, unless it is fixed in place, in which case it is
+        fixed to the root.
 
         :param world: The world the link is added to.
         :param root_body: The root of the model.
         :param body: The body of the unjointed link.
         :param root_T_link: The pose of the link relative to the root of the model.
-        :param is_static: Whether the model is declared static.
+        :param is_fixed_in_place: Whether the model is static or the link is fixed to
+            the simulation world.
         """
-        if is_static:
+        if is_fixed_in_place:
             world.add_connection(
                 FixedConnection(
                     name=PrefixedName(body.name.name, body.name.prefix),
@@ -523,6 +646,20 @@ class GazeboParser(WorldModelParser):
         )
         world.add_connection(connection)
         connection.origin = root_T_link
+
+    def links_fixed_to_world(self, model_element: ElementTree.Element) -> set[str]:
+        """
+        :param model_element: The ``model`` element to search.
+        :return: The names of the links of the model that a fixed joint attaches to the
+            simulation world.
+        """
+        return {
+            joint_element.findtext(SDFElement.CHILD, "").strip()
+            for joint_element in model_element.findall(SDFElement.JOINT)
+            if joint_element.get(SDFAttribute.TYPE) == SDFJointType.FIXED
+            and joint_element.findtext(SDFElement.PARENT, "").strip()
+            == self.world_link_name
+        }
 
     def is_attached_to_a_link(self, joint_element: ElementTree.Element) -> bool:
         """
@@ -745,7 +882,31 @@ class GazeboParser(WorldModelParser):
         description.axis = self.parse_axis(element, joint_name, bodies[parent_name])
         description.limits = self.parse_limits(element, joint_type, joint_name)
         description.dynamics = self.parse_dynamics(element.find("axis/dynamics"))
+        description.mimic = self.parse_mimic(
+            element.find(f"{SDFElement.AXIS}/{SDFElement.MIMIC}"), prefix
+        )
         return description
+
+    def parse_mimic(
+        self, element: ElementTree.Element | None, prefix: str
+    ) -> MimicDescription | None:
+        """
+        Parses a ``mimic`` element.
+
+        :param element: The ``mimic`` element to parse.
+        :param prefix: The prefix of the name of the leader's connection.
+        :return: The coupling of the joint to its leader, or ``None`` if the joint
+            declares none.
+        """
+        if element is None:
+            return None
+
+        return MimicDescription(
+            leader=PrefixedName(element.get(SDFAttribute.JOINT), prefix),
+            multiplier=self.parse_float(element, SDFElement.MULTIPLIER, 1.0),
+            offset=self.parse_float(element, SDFElement.OFFSET, 0.0),
+            reference=self.parse_float(element, SDFElement.REFERENCE, 0.0),
+        )
 
     def create_connection(
         self, world: World, description: JointDescription
@@ -767,6 +928,9 @@ class GazeboParser(WorldModelParser):
                 connection_T_child_expression=description.connection_T_child,
             )
 
+        if description.mimic is not None:
+            return self.create_mimicking_connection(world, description)
+
         connection = description.connection_type.create_with_dofs(
             world=world,
             parent=description.parent,
@@ -779,6 +943,32 @@ class GazeboParser(WorldModelParser):
         )
         connection.dynamics = description.dynamics
         return connection
+
+    def create_mimicking_connection(
+        self, world: World, description: JointDescription
+    ) -> ActiveConnection1DOF:
+        """
+        Creates the connection a mimic joint denotes, which moves with the degree of
+        freedom of its leader rather than one of its own.
+
+        :param world: The world holding the leader's connection.
+        :param description: The description of the mimic joint.
+        :return: The connection describing the joint.
+        """
+        mimic = description.mimic
+        leader = world.get_connection_by_name(mimic.leader)
+        return description.connection_type(
+            name=description.name,
+            parent=description.parent,
+            child=description.child,
+            parent_T_connection_expression=description.parent_T_connection,
+            connection_T_child_expression=description.connection_T_child,
+            axis=description.axis,
+            multiplier=mimic.multiplier * leader.multiplier,
+            offset=mimic.multiplier * (leader.offset - mimic.reference) + mimic.offset,
+            raw_dof=leader.raw_dof,
+            dynamics=description.dynamics,
+        )
 
     def parse_axis(
         self, element: ElementTree.Element, joint_name: str, parent_body: Body

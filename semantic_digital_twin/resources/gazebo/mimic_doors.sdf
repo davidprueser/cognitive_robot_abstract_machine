@@ -1,0 +1,33 @@
+<?xml version="1.0" ?>
+<sdf version="1.11">
+  <model name="mimic_doors">
+    <link name="cabinet"/>
+    <link name="top_door">
+      <pose>0 0 1.0 0 0 0</pose>
+    </link>
+    <link name="bottom_door"/>
+    <joint name="bottom_hinge" type="revolute">
+      <parent>cabinet</parent>
+      <child>bottom_door</child>
+      <axis>
+        <xyz>0 0 1</xyz>
+        <mimic joint="top_hinge">
+          <multiplier>1.2</multiplier>
+          <offset>0.1</offset>
+          <reference>0.5</reference>
+        </mimic>
+      </axis>
+    </joint>
+    <joint name="top_hinge" type="revolute">
+      <parent>cabinet</parent>
+      <child>top_door</child>
+      <axis>
+        <xyz>0 0 1</xyz>
+        <limit>
+          <lower>0</lower>
+          <upper>1.5</upper>
+        </limit>
+      </axis>
+    </joint>
+  </model>
+</sdf>

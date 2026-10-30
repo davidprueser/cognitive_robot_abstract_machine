@@ -47,6 +47,8 @@ class GazeboFixturePaths:
     named_pose_relative_to: str
     model_frame_axis: str
     expressed_in_axis: str
+    welded_door: str
+    mimic_doors: str
 
 
 @pytest.fixture
@@ -79,6 +81,8 @@ def gazebo_paths():
         named_pose_relative_to=os.path.join(directory, "named_pose_relative_to.sdf"),
         model_frame_axis=os.path.join(directory, "model_frame_axis.sdf"),
         expressed_in_axis=os.path.join(directory, "expressed_in_axis.sdf"),
+        welded_door=os.path.join(directory, "welded_door.sdf"),
+        mimic_doors=os.path.join(directory, "mimic_doors.sdf"),
     )
 
 
@@ -296,6 +300,25 @@ class TestJointParsing:
         assert dynamics.damping == 0.7
         assert dynamics.dry_friction == 0.3
 
+    def test_mimic_joint_moves_with_the_degree_of_freedom_of_its_leader(
+        self, gazebo_paths
+    ):
+        world = GazeboParser.from_file(gazebo_paths.mimic_doors).parse()
+        top_hinge = connection_named(world, "top_hinge")
+        bottom_hinge = connection_named(world, "bottom_hinge")
+        assert bottom_hinge.raw_dof is top_hinge.raw_dof
+
+    def test_mimic_joint_follows_its_leader_as_the_file_declares(self, gazebo_paths):
+        """
+        SDF moves a mimic joint to ``offset + multiplier * (leader position -
+        reference)``.
+        """
+        world = GazeboParser.from_file(gazebo_paths.mimic_doors).parse()
+        connection_named(world, "top_hinge").position = 0.9
+        assert connection_named(world, "bottom_hinge").position == pytest.approx(
+            0.1 + 1.2 * (0.9 - 0.5)
+        )
+
     def test_prismatic_joint_becomes_prismatic_connection(self, gazebo_paths):
         world = GazeboParser.from_file(gazebo_paths.drawer).parse()
         connection = connection_named(world, "slide")
@@ -393,6 +416,16 @@ class TestWorldParsing:
             body for body in world.bodies if body.name.prefix == "pallet_canonical"
         ][0]
         assert isinstance(pallet.parent_connection, Connection6DoF)
+
+    def test_model_welded_to_the_world_is_attached_rigidly(self, gazebo_paths):
+        """
+        A model that a fixed joint attaches to the world stays where it is placed, like
+        a static one, while its other joints stay movable.
+        """
+        world = GazeboParser.from_file(gazebo_paths.welded_door).parse()
+        frame = body_named(world, "frame")
+        assert isinstance(frame.parent_connection, FixedConnection)
+        assert isinstance(connection_named(world, "hinge"), RevoluteConnection)
 
     def test_instances_of_one_model_do_not_share_bodies(self, gazebo_paths):
         """

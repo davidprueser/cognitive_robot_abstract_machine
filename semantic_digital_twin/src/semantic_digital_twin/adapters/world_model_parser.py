@@ -72,6 +72,34 @@ class WorldModelParser(ABC):
 
 
 @dataclass
+class MimicDescription:
+    """
+    The coupling of a joint to the degree of freedom of another joint, its leader, which
+    moves it to ``offset + multiplier * (leader position - reference)``.
+    """
+
+    leader: PrefixedName
+    """
+    The name of the connection whose degree of freedom the joint moves with.
+    """
+
+    multiplier: float = 1.0
+    """
+    The factor the leader's motion is scaled by.
+    """
+
+    offset: float = 0.0
+    """
+    The position of the joint when its leader is at the reference position.
+    """
+
+    reference: float = 0.0
+    """
+    The position of the leader the offset refers to.
+    """
+
+
+@dataclass
 class JointDescription:
     """
     A joint that has been read from a description and validated, but not yet turned into
@@ -127,4 +155,10 @@ class JointDescription:
     dynamics: JointDynamics = field(default_factory=JointDynamics)
     """
     The dynamic properties of the joint.
+    """
+
+    mimic: MimicDescription | None = None
+    """
+    The coupling of the joint to the degree of freedom of another joint, ``None`` if the
+    joint has a degree of freedom of its own.
     """
