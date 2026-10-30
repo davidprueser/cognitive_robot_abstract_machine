@@ -590,7 +590,7 @@ class StoreyLayout:
 
     floor_color: Color = field(default_factory=Color.GRAY)
     """
-    Color of every floor.
+    Color of every floor and of its supporting surface.
     """
 
     def wall_stretches(self) -> list[WallStretch]:
@@ -766,6 +766,7 @@ class StoreyLayout:
                             slab.scale.y,
                             self.supporting_surface_thickness,
                         ),
+                        color=self.floor_color,
                     )
                     for slab in slabs
                 ]
