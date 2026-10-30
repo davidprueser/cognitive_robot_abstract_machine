@@ -314,9 +314,15 @@ class LabElevatorRoom:
     def room_T_elevator(self) -> HomogeneousTransformationMatrix:
         """
         :return: Placement of the elevator cabin's centre in the room outline's frame,
-            standing on the floor with its doors facing into the room.
+            with the top of the cabin's floor level with the room's floor and its doors
+            facing into the room.
         """
         center = self.elevator_center.to_np()
+        # Each wall of the cabin's case is half of its wall thickness thick.
+        cabin_floor_thickness = self.elevator.wall_thickness / 2
         return HomogeneousTransformationMatrix.from_xyz_rpy(
-            center[0], center[1], self.elevator.scale.z / 2, yaw=np.pi / 2
+            center[0],
+            center[1],
+            self.elevator.scale.z / 2 - cabin_floor_thickness,
+            yaw=np.pi / 2,
         )
