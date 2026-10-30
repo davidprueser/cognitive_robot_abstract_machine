@@ -18,6 +18,7 @@ from semantic_digital_twin.datastructures.alignment import AlignmentPair
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.datastructures.variables import SpatialVariables
 from semantic_digital_twin.exceptions import (
+    NoFloorOnLevelError,
     NoGraspGeometry,
     InvalidPlaneDimensions,
     InvalidHingeActiveAxis,
@@ -965,27 +966,40 @@ class LivingRoom(Room): ...
 class Level(HasRootRegion, HasPlanarFreeSpace):
     """
     A level of a building, whose region spans it from its floor up.
-
-    .. note:: The free space of a level ignores holes in its floor, such as an elevator
-        shaft, since its ground is the whole footprint of its region.
     """
 
-    def _ground(self) -> VolumetricBoundingBox:
+    def _ground(self, floor_tolerance: float = 0.2) -> BoundingBoxCollection:
         """
-        The bottom face of this level's region.
+        The parts of the floors of this level's world that lie within the footprint of
+        its region, at the height of the region's bottom.
+
+        :param floor_tolerance: How far a floor may lie from the region's bottom to
+            count as part of this level.
+        :raises NoFloorOnLevelError: If no floor lies there.
         """
         region = self.root.area.as_bounding_box_collection_at_origin(
             HomogeneousTransformationMatrix(reference_frame=self.root)
         ).bounding_box()
-        return VolumetricBoundingBox(
+        height_of_floors = VolumetricBoundingBox(
             region.min_x,
             region.min_y,
-            region.min_z,
+            region.min_z - floor_tolerance,
             region.max_x,
             region.max_y,
-            region.min_z,
+            region.min_z + floor_tolerance,
             region.origin,
         )
+        slabs_on_level = [
+            slab_on_level
+            for floor in self._world.get_semantic_annotations_by_type(Floor)
+            for slab in floor.root.collision.as_bounding_box_collection_in_frame(
+                self.root
+            )
+            if (slab_on_level := slab.intersection_with(height_of_floors)) is not None
+        ]
+        if not slabs_on_level:
+            raise NoFloorOnLevelError(self)
+        return BoundingBoxCollection(slabs_on_level, self.root)
 
     @classmethod
     def holding(cls, body: Body, minimum_containment_ratio: float = 0.9) -> list[Self]:

@@ -775,10 +775,10 @@ class HasPlanarFreeSpace(ABC):
     """
 
     @abstractmethod
-    def _ground(self) -> VolumetricBoundingBox:
+    def _ground(self) -> BoundingBoxCollection:
         """
-        :return: The extent of the ground in the frame of this annotation's root; the
-            ground's top is the box's top.
+        :return: The boxes the ground is made of, in the frame of this annotation's
+            root; the ground's top is the highest of their tops.
         """
 
     def planar_free_space(
@@ -792,7 +792,7 @@ class HasPlanarFreeSpace(ABC):
     ) -> PlanarGraphOfBoundingBoxes:
         """
         Build a graph of the free space above the ground, from the ground's top up to
-        ``max_height``, within the ground's x,y extent.
+        ``max_height``.
 
         :param max_height: The height of the free space above the ground.
         :param tolerance: The tolerance for the intersection when calculating the
@@ -815,18 +815,19 @@ class HasPlanarFreeSpace(ABC):
         )
 
         ground = self._ground()
-        ground_top = ground.max_z + 2 * obstacle_height_clearance
+        ground_top = ground.bounding_box().max_z + 2 * obstacle_height_clearance
         search_space = BoundingBoxCollection(
             [
                 VolumetricBoundingBox(
-                    ground.min_x,
-                    ground.min_y,
+                    box.min_x,
+                    box.min_y,
                     ground_top,
-                    ground.max_x,
-                    ground.max_y,
+                    box.max_x,
+                    box.max_y,
                     ground_top + max_height,
                     HomogeneousTransformationMatrix(reference_frame=self.root),
                 )
+                for box in ground
             ],
             self.root,
         )
@@ -1205,9 +1206,9 @@ class HasSupportingSurface(IsStorageSpace, HasPlanarFreeSpace):
             self._world.add_connection(FixedConnection(parent=self.root, child=region))
         return region
 
-    def _ground(self) -> VolumetricBoundingBox:
+    def _ground(self) -> BoundingBoxCollection:
         """
-        The extent of :attr:`supporting_surface`.
+        The extent of :attr:`supporting_surface` as a single box.
 
         .. warning:: When :attr:`supporting_surface` is None, the surface is calculated
             and added to the world, resulting in model updates being published if the
@@ -1220,9 +1221,10 @@ class HasSupportingSurface(IsStorageSpace, HasPlanarFreeSpace):
             with self._world.modify_world():
                 if self.calculate_supporting_surface() is None:
                     raise NoSupportingSurfaceError(self)
-        return self.supporting_surface.area.as_bounding_box_collection_at_origin(
+        extent = self.supporting_surface.area.as_bounding_box_collection_at_origin(
             HomogeneousTransformationMatrix(reference_frame=self.root)
         ).bounding_box()
+        return BoundingBoxCollection([extent], self.root)
 
 
 @dataclass(eq=False)

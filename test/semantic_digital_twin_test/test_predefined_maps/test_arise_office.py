@@ -17,6 +17,9 @@ from semantic_digital_twin.spatial_types import (
 )
 
 # %% elevator
+from semantic_digital_twin.world_description.graph_of_convex_sets.exceptions import (
+    PointOutsideSearchSpaceError,
+)
 
 
 def test_cabin_floor_is_level_with_the_ground_floor(arise_office_world, arise_office):
@@ -218,3 +221,22 @@ def test_first_floor_free_space_leads_from_the_landing_into_the_east_office(
     assert [float(path[-1].x), float(path[-1].y)] == pytest.approx(
         [float(goal.x), float(goal.y)]
     )
+
+
+def test_first_floor_free_space_leaves_out_the_elevator_shaft(
+    arise_office_world, arise_office
+):
+    first_floor = arise_office_world.get_semantic_annotations_by_type(FirstFloor)[0]
+    landing = arise_office.get_room(
+        arise_office_world, FirstFloor, AriseOfficeRoom.LANDING
+    )
+    start = Point2.from_pose(landing.floor_centre)
+    shaft = Point2(
+        arise_office.cabin_centre.x,
+        arise_office.cabin_centre.y,
+        reference_frame=arise_office_world.root,
+    )
+    free_space = first_floor.planar_free_space(max_height=1.0)
+
+    with pytest.raises(PointOutsideSearchSpaceError):
+        free_space.path_from_to(start, shaft)

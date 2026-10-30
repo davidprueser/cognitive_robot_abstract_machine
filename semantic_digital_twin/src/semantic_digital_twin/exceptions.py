@@ -31,7 +31,10 @@ if TYPE_CHECKING:
         HasSupportingSurface,
     )
     from semantic_digital_twin.grasping.grasp_candidates import HasGraspCandidates
-    from semantic_digital_twin.semantic_annotations.semantic_annotations import Door
+    from semantic_digital_twin.semantic_annotations.semantic_annotations import (
+        Door,
+        Level,
+    )
     from semantic_digital_twin.robots.robot_parts import (
         AbstractRobot,
         AbstractRobotPart,
@@ -2164,6 +2167,27 @@ class MoreThanOneBodyHeld(UsageError):
         return (
             "detach everything but the grasped body from the tool frame, so that the "
             "body the gripper holds is unambiguous."
+        )
+
+
+@dataclass
+class NoFloorOnLevelError(UsageError):
+    """
+    Raised when a level holds no floor, so that it offers no ground to drive on.
+    """
+
+    level: Level
+    """
+    The level that was asked for its ground.
+    """
+
+    def error_message(self) -> str:
+        return f"'{self.level.root.name}' holds no floor at the height of its region."
+
+    def suggest_correction(self) -> str:
+        return (
+            "spawn the storey's floors with their tops at the bottom of the level's "
+            "region, within its footprint."
         )
 
 
