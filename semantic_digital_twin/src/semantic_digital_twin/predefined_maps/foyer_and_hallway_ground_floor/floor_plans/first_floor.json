@@ -130,9 +130,9 @@
      "wall_thickness": 0.1,
      "wall_color": {
       "__json_type__": "semantic_digital_twin.world_description.geometry.Color",
-      "R": 1.0,
-      "G": 1.0,
-      "B": 1.0,
+      "R": 0.961,
+      "G": 0.922,
+      "B": 0.843,
       "A": 1.0
      }
     }
@@ -210,9 +210,9 @@
      "wall_thickness": 0.1,
      "wall_color": {
       "__json_type__": "semantic_digital_twin.world_description.geometry.Color",
-      "R": 1.0,
-      "G": 1.0,
-      "B": 1.0,
+      "R": 0.961,
+      "G": 0.922,
+      "B": 0.843,
       "A": 1.0
      }
     }
@@ -290,9 +290,9 @@
      "wall_thickness": 0.1,
      "wall_color": {
       "__json_type__": "semantic_digital_twin.world_description.geometry.Color",
-      "R": 1.0,
-      "G": 1.0,
-      "B": 1.0,
+      "R": 0.961,
+      "G": 0.922,
+      "B": 0.843,
       "A": 1.0
      }
     }
@@ -406,9 +406,9 @@
      "wall_thickness": 0.1,
      "wall_color": {
       "__json_type__": "semantic_digital_twin.world_description.geometry.Color",
-      "R": 1.0,
-      "G": 1.0,
-      "B": 1.0,
+      "R": 0.961,
+      "G": 0.922,
+      "B": 0.843,
       "A": 1.0
      }
     }
@@ -486,9 +486,9 @@
      "wall_thickness": 0.1,
      "wall_color": {
       "__json_type__": "semantic_digital_twin.world_description.geometry.Color",
-      "R": 1.0,
-      "G": 1.0,
-      "B": 1.0,
+      "R": 0.961,
+      "G": 0.922,
+      "B": 0.843,
       "A": 1.0
      }
     }
@@ -566,9 +566,9 @@
      "wall_thickness": 0.1,
      "wall_color": {
       "__json_type__": "semantic_digital_twin.world_description.geometry.Color",
-      "R": 1.0,
-      "G": 1.0,
-      "B": 1.0,
+      "R": 0.961,
+      "G": 0.922,
+      "B": 0.843,
       "A": 1.0
      }
     }
@@ -682,9 +682,9 @@
      "wall_thickness": 0.1,
      "wall_color": {
       "__json_type__": "semantic_digital_twin.world_description.geometry.Color",
-      "R": 1.0,
-      "G": 1.0,
-      "B": 1.0,
+      "R": 0.961,
+      "G": 0.922,
+      "B": 0.843,
       "A": 1.0
      }
     }
@@ -780,9 +780,9 @@
      "wall_thickness": 0.1,
      "wall_color": {
       "__json_type__": "semantic_digital_twin.world_description.geometry.Color",
-      "R": 1.0,
-      "G": 1.0,
-      "B": 1.0,
+      "R": 0.961,
+      "G": 0.922,
+      "B": 0.843,
       "A": 1.0
      }
     }
@@ -860,9 +860,9 @@
      "wall_thickness": 0.1,
      "wall_color": {
       "__json_type__": "semantic_digital_twin.world_description.geometry.Color",
-      "R": 1.0,
-      "G": 1.0,
-      "B": 1.0,
+      "R": 0.961,
+      "G": 0.922,
+      "B": 0.843,
       "A": 1.0
      }
     }
@@ -940,9 +940,9 @@
      "wall_thickness": 0.1,
      "wall_color": {
       "__json_type__": "semantic_digital_twin.world_description.geometry.Color",
-      "R": 1.0,
-      "G": 1.0,
-      "B": 1.0,
+      "R": 0.961,
+      "G": 0.922,
+      "B": 0.843,
       "A": 1.0
      }
     }
@@ -1056,9 +1056,9 @@
      "wall_thickness": 0.1,
      "wall_color": {
       "__json_type__": "semantic_digital_twin.world_description.geometry.Color",
-      "R": 1.0,
-      "G": 1.0,
-      "B": 1.0,
+      "R": 0.961,
+      "G": 0.922,
+      "B": 0.843,
       "A": 1.0
      }
     }
@@ -1154,9 +1154,9 @@
      "wall_thickness": 0.1,
      "wall_color": {
       "__json_type__": "semantic_digital_twin.world_description.geometry.Color",
-      "R": 1.0,
-      "G": 1.0,
-      "B": 1.0,
+      "R": 0.961,
+      "G": 0.922,
+      "B": 0.843,
       "A": 1.0
      }
     }
@@ -1234,9 +1234,9 @@
      "wall_thickness": 0.1,
      "wall_color": {
       "__json_type__": "semantic_digital_twin.world_description.geometry.Color",
-      "R": 1.0,
-      "G": 1.0,
-      "B": 1.0,
+      "R": 0.961,
+      "G": 0.922,
+      "B": 0.843,
       "A": 1.0
      }
     }
@@ -1314,9 +1314,9 @@
      "wall_thickness": 0.1,
      "wall_color": {
       "__json_type__": "semantic_digital_twin.world_description.geometry.Color",
-      "R": 1.0,
-      "G": 1.0,
-      "B": 1.0,
+      "R": 0.961,
+      "G": 0.922,
+      "B": 0.843,
       "A": 1.0
      }
     }
@@ -1412,9 +1412,9 @@
      "wall_thickness": 0.1,
      "wall_color": {
       "__json_type__": "semantic_digital_twin.world_description.geometry.Color",
-      "R": 1.0,
-      "G": 1.0,
-      "B": 1.0,
+      "R": 0.961,
+      "G": 0.922,
+      "B": 0.843,
       "A": 1.0
      }
     }
@@ -1492,9 +1492,9 @@
      "wall_thickness": 0.1,
      "wall_color": {
       "__json_type__": "semantic_digital_twin.world_description.geometry.Color",
-      "R": 1.0,
-      "G": 1.0,
-      "B": 1.0,
+      "R": 0.961,
+      "G": 0.922,
+      "B": 0.843,
       "A": 1.0
      }
     }
@@ -1586,9 +1586,9 @@
      "wall_thickness": 0.1,
      "wall_color": {
       "__json_type__": "semantic_digital_twin.world_description.geometry.Color",
-      "R": 1.0,
-      "G": 1.0,
-      "B": 1.0,
+      "R": 0.961,
+      "G": 0.922,
+      "B": 0.843,
       "A": 1.0
      }
     }
@@ -1746,9 +1746,9 @@
      "wall_thickness": 0.1,
      "wall_color": {
       "__json_type__": "semantic_digital_twin.world_description.geometry.Color",
-      "R": 1.0,
-      "G": 1.0,
-      "B": 1.0,
+      "R": 0.961,
+      "G": 0.922,
+      "B": 0.843,
       "A": 1.0
      }
     }
@@ -1955,9 +1955,9 @@
      "wall_thickness": 0.1,
      "wall_color": {
       "__json_type__": "semantic_digital_twin.world_description.geometry.Color",
-      "R": 1.0,
-      "G": 1.0,
-      "B": 1.0,
+      "R": 0.961,
+      "G": 0.922,
+      "B": 0.843,
       "A": 1.0
      }
     }
@@ -2053,9 +2053,9 @@
      "wall_thickness": 0.1,
      "wall_color": {
       "__json_type__": "semantic_digital_twin.world_description.geometry.Color",
-      "R": 1.0,
-      "G": 1.0,
-      "B": 1.0,
+      "R": 0.961,
+      "G": 0.922,
+      "B": 0.843,
       "A": 1.0
      }
     }
@@ -2133,9 +2133,9 @@
      "wall_thickness": 0.1,
      "wall_color": {
       "__json_type__": "semantic_digital_twin.world_description.geometry.Color",
-      "R": 1.0,
-      "G": 1.0,
-      "B": 1.0,
+      "R": 0.961,
+      "G": 0.922,
+      "B": 0.843,
       "A": 1.0
      }
     }
@@ -2227,9 +2227,9 @@
      "wall_thickness": 0.1,
      "wall_color": {
       "__json_type__": "semantic_digital_twin.world_description.geometry.Color",
-      "R": 1.0,
-      "G": 1.0,
-      "B": 1.0,
+      "R": 0.961,
+      "G": 0.922,
+      "B": 0.843,
       "A": 1.0
      }
     }
@@ -2375,9 +2375,9 @@
      "wall_thickness": 0.1,
      "wall_color": {
       "__json_type__": "semantic_digital_twin.world_description.geometry.Color",
-      "R": 1.0,
-      "G": 1.0,
-      "B": 1.0,
+      "R": 0.961,
+      "G": 0.922,
+      "B": 0.843,
       "A": 1.0
      }
     }
@@ -2455,9 +2455,9 @@
      "wall_thickness": 0.1,
      "wall_color": {
       "__json_type__": "semantic_digital_twin.world_description.geometry.Color",
-      "R": 1.0,
-      "G": 1.0,
-      "B": 1.0,
+      "R": 0.961,
+      "G": 0.922,
+      "B": 0.843,
       "A": 1.0
      }
     }
@@ -2567,9 +2567,9 @@
      "wall_thickness": 0.1,
      "wall_color": {
       "__json_type__": "semantic_digital_twin.world_description.geometry.Color",
-      "R": 1.0,
-      "G": 1.0,
-      "B": 1.0,
+      "R": 0.961,
+      "G": 0.922,
+      "B": 0.843,
       "A": 1.0
      }
     }
@@ -2647,9 +2647,9 @@
      "wall_thickness": 0.1,
      "wall_color": {
       "__json_type__": "semantic_digital_twin.world_description.geometry.Color",
-      "R": 1.0,
-      "G": 1.0,
-      "B": 1.0,
+      "R": 0.961,
+      "G": 0.922,
+      "B": 0.843,
       "A": 1.0
      }
     }
@@ -2727,9 +2727,9 @@
      "wall_thickness": 0.1,
      "wall_color": {
       "__json_type__": "semantic_digital_twin.world_description.geometry.Color",
-      "R": 1.0,
-      "G": 1.0,
-      "B": 1.0,
+      "R": 0.961,
+      "G": 0.922,
+      "B": 0.843,
       "A": 1.0
      }
     }
@@ -2807,9 +2807,9 @@
      "wall_thickness": 0.1,
      "wall_color": {
       "__json_type__": "semantic_digital_twin.world_description.geometry.Color",
-      "R": 1.0,
-      "G": 1.0,
-      "B": 1.0,
+      "R": 0.961,
+      "G": 0.922,
+      "B": 0.843,
       "A": 1.0
      }
     }
@@ -2887,9 +2887,9 @@
      "wall_thickness": 0.1,
      "wall_color": {
       "__json_type__": "semantic_digital_twin.world_description.geometry.Color",
-      "R": 1.0,
-      "G": 1.0,
-      "B": 1.0,
+      "R": 0.961,
+      "G": 0.922,
+      "B": 0.843,
       "A": 1.0
      }
     }
@@ -2967,9 +2967,9 @@
      "wall_thickness": 0.1,
      "wall_color": {
       "__json_type__": "semantic_digital_twin.world_description.geometry.Color",
-      "R": 1.0,
-      "G": 1.0,
-      "B": 1.0,
+      "R": 0.961,
+      "G": 0.922,
+      "B": 0.843,
       "A": 1.0
      }
     }
@@ -3047,9 +3047,9 @@
      "wall_thickness": 0.1,
      "wall_color": {
       "__json_type__": "semantic_digital_twin.world_description.geometry.Color",
-      "R": 1.0,
-      "G": 1.0,
-      "B": 1.0,
+      "R": 0.961,
+      "G": 0.922,
+      "B": 0.843,
       "A": 1.0
      }
     }
@@ -3155,9 +3155,9 @@
      "wall_thickness": 0.1,
      "wall_color": {
       "__json_type__": "semantic_digital_twin.world_description.geometry.Color",
-      "R": 1.0,
-      "G": 1.0,
-      "B": 1.0,
+      "R": 0.961,
+      "G": 0.922,
+      "B": 0.843,
       "A": 1.0
      }
     }
@@ -3253,9 +3253,9 @@
      "wall_thickness": 0.1,
      "wall_color": {
       "__json_type__": "semantic_digital_twin.world_description.geometry.Color",
-      "R": 1.0,
-      "G": 1.0,
-      "B": 1.0,
+      "R": 0.961,
+      "G": 0.922,
+      "B": 0.843,
       "A": 1.0
      }
     }
@@ -3351,9 +3351,9 @@
      "wall_thickness": 0.1,
      "wall_color": {
       "__json_type__": "semantic_digital_twin.world_description.geometry.Color",
-      "R": 1.0,
-      "G": 1.0,
-      "B": 1.0,
+      "R": 0.961,
+      "G": 0.922,
+      "B": 0.843,
       "A": 1.0
      }
     }
@@ -3431,9 +3431,9 @@
      "wall_thickness": 0.1,
      "wall_color": {
       "__json_type__": "semantic_digital_twin.world_description.geometry.Color",
-      "R": 1.0,
-      "G": 1.0,
-      "B": 1.0,
+      "R": 0.961,
+      "G": 0.922,
+      "B": 0.843,
       "A": 1.0
      }
     }
@@ -3511,9 +3511,9 @@
      "wall_thickness": 0.1,
      "wall_color": {
       "__json_type__": "semantic_digital_twin.world_description.geometry.Color",
-      "R": 1.0,
-      "G": 1.0,
-      "B": 1.0,
+      "R": 0.961,
+      "G": 0.922,
+      "B": 0.843,
       "A": 1.0
      }
     }
@@ -3591,9 +3591,9 @@
      "wall_thickness": 0.1,
      "wall_color": {
       "__json_type__": "semantic_digital_twin.world_description.geometry.Color",
-      "R": 1.0,
-      "G": 1.0,
-      "B": 1.0,
+      "R": 0.961,
+      "G": 0.922,
+      "B": 0.843,
       "A": 1.0
      }
     }
@@ -3671,9 +3671,9 @@
      "wall_thickness": 0.1,
      "wall_color": {
       "__json_type__": "semantic_digital_twin.world_description.geometry.Color",
-      "R": 1.0,
-      "G": 1.0,
-      "B": 1.0,
+      "R": 0.961,
+      "G": 0.922,
+      "B": 0.843,
       "A": 1.0
      }
     }
@@ -3751,9 +3751,9 @@
      "wall_thickness": 0.1,
      "wall_color": {
       "__json_type__": "semantic_digital_twin.world_description.geometry.Color",
-      "R": 1.0,
-      "G": 1.0,
-      "B": 1.0,
+      "R": 0.961,
+      "G": 0.922,
+      "B": 0.843,
       "A": 1.0
      }
     }
@@ -3831,9 +3831,9 @@
      "wall_thickness": 0.1,
      "wall_color": {
       "__json_type__": "semantic_digital_twin.world_description.geometry.Color",
-      "R": 1.0,
-      "G": 1.0,
-      "B": 1.0,
+      "R": 0.961,
+      "G": 0.922,
+      "B": 0.843,
       "A": 1.0
      }
     }
@@ -3911,9 +3911,9 @@
      "wall_thickness": 0.1,
      "wall_color": {
       "__json_type__": "semantic_digital_twin.world_description.geometry.Color",
-      "R": 1.0,
-      "G": 1.0,
-      "B": 1.0,
+      "R": 0.961,
+      "G": 0.922,
+      "B": 0.843,
       "A": 1.0
      }
     }
@@ -3991,9 +3991,9 @@
      "wall_thickness": 0.1,
      "wall_color": {
       "__json_type__": "semantic_digital_twin.world_description.geometry.Color",
-      "R": 1.0,
-      "G": 1.0,
-      "B": 1.0,
+      "R": 0.961,
+      "G": 0.922,
+      "B": 0.843,
       "A": 1.0
      }
     }
@@ -4089,9 +4089,9 @@
      "wall_thickness": 0.1,
      "wall_color": {
       "__json_type__": "semantic_digital_twin.world_description.geometry.Color",
-      "R": 1.0,
-      "G": 1.0,
-      "B": 1.0,
+      "R": 0.961,
+      "G": 0.922,
+      "B": 0.843,
       "A": 1.0
      }
     }
@@ -4187,9 +4187,9 @@
      "wall_thickness": 0.1,
      "wall_color": {
       "__json_type__": "semantic_digital_twin.world_description.geometry.Color",
-      "R": 1.0,
-      "G": 1.0,
-      "B": 1.0,
+      "R": 0.961,
+      "G": 0.922,
+      "B": 0.843,
       "A": 1.0
      }
     }
@@ -4267,9 +4267,9 @@
      "wall_thickness": 0.1,
      "wall_color": {
       "__json_type__": "semantic_digital_twin.world_description.geometry.Color",
-      "R": 1.0,
-      "G": 1.0,
-      "B": 1.0,
+      "R": 0.961,
+      "G": 0.922,
+      "B": 0.843,
       "A": 1.0
      }
     }
@@ -4347,9 +4347,9 @@
      "wall_thickness": 0.1,
      "wall_color": {
       "__json_type__": "semantic_digital_twin.world_description.geometry.Color",
-      "R": 1.0,
-      "G": 1.0,
-      "B": 1.0,
+      "R": 0.961,
+      "G": 0.922,
+      "B": 0.843,
       "A": 1.0
      }
     }
@@ -4427,9 +4427,9 @@
      "wall_thickness": 0.1,
      "wall_color": {
       "__json_type__": "semantic_digital_twin.world_description.geometry.Color",
-      "R": 1.0,
-      "G": 1.0,
-      "B": 1.0,
+      "R": 0.961,
+      "G": 0.922,
+      "B": 0.843,
       "A": 1.0
      }
     }
@@ -4507,9 +4507,9 @@
      "wall_thickness": 0.1,
      "wall_color": {
       "__json_type__": "semantic_digital_twin.world_description.geometry.Color",
-      "R": 1.0,
-      "G": 1.0,
-      "B": 1.0,
+      "R": 0.961,
+      "G": 0.922,
+      "B": 0.843,
       "A": 1.0
      }
     }
@@ -4587,9 +4587,9 @@
      "wall_thickness": 0.1,
      "wall_color": {
       "__json_type__": "semantic_digital_twin.world_description.geometry.Color",
-      "R": 1.0,
-      "G": 1.0,
-      "B": 1.0,
+      "R": 0.961,
+      "G": 0.922,
+      "B": 0.843,
       "A": 1.0
      }
     }
@@ -4681,9 +4681,9 @@
      "wall_thickness": 0.1,
      "wall_color": {
       "__json_type__": "semantic_digital_twin.world_description.geometry.Color",
-      "R": 1.0,
-      "G": 1.0,
-      "B": 1.0,
+      "R": 0.961,
+      "G": 0.922,
+      "B": 0.843,
       "A": 1.0
      }
     }
@@ -5028,9 +5028,9 @@
      "wall_thickness": 0.1,
      "wall_color": {
       "__json_type__": "semantic_digital_twin.world_description.geometry.Color",
-      "R": 1.0,
-      "G": 1.0,
-      "B": 1.0,
+      "R": 0.961,
+      "G": 0.922,
+      "B": 0.843,
       "A": 1.0
      }
     }
@@ -5378,9 +5378,9 @@
      "wall_thickness": 0.1,
      "wall_color": {
       "__json_type__": "semantic_digital_twin.world_description.geometry.Color",
-      "R": 1.0,
-      "G": 1.0,
-      "B": 1.0,
+      "R": 0.961,
+      "G": 0.922,
+      "B": 0.843,
       "A": 1.0
      }
     }
@@ -5620,9 +5620,9 @@
      "wall_thickness": 0.1,
      "wall_color": {
       "__json_type__": "semantic_digital_twin.world_description.geometry.Color",
-      "R": 1.0,
-      "G": 1.0,
-      "B": 1.0,
+      "R": 0.961,
+      "G": 0.922,
+      "B": 0.843,
       "A": 1.0
      }
     }
