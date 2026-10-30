@@ -203,6 +203,7 @@ def lab_hallway_south_stretch() -> RectilinearRoom:
             Doorway(start=Point2(-3.0, 26.299), end=Point2(-3.0, 27.194)),
             Doorway(start=Point2(-3.0, 28.707), end=Point2(-3.0, 29.601)),
             Doorway(start=Point2(-3.0, 30.823), end=Point2(-3.0, 31.714)),
+            Doorway(start=Point2(-3.0, 32.162), end=Point2(-3.0, 33.17)),
             Doorway(start=Point2(-1.45, 1.269), end=Point2(-1.45, 2.783)),
             Doorway(start=Point2(-1.45, 3.138), end=Point2(-1.45, 4.651)),
             Doorway(start=Point2(-1.45, 33.587), end=Point2(-1.45, 34.474)),
