@@ -4,10 +4,6 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from semantic_digital_twin.predefined_maps.foyer_and_hallway_ground_floor.hinged_door import (
-    HingedDoor,
-    HingeSide,
-)
 from semantic_digital_twin.predefined_maps.foyer_and_hallway_ground_floor.rectilinear_room import (
     Doorway,
     OpenEdge,
@@ -19,16 +15,8 @@ from semantic_digital_twin.predefined_maps.foyer_and_hallway_ground_floor.slidin
 from semantic_digital_twin.predefined_maps.foyer_and_hallway_ground_floor.storey import (
     Storey,
 )
-from semantic_digital_twin.semantic_annotations.semantic_annotations import (
-    Door,
-    Room,
-)
 from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix, Point2
-from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.geometry import Scale
-from semantic_digital_twin.world_description.world_entity import (
-    KinematicStructureEntity,
-)
 
 # %% ground floor
 
@@ -83,18 +71,6 @@ def lab_corridor_doorway() -> Doorway:
     :return: The doorway to the corridor in the right wall.
     """
     return Doorway(start=Point2(9.5, 5.35), end=Point2(9.5, 6.63))
-
-
-def lab_corridor_door() -> HingedDoor:
-    """
-    :return: The door filling the corridor doorway, hinged on the jamb nearer the
-        elevator.
-    """
-    doorway = lab_corridor_doorway()
-    return HingedDoor(
-        scale=Scale(Door.default_scale.x, doorway.width, doorway.height),
-        hinge_side=HingeSide.POSITIVE_Y,
-    )
 
 
 def lab_left_wall_doorway() -> Doorway:
@@ -157,7 +133,7 @@ def lab_hallway_east_stretch_outline() -> list[Point2]:
 def lab_hallway_east_stretch() -> RectilinearRoom:
     """
     :return: The hallway's stretch running east from the corridor doorway, open towards
-        the room and towards the south stretch, with the doorways of the side rooms the
+        the south stretch, with the doorways of the side rooms the
         floor plan of the ground floor shows along it.
     """
     return RectilinearRoom(
@@ -165,18 +141,15 @@ def lab_hallway_east_stretch() -> RectilinearRoom:
         doorways=[
             Doorway(start=Point2(-14.717, 37.2), end=Point2(-13.716, 37.2)),
             Doorway(start=Point2(-13.32, 37.2), end=Point2(-12.431, 37.2)),
-            Doorway(start=Point2(-10.918, 37.2), end=Point2(-10.072, 37.2)),
-            Doorway(start=Point2(-8.887, 37.2), end=Point2(-8.062, 37.2)),
+            Doorway(start=Point2(-10.918, 37.2), end=Point2(-10.032, 37.2)),
+            Doorway(start=Point2(-8.887, 37.2), end=Point2(-8.006, 37.2)),
             Doorway(start=Point2(-7.55, 37.2), end=Point2(-6.664, 37.2)),
             Doorway(start=Point2(-0.15, 37.485), end=Point2(-0.15, 38.746)),
             Doorway(start=Point2(-14.692, 38.8), end=Point2(-13.572, 38.8)),
             Doorway(start=Point2(-10.442, 39.5), end=Point2(-9.447, 39.5)),
             Doorway(start=Point2(-9.059, 39.5), end=Point2(-8.061, 39.5)),
         ],
-        open_edges=[
-            OpenEdge(start=Point2(-17.48, 38.8), end=Point2(-17.48, 37.2)),
-            OpenEdge(start=Point2(-2.48, 37.2), end=Point2(-0.93, 37.2)),
-        ],
+        open_edges=[OpenEdge(start=Point2(-2.48, 37.2), end=Point2(-0.93, 37.2))],
         wall_height=Storey.height,
     )
 
@@ -228,8 +201,8 @@ def lab_hallway_south_stretch() -> RectilinearRoom:
             Doorway(start=Point2(-3.65, 19.65), end=Point2(-3.65, 21.08)),
             Doorway(start=Point2(-3.0, 25.046), end=Point2(-3.0, 25.945)),
             Doorway(start=Point2(-3.0, 26.299), end=Point2(-3.0, 27.194)),
-            Doorway(start=Point2(-3.0, 28.707), end=Point2(-3.0, 29.533)),
-            Doorway(start=Point2(-3.0, 30.823), end=Point2(-3.0, 31.653)),
+            Doorway(start=Point2(-3.0, 28.707), end=Point2(-3.0, 29.601)),
+            Doorway(start=Point2(-3.0, 30.823), end=Point2(-3.0, 31.714)),
             Doorway(start=Point2(-1.45, 1.269), end=Point2(-1.45, 2.783)),
             Doorway(start=Point2(-1.45, 3.138), end=Point2(-1.45, 4.651)),
             Doorway(start=Point2(-1.45, 33.587), end=Point2(-1.45, 34.474)),
@@ -280,30 +253,6 @@ class LabHallway:
     Placement of the south stretch's outline frame in the map frame.
     """
 
-    def spawn(
-        self,
-        world: World,
-        name: str,
-        parent: KinematicStructureEntity | None = None,
-    ) -> list[Room]:
-        """
-        Materialize both stretches of the hallway in ``world``.
-
-        :param world: The world the hallway is added to.
-        :param name: Prefix for the names of every entity the hallway creates.
-        :param parent: The entity standing for the map frame. If None, ``world.root`` is
-            used.
-        :return: The room annotations of the east and the south stretch.
-        """
-        return [
-            self.east_stretch.spawn(
-                world, f"{name}_east", parent, parent_T_self=self.map_T_east_stretch
-            ),
-            self.south_stretch.spawn(
-                world, f"{name}_south", parent, parent_T_self=self.map_T_south_stretch
-            ),
-        ]
-
 
 # %% room
 
@@ -313,9 +262,9 @@ class LabElevatorRoom:
     """
     World-independent description of the leftmost room of the lab occupancy grid map
     (``lab_map``, 0.05 m per cell): its walls and floor as traced from the map, its two
-    doorways, a door in the corridor doorway, the open side to the staircase left of the
-    elevator, an elevator filling the shaft in the middle of the top wall, and the
-    hallway beyond the corridor doorway.
+    doorways, the open side to the staircase left of the elevator, an elevator filling
+    the shaft in the middle of the top wall, and the hallway beyond the corridor
+    doorway.
     """
 
     room: RectilinearRoom = field(
@@ -330,11 +279,6 @@ class LabElevatorRoom:
     The walls, floor, doorways and staircase side of the room on the ground floor.
 
     The walls reach up to the first floor.
-    """
-
-    corridor_door: HingedDoor = field(default_factory=lab_corridor_door)
-    """
-    The door between the room and the hallway.
     """
 
     hallway: LabHallway = field(default_factory=LabHallway)
@@ -364,22 +308,6 @@ class LabElevatorRoom:
     """
 
     @property
-    def room_T_corridor_door(self) -> HomogeneousTransformationMatrix:
-        """
-        :return: Placement of the corridor door's centre in the room outline's frame,
-            closing the corridor doorway in the middle of its wall and swinging into the
-            room.
-        """
-        doorway = lab_corridor_doorway()
-        edge = self.room.edge_of(doorway)
-        center = (
-            doorway.start.to_np() + doorway.end.to_np()
-        ) / 2 + edge.outward_normal * self.room.wall_thickness / 2
-        return HomogeneousTransformationMatrix.from_xyz_rpy(
-            center[0], center[1], doorway.height / 2, yaw=edge.outward_yaw
-        )
-
-    @property
     def room_T_elevator(self) -> HomogeneousTransformationMatrix:
         """
         :return: Placement of the elevator cabin's centre in the room outline's frame,
@@ -389,35 +317,3 @@ class LabElevatorRoom:
         return HomogeneousTransformationMatrix.from_xyz_rpy(
             center[0], center[1], self.elevator.scale.z / 2, yaw=np.pi / 2
         )
-
-    def spawn(
-        self,
-        world: World,
-        name: str,
-        parent: KinematicStructureEntity | None = None,
-    ) -> Room:
-        """
-        Materialize this room, its corridor door, its elevator and the hallway in
-        ``world``.
-
-        :param world: The world the room is added to.
-        :param name: Prefix for the names of every entity this room creates.
-        :param parent: The entity standing for the map frame. If None, ``world.root`` is
-            used.
-        :return: The ground floor room annotation.
-        """
-        room = self.room.spawn(world, name, parent, parent_T_self=self.map_T_room)
-        self.corridor_door.spawn(
-            world,
-            f"{name}_corridor_door",
-            parent=room.floor.root,
-            parent_T_self=self.room_T_corridor_door,
-        )
-        self.hallway.spawn(world, f"{name}_hallway", parent)
-        self.elevator.spawn(
-            world,
-            f"{name}_elevator",
-            parent=room.floor.root,
-            parent_T_self=self.room_T_elevator,
-        )
-        return room

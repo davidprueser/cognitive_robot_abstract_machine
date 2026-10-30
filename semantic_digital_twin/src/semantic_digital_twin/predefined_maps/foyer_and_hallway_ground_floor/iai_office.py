@@ -16,6 +16,10 @@ from semantic_digital_twin.predefined_maps.foyer_and_hallway_ground_floor.floor_
 from semantic_digital_twin.predefined_maps.foyer_and_hallway_ground_floor.storey import (
     Storey,
 )
+from semantic_digital_twin.predefined_maps.foyer_and_hallway_ground_floor.storey_layout import (
+    PlacedRoom,
+    StoreyLayout,
+)
 from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
 from semantic_digital_twin.world_description.geometry import (
     PlanarBoundingBox,
@@ -24,8 +28,8 @@ from semantic_digital_twin.world_description.geometry import (
 
 if TYPE_CHECKING:
     from semantic_digital_twin.semantic_annotations.semantic_annotations import (
+        Floor,
         Level,
-        Room,
     )
     from semantic_digital_twin.world import World
     from semantic_digital_twin.world_description.world_entity import (
@@ -40,9 +44,10 @@ class IAIOffice:
     """
     World-independent description of the IAI's office: the lab elevator room with its
     hallway, and the rooms and hallways on the ground, first and second floor that are
-    reached from them, as the floor plans of the building show them.
+    reached from them, as the floor plans of the building show them. Each storey stands
+    on one floor.
 
-    Doorways are left open and windows are not modelled.
+    Doorways are left open, without doors, and windows are not modelled.
     """
 
     elevator_room: LabElevatorRoom = field(default_factory=LabElevatorRoom)
@@ -75,7 +80,8 @@ class IAIOffice:
     def _footprint(self, floor_plan: FloorPlan) -> PlanarBoundingBox:
         """
         :param floor_plan: One of :attr:`floor_plans`.
-        :return: The smallest rectangle around every room of ``floor_plan``, axis-aligned
+        :return: The smallest rectangle around the rooms and the hallway of
+            ``floor_plan``, axis-aligned
             in the outline frame of the elevator room.
         """
         room_T_map = self.elevator_room.map_T_room.inverse().to_np()
@@ -84,7 +90,7 @@ class IAIOffice:
                 room_T_map
                 @ self.map_T_outline_frame(office_room.outline_frame).to_np()
                 @ np.array([*vertex.to_np(), 0.0, 1.0])
-                for office_room in floor_plan.rooms
+                for office_room in floor_plan.rooms + floor_plan.hallway
                 for vertex in office_room.layout.outline
             ]
         )
@@ -98,6 +104,46 @@ class IAIOffice:
             HomogeneousTransformationMatrix(),
         )
 
+    def storey_layout(self, floor_plan: FloorPlan) -> StoreyLayout:
+        """
+        :param floor_plan: One of :attr:`floor_plans`.
+        :return: The rooms and the hallway of ``floor_plan``'s storey placed in the map
+            frame, together with the elevator room and its hallway on the ground floor.
+        """
+        rooms, hallway = (
+            [
+                PlacedRoom(
+                    f"room_{office_room.number}",
+                    office_room.layout,
+                    self.map_T_outline_frame(office_room.outline_frame),
+                )
+                for office_room in office_rooms
+            ]
+            for office_rooms in (floor_plan.rooms, floor_plan.hallway)
+        )
+        if floor_plan.storey is Storey.GROUND_FLOOR:
+            lab_hallway = self.elevator_room.hallway
+            rooms.append(
+                PlacedRoom(
+                    "elevator_room",
+                    self.elevator_room.room,
+                    self.elevator_room.map_T_room,
+                )
+            )
+            hallway += [
+                PlacedRoom(
+                    "hallway_east",
+                    lab_hallway.east_stretch,
+                    lab_hallway.map_T_east_stretch,
+                ),
+                PlacedRoom(
+                    "hallway_south",
+                    lab_hallway.south_stretch,
+                    lab_hallway.map_T_south_stretch,
+                ),
+            ]
+        return StoreyLayout(rooms, hallway)
+
     def spawn(
         self,
         world: World,
@@ -105,8 +151,8 @@ class IAIOffice:
         parent: KinematicStructureEntity | None = None,
     ) -> list[Level]:
         """
-        Materialize the elevator room, its elevator and hallway, and the rooms and
-        hallways of every storey in ``world``, with a level annotation for each storey.
+        Materialize every storey of the office in ``world``, with a level annotation
+        each, and the elevator serving them.
 
         :param world: The world the office is added to.
         :param name: Prefix for the names of every entity the office creates.
@@ -116,62 +162,55 @@ class IAIOffice:
         """
         levels = []
         with world.modify_world():
-            elevator_room = self.elevator_room.spawn(world, name, parent)
             for floor_plan in sorted(self.floor_plans, key=lambda plan: plan.storey):
-                self._spawn_rooms(world, name, parent, floor_plan)
-                levels.append(self._spawn_level(world, name, elevator_room, floor_plan))
+                storey = floor_plan.storey
+                storey_name = f"{name}_{storey.name.lower()}"
+                hallway = self.storey_layout(floor_plan).spawn(
+                    world,
+                    storey_name,
+                    parent,
+                    parent_T_self=HomogeneousTransformationMatrix.from_xyz_rpy(
+                        z=storey.elevation
+                    ),
+                )
+                levels.append(
+                    self._spawn_level(world, storey_name, hallway.floor, floor_plan)
+                )
+            self.elevator_room.elevator.spawn(
+                world,
+                f"{name}_elevator",
+                parent=parent,
+                parent_T_self=self.elevator_room.map_T_room
+                @ self.elevator_room.room_T_elevator,
+            )
         return levels
 
-    def _spawn_rooms(
-        self,
-        world: World,
-        name: str,
-        parent: KinematicStructureEntity | None,
-        floor_plan: FloorPlan,
-    ) -> list[Room]:
-        """
-        Spawn every room of ``floor_plan`` at the elevation of its storey.
-
-        :return: The room annotations.
-        """
-        ground_floor_T_storey = HomogeneousTransformationMatrix.from_xyz_rpy(
-            z=floor_plan.storey.elevation
-        )
-        return [
-            office_room.layout.spawn(
-                world,
-                f"{name}_room_{office_room.number}",
-                parent,
-                parent_T_self=self.map_T_outline_frame(office_room.outline_frame)
-                @ ground_floor_T_storey,
-            )
-            for office_room in floor_plan.rooms
-        ]
-
     def _spawn_level(
-        self, world: World, name: str, elevator_room: Room, floor_plan: FloorPlan
+        self, world: World, name: str, floor: Floor, floor_plan: FloorPlan
     ) -> Level:
         """
         Spawn the level of ``floor_plan``'s storey, spanning its footprint from the
         storey's floor up to the next storey's.
 
-        :param elevator_room: The room annotation of the elevator room, whose floor the
-            level attaches to.
+        :param name: Name of the level.
+        :param floor: The hallway floor of the storey, whose frame is the map frame at
+            the storey's elevation.
         :return: The level annotation.
         """
         storey = floor_plan.storey
         footprint = self._footprint(floor_plan)
         return storey.level_type.get_annotation_specification(
-            f"{name}_{storey.name.lower()}",
+            name,
             storey.level_type.get_default_root_kinematic_structure_entity_specification(
                 scale=Scale(footprint.depth, footprint.width, Storey.height)
             ),
         ).spawn(
             world,
-            parent=elevator_room.floor.root,
-            parent_T_self=HomogeneousTransformationMatrix.from_xyz_rpy(
+            parent=floor.root,
+            parent_T_self=self.elevator_room.map_T_room
+            @ HomogeneousTransformationMatrix.from_xyz_rpy(
                 (footprint.min_x + footprint.max_x) / 2,
                 (footprint.min_y + footprint.max_y) / 2,
-                storey.elevation + Storey.height / 2,
+                Storey.height / 2,
             ),
         )
