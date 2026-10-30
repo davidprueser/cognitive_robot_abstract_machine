@@ -76,7 +76,6 @@ include = ["semantic_digital_twin*"]
 
 [tool.setuptools.package-data]
 "semantic_digital_twin.part_finding" = ["prompts/*.jinja"]
-"semantic_digital_twin.predefined_maps.foyer_and_hallway_ground_floor" = ["floor_plans/*.json"]
 
 [project.scripts]
 semantic-digital-twin-part-finding-server = "semantic_digital_twin.adapters.part_finding.command_line:PartFindingCommandLine.run"
