@@ -47,3 +47,14 @@ def test_cabin_and_doors_take_their_colors(sliding_door_elevator):
     }
     assert cabin_colors == {sliding_door_elevator.cabin_color}
     assert door_colors == {sliding_door_elevator.door_color}
+
+
+def test_cabin_travels_from_its_lowest_stop_up_by_its_travel_height():
+    sliding_door_elevator = SlidingDoorElevator(travel_height=3.0)
+    world = World.create_with_root_body("root")
+    elevator = sliding_door_elevator.spawn(world, "elevator")
+    limits = elevator.movable_joint.dof.limits
+    assert (limits.lower.position, limits.upper.position) == (
+        0.0,
+        sliding_door_elevator.travel_height,
+    )
