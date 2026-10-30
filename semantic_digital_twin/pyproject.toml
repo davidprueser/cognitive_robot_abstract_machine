@@ -74,9 +74,6 @@ license = "LGPL-3.0-only"
 where = ["src"]  # list of folders that contain the packages (["."] by default)
 include = ["semantic_digital_twin*"]
 
-[tool.setuptools.package-data]
-"semantic_digital_twin.predefined_maps.foyer_and_hallway_ground_floor" = ["floor_plans/*.json"]
-
 [tool.setuptools.dynamic]
 version = {attr = "semantic_digital_twin._version.__version__"}
 

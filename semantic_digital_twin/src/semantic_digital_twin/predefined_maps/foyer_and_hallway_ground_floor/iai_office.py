@@ -10,8 +10,16 @@ from semantic_digital_twin.predefined_maps.foyer_and_hallway_ground_floor.elevat
 )
 from semantic_digital_twin.predefined_maps.foyer_and_hallway_ground_floor.floor_plan import (
     FloorPlan,
-    FloorPlanFile,
     OutlineFrame,
+)
+from semantic_digital_twin.predefined_maps.foyer_and_hallway_ground_floor.floor_plans.first_floor import (
+    FirstFloorPlan,
+)
+from semantic_digital_twin.predefined_maps.foyer_and_hallway_ground_floor.floor_plans.ground_floor import (
+    GroundFloorPlan,
+)
+from semantic_digital_twin.predefined_maps.foyer_and_hallway_ground_floor.floor_plans.second_floor import (
+    SecondFloorPlan,
 )
 from semantic_digital_twin.predefined_maps.foyer_and_hallway_ground_floor.storey import (
     Storey,
@@ -56,7 +64,11 @@ class IAIOffice:
     """
 
     floor_plans: list[FloorPlan] = field(
-        default_factory=lambda: [FloorPlan.read(file) for file in FloorPlanFile]
+        default_factory=lambda: [
+            GroundFloorPlan(),
+            FirstFloorPlan(),
+            SecondFloorPlan(),
+        ]
     )
     """
     The rooms and hallways of each storey around the elevator room and its hallway.

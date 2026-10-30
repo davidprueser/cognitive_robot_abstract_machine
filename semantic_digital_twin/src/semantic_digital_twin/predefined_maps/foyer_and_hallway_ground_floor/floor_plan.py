@@ -1,12 +1,7 @@
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
 from enum import Enum, auto
-from pathlib import Path
-
-from krrood.adapters.json_serializer import from_json
-from krrood.patterns.path_enumeration import PathEnumeration
 
 from semantic_digital_twin.predefined_maps.foyer_and_hallway_ground_floor.rectilinear_room import (
     RectilinearRoom,
@@ -44,6 +39,18 @@ class OutlineFrame(Enum):
 
 
 @dataclass
+class StoreyHighRoom(RectilinearRoom):
+    """
+    A room whose walls stand as high as the storey it is on.
+    """
+
+    wall_height: float = Storey.height
+    """
+    Height of every wall above the floor, reaching the floor of the storey above.
+    """
+
+
+@dataclass
 class OfficeRoom:
     """
     A room or hallway of the office, as traced from the floor plan of its storey: its
@@ -63,27 +70,6 @@ class OfficeRoom:
     layout: RectilinearRoom
     """
     The room's floor, walls and doorways.
-    """
-
-
-class FloorPlanFile(PathEnumeration):
-    """
-    The files holding the floor plan of each storey of the office.
-    """
-
-    GROUND_FLOOR = Path(__file__).parent / "floor_plans" / "ground_floor.json"
-    """
-    The floor plan of the ground floor.
-    """
-
-    FIRST_FLOOR = Path(__file__).parent / "floor_plans" / "first_floor.json"
-    """
-    The floor plan of the first floor.
-    """
-
-    SECOND_FLOOR = Path(__file__).parent / "floor_plans" / "second_floor.json"
-    """
-    The floor plan of the second floor.
     """
 
 
@@ -112,11 +98,3 @@ class FloorPlan:
     """
     The pieces of the storey's hallway, which stand on one floor together.
     """
-
-    @classmethod
-    def read(cls, file: FloorPlanFile) -> FloorPlan:
-        """
-        :param file: The file holding the floor plan.
-        :return: The floor plan stored in ``file``.
-        """
-        return from_json(json.loads(file.read_text()))
