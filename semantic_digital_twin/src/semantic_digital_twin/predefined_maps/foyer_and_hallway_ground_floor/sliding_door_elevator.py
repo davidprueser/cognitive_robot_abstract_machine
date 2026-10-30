@@ -63,6 +63,12 @@ class SlidingDoorElevator:
     Highest speed the cabin travels at, in metres per second.
     """
 
+    travel_height: float | None = None
+    """
+    Height the cabin rises above its lowest stop, in metres, or None if it has no
+    highest stop.
+    """
+
     cabin_color: Color = field(default_factory=Color.CYAN)
     """
     Color of the cabin.
@@ -81,8 +87,9 @@ class SlidingDoorElevator:
         parent_T_self: HomogeneousTransformationMatrix | None = None,
     ) -> Elevator:
         """
-        Materialize this elevator in ``world``: a cabin on a vertical drive, carrying
-        two doors that each slide open by their own width.
+        Materialize this elevator in ``world``: a cabin on a vertical drive that stops
+        at its lowest position when the drive is at zero, carrying two doors that each
+        slide open by their own width.
 
         :param world: The world the elevator is added to.
         :param name: Prefix for the names of every entity this elevator creates.
@@ -100,7 +107,9 @@ class SlidingDoorElevator:
             parent_connection_specification=PrismaticConnectionSpecification(
                 axis=Vector3.Z(),
                 dof_limits=DegreeOfFreedomLimits.from_position_range_and_speed(
-                    maximum_speed=self.maximum_speed
+                    lower_position=0.0,
+                    upper_position=self.travel_height,
+                    maximum_speed=self.maximum_speed,
                 ),
             ),
             part_specifications={

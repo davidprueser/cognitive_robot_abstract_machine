@@ -288,10 +288,12 @@ class LabElevatorRoom:
     """
 
     elevator: SlidingDoorElevator = field(
-        default_factory=lambda: SlidingDoorElevator(scale=Scale(2.6, 1.14, 2.2))
+        default_factory=lambda: SlidingDoorElevator(
+            scale=Scale(2.6, 1.14, 2.2), travel_height=max(Storey).elevation
+        )
     )
     """
-    The elevator cabin, sized to fill the shaft.
+    The elevator cabin, sized to fill the shaft and travelling up to the top storey.
     """
 
     elevator_center: Point2 = field(default_factory=lambda: Point2(2.82, 8.76))
