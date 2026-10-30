@@ -163,6 +163,10 @@ class Color:
         return Color(1, 0.827, 0.6078)
 
     @classmethod
+    def LIGHT_BEIGE(cls) -> Self:
+        return cls(0.961, 0.922, 0.843)
+
+    @classmethod
     def ORANGE(self):
         return Color(1, 0.647, 0)
 

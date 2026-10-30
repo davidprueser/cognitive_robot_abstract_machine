@@ -199,7 +199,7 @@ class RectilinearRoom:
     outline.
     """
 
-    wall_color: Color = field(default_factory=Color.WHITE)
+    wall_color: Color = field(default_factory=Color.LIGHT_BEIGE)
     """
     Color of every wall.
     """
