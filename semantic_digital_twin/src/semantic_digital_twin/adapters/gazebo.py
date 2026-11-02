@@ -68,8 +68,9 @@ logger = logging.getLogger(__name__)
 
 class SDFElement(StrEnum):
     """
-    The names of the SDF elements that describe worlds, their lighting and systems,
-    models, links and joints.
+    The names of the SDF elements that describe worlds, their lighting, physics and
+    systems, models, links and joints, and the settings of the systems that drive and
+    report joints.
     """
 
     SDF = "sdf"
@@ -78,9 +79,17 @@ class SDFElement(StrEnum):
     LIGHT = "light"
     CAST_SHADOWS = "cast_shadows"
     DIRECTION = "direction"
+    PHYSICS = "physics"
+    MAX_STEP_SIZE = "max_step_size"
     PLUGIN = "plugin"
     ENGINE = "engine"
     FILENAME = "filename"
+    JOINT_NAME = "joint_name"
+    TOPIC = "topic"
+    P_GAIN = "p_gain"
+    D_GAIN = "d_gain"
+    CMD_MAX = "cmd_max"
+    CMD_MIN = "cmd_min"
     MODEL = "model"
     STATIC = "static"
     POSE = "pose"
@@ -108,6 +117,9 @@ class SDFElement(StrEnum):
     IZZ = "izz"
     VISUAL = "visual"
     COLLISION = "collision"
+    SURFACE = "surface"
+    CONTACT = "contact"
+    COLLIDE_BITMASK = "collide_bitmask"
     GEOMETRY = "geometry"
     BOX = "box"
     SIZE = "size"
@@ -125,6 +137,18 @@ class SDFElement(StrEnum):
     MULTIPLIER = "multiplier"
     OFFSET = "offset"
     REFERENCE = "reference"
+
+
+class SDFPhysicsType(StrEnum):
+    """
+    The physics types SDF names for a world's ``physics`` element.
+    """
+
+    CHOSEN_BY_PHYSICS_SYSTEM = "ignored"
+    """
+    The engine is the one the physics system loads, as in Gazebo Sim, which does not
+    read the type the format requires.
+    """
 
 
 class SDFAttribute(StrEnum):

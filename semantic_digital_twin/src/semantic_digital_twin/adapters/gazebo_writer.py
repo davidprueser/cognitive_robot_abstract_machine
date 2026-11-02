@@ -24,6 +24,7 @@ from semantic_digital_twin.adapters.gazebo import (
     SDFElement,
     SDFJointType,
     SDFLightType,
+    SDFPhysicsType,
 )
 from semantic_digital_twin.spatial_types.spatial_types import (
     HomogeneousTransformationMatrix,
@@ -50,6 +51,7 @@ from semantic_digital_twin.world_description.world_entity import (
     Body,
     Connection,
     KinematicStructureEntity,
+    PositionServo,
 )
 
 # %% Gazebo systems
@@ -74,8 +76,7 @@ class GazeboSystemLibrary:
 
 class GazeboSystem(Enum):
     """
-    The Gazebo systems a written world loads, which are those Gazebo loads for a world
-    that names none.
+    The Gazebo systems a written world can load.
     """
 
     PHYSICS = GazeboSystemLibrary("gz-sim-physics-system", "gz::sim::systems::Physics")
@@ -95,6 +96,62 @@ class GazeboSystem(Enum):
     )
     """
     Publishes the scene and the state of the world, which the graphical interface shows.
+    """
+
+    SENSORS = GazeboSystemLibrary("gz-sim-sensors-system", "gz::sim::systems::Sensors")
+    """
+    Runs the sensors that render, such as cameras and lidars.
+    """
+
+    IMU = GazeboSystemLibrary("gz-sim-imu-system", "gz::sim::systems::Imu")
+    """
+    Runs the inertial measurement units.
+    """
+
+    CONTACT = GazeboSystemLibrary("gz-sim-contact-system", "gz::sim::systems::Contact")
+    """
+    Runs the contact sensors.
+    """
+
+
+class GazeboModelSystem(Enum):
+    """
+    The Gazebo systems a written model loads to drive and report its joints.
+    """
+
+    JOINT_POSITION_CONTROLLER = GazeboSystemLibrary(
+        "gz-sim-joint-position-controller-system",
+        "gz::sim::systems::JointPositionController",
+    )
+    """
+    Drives a joint towards a commanded position by exerting force, like a position
+    servo.
+    """
+
+    JOINT_STATE_PUBLISHER = GazeboSystemLibrary(
+        "gz-sim-joint-state-publisher-system",
+        "gz::sim::systems::JointStatePublisher",
+    )
+    """
+    Publishes the state of the model's joints.
+    """
+
+
+class CollideBitmask(StrEnum):
+    """
+    Which collisions of the environment Gazebo detects. A shape collides only with the
+    shapes it shares a bit with; a shape that names no bitmask has every bit set.
+    """
+
+    STATIC_ENVIRONMENT = "0x01"
+    """
+    The part of the environment that never moves.
+    """
+
+    MOVING_ENVIRONMENT = "0x02"
+    """
+    The moving parts of the environment, which pass through its static part as an
+    elevator's cabin passes the floors it serves.
     """
 
 
@@ -167,6 +224,13 @@ class SDFModelContents(ABC):
         return []
 
     @property
+    @abstractmethod
+    def collide_bitmask(self) -> CollideBitmask | None:
+        """
+        The bitmask of the model's collisions, or None if they collide with everything.
+        """
+
+    @property
     def has_moving_joints(self) -> bool:
         """
         Whether any joint of the model moves.
@@ -213,6 +277,16 @@ class SDFRootedModelContents(SDFModelContents):
         moves.
         """
         return self.root.parent_connection is None and not self.has_moving_joints
+
+    @property
+    def collide_bitmask(self) -> CollideBitmask | None:
+        """
+        :attr:`CollideBitmask.STATIC_ENVIRONMENT` for the model rooted at the root of
+        the world, and None for a free model.
+        """
+        if self.root.parent_connection is None:
+            return CollideBitmask.STATIC_ENVIRONMENT
+        return None
 
     def separate_moving_parts(
         self,
@@ -280,6 +354,10 @@ class SDFMovingPartsContents(SDFModelContents):
         return False
 
     @property
+    def collide_bitmask(self) -> CollideBitmask:
+        return CollideBitmask.MOVING_ENVIRONMENT
+
+    @property
     def anchors(self) -> list[Body]:
         fixed_bodies = self.fixed_part.bodies
         return list(
@@ -312,8 +390,12 @@ class GazeboWriter:
     Joints are written at position zero, and free models where they currently are
     relative to the body they are attached to.
 
-    .. note:: Semantic annotations, regions and the armature of joints have no SDF
-        counterpart and are not written.
+    A :class:`PositionServo` drives its joint with the servo's gains, and a model with
+    moving joints publishes their states. The moving parts of the model at the root of
+    the world do not collide with its static part.
+
+    .. note:: Semantic annotations, regions, the armature of joints and actuators other
+        than position servos have no SDF counterpart and are not written.
     """
 
     world: World
@@ -324,6 +406,24 @@ class GazeboWriter:
     physics_engine: GazeboPhysicsEngine = GazeboPhysicsEngine.BULLET_FEATHERSTONE
     """
     The physics engine Gazebo simulates the written world with.
+    """
+
+    systems: list[GazeboSystem] = field(
+        default_factory=lambda: [
+            GazeboSystem.PHYSICS,
+            GazeboSystem.USER_COMMANDS,
+            GazeboSystem.SCENE_BROADCASTER,
+        ]
+    )
+    """
+    The systems the written world loads; by default those Gazebo loads for a world that
+    names none.
+    """
+
+    step_size: float = 0.001
+    """
+    The simulated time physics advances by with every step, in seconds; by default
+    Gazebo's own.
     """
 
     ambient_light: Color = field(default_factory=Color.GRAY)
@@ -523,10 +623,38 @@ class GazeboWriter:
         world_element = ElementTree.SubElement(
             document, SDFElement.WORLD, {SDFAttribute.NAME: world_name}
         )
-        world_element.extend([self.system_element(system) for system in GazeboSystem])
+        world_element.append(self.physics_element())
+        world_element.extend([self.system_element(system) for system in self.systems])
         world_element.extend([self.scene_element(), self.sun_element()])
         world_element.extend([self.model_element(model) for model in self.models])
         return document
+
+    def physics_element(self) -> ElementTree.Element:
+        """
+        :return: The ``physics`` element setting :attr:`step_size`.
+        """
+        element = ElementTree.Element(
+            SDFElement.PHYSICS,
+            {SDFAttribute.TYPE: SDFPhysicsType.CHOSEN_BY_PHYSICS_SYSTEM},
+        )
+        ElementTree.SubElement(element, SDFElement.MAX_STEP_SIZE).text = (
+            self.format_numbers([self.step_size])
+        )
+        return element
+
+    @staticmethod
+    def plugin_element(library: GazeboSystemLibrary) -> ElementTree.Element:
+        """
+        :param library: The library of a system.
+        :return: The ``plugin`` element loading the system.
+        """
+        return ElementTree.Element(
+            SDFElement.PLUGIN,
+            {
+                SDFAttribute.FILENAME: library.filename,
+                SDFAttribute.NAME: library.class_name,
+            },
+        )
 
     def system_element(self, system: GazeboSystem) -> ElementTree.Element:
         """
@@ -534,13 +662,7 @@ class GazeboWriter:
         :return: The ``plugin`` element loading the system, the physics system with
             :attr:`physics_engine`.
         """
-        element = ElementTree.Element(
-            SDFElement.PLUGIN,
-            {
-                SDFAttribute.FILENAME: system.value.filename,
-                SDFAttribute.NAME: system.value.class_name,
-            },
-        )
+        element = self.plugin_element(system.value)
         if system is GazeboSystem.PHYSICS:
             engine = ElementTree.SubElement(element, SDFElement.ENGINE)
             ElementTree.SubElement(engine, SDFElement.FILENAME).text = (
@@ -607,7 +729,11 @@ class GazeboWriter:
         )
         element.extend(
             [
-                self.link_element(body, model_T_root @ self.root_T_body_at_zero[body])
+                self.link_element(
+                    body,
+                    model_T_root @ self.root_T_body_at_zero[body],
+                    model.collide_bitmask,
+                )
                 for body in model.bodies
             ]
         )
@@ -615,6 +741,81 @@ class GazeboWriter:
             [self.joint_element(connection) for connection in model.connections]
         )
         element.extend([self.anchor_joint_element(anchor) for anchor in model.anchors])
+        element.extend(
+            [
+                self.joint_position_controller_element(model, connection, servo)
+                for connection in model.connections
+                if (servo := self.servo_by_connection.get(connection)) is not None
+            ]
+        )
+        if model.has_moving_joints:
+            element.append(
+                self.plugin_element(GazeboModelSystem.JOINT_STATE_PUBLISHER.value)
+            )
+        return element
+
+    @cached_property
+    def servo_by_connection(self) -> dict[ActiveConnection1DOF, PositionServo]:
+        """
+        The position servo driving each joint: the servo of the joint's degree of
+        freedom, which a mimic joint follows rather than being driven itself.
+        """
+        servo_by_degree_of_freedom = {
+            degree_of_freedom.id: actuator
+            for actuator in self.world.actuators
+            if isinstance(actuator, PositionServo)
+            for degree_of_freedom in actuator.dofs
+        }
+        return {
+            connection: servo_by_degree_of_freedom[connection.raw_dof.id]
+            for model in self.models
+            for connection in model.connections
+            if isinstance(connection, ActiveConnection1DOF)
+            and connection not in self.leader_by_follower
+            and connection.raw_dof.id in servo_by_degree_of_freedom
+        }
+
+    @staticmethod
+    def joint_command_topic(
+        model: SDFModelContents, connection: ActiveConnection1DOF
+    ) -> str:
+        """
+        :param model: The model holding the joint.
+        :param connection: The joint a servo drives.
+        :return: The topic the joint's commanded position is published on: Gazebo's own
+            for a joint position controller, without the joint's index, a number a ROS
+            topic name cannot hold.
+        """
+        return f"/model/{model.name}/joint/{connection.name.name}/cmd_pos"
+
+    def joint_position_controller_element(
+        self,
+        model: SDFModelContents,
+        connection: ActiveConnection1DOF,
+        servo: PositionServo,
+    ) -> ElementTree.Element:
+        """
+        :param model: The model holding the joint.
+        :param connection: The joint the servo drives.
+        :param servo: The servo.
+        :return: The ``plugin`` element driving the joint with the servo's gains, its
+            force clamped to the servo's torque limit, towards the position published on
+            :meth:`joint_command_topic`.
+        """
+        element = self.plugin_element(GazeboModelSystem.JOINT_POSITION_CONTROLLER.value)
+        ElementTree.SubElement(element, SDFElement.JOINT_NAME).text = (
+            connection.name.name
+        )
+        ElementTree.SubElement(element, SDFElement.TOPIC).text = (
+            self.joint_command_topic(model, connection)
+        )
+        for tag, value in (
+            (SDFElement.P_GAIN, servo.gains.stiffness),
+            (SDFElement.D_GAIN, servo.gains.damping),
+            (SDFElement.CMD_MAX, servo.gains.torque_limit),
+            (SDFElement.CMD_MIN, -servo.gains.torque_limit),
+        ):
+            ElementTree.SubElement(element, tag).text = self.format_numbers([value])
         return element
 
     # %% links
@@ -633,10 +834,17 @@ class GazeboWriter:
         element.append(self.pose_element(model_T_link))
         return element
 
-    def link_element(self, body: Body, model_T_link: np.ndarray) -> ElementTree.Element:
+    def link_element(
+        self,
+        body: Body,
+        model_T_link: np.ndarray,
+        collide_bitmask: CollideBitmask | None,
+    ) -> ElementTree.Element:
         """
         :param body: The body to describe.
         :param model_T_link: The pose of the body relative to its model.
+        :param collide_bitmask: The bitmask of the body's collisions, or None if they
+            collide with everything.
         :return: The ``link`` element describing the body.
         """
         element = ElementTree.Element(
@@ -653,9 +861,30 @@ class GazeboWriter:
         )
         element.extend(
             [
-                self.shape_element(SDFElement.COLLISION, index, shape)
+                self.collision_element(index, shape, collide_bitmask)
                 for index, shape in enumerate(body.collision)
             ]
+        )
+        return element
+
+    def collision_element(
+        self, index: int, shape: Shape, collide_bitmask: CollideBitmask | None
+    ) -> ElementTree.Element:
+        """
+        :param index: The position of the shape among the collision shapes of its body.
+        :param shape: The shape to describe.
+        :param collide_bitmask: The bitmask of the collision, or None if it collides
+            with everything.
+        :return: The ``collision`` element describing the shape.
+        """
+        element = self.shape_element(SDFElement.COLLISION, index, shape)
+        if collide_bitmask is None:
+            return element
+        contact = ElementTree.SubElement(
+            ElementTree.SubElement(element, SDFElement.SURFACE), SDFElement.CONTACT
+        )
+        ElementTree.SubElement(contact, SDFElement.COLLIDE_BITMASK).text = (
+            collide_bitmask
         )
         return element
 

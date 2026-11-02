@@ -21,13 +21,19 @@ from semantic_digital_twin.adapters.gazebo import (
     SDFElement,
     SDFJointType,
 )
-from semantic_digital_twin.adapters.gazebo_writer import GazeboWriter
+from semantic_digital_twin.adapters.gazebo_writer import (
+    CollideBitmask,
+    GazeboModelSystem,
+    GazeboSystem,
+    GazeboWriter,
+)
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.spatial_types.spatial_types import (
     HomogeneousTransformationMatrix,
     Vector3,
 )
 from semantic_digital_twin.world import World
+from semantic_digital_twin.world_description.connection_properties import ServoGains
 from semantic_digital_twin.world_description.connections import (
     Connection6DoF,
     FixedConnection,
@@ -40,7 +46,7 @@ from semantic_digital_twin.world_description.degree_of_freedom import (
 )
 from semantic_digital_twin.world_description.geometry import Box, Mesh, Scale
 from semantic_digital_twin.world_description.shape_collection import ShapeCollection
-from semantic_digital_twin.world_description.world_entity import Body
+from semantic_digital_twin.world_description.world_entity import Body, PositionServo
 
 from .test_gazebo import (
     GazeboFixturePaths,
@@ -69,8 +75,17 @@ def write_and_read(world: World, directory: Path) -> ElementTree.Element:
     :param directory: The directory the SDF file is written to.
     :return: The root element of the written file.
     """
+    return write_with(GazeboWriter(world=world), directory)
+
+
+def write_with(writer: GazeboWriter, directory: Path) -> ElementTree.Element:
+    """
+    :param writer: The writer, holding the world to write.
+    :param directory: The directory the SDF file is written to.
+    :return: The root element of the written file.
+    """
     file_path = str(directory / "world.sdf")
-    GazeboWriter(world=world).write(file_path)
+    writer.write(file_path)
     return ElementTree.parse(file_path).getroot()
 
 
@@ -458,6 +473,153 @@ class TestModelDivision:
         parsed = write_and_parse(mini_world, tmp_path)
         root = body_named(parsed, mini_world.root.name.name)
         assert isinstance(root.parent_connection, FixedConnection)
+
+
+# %% simulation
+
+
+@pytest.fixture
+def world_with_hinged_lid() -> World:
+    """
+    A room whose lid swings on a hinge, both with collision shapes.
+    """
+    world = World()
+    with world.modify_world():
+        room = Body(
+            name=PrefixedName("room", "house"),
+            collision=ShapeCollection([Box(scale=Scale(4.0, 4.0, 0.1))]),
+        )
+        lid = Body(
+            name=PrefixedName("lid", "house"),
+            collision=ShapeCollection([Box(scale=Scale(1.0, 1.0, 0.05))]),
+        )
+        world.add_connection(
+            RevoluteConnection.create_with_dofs(
+                world=world, parent=room, child=lid, axis=Vector3.Y()
+            )
+        )
+    return world
+
+
+def plugins_named(element: ElementTree.Element, system: GazeboModelSystem) -> list:
+    """
+    :param element: A model element.
+    :param system: The system the plugins load.
+    :return: The plugin elements of the model loading system.
+    """
+    return element.findall(
+        f"{SDFElement.PLUGIN}[@{SDFAttribute.NAME}='{system.value.class_name}']"
+    )
+
+
+class TestSimulationSetup:
+    """
+    What a written world tells Gazebo about simulating it.
+    """
+
+    def test_world_loads_the_systems_it_is_given(
+        self, mini_world: World, tmp_path: Path
+    ) -> None:
+        systems = [GazeboSystem.PHYSICS, GazeboSystem.SENSORS, GazeboSystem.IMU]
+        document = write_with(GazeboWriter(world=mini_world, systems=systems), tmp_path)
+        assert [
+            plugin.get(SDFAttribute.NAME)
+            for plugin in document.findall(f"{SDFElement.WORLD}/{SDFElement.PLUGIN}")
+        ] == [system.value.class_name for system in systems]
+
+    def test_physics_steps_by_the_step_size(
+        self, mini_world: World, tmp_path: Path
+    ) -> None:
+        writer = GazeboWriter(world=mini_world, step_size=0.003)
+        document = write_with(writer, tmp_path)
+        step_size = document.findtext(
+            f"{SDFElement.WORLD}/{SDFElement.PHYSICS}/{SDFElement.MAX_STEP_SIZE}"
+        )
+        assert float(step_size) == writer.step_size
+
+    def test_moving_parts_of_the_environment_pass_through_its_static_part(
+        self, world_with_hinged_lid: World, tmp_path: Path
+    ) -> None:
+        """
+        The moving parts of the model holding the world's root, such as an elevator's
+        cabin, do not collide with its static part, such as the floor slabs the cabin
+        passes; anything else collides with both.
+        """
+        writer = GazeboWriter(world=world_with_hinged_lid)
+        fixed_part, moving_parts = writer.models
+        document = write_with(writer, tmp_path)
+
+        def bitmasks(model_name: str) -> set[str]:
+            return {
+                element.text
+                for element in model_element_named(document, model_name).iter(
+                    SDFElement.COLLIDE_BITMASK
+                )
+            }
+
+        assert bitmasks(fixed_part.name) == {CollideBitmask.STATIC_ENVIRONMENT}
+        assert bitmasks(moving_parts.name) == {CollideBitmask.MOVING_ENVIRONMENT}
+
+    def test_free_model_collides_with_everything(
+        self, world_with_free_object: World, tmp_path: Path
+    ) -> None:
+        cup = body_named(world_with_free_object, "cup")
+        cup.collision = ShapeCollection([Box(scale=Scale(0.1, 0.1, 0.1))], cup)
+        document = write_and_read(world_with_free_object, tmp_path)
+        cup_model = model_element_named(document, "cup")
+        assert cup_model.find(f".//{SDFElement.COLLISION}") is not None
+        assert cup_model.find(f".//{SDFElement.COLLIDE_BITMASK}") is None
+
+    def test_position_servo_drives_its_joint_with_its_gains(
+        self, mini_world: World, tmp_path: Path
+    ) -> None:
+        hinge = mini_world.connections[0]
+        gains = ServoGains(stiffness=10.0, damping=2.0, torque_limit=5.0)
+        servo = PositionServo(name=PrefixedName("hinge_servo"), gains=gains)
+        servo.add_dof(hinge.raw_dof)
+        with mini_world.modify_world():
+            mini_world.add_actuator(servo)
+        writer = GazeboWriter(world=mini_world)
+        _, moving_parts = writer.models
+
+        document = write_with(writer, tmp_path)
+
+        [controller] = plugins_named(
+            model_element_named(document, moving_parts.name),
+            GazeboModelSystem.JOINT_POSITION_CONTROLLER,
+        )
+        assert controller.findtext(SDFElement.JOINT_NAME) == hinge.name.name
+        assert controller.findtext(SDFElement.TOPIC) == writer.joint_command_topic(
+            moving_parts, hinge
+        )
+        assert [
+            float(controller.findtext(tag))
+            for tag in (
+                SDFElement.P_GAIN,
+                SDFElement.D_GAIN,
+                SDFElement.CMD_MAX,
+                SDFElement.CMD_MIN,
+            )
+        ] == [gains.stiffness, gains.damping, gains.torque_limit, -gains.torque_limit]
+
+    def test_model_with_moving_joints_publishes_their_states(
+        self, mini_world: World, tmp_path: Path
+    ) -> None:
+        writer = GazeboWriter(world=mini_world)
+        fixed_part, moving_parts = writer.models
+        document = write_with(writer, tmp_path)
+        publisher = GazeboModelSystem.JOINT_STATE_PUBLISHER
+        assert (
+            len(
+                plugins_named(
+                    model_element_named(document, moving_parts.name), publisher
+                )
+            )
+            == 1
+        )
+        assert not plugins_named(
+            model_element_named(document, fixed_part.name), publisher
+        )
 
 
 # %% unsupported worlds
