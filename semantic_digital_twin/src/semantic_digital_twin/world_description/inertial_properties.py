@@ -4,10 +4,13 @@ from typing import Tuple, Optional, Dict, Any
 
 import numpy as np
 from numpy._typing import NDArray
-from typing_extensions import Self, TypeVar
+from typing_extensions import Self, TypeVar, TYPE_CHECKING
 
 from krrood.adapters.json_serializer import SubclassJSONSerializer
 from semantic_digital_twin.spatial_types import Point3, RotationMatrix
+
+if TYPE_CHECKING:
+    from semantic_digital_twin.world_description.geometry import Scale
 
 
 @dataclass
@@ -247,3 +250,24 @@ class Inertial:
     The inertia tensor of the body about its center of mass, expressed in the body's
     local coordinate frame.
     """
+
+    @classmethod
+    def of_solid_box(cls, mass: float, scale: Scale) -> Self:
+        """
+        :param mass: The mass of the box, in kilograms.
+        :param scale: The extents of the box along the body's axes.
+        :return: The inertial of a solid box of uniform density centred on the body's
+            origin.
+        """
+        moment_factor = mass / 12
+        return cls(
+            mass=mass,
+            inertia=InertiaTensor.from_values(
+                moment_factor * (scale.y**2 + scale.z**2),
+                moment_factor * (scale.x**2 + scale.z**2),
+                moment_factor * (scale.x**2 + scale.y**2),
+                0.0,
+                0.0,
+                0.0,
+            ),
+        )

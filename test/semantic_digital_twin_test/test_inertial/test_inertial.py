@@ -3,7 +3,9 @@ from numpy.testing import assert_allclose
 from scipy.spatial.transform import Rotation as R
 
 from semantic_digital_twin.spatial_types import RotationMatrix, Vector3
+from semantic_digital_twin.world_description.geometry import Scale
 from semantic_digital_twin.world_description.inertial_properties import (
+    Inertial,
     InertiaTensor,
     PrincipalMoments,
     PrincipalAxes,
@@ -107,3 +109,19 @@ class TestComponentsAndAssembly:
                     axes_out.data @ np.diag(moments_out.data) @ axes_out.data.T
                 )
                 assert_allclose(sorted_tensor, expected_tensor, atol=1e-12)
+
+
+# %% a solid box
+
+
+def test_a_solid_box_resists_turning_about_each_axis_by_its_extents_across_it():
+    """
+    A solid box of mass ``m`` and extents ``x``, ``y``, ``z`` has the principal moments
+    ``m / 12 * (y² + z²)``, ``m / 12 * (x² + z²)`` and ``m / 12 * (x² + y²)`` about its
+    centre.
+    """
+    inertial = Inertial.of_solid_box(mass=12.0, scale=Scale(1.0, 2.0, 3.0))
+
+    assert inertial.mass == 12.0
+    assert_allclose(inertial.center_of_mass.to_np()[:3], [0.0, 0.0, 0.0])
+    assert_allclose(inertial.inertia.to_values(), [13.0, 10.0, 5.0, 0.0, 0.0, 0.0])
