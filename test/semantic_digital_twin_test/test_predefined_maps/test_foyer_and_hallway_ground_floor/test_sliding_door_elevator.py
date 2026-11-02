@@ -58,3 +58,38 @@ def test_cabin_travels_from_its_lowest_stop_up_by_its_travel_height():
         0.0,
         sliding_door_elevator.travel_height,
     )
+
+
+def test_cabin_weighs_its_mass(sliding_door_elevator):
+    world = World.create_with_root_body("root")
+    elevator = sliding_door_elevator.spawn(world, "elevator")
+    assert elevator.root.inertial.mass == sliding_door_elevator.cabin_mass
+
+
+def test_a_servo_drives_the_cabin_with_the_drive_gains(sliding_door_elevator):
+    world = World.create_with_root_body("root")
+    elevator = sliding_door_elevator.spawn(world, "elevator")
+
+    [servo] = [
+        actuator
+        for actuator in world.actuators
+        if elevator.movable_joint.raw_dof in actuator.dofs
+    ]
+
+    assert servo.gains is sliding_door_elevator.drive_servo
+
+
+def test_a_servo_drives_each_door_with_the_door_gains(sliding_door_elevator):
+    world = World.create_with_root_body("root")
+    elevator = sliding_door_elevator.spawn(world, "elevator")
+
+    door_servos = [
+        actuator
+        for door in elevator.doors
+        for actuator in world.actuators
+        if door.movable_joint.raw_dof in actuator.dofs
+    ]
+
+    assert [servo.gains for servo in door_servos] == [
+        sliding_door_elevator.door_servo
+    ] * len(elevator.doors)
