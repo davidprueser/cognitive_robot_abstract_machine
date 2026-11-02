@@ -18,6 +18,7 @@ from semantic_digital_twin.datastructures.alignment import AlignmentPair
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.datastructures.variables import SpatialVariables
 from semantic_digital_twin.exceptions import (
+    NoFloorOnLevelError,
     NoGraspGeometry,
     InvalidPlaneDimensions,
     InvalidHingeActiveAxis,
@@ -873,11 +874,29 @@ class Floor(HasSupportingSurface):
     @property
     def extent(self) -> VolumetricBoundingBox:
         """
-        The floor's bounding box in the frame of its world's root.
+        The bounding box of the floor's own shapes in the frame of its world's root,
+        leaving out whatever is attached to the floor, such as its walls.
         """
-        return self.as_bounding_box_collection_at_origin(
-            HomogeneousTransformationMatrix(reference_frame=self._world.root)
+        return self.root.collision.as_bounding_box_collection_in_frame(
+            self._world.root
         ).bounding_box()
+
+    def covers(self, point: Point3) -> bool:
+        """
+        :param point: The point to test, at any height.
+        :return: Whether one of the floor's own shapes lies straight above or below
+            ``point``.
+        """
+        point_in_floor = self._world.transform(point, self.root)
+        for shape in self.root.collision.shapes:
+            footprint = shape.local_frame_bounding_box
+            point_in_shape = shape.origin.inverse() @ point_in_floor
+            if (
+                footprint.min_x <= float(point_in_shape.x) <= footprint.max_x
+                and footprint.min_y <= float(point_in_shape.y) <= footprint.max_y
+            ):
+                return True
+        return False
 
     @classmethod
     def under(
@@ -886,18 +905,16 @@ class Floor(HasSupportingSurface):
         """
         :param floor_tolerance: How far a floor's top may lie above ``entity``'s origin
             for ``entity`` to count as standing on that floor.
-        :return: The topmost floor of ``entity``'s world whose footprint holds
-            ``entity``'s origin and whose top lies at most ``floor_tolerance`` above
-            it, or None if ``entity`` stands over no floor.
+        :return: The topmost floor of ``entity``'s world that :meth:`covers` ``entity``'s
+            origin and whose top lies at most ``floor_tolerance`` above it, or None if
+            ``entity`` stands over no floor.
         """
-        position = entity.global_transform
-        x, y, z = float(position.x), float(position.y), float(position.z)
+        position = entity.global_transform.position
+        highest_top = float(position.z) + floor_tolerance
         tops_of_floors_below = {
-            floor: extent.max_z
+            floor: top
             for floor in entity._world.get_semantic_annotations_by_type(cls)
-            if (extent := floor.extent).min_x <= x <= extent.max_x
-            and extent.min_y <= y <= extent.max_y
-            and extent.max_z <= z + floor_tolerance
+            if floor.covers(position) and (top := floor.extent.max_z) <= highest_top
         }
         if not tops_of_floors_below:
             return None
@@ -949,27 +966,40 @@ class LivingRoom(Room): ...
 class Level(HasRootRegion, HasPlanarFreeSpace):
     """
     A level of a building, whose region spans it from its floor up.
-
-    .. note:: The free space of a level ignores holes in its floor, such as an elevator
-        shaft, since its ground is the whole footprint of its region.
     """
 
-    def _ground(self) -> VolumetricBoundingBox:
+    def _ground(self, floor_tolerance: float = 0.2) -> BoundingBoxCollection:
         """
-        The bottom face of this level's region.
+        The parts of the floors of this level's world that lie within the footprint of
+        its region, at the height of the region's bottom.
+
+        :param floor_tolerance: How far a floor may lie from the region's bottom to
+            count as part of this level.
+        :raises NoFloorOnLevelError: If no floor lies there.
         """
         region = self.root.area.as_bounding_box_collection_at_origin(
             HomogeneousTransformationMatrix(reference_frame=self.root)
         ).bounding_box()
-        return VolumetricBoundingBox(
+        height_of_floors = VolumetricBoundingBox(
             region.min_x,
             region.min_y,
-            region.min_z,
+            region.min_z - floor_tolerance,
             region.max_x,
             region.max_y,
-            region.min_z,
+            region.min_z + floor_tolerance,
             region.origin,
         )
+        slabs_on_level = [
+            slab_on_level
+            for floor in self._world.get_semantic_annotations_by_type(Floor)
+            for slab in floor.root.collision.as_bounding_box_collection_in_frame(
+                self.root
+            )
+            if (slab_on_level := slab.intersection_with(height_of_floors)) is not None
+        ]
+        if not slabs_on_level:
+            raise NoFloorOnLevelError(self)
+        return BoundingBoxCollection(slabs_on_level, self.root)
 
     @classmethod
     def holding(cls, body: Body, minimum_containment_ratio: float = 0.9) -> list[Self]:
