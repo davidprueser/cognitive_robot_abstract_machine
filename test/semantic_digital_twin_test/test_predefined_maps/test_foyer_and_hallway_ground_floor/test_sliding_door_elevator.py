@@ -19,7 +19,7 @@ def test_opening_slides_each_door_away_from_the_middle_by_its_width(
 
     def door_offsets() -> list[float]:
         return [
-            float(world.compute_forward_kinematics_np(elevator.root, door.root)[1, 3])
+            float(world.compute_forward_kinematics_np(elevator.root, door.leaf)[1, 3])
             for door in elevator.doors
         ]
 
@@ -43,7 +43,7 @@ def test_cabin_and_doors_take_their_colors(sliding_door_elevator):
     door_colors = {
         shape.color
         for door in elevator.doors
-        for shape in door.root.collision.shapes + door.root.visual.shapes
+        for shape in door.leaf.collision.shapes + door.leaf.visual.shapes
     }
     assert cabin_colors == {sliding_door_elevator.cabin_color}
     assert door_colors == {sliding_door_elevator.door_color}
