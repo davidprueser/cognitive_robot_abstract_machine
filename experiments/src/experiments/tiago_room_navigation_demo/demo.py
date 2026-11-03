@@ -50,6 +50,12 @@ class TiagoRoomNavigationDemonstration(TiagoElevatorRideDemonstration):
     How far Tiago's base keeps from obstacles on top of its base radius while it drives.
     """
 
+    elevator_exit_clearance: float = field(default=0.5, kw_only=True)
+    """
+    Distance Tiago keeps from the elevator's opening after driving out of the cabin, on
+    top of half the cabin's depth.
+    """
+
     def build_plan(self, context: Context) -> PlanNode:
         """
         Drive one leg of the way to the target room.
@@ -62,6 +68,7 @@ class TiagoRoomNavigationDemonstration(TiagoElevatorRideDemonstration):
                     ),
                     elevator_arrival_threshold=self.elevator_arrival_threshold,
                     obstacle_clearance=self.obstacle_clearance,
+                    elevator_exit_clearance=self.elevator_exit_clearance,
                 )
             ],
             context=context,

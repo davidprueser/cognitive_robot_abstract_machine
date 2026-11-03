@@ -151,6 +151,23 @@ def test_every_drive_to_a_room_keeps_the_obstacle_clearance(
     assert [drive.obstacle_clearance for drive in drives] == [action.obstacle_clearance]
 
 
+def test_the_ride_to_a_room_keeps_the_elevator_exit_clearance(
+    lobby_demonstration, lobby_context
+):
+    west_office = lobby_demonstration.office.get_room(
+        lobby_context.world, FirstFloor, AriseOfficeRoom.WEST_OFFICE
+    )
+    action = NavigateToRoomAction(west_office, elevator_exit_clearance=0.7)
+
+    [ride] = [
+        step
+        for step in planned_steps(action, lobby_context)
+        if isinstance(step, ElevatorNavigation)
+    ]
+
+    assert ride.exit_clearance == action.elevator_exit_clearance
+
+
 def test_the_demonstration_drives_with_its_obstacle_clearance(
     lobby_demonstration, lobby_context
 ):
@@ -167,6 +184,27 @@ def test_the_demonstration_drives_with_its_obstacle_clearance(
     [navigation] = demonstration.build_plan(lobby_context).children
 
     assert navigation.designator.obstacle_clearance == demonstration.obstacle_clearance
+
+
+def test_the_demonstration_rides_with_its_elevator_exit_clearance(
+    lobby_demonstration, lobby_context
+):
+    west_office = lobby_demonstration.office.get_room(
+        lobby_context.world, FirstFloor, AriseOfficeRoom.WEST_OFFICE
+    )
+    demonstration = TiagoRoomNavigationDemonstration(
+        used_robot=Tiago,
+        execution_type=ExecutionType.KINEMATICALLY_SIMULATED,
+        target_room_name=west_office.name.name,
+        elevator_exit_clearance=0.7,
+    )
+
+    [navigation] = demonstration.build_plan(lobby_context).children
+
+    assert (
+        navigation.designator.elevator_exit_clearance
+        == demonstration.elevator_exit_clearance
+    )
 
 
 def test_a_room_on_no_level_cannot_be_planned_for(lobby_context):

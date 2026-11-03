@@ -58,6 +58,12 @@ class NavigateToRoomAction(ActionDescription):
     Position error within which the elevator's drive counts as having arrived.
     """
 
+    elevator_exit_clearance: float = field(default=0.5, kw_only=True)
+    """
+    Distance the robot keeps from the elevator's opening after driving out of the cabin,
+    on top of half the cabin's depth.
+    """
+
     obstacle_clearance: float = field(default=0.0, kw_only=True)
     """
     How far the robot's base keeps from obstacles on top of its base radius while it
@@ -97,6 +103,7 @@ class NavigateToRoomAction(ActionDescription):
                     elevator,
                     target_level,
                     arrival_threshold=self.elevator_arrival_threshold,
+                    exit_clearance=self.elevator_exit_clearance,
                 ),
             ]
         )
