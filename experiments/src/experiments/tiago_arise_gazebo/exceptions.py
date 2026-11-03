@@ -44,3 +44,42 @@ class DestinationFloorRejectedError(DataclassException):
 
     def suggest_correction(self) -> str:
         return "Check that the floor is one of the floors the operator knows."
+
+
+# %% teleporting
+
+
+@dataclass
+class EntityTeleportUnavailableError(DataclassException):
+    """
+    Raised when the simulator offers no way to move an entity of its world.
+    """
+
+    service_name: str
+    """
+    The service the entity was to be moved through.
+    """
+
+    def error_message(self) -> str:
+        return f"No simulator answers on {self.service_name}."
+
+    def suggest_correction(self) -> str:
+        return "Start the simulator with the bridge for its set_pose service."
+
+
+@dataclass
+class EntityTeleportRejectedError(DataclassException):
+    """
+    Raised when the simulator does not move a model of its world.
+    """
+
+    model_name: str
+    """
+    The name of the model that was to be moved.
+    """
+
+    def error_message(self) -> str:
+        return f"The simulator did not move the model {self.model_name}."
+
+    def suggest_correction(self) -> str:
+        return "Check that the simulated world holds a model of this name."
