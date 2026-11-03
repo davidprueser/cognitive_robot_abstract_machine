@@ -131,6 +131,35 @@ class RecordingDemonstration(RobotDemonstration):
         super().tear_down()
 
 
+@dataclass(kw_only=True)
+class PlansBuiltInTurnDemonstration(RecordingDemonstration):
+    """
+    A demonstration that performs two plans and records, as it builds each one, how many
+    plans have been performed so far.
+    """
+
+    performed_plans: int = 0
+    """
+    How many plans have been performed.
+    """
+
+    performed_plans_when_built: list[int] = field(default_factory=list)
+    """
+    How many plans had been performed when each plan was built, in building order.
+    """
+
+    def build_plans(self, context: Context) -> Iterator[PlanNode]:
+        for _ in range(2):
+            self.performed_plans_when_built.append(self.performed_plans)
+            yield code(self.count_performed_plan, context)
+
+    def count_performed_plan(self) -> None:
+        """
+        Record that a plan was performed.
+        """
+        self.performed_plans += 1
+
+
 # %% world acquisition
 
 
@@ -213,6 +242,22 @@ def test_run_returns_the_world_it_acted_on(cylinder_bot_world):
     )
 
     assert demonstration.run() is cylinder_bot_world
+
+
+# %% plans built in turn
+
+
+def test_each_plan_is_built_once_the_one_before_it_was_performed(cylinder_bot_world):
+    """
+    A later plan is laid out against the world the plans before it left behind.
+    """
+    demonstration = PlansBuiltInTurnDemonstration(
+        world=cylinder_bot_world, used_robot=MinimalRobot
+    )
+
+    demonstration.run()
+
+    assert demonstration.performed_plans_when_built == [0, 1]
 
 
 # %% event segmentation

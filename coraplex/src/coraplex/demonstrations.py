@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 import rclpy
 from rclpy.executors import SingleThreadedExecutor
 from rclpy.node import Node
-from typing_extensions import List, Type
+from typing_extensions import Iterator, List, Type
 
 from coraplex.alternative_motion_mapping import AlternativeMotion
 from coraplex.datastructures.dataclasses import Context
@@ -175,9 +175,9 @@ class RobotDemonstration(ABC):
 
     repetitions: int = 1
     """
-    How often the plan is performed against the scene.
+    How often the plans are performed against the scene.
 
-    Repeating only makes sense for a plan that leaves the scene as it found it, such as
+    Repeating only makes sense for plans that leave the scene as they found it, such as
     one carrying an object away and back again.
     """
 
@@ -224,6 +224,17 @@ class RobotDemonstration(ABC):
         """
         Build the plan this demonstration performs.
         """
+
+    def build_plans(self, context: Context) -> Iterator[PlanNode]:
+        """
+        Build the plans this demonstration performs, one after another.
+
+        Each plan is built only once the one before it has been performed, so it is laid
+        out against the world that plan left behind.
+
+        :return: The plans, by default the one from :meth:`build_plan`.
+        """
+        yield self.build_plan(context)
 
     def segment_events(self, world: World) -> AbstractContextManager:
         """
@@ -278,7 +289,7 @@ class RobotDemonstration(ABC):
 
     def run(self) -> World:
         """
-        Acquire a world, populate it if needed, and perform the plan against it.
+        Acquire a world, populate it if needed, and perform the plans against it.
 
         :return: The world the demonstration acted on.
         """
@@ -288,23 +299,31 @@ class RobotDemonstration(ABC):
                 self.populate_scene(world)
             for _ in range(self.repetitions):
                 context = self.build_context(world)
-                plan = self.build_plan(context)
-                if self.visualization is not None:
-                    self.visualization.attach_plan(plan)
-                event_segmentation = (
-                    self.segment_events(world)
-                    if self.event_segmentation
-                    else nullcontext()
-                )
-                with ExecutionEnvironment(
-                    execution_type=self.execution_type,
-                    collision_avoidance=self.collision_avoidance,
-                ), event_segmentation:
-                    plan.perform()
+                for plan in self.build_plans(context):
+                    self.perform_plan(plan, world)
             self.conclude(world)
         finally:
             self.tear_down()
         return world
+
+    def perform_plan(self, plan: PlanNode, world: World) -> None:
+        """
+        Perform ``plan`` in this demonstration's execution environment, showing it in
+        the visualization and segmenting its events.
+
+        :param plan: The plan to perform.
+        :param world: The world the plan is performed in.
+        """
+        if self.visualization is not None:
+            self.visualization.attach_plan(plan)
+        event_segmentation = (
+            self.segment_events(world) if self.event_segmentation else nullcontext()
+        )
+        with ExecutionEnvironment(
+            execution_type=self.execution_type,
+            collision_avoidance=self.collision_avoidance,
+        ), event_segmentation:
+            plan.perform()
 
     def conclude(self, world: World) -> None:
         """
