@@ -1,7 +1,7 @@
 """
-Repeated trials of :class:`TiagoRoomNavigationDemonstration` to target rooms sampled
-from the rooms annotated in the ARISE office, with an overview of how many succeeded and
-why the others failed.
+Repeated trials of :class:`TiagoRoomNavigationDemonstration` between rooms drawn from an
+office, each to a room on another level than the one it starts on, with an overview of
+how many succeeded and why the others failed.
 """
 
 from __future__ import annotations
@@ -11,19 +11,105 @@ import random
 from collections import Counter
 from dataclasses import dataclass, field
 
-from typing_extensions import Type
-
 from coraplex.datastructures.enums import ExecutionType
-from experiments.tiago_elevator_demo.demo import TiagoElevatorRideDemonstration
 from experiments.tiago_room_navigation_demo.demo import (
+    TiagoIAIOfficeRoomNavigationDemonstration,
     TiagoRoomNavigationDemonstration,
 )
-from semantic_digital_twin.robots.robot_parts import AbstractRobot
+from semantic_digital_twin.predefined_maps.elevator_building import ElevatorBuilding
 from semantic_digital_twin.robots.tiago import Tiago
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
-    Floor,
+    Level,
     Room,
 )
+from semantic_digital_twin.world import World
+
+# %% trips
+
+
+@dataclass
+class RoomTrip:
+    """
+    A drive from one room to another.
+    """
+
+    start_room_name: str
+    """
+    The name of the room the robot starts in.
+    """
+
+    target_room_name: str
+    """
+    The name of the room the robot is sent to.
+    """
+
+
+@dataclass
+class RoomTripDraw:
+    """
+    Draws trips between the rooms of an office a robot may be sent into, each to a room
+    on another level than the one it starts on.
+
+    Only rooms annotated as nothing more specific than a
+    :class:`~semantic_digital_twin.semantic_annotations.semantic_annotations.Room` are
+    drawn.
+    """
+
+    office: ElevatorBuilding
+    """
+    The office the rooms are drawn from.
+    """
+
+    building_name: str
+    """
+    The prefix the office is spawned with.
+    """
+
+    number_of_trips: int = 50
+    """
+    How many trips to draw.
+    """
+
+    seed: int | None = None
+    """
+    Seed of the draw, or None to draw differently each time.
+    """
+
+    def room_levels(self, world: World) -> dict[str, str]:
+        """
+        :param world: The world the office was spawned into.
+        :return: The name of the level each room that may be drawn lies on, by the
+            room's name.
+        """
+        return {
+            room.name.name: Level.under(room.floor.root).name.name
+            for room in self.office.navigation_targets(world, self.building_name)
+            if type(room) is Room
+        }
+
+    def trips(self, world: World) -> list[RoomTrip]:
+        """
+        :param world: The world the office was spawned into.
+        :return: :attr:`number_of_trips` trips, each starting in a room drawn uniformly
+            from every room and ending in a room drawn uniformly from the rooms on the
+            other levels.
+        """
+        room_levels = self.room_levels(world)
+        room_names = sorted(room_levels)
+        sampler = random.Random(self.seed)
+        trips = []
+        for _ in range(self.number_of_trips):
+            start_room_name = sampler.choice(room_names)
+            target_room_name = sampler.choice(
+                [
+                    room_name
+                    for room_name in room_names
+                    if room_levels[room_name] != room_levels[start_room_name]
+                ]
+            )
+            trips.append(RoomTrip(start_room_name, target_room_name))
+        return trips
+
 
 # %% outcomes
 
@@ -31,17 +117,17 @@ from semantic_digital_twin.semantic_annotations.semantic_annotations import (
 @dataclass
 class RoomNavigationTrialResult:
     """
-    The outcome of one drive to a target room.
+    The outcome of one trip.
     """
 
-    target_room_name: str
+    trip: RoomTrip
     """
-    The name of the room the robot was sent to.
+    The trip the robot was sent on.
     """
 
     failure: Exception | None = None
     """
-    What made the trial fail, or None if the robot reached the room.
+    What made the trial fail, or None if the robot reached the target room.
     """
 
     @property
@@ -55,7 +141,7 @@ class RoomNavigationTrialResult:
 @dataclass
 class RoomNavigationTrialSummary:
     """
-    The outcomes of a series of drives to target rooms.
+    The outcomes of a series of trips.
     """
 
     results: list[RoomNavigationTrialResult] = field(default_factory=list)
@@ -95,7 +181,7 @@ class RoomNavigationTrialSummary:
         """
         trials = {}
         for result in self.results:
-            trials.setdefault(result.target_room_name, []).append(result)
+            trials.setdefault(result.trip.target_room_name, []).append(result)
         return trials
 
     def report(self) -> str:
@@ -121,7 +207,8 @@ class RoomNavigationTrialSummary:
                     continue
                 message_lines = str(result.failure).splitlines() or [""]
                 lines.append(
-                    f"  #{number} to {result.target_room_name}: "
+                    f"  #{number} from {result.trip.start_room_name} to "
+                    f"{result.trip.target_room_name}: "
                     f"{type(result.failure).__name__}: {message_lines[0]}"
                 )
         return "\n".join(lines)
@@ -133,81 +220,68 @@ class RoomNavigationTrialSummary:
 @dataclass
 class RoomNavigationTrials:
     """
-    Sends the robot from the room it starts in to target rooms sampled from the rooms
-    annotated in the office, each trial in a fresh world.
+    Sends the robot of a demonstration on trips drawn from its office, one after
+    another, all in the one world the demonstration acquires.
+    """
+
+    demonstration: TiagoRoomNavigationDemonstration
+    """
+    The demonstration that drives each trip; its start and target room are set per trip.
     """
 
     number_of_trials: int = 50
     """
-    How many drives to perform.
+    How many trips to drive.
     """
 
     seed: int | None = None
     """
-    Seed of the sampling of the target rooms, or None to sample them differently each
-    time.
+    Seed of the draw of the trips, or None to draw differently each time.
     """
-
-    used_robot: Type[AbstractRobot] = Tiago
-    """
-    The robot that drives.
-    """
-
-    execution_type: ExecutionType = ExecutionType.KINEMATICALLY_SIMULATED
-    """
-    Whether the robot is driven for real or simulated.
-    """
-
-    def target_room_names(self) -> list[str]:
-        """
-        :return: The names of the :attr:`number_of_trials` target rooms, sampled
-            uniformly from the rooms of the office except the one the robot starts in.
-        """
-        world = TiagoElevatorRideDemonstration(
-            used_robot=self.used_robot
-        ).build_simulated_world()
-        robot = world.get_semantic_annotations_by_type(self.used_robot)[0]
-        start_floor = Floor.under(robot.root)
-        candidates = sorted(
-            room.name.name
-            for room in world.get_semantic_annotations_by_type(Room)
-            if room.floor is not start_floor
-        )
-        sampler = random.Random(self.seed)
-        return [sampler.choice(candidates) for _ in range(self.number_of_trials)]
 
     def run(self) -> RoomNavigationTrialSummary:
         """
-        Perform every trial, carrying on after a failed one.
+        Draw the trips and drive every one, carrying on after a failed one.
 
         :return: The outcomes of the trials.
         """
-        return RoomNavigationTrialSummary(
-            [self.perform_trial(name) for name in self.target_room_names()]
-        )
+        try:
+            world = self.demonstration.acquire_world()
+            if not self.demonstration.is_scene_populated(world):
+                self.demonstration.populate_scene(world)
+            trips = RoomTripDraw(
+                office=self.demonstration.office,
+                building_name=self.demonstration.building_name,
+                number_of_trips=self.number_of_trials,
+                seed=self.seed,
+            ).trips(world)
+            return RoomNavigationTrialSummary(
+                [self.perform_trial(world, trip) for trip in trips]
+            )
+        finally:
+            self.demonstration.tear_down()
 
-    def perform_trial(self, target_room_name: str) -> RoomNavigationTrialResult:
+    def perform_trial(self, world: World, trip: RoomTrip) -> RoomNavigationTrialResult:
         """
-        Drive the robot to one room in a fresh world.
+        Drive the robot from the start to the target room of ``trip`` in ``world``.
 
         .. note:: Any exception the trial raises fails the trial instead of the series.
 
-        :param target_room_name: The name of the room to drive to.
+        :param world: The world the demonstration acquired and populated.
+        :param trip: The trip to drive.
         :return: The outcome of the drive.
         """
-        demonstration = TiagoRoomNavigationDemonstration(
-            used_robot=self.used_robot,
-            execution_type=self.execution_type,
-            target_room_name=target_room_name,
-        )
+        self.demonstration.start_room_name = trip.start_room_name
+        self.demonstration.target_room_name = trip.target_room_name
         try:
-            demonstration.run()
+            self.demonstration.perform(world)
         except Exception as failure:
             logging.getLogger(__name__).exception(
-                f"The trial to {target_room_name} failed."
+                f"The trial from {trip.start_room_name} to {trip.target_room_name} "
+                f"failed."
             )
-            return RoomNavigationTrialResult(target_room_name, failure)
-        return RoomNavigationTrialResult(target_room_name)
+            return RoomNavigationTrialResult(trip, failure)
+        return RoomNavigationTrialResult(trip)
 
 
 def main(
@@ -216,14 +290,18 @@ def main(
     execution_type: ExecutionType = ExecutionType.KINEMATICALLY_SIMULATED,
 ) -> None:
     """
-    Run the trials and print their overview.
+    Drive Tiago on trips drawn from the IAI's office and print their overview.
 
-    :param number_of_trials: How many drives to perform.
-    :param seed: Seed of the sampling of the target rooms.
+    :param number_of_trials: How many trips to drive.
+    :param seed: Seed of the draw of the trips.
     :param execution_type: Whether to drive the real (or Gazebo) robot or simulate it.
     """
     summary = RoomNavigationTrials(
-        number_of_trials=number_of_trials, seed=seed, execution_type=execution_type
+        demonstration=TiagoIAIOfficeRoomNavigationDemonstration(
+            used_robot=Tiago, execution_type=execution_type
+        ),
+        number_of_trials=number_of_trials,
+        seed=seed,
     ).run()
     print(summary.report())
 

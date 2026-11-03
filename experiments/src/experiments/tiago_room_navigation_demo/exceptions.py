@@ -49,6 +49,30 @@ class NoElevatorError(DataclassException):
         )
 
 
+# %% placing the robot
+
+
+@dataclass
+class RobotNotPlacedError(DataclassException):
+    """
+    Raised when a robot moved into the room it starts in does not show up there.
+    """
+
+    room_name: str
+    """
+    The name of the room the robot was moved into.
+    """
+
+    def error_message(self) -> str:
+        return f"The robot does not show up in the room {self.room_name}."
+
+    def suggest_correction(self) -> str:
+        return (
+            "Check that the simulator moved the robot and that its odometry reaches "
+            "the world."
+        )
+
+
 # %% checking the outcome
 
 
