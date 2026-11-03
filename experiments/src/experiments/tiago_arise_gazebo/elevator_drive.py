@@ -43,14 +43,9 @@ class ElevatorDrive(TopicInputSynchronizer[JointState]):
     The elevator whose cabin is moved.
     """
 
-    joint_name: str = field(default="elevator_vertical_joint", kw_only=True)
+    joint_name: str = field(kw_only=True)
     """
     Name of the drive joint in the joint states.
-    """
-
-    position_offset: float = field(default=0.0, kw_only=True)
-    """
-    Semantic drive position minus joint position.
     """
 
     position_tolerance: float = field(default=0.001, kw_only=True)
@@ -79,9 +74,18 @@ class ElevatorDrive(TopicInputSynchronizer[JointState]):
             self.drive_position(message)
         )
 
+    @property
+    def position_offset(self) -> float:
+        """
+        The drive position minus the joint position the simulator reports.
+
+        .. note:: The simulator's joint is 0 where the cabin serves the lowest floor.
+        """
+        return self.elevator.drive_position_for_floor(self.elevator.floors[0])
+
     def drive_position(self, message: JointState) -> float:
         """
-        :return: The semantic drive position ``message`` reports for the drive joint.
+        :return: The drive position ``message`` reports for the drive joint.
         """
         return (
             message.position[message.name.index(self.joint_name)] + self.position_offset

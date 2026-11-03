@@ -679,6 +679,16 @@ class Elevator(HasCaseAsRootBody, HasDoors, HasMovableJoint):
         self.movable_joint.position = self.drive_position_for_floor(floor)
 
     @property
+    def floors(self) -> list[Level]:
+        """
+        The levels of this elevator's world, from the lowest up.
+        """
+        return sorted(
+            self._world.get_semantic_annotations_by_type(Level),
+            key=lambda level: float(level.floor_plane[0].z),
+        )
+
+    @property
     def doorway_pose(self) -> Pose:
         """
         :return: The middle of the doorway on the cabin's floor, its x-axis pointing into

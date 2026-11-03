@@ -13,6 +13,9 @@ from semantic_digital_twin.specifications.connections import (
     PrismaticConnectionSpecification,
 )
 from semantic_digital_twin.predefined_maps.arise_office import AriseOfficeBuilding
+from semantic_digital_twin.predefined_maps.foyer_and_hallway_ground_floor.iai_office import (
+    IAIOffice,
+)
 from semantic_digital_twin.predefined_maps.building_floor import BuildingFloor
 from semantic_digital_twin.callbacks.callback import Callback
 from semantic_digital_twin.robots.daisy import DAiSy
@@ -1004,6 +1007,37 @@ def arise_office_world(_arise_office_world_setup):
     floor.
     """
     return deepcopy(_arise_office_world_setup)
+
+
+@pytest.fixture(scope="session")
+def iai_office() -> IAIOffice:
+    """
+    The description of the IAI's office.
+    """
+    return IAIOffice()
+
+
+@pytest.fixture(scope="session")
+def iai_office_name() -> str:
+    """
+    The prefix the IAI's office is spawned with, as the Gazebo world exports it.
+    """
+    return "lab"
+
+
+@pytest.fixture(scope="session")
+def _iai_office_world_setup(iai_office, iai_office_name):
+    world = World.create_with_root_body("map")
+    iai_office.spawn(world, iai_office_name)
+    return world
+
+
+@pytest.fixture(scope="function")
+def iai_office_world(_iai_office_world_setup):
+    """
+    The IAI's office, with its elevator serving the ground floor.
+    """
+    return deepcopy(_iai_office_world_setup)
 
 
 @pytest.fixture(scope="session")

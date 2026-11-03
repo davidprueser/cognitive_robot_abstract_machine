@@ -318,7 +318,7 @@ def main(rate: float = 5.0) -> None:
             node=node,
             topic_name=SimulatorTopic.ELEVATOR_JOINT_STATES,
             elevator=elevator,
-            position_offset=office.ground_floor_height,
+            joint_name=office.simulated_drive_joint_name(elevator),
         )
     )
     tracked_persons = TrackedPersons(

@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 import numpy as np
 from typing_extensions import TYPE_CHECKING
 
+from semantic_digital_twin.predefined_maps.elevator_building import ElevatorBuilding
 from semantic_digital_twin.predefined_maps.foyer_and_hallway_ground_floor.elevator_room import (
     LabElevatorRoom,
 )
@@ -39,8 +40,10 @@ from semantic_digital_twin.world_description.geometry import (
 
 if TYPE_CHECKING:
     from semantic_digital_twin.semantic_annotations.semantic_annotations import (
+        Elevator,
         Floor,
         Level,
+        Room,
     )
     from semantic_digital_twin.world import World
     from semantic_digital_twin.world_description.world_entity import (
@@ -51,7 +54,7 @@ if TYPE_CHECKING:
 
 
 @dataclass
-class IAIOffice:
+class IAIOffice(ElevatorBuilding):
     """
     World-independent description of the IAI's office: the lab elevator room with its
     hallway, and the rooms and hallways on the ground, first and second floor that are
@@ -128,12 +131,12 @@ class IAIOffice:
         rooms, hallway = (
             [
                 PlacedRoom(
-                    f"room_{office_room.number}",
+                    self.room_name(office_room.number),
                     office_room.layout,
                     self.map_T_outline_frame(office_room.outline_frame),
                     room_type=office_room.room_type,
                     cabin_names=[
-                        f"room_{cabin_number}"
+                        self.room_name(cabin_number)
                         for cabin_number in office_room.cabin_numbers
                     ],
                 )
@@ -170,33 +173,26 @@ class IAIOffice:
         world: World,
         name: str,
         parent: KinematicStructureEntity | None = None,
-    ) -> list[Level]:
+    ) -> None:
         """
-        Materialize every storey of the office in ``world``, with a level annotation
-        each, and the elevator serving them.
+        Every storey of the office, with a level annotation each, and the elevator
+        serving them.
 
-        :param world: The world the office is added to.
-        :param name: Prefix for the names of every entity the office creates.
         :param parent: The entity standing for the map frame. If None, ``world.root`` is
             used.
-        :return: The level annotation of each storey, from the ground floor up.
         """
-        levels = []
         with world.modify_world():
             for floor_plan in sorted(self.floor_plans, key=lambda plan: plan.storey):
-                storey = floor_plan.storey
-                storey_name = f"{name}_{storey.name.lower()}"
+                storey_name = self.storey_name(name, floor_plan.storey)
                 hallway = self.storey_layout(floor_plan).spawn(
                     world,
                     storey_name,
                     parent,
                     parent_T_self=HomogeneousTransformationMatrix.from_xyz_rpy(
-                        z=storey.elevation
+                        z=floor_plan.storey.elevation
                     ),
                 )
-                levels.append(
-                    self._spawn_level(world, storey_name, hallway.floor, floor_plan)
-                )
+                self._spawn_level(world, storey_name, hallway.floor, floor_plan)
             self.elevator_room.elevator.spawn(
                 world,
                 f"{name}_elevator",
@@ -204,7 +200,54 @@ class IAIOffice:
                 parent_T_self=self.elevator_room.map_T_room
                 @ self.elevator_room.room_T_elevator,
             )
-        return levels
+
+    def navigation_targets(self, world: World, name: str) -> list[Room]:
+        """
+        The rooms of every floor plan that are marked as
+        :attr:`~semantic_digital_twin.predefined_maps.foyer_and_hallway_ground_floor.floor_plan.OfficeRoom.navigation_target`.
+        """
+        return [
+            self.get_room(world, name, floor_plan.storey, office_room.number)
+            for floor_plan in self.floor_plans
+            for office_room in floor_plan.rooms
+            if office_room.navigation_target
+        ]
+
+    def simulated_drive_joint_name(self, elevator: Elevator) -> str:
+        """
+        The name of ``elevator``'s drive connection in the world, which the simulator's
+        world is exported with.
+        """
+        return elevator.movable_joint.name.name
+
+    def get_room(self, world: World, name: str, storey: Storey, number: str) -> Room:
+        """
+        :param world: The world the office was spawned into.
+        :param name: The prefix the office was spawned with.
+        :param storey: The storey the room lies on.
+        :param number: The room's number in its floor plan.
+        :return: The room's annotation.
+        """
+        return world.get_semantic_annotation_by_name(
+            f"{self.storey_name(name, storey)}_{self.room_name(number)}"
+        )
+
+    @staticmethod
+    def room_name(number: str) -> str:
+        """
+        :param number: A room's number in its floor plan.
+        :return: The name the room is placed under in its storey.
+        """
+        return f"room_{number}"
+
+    @staticmethod
+    def storey_name(name: str, storey: Storey) -> str:
+        """
+        :param name: The prefix the office is spawned with.
+        :param storey: One of the office's storeys.
+        :return: The prefix of the names of every entity ``storey`` is spawned with.
+        """
+        return f"{name}_{storey.name.lower()}"
 
     def _spawn_level(
         self, world: World, name: str, floor: Floor, floor_plan: FloorPlan

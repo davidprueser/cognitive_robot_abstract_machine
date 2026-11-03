@@ -25,10 +25,8 @@ from coraplex.plans.factories import sequential
 from coraplex.plans.plan_node import PlanNode
 from coraplex.robot_plans.actions.core.navigation import ElevatorNavigation
 from experiments.tiago_arise_gazebo.elevator_drive import ElevatorDrive, SimulatorTopic
-from experiments.tiago_arise_gazebo.elevator_operator import (
-    SimulatedElevatorOperator,
-    SimulatorService,
-)
+from experiments.tiago_arise_gazebo.elevator_operator import SimulatedElevatorOperator
+from experiments.tiago_arise_gazebo.services import SimulatorService
 from semantic_digital_twin.callbacks.callback import (
     ModelChangeCallback,
     StateChangeCallback,
@@ -38,6 +36,7 @@ from semantic_digital_twin.predefined_maps.arise_office import (
     AriseOfficeBuilding,
     AriseOfficeRoom,
 )
+from semantic_digital_twin.predefined_maps.elevator_building import ElevatorBuilding
 from semantic_digital_twin.reasoning.predicates import InsideRegion
 from semantic_digital_twin.robots.robot_parts import AbstractRobot
 from semantic_digital_twin.robots.tiago import Tiago
@@ -48,6 +47,7 @@ from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Level,
 )
 from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
+from semantic_digital_twin.spatial_types.spatial_types import Pose
 from semantic_digital_twin.spatial_types.derivatives import Derivatives
 from semantic_digital_twin.specifications.robots import RobotSpecification
 from semantic_digital_twin.world import World
@@ -218,9 +218,23 @@ class TiagoElevatorRideDemonstration(RobotDemonstration):
 
     ros_node_name: str = "tiago_elevator_demo_node"
 
-    office: AriseOfficeBuilding = field(default_factory=AriseOfficeBuilding)
+    office: ElevatorBuilding = field(default_factory=AriseOfficeBuilding)
     """
     The building the robot rides the elevator in.
+    """
+
+    building_name: str = "arise_office"
+    """
+    The prefix the building is spawned with.
+    """
+
+    start_room_name: str = field(
+        default_factory=lambda: AriseOfficeBuilding.room_name(
+            "arise_office", GroundFloor, AriseOfficeRoom.LOBBY
+        )
+    )
+    """
+    The name of the room annotation a simulated Tiago starts in, see :meth:`start_pose`.
     """
 
     odom_T_robot_start: HomogeneousTransformationMatrix = field(
@@ -268,23 +282,30 @@ class TiagoElevatorRideDemonstration(RobotDemonstration):
     def build_simulated_world(self) -> World:
         """
         Populate a world holding nothing but a map body and put the Tiago on its drive
-        on the office's ground floor.
+        at :meth:`start_pose`.
         """
         world = World.create_with_root_body()
         self.populate_scene(world)
         RobotSpecification(
             semantic_annotation_type=self.used_robot,
-            world_T_odom=world.transform(
-                HomogeneousTransformationMatrix(
-                    reference_frame=self.office.get_room(
-                        world, GroundFloor, AriseOfficeRoom.LOBBY
-                    ).floor.root
-                ),
-                world.root,
-            ),
+            world_T_odom=self.start_pose(world).homogeneous_matrix,
             odom_T_robot_start=self.odom_T_robot_start,
         ).spawn(world)
         return world
+
+    def start_pose(self, world: World) -> Pose:
+        """
+        :return: The middle of the start room's floor at the height of the floor's
+            frame, facing along the x-axis of ``world``'s root.
+        """
+        start_room = world.get_semantic_annotation_by_name(self.start_room_name)
+        centre = start_room.floor_centre
+        return Pose.from_xyz_rpy(
+            x=float(centre.x),
+            y=float(centre.y),
+            z=float(start_room.floor.root.global_transform.z),
+            reference_frame=world.root,
+        )
 
     def is_scene_populated(self, world: World) -> bool:
         return bool(world.get_semantic_annotations_by_type(Elevator))
@@ -295,9 +316,9 @@ class TiagoElevatorRideDemonstration(RobotDemonstration):
 
         In a kinematic simulation the elevator waits with open doors.
         """
-        elevator = self.office.spawn(world)
+        self.office.spawn(world, self.building_name)
         if self.execution_type is not ExecutionType.REAL:
-            elevator.open()
+            world.get_semantic_annotations_by_type(Elevator)[0].open()
 
     def acquire_world(self) -> World:
         """
@@ -335,6 +356,8 @@ class TiagoElevatorRideDemonstration(RobotDemonstration):
                 floor=self.destination_level(world),
                 robot=robot,
             )
+        else:
+            self.elevator_operator.floor = self.destination_level(world)
         return Context(
             world=world,
             robot=robot,
@@ -355,7 +378,7 @@ class TiagoElevatorRideDemonstration(RobotDemonstration):
                 node=self.ros_node,
                 topic_name=self.elevator_joint_state_topic,
                 elevator=elevator,
-                position_offset=self.office.ground_floor_height,
+                joint_name=self.office.simulated_drive_joint_name(elevator),
             )
         )
         self.ros_node.create_timer(
@@ -373,11 +396,9 @@ class TiagoElevatorRideDemonstration(RobotDemonstration):
         :return: The position of :meth:`destination_level` among the levels of
             ``world``, counted from the lowest.
         """
-        levels_from_the_lowest = sorted(
-            world.get_semantic_annotations_by_type(Level),
-            key=lambda level: float(level.floor_plane[0].z),
+        return world.get_semantic_annotations_by_type(Elevator)[0].floors.index(
+            self.destination_level(world)
         )
-        return levels_from_the_lowest.index(self.destination_level(world))
 
     def build_plan(self, context: Context) -> PlanNode:
         """

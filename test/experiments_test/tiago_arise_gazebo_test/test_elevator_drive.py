@@ -2,7 +2,10 @@ import pytest
 from sensor_msgs.msg import JointState
 
 from experiments.tiago_arise_gazebo.elevator_drive import ElevatorDrive
-from semantic_digital_twin.semantic_annotations.semantic_annotations import Elevator
+from semantic_digital_twin.semantic_annotations.semantic_annotations import (
+    Elevator,
+    FirstFloor,
+)
 
 # %% fixtures
 
@@ -19,7 +22,7 @@ def drive(rclpy_node, elevator, arise_office) -> ElevatorDrive:
         node=rclpy_node,
         topic_name="/test/elevator/joint_states",
         elevator=elevator,
-        position_offset=arise_office.ground_floor_height,
+        joint_name=arise_office.simulated_drive_joint_name(elevator),
     )
     yield drive
     drive.close()
@@ -35,6 +38,19 @@ def test_drive_moves_the_cabin_to_the_received_joint_position(
     assert drive.apply()
     assert elevator.movable_joint.position == pytest.approx(
         2.0 + arise_office.ground_floor_height
+    )
+
+
+def test_the_joint_at_zero_puts_the_cabin_at_the_lowest_floor(drive, elevator):
+    elevator.drive_to_floor(
+        elevator._world.get_semantic_annotations_by_type(FirstFloor)[0]
+    )
+
+    drive.buffer_message(JointState(name=[drive.joint_name], position=[0.0]))
+    assert drive.apply()
+
+    assert elevator.movable_joint.position == pytest.approx(
+        elevator.drive_position_for_floor(elevator.floors[0])
     )
 
 

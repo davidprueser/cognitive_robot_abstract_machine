@@ -240,3 +240,12 @@ def test_first_floor_free_space_leaves_out_the_elevator_shaft(
 
     with pytest.raises(PointOutsideSearchSpaceError):
         free_space.path_from_to(start, shaft)
+
+
+def test_a_robot_may_be_sent_into_every_room(arise_office_world, arise_office):
+    assert sorted(
+        room.name.name for room in arise_office.navigation_targets(arise_office_world)
+    ) == sorted(
+        room.name.name
+        for room in arise_office_world.get_semantic_annotations_by_type(Room)
+    )

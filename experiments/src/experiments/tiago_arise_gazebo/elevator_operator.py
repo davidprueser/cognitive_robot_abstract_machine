@@ -14,20 +14,13 @@ from rcl_interfaces.srv import SetParameters
 from rclpy.node import Node
 from rclpy.parameter import Parameter
 
+from experiments.tiago_arise_gazebo.services import SimulatorService
 from experiments.tiago_arise_gazebo.exceptions import (
     DestinationFloorRejectedError,
     ElevatorOperatorUnavailableError,
 )
 
-# %% services and parameters
-
-
-class SimulatorService(StrEnum):
-    """
-    Services of the TIAGo ARISE Gazebo simulator.
-    """
-
-    ELEVATOR_OPERATOR_PARAMETERS = "/elevator_operator/set_parameters"
+# %% parameters
 
 
 class ElevatorOperatorParameter(StrEnum):

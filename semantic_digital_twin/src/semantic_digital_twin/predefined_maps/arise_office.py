@@ -5,7 +5,9 @@ from enum import StrEnum
 
 import numpy as np
 
+from krrood.ormatic.utils import classproperty
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
+from semantic_digital_twin.predefined_maps.elevator_building import ElevatorBuilding
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Door,
     Elevator,
@@ -80,7 +82,7 @@ class AriseOfficeRoom(StrEnum):
 
 
 @dataclass
-class AriseOfficeBuilding:
+class AriseOfficeBuilding(ElevatorBuilding):
     """
     World-independent description of the two-storey office of the TIAGo ARISE Gazebo
     simulator (``office_area.sdf`` and ``elevator.urdf`` of the
@@ -147,24 +149,26 @@ class AriseOfficeBuilding:
     Y at which the first floor slab in front of the shaft ends.
     """
 
-    def spawn(self, world: World, name: str = "arise_office") -> Elevator:
+    @classproperty
+    def middle_rooms(cls) -> dict[type[Level], AriseOfficeRoom]:
+        """
+        The room between the two offices of each storey.
+        """
+        return {GroundFloor: AriseOfficeRoom.LOBBY, FirstFloor: AriseOfficeRoom.LANDING}
+
+    def spawn(self, world: World, name: str = "arise_office") -> None:
         """
         Materialize the office in ``world``: the rooms and outer walls of both storeys,
         a level annotation per storey, and the elevator serving the ground floor.
 
         Each storey is tiled by an office on either side of the shaft and a room between
         them; on the first floor that room ends at the shaft.
-
-        :param world: The world the office is added to.
-        :param name: Prefix for the names of every entity this office creates.
-        :return: The elevator.
         """
         self._spawn_storey(
             world,
             name,
             GroundFloor,
             self.ground_floor_height,
-            AriseOfficeRoom.LOBBY,
             self.storey_scale.y / 2,
         )
         self._spawn_storey(
@@ -172,10 +176,31 @@ class AriseOfficeBuilding:
             name,
             FirstFloor,
             self.first_floor_height,
-            AriseOfficeRoom.LANDING,
             self.shaft_front,
         )
-        return self._spawn_elevator(world, f"{name}_elevator")
+        self._spawn_elevator(world, f"{name}_elevator")
+
+    def navigation_targets(
+        self, world: World, name: str = "arise_office"
+    ) -> list[Room]:
+        """
+        Every room of both storeys.
+        """
+        return [
+            self.get_room(world, level_type, room, name)
+            for level_type, middle_room in self.middle_rooms.items()
+            for room in (
+                AriseOfficeRoom.WEST_OFFICE,
+                middle_room,
+                AriseOfficeRoom.EAST_OFFICE,
+            )
+        ]
+
+    def simulated_drive_joint_name(self, elevator: Elevator) -> str:
+        """
+        The name ``elevator.urdf`` gives the drive joint.
+        """
+        return "elevator_vertical_joint"
 
     def get_room(
         self,
@@ -192,11 +217,11 @@ class AriseOfficeBuilding:
         :return: The room annotation, whose floor's frame lies on its top.
         """
         return world.get_semantic_annotation_by_name(
-            self._room_name(name, level_type, room)
+            self.room_name(name, level_type, room)
         )
 
     @staticmethod
-    def _room_name(name: str, level_type: type[Level], room: AriseOfficeRoom) -> str:
+    def room_name(name: str, level_type: type[Level], room: AriseOfficeRoom) -> str:
         """
         :param name: The prefix the office is spawned with.
         :param level_type: The storey the room lies on.
@@ -213,14 +238,12 @@ class AriseOfficeBuilding:
         name: str,
         level_type: type[Level],
         height: float,
-        middle_room: AriseOfficeRoom,
         middle_room_north_edge: float,
     ) -> None:
         """
         The rooms, outer walls and level of the storey whose floor top is at ``height``.
 
         :param name: The prefix the office is spawned with.
-        :param middle_room: The room between the two offices.
         :param middle_room_north_edge: Y at which the room between the offices ends.
         """
         half_x, half_y = self.storey_scale.x / 2, self.storey_scale.y / 2
@@ -232,7 +255,7 @@ class AriseOfficeBuilding:
                 PlanarBoundingBox(-half_x, -half_y, -half_shaft, half_y, origin),
             ),
             (
-                middle_room,
+                self.middle_rooms[level_type],
                 PlanarBoundingBox(
                     -half_shaft, -half_y, half_shaft, middle_room_north_edge, origin
                 ),
@@ -243,7 +266,7 @@ class AriseOfficeBuilding:
             ),
         ):
             self._spawn_room(
-                world, self._room_name(name, level_type, room), footprint, height
+                world, self.room_name(name, level_type, room), footprint, height
             )
         storey_name = f"{name}_{level_type.__name__}"
         self._spawn_outer_walls(world, storey_name, height)
@@ -338,7 +361,7 @@ class AriseOfficeBuilding:
 
     # %% elevator
 
-    def _spawn_elevator(self, world: World, name: str) -> Elevator:
+    def _spawn_elevator(self, world: World, name: str) -> None:
         """
         The cabin on a vertical drive with two sliding doors in its opening, built like
         the elevator of the multi-storey test building.
@@ -397,9 +420,9 @@ class AriseOfficeBuilding:
                 ),
             ),
         )
-        elevator = world.get_semantic_annotation_by_name(name)
-        elevator.drive_to_floor(world.get_semantic_annotations_by_type(GroundFloor)[0])
-        return elevator
+        world.get_semantic_annotation_by_name(name).drive_to_floor(
+            world.get_semantic_annotations_by_type(GroundFloor)[0]
+        )
 
     def create_world(self, root_name: str = "map") -> World:
         """
