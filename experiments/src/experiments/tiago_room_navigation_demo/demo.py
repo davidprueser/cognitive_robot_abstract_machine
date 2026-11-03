@@ -1,6 +1,6 @@
 """
 Tiago drives from the lobby of the ARISE office to a given room, riding the elevator
-when the room lies on the first floor.
+when the room lies on the first floor and driving into the room once the ride is over.
 
 In a kinematic simulation an
 :class:`~experiments.tiago_elevator_demo.demo.ElevatorOperator` sends the elevator to the
@@ -10,6 +10,8 @@ first floor once Tiago boards it.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+
+from typing_extensions import Iterator
 
 from coraplex.datastructures.dataclasses import Context
 from coraplex.plans.factories import sequential
@@ -21,7 +23,10 @@ from experiments.tiago_room_navigation_demo.exceptions import (
 from experiments.tiago_room_navigation_demo.room_navigation import (
     NavigateToRoomAction,
 )
-from semantic_digital_twin.semantic_annotations.semantic_annotations import Floor
+from semantic_digital_twin.semantic_annotations.semantic_annotations import (
+    Floor,
+    Level,
+)
 from semantic_digital_twin.world import World
 
 # %% demonstration
@@ -42,7 +47,7 @@ class TiagoRoomNavigationDemonstration(TiagoElevatorRideDemonstration):
 
     def build_plan(self, context: Context) -> PlanNode:
         """
-        Drive to the target room.
+        Drive one leg of the way to the target room.
         """
         return sequential(
             [
@@ -55,6 +60,18 @@ class TiagoRoomNavigationDemonstration(TiagoElevatorRideDemonstration):
             ],
             context=context,
         )
+
+    def build_plans(self, context: Context) -> Iterator[PlanNode]:
+        """
+        Ride to the target room's level first when Tiago stands on another one, then
+        drive into the room.
+        """
+        target_room = context.world.get_semantic_annotation_by_name(
+            self.target_room_name
+        )
+        if Level.under(context.robot.root) is not Level.under(target_room.floor.root):
+            yield self.build_plan(context)
+        yield self.build_plan(context)
 
     def conclude(self, world: World) -> None:
         """

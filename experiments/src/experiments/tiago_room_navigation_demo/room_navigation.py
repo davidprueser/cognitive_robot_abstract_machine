@@ -1,5 +1,5 @@
 """
-Driving a robot from the room it is in to another room of its building, riding the
+Driving a robot from the room it is in towards another room of its building, riding the
 elevator when the other room lies on another level.
 """
 
@@ -30,12 +30,15 @@ from semantic_digital_twin.semantic_annotations.semantic_annotations import (
 @dataclass
 class NavigateToRoomAction(ActionDescription):
     """
-    Drives the robot to the middle of a room along paths through the free space of each
-    level it crosses.
+    Drives the robot one leg of the way to a room, along a path through the free space
+    of the level it stands on.
 
-    A room on the robot's own level is driven to directly. For a room on another level
-    the robot drives in front of the elevator's doors, rides the elevator to the room's
-    level and drives on from there.
+    A room on the robot's own level is driven to directly, to its middle. For a room on
+    another level the robot drives in front of the elevator's doors and rides the
+    elevator to the room's level; a second leg then drives into the room.
+
+    .. note:: A leg is laid out from where the robot stands when it is planned, so the
+        leg after a ride can only be planned once the ride is over.
 
     .. note:: The robot rides the first elevator of its world.
     """
@@ -65,9 +68,10 @@ class NavigateToRoomAction(ActionDescription):
         target_level = Level.under(self.target_room.floor.root)
         if target_level is None:
             raise RoomOnNoLevelError(self.target_room.name.name)
-        drive_to_room = PathPlanningNavigateAction(self.target_room.floor_centre)
         if Level.under(self.robot.root) is target_level:
-            return sequential([drive_to_room])
+            return sequential(
+                [PathPlanningNavigateAction(self.target_room.floor_centre)]
+            )
         elevators = self.world.get_semantic_annotations_by_type(Elevator)
         if not elevators:
             raise NoElevatorError(self.target_room.name.name)
@@ -82,6 +86,5 @@ class NavigateToRoomAction(ActionDescription):
                     target_level,
                     arrival_threshold=self.elevator_arrival_threshold,
                 ),
-                drive_to_room,
             ]
         )

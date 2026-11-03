@@ -1,4 +1,5 @@
 from collections import Counter
+from dataclasses import dataclass, field
 
 import pytest
 from typing_extensions import Iterator
@@ -6,6 +7,7 @@ from typing_extensions import Iterator
 from coraplex.datastructures.dataclasses import Context
 from coraplex.datastructures.enums import ExecutionType
 from coraplex.plans.factories import execute_single
+from coraplex.plans.plan_node import PlanNode
 from coraplex.robot_plans.actions.core.navigation import (
     ElevatorNavigation,
     PathPlanningNavigateAction,
@@ -36,12 +38,30 @@ from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     FirstFloor,
     Floor,
     GroundFloor,
+    Level,
     Room,
 )
 from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
 from semantic_digital_twin.world_description.geometry import Scale
 
 # %% Tiago standing in the lobby
+
+
+@dataclass(kw_only=True)
+class LevelRecordingRoomNavigationDemonstration(TiagoRoomNavigationDemonstration):
+    """
+    A room navigation demonstration that records the level Tiago stands on whenever a
+    leg of the trip is built.
+    """
+
+    levels_when_built: list[Level | None] = field(default_factory=list)
+    """
+    The level Tiago stood on as each leg was built, in building order.
+    """
+
+    def build_plan(self, context: Context) -> PlanNode:
+        self.levels_when_built.append(Level.under(context.robot.root))
+        return super().build_plan(context)
 
 
 @pytest.fixture
@@ -84,7 +104,7 @@ def test_a_room_on_the_robots_level_is_driven_to_directly(
     assert drive.target.to_np() == pytest.approx(east_office.floor_centre.to_np())
 
 
-def test_a_room_on_another_level_is_reached_by_riding_the_elevator(
+def test_a_room_on_another_level_is_approached_by_riding_the_elevator_to_its_level(
     lobby_demonstration, lobby_context
 ):
     world = lobby_context.world
@@ -99,16 +119,12 @@ def test_a_room_on_another_level_is_reached_by_riding_the_elevator(
     assert [type(step) for step in steps] == [
         PathPlanningNavigateAction,
         ElevatorNavigation,
-        PathPlanningNavigateAction,
     ]
-    drive_to_elevator, ride, drive_to_room = steps
+    drive_to_elevator, ride = steps
     assert drive_to_elevator.target.to_np() == pytest.approx(
         elevator.pose_in_front_of_doors(action.elevator_waiting_distance).to_np()
     )
     assert ride.target_floor is world.get_semantic_annotations_by_type(FirstFloor)[0]
-    assert drive_to_room.target.to_np() == pytest.approx(
-        west_office.floor_centre.to_np()
-    )
 
 
 def test_a_room_on_no_level_cannot_be_planned_for(lobby_context):
@@ -177,6 +193,28 @@ def test_tiago_reaches_the_target_room(
     result = RoomNavigationTrials().perform_trial(target_room_name)
 
     assert result.failure is None
+
+
+def test_the_drive_into_a_room_on_another_level_is_planned_after_the_ride(
+    rclpy_node, arise_office, arise_office_world
+):
+    """
+    A leg is laid out from where Tiago stands when it is built, so the drive into the
+    room must be built once the ride has brought Tiago to the room's level.
+    """
+    demonstration = LevelRecordingRoomNavigationDemonstration(
+        used_robot=Tiago,
+        target_room_name=arise_office.get_room(
+            arise_office_world, FirstFloor, AriseOfficeRoom.WEST_OFFICE
+        ).name.name,
+    )
+
+    world = demonstration.run()
+
+    assert demonstration.levels_when_built == [
+        world.get_semantic_annotations_by_type(GroundFloor)[0],
+        world.get_semantic_annotations_by_type(FirstFloor)[0],
+    ]
 
 
 def test_tiago_outside_the_target_room_fails_the_demonstration(
