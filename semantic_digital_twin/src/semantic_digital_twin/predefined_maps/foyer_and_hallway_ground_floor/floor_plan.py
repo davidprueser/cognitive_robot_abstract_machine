@@ -83,6 +83,12 @@ class OfficeRoom:
     The numbers of the toilet cabins entered from this room, if it is a bathroom.
     """
 
+    navigation_target: bool = field(default=True, kw_only=True)
+    """
+    Whether a robot may be sent into this room: false where a robot's base does not fit
+    at the room's middle.
+    """
+
 
 @dataclass
 class FloorPlan:

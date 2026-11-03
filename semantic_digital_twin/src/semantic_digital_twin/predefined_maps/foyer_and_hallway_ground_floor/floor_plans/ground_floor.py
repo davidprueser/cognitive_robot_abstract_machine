@@ -156,6 +156,7 @@ class GroundFloorPlan(FloorPlan):
             ),
             OfficeRoom(
                 number="0.39",
+                navigation_target=False,
                 outline_frame=OutlineFrame.HALLWAY_EAST_STRETCH,
                 layout=StoreyHighRoom(
                     outline=[
@@ -562,6 +563,7 @@ class GroundFloorPlan(FloorPlan):
             ),
             OfficeRoom(
                 number="0.71",
+                navigation_target=False,
                 outline_frame=OutlineFrame.HALLWAY_SOUTH_STRETCH,
                 layout=StoreyHighRoom(
                     outline=[
@@ -579,6 +581,7 @@ class GroundFloorPlan(FloorPlan):
             ),
             OfficeRoom(
                 number="0.72",
+                navigation_target=False,
                 outline_frame=OutlineFrame.HALLWAY_SOUTH_STRETCH,
                 layout=StoreyHighRoom(
                     outline=[
