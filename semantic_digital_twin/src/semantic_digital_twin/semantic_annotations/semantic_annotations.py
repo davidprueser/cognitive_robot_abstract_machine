@@ -968,7 +968,43 @@ class Bedroom(Room): ...
 
 
 @dataclass(eq=False)
-class Bathroom(Room): ...
+class BathroomCabin(Room):
+    """
+    A toilet cabin, entered only from the bathroom it belongs to.
+    """
+
+
+@dataclass(eq=False)
+class Bathroom(Room):
+    """
+    A room with toilets or washbasins.
+    """
+
+    cabins: list[BathroomCabin] = field(kw_only=True, default_factory=list)
+    """
+    The toilet cabins entered from this bathroom.
+    """
+
+
+@dataclass(eq=False)
+class Hallway(Room):
+    """
+    A passage that connects the rooms of a storey.
+    """
+
+
+@dataclass(eq=False)
+class ElevatorLobby(Room):
+    """
+    The room in front of an elevator's doors, where people wait for the cabin.
+    """
+
+
+@dataclass(eq=False)
+class StorageRoom(Room):
+    """
+    A room for keeping things rather than for working or living in.
+    """
 
 
 @dataclass(eq=False)
