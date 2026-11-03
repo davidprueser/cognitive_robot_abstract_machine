@@ -1,9 +1,13 @@
+import numpy as np
 import pytest
 
 from coraplex.datastructures.enums import ExecutionType
 from coraplex.robot_plans.actions.core.navigation import ElevatorRideAnnouncement
 from coraplex.robot_plans.actions.core.speech import SayAction
-from experiments.tiago_elevator_demo.demo import TiagoElevatorRideDemonstration
+from experiments.tiago_elevator_demo.demo import (
+    ElevatorMotor,
+    TiagoElevatorRideDemonstration,
+)
 from experiments.tiago_elevator_waiting_demo.demo import (
     ElevatorBoardingAnnouncement,
     TiagoElevatorWaitingDemonstration,
@@ -16,6 +20,7 @@ from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     FirstFloor,
     GroundFloor,
 )
+from semantic_digital_twin.spatial_types.derivatives import Derivatives
 from semantic_digital_twin.world import World
 
 from .scripted_social_navigation import BoardingAnswer
@@ -76,6 +81,41 @@ def test_simulated_tiago_stands_on_the_ground_floor():
     assert float(robot.root.global_transform.z) == pytest.approx(
         float(lobby.floor.root.global_transform.z)
     )
+
+
+# %% holding the cabin at its floor
+
+
+def test_the_elevator_motor_keeps_a_cabin_a_motion_moves_off_its_floor_at_rest_there(
+    arise_office_world,
+):
+    """
+    A robot riding the cabin makes the cabin's drive part of the robot's motions, which
+    move it in a kinematic simulation unless something holds the cabin.
+    """
+    elevator = arise_office_world.get_semantic_annotations_by_type(Elevator)[0]
+    first_floor = arise_office_world.get_semantic_annotations_by_type(FirstFloor)[0]
+    motor = ElevatorMotor(_world=arise_office_world, elevator=elevator)
+    motor.drive_to_floor(first_floor)
+    velocities = np.zeros(len(arise_office_world.state))
+    (cabin_column,) = arise_office_world.state.column_indices(
+        [elevator.movable_joint.raw_dof]
+    )
+    velocities[cabin_column] = -1.0
+
+    arise_office_world.apply_control_commands(
+        velocities, dt=0.1, derivative=Derivatives.velocity
+    )
+
+    assert elevator.movable_joint.position == pytest.approx(
+        elevator.drive_position_for_floor(first_floor)
+    )
+    cabin_state = arise_office_world.state[elevator.movable_joint.raw_dof.id]
+    assert [
+        cabin_state[derivative]
+        for derivative in Derivatives.range(Derivatives.velocity, Derivatives.jerk)
+    ] == [0.0, 0.0, 0.0]
+    motor.stop()
 
 
 # %% handing the base over to the social navigation module

@@ -15,6 +15,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+import numpy as np
+
 from coraplex.datastructures.dataclasses import Context
 from coraplex.datastructures.enums import ExecutionType
 from coraplex.demonstrations import RobotDemonstration
@@ -22,7 +24,10 @@ from coraplex.plans.factories import sequential
 from coraplex.plans.plan_node import PlanNode
 from coraplex.robot_plans.actions.core.navigation import ElevatorNavigation
 from experiments.tiago_arise_gazebo.elevator_drive import ElevatorDrive, SimulatorTopic
-from semantic_digital_twin.callbacks.callback import ModelChangeCallback
+from semantic_digital_twin.callbacks.callback import (
+    ModelChangeCallback,
+    StateChangeCallback,
+)
 from semantic_digital_twin.input_synchronization import WorldStateInputs
 from semantic_digital_twin.predefined_maps.arise_office import (
     AriseOfficeBuilding,
@@ -37,10 +42,55 @@ from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Level,
 )
 from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
+from semantic_digital_twin.spatial_types.derivatives import Derivatives
 from semantic_digital_twin.specifications.robots import RobotSpecification
 from semantic_digital_twin.world import World
 
 # %% operating the elevator in a kinematic simulation
+
+
+@dataclass(eq=False)
+class ElevatorMotor(StateChangeCallback):
+    """
+    Drives an elevator's cabin to a floor and holds it there at rest, standing in for
+    the motor of a real elevator.
+
+    .. note:: A robot riding the cabin makes the cabin's drive part of the robot's
+        motions, which move the drive in a kinematic simulation unless something holds
+        the cabin.
+    """
+
+    elevator: Elevator = field(kw_only=True)
+    """
+    The elevator whose cabin this motor drives.
+    """
+
+    held_position: float = field(init=False)
+    """
+    The drive position the cabin is held at.
+    """
+
+    def __post_init__(self) -> None:
+        super().__post_init__()
+        self.held_position = self.elevator.movable_joint.position
+
+    def drive_to_floor(self, floor: Level) -> None:
+        """
+        Drive the cabin to ``floor`` and hold it there.
+        """
+        self.held_position = self.elevator.drive_position_for_floor(floor)
+        self.elevator.drive_to_floor(floor)
+
+    def on_state_change(self, **kwargs) -> None:
+        cabin_state = self._world.state[self.elevator.movable_joint.raw_dof.id]
+        moving_derivatives = Derivatives.range(Derivatives.velocity, Derivatives.jerk)
+        if np.isclose(
+            self.elevator.movable_joint.position, self.held_position
+        ) and not any(cabin_state[derivative] for derivative in moving_derivatives):
+            return
+        for derivative in moving_derivatives:
+            cabin_state[derivative] = 0.0
+        self.elevator.movable_joint.position = self.held_position
 
 
 @dataclass(eq=False)
@@ -65,12 +115,25 @@ class ElevatorOperator(ModelChangeCallback):
     The robot whose boarding sets the elevator off.
     """
 
+    motor: ElevatorMotor = field(init=False)
+    """
+    The motor that drives the cabin and holds it at its floor.
+    """
+
+    def __post_init__(self) -> None:
+        super().__post_init__()
+        self.motor = ElevatorMotor(_world=self._world, elevator=self.elevator)
+
     def on_model_change(self, **kwargs) -> None:
         if self.robot.root.parent_kinematic_structure_entity is not self.elevator.root:
             return
         self.elevator.close()
-        self.elevator.drive_to_floor(self.floor)
+        self.motor.drive_to_floor(self.floor)
         self.elevator.open()
+
+    def stop(self) -> None:
+        self.motor.stop()
+        super().stop()
 
 
 # %% demonstration
