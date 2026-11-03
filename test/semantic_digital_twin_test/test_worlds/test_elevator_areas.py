@@ -2,6 +2,9 @@ from copy import deepcopy
 
 import pytest
 
+from semantic_digital_twin.predefined_maps.foyer_and_hallway_ground_floor.iai_office import (
+    IAIOffice,
+)
 from semantic_digital_twin.reasoning.predicates import InsideRegion
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Elevator,
@@ -10,6 +13,7 @@ from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Human,
 )
 from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
+from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.geometry import Scale
 from semantic_digital_twin.world_description.world_entity import Region
 
@@ -216,6 +220,38 @@ def test_waiting_areas_enter_the_world_once_on_first_access(
     assert list(arise_office_world.regions) == regions_before + list(
         waiting_areas.values()
     )
+
+
+# %% elevator whose drive hangs off the map
+
+
+@pytest.fixture(scope="module")
+def iai_office_world() -> World:
+    """
+    The IAI office, whose elevator's drive hangs off the map rather than off a shaft
+    frame at the cabin.
+    """
+    world = World.create_with_root_body()
+    IAIOffice().spawn(world, "lab")
+    return world
+
+
+def test_person_in_front_of_the_doors_of_an_elevator_hanging_off_the_map_waits(
+    iai_office_world,
+):
+    elevator = iai_office_world.get_semantic_annotations_by_type(Elevator)[0]
+    ground_floor = iai_office_world.get_semantic_annotations_by_type(GroundFloor)[0]
+    in_front_of_doors = iai_office_world.transform(
+        elevator.pose_in_front_of_doors(0.75), iai_office_world.root
+    )
+    person = person_standing_at(
+        iai_office_world,
+        float(in_front_of_doors.x),
+        float(in_front_of_doors.y),
+        float(ground_floor.floor_plane[0].z),
+    )
+
+    assert InsideRegion(person.root, elevator.waiting_areas[ground_floor])()
 
 
 # %% areas of a rebuilt world

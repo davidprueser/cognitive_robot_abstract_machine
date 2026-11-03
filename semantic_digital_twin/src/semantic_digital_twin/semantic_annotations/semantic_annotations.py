@@ -729,6 +729,14 @@ class Elevator(HasCaseAsRootBody, HasDoors, HasMovableJoint):
         if self.movable_joint is None:
             raise MissingMovableJointError(self)
         shaft = self.movable_joint.parent
+        shaft_T_cabin = self._world.transform(self.root.global_transform, shaft)
+        shaft_P_in_front_of_doors = self._world.transform(
+            Point3(
+                x=-(self.scale.x + self.waiting_area_scale.x) / 2,
+                reference_frame=self.root,
+            ),
+            shaft,
+        )
         return {
             level: self._region_from(
                 RegionSpecification.box(
@@ -736,10 +744,15 @@ class Elevator(HasCaseAsRootBody, HasDoors, HasMovableJoint):
                     self.waiting_area_scale,
                 ),
                 parent=shaft,
-                parent_T_self=HomogeneousTransformationMatrix.from_xyz_rpy(
-                    x=-(self.scale.x + self.waiting_area_scale.x) / 2,
-                    z=self._world.transform(level.floor_plane[0], shaft).z
-                    + self.waiting_area_scale.z / 2,
+                parent_T_self=HomogeneousTransformationMatrix.from_point_rotation_matrix(
+                    Point3(
+                        shaft_P_in_front_of_doors.x,
+                        shaft_P_in_front_of_doors.y,
+                        self._world.transform(level.floor_plane[0], shaft).z
+                        + self.waiting_area_scale.z / 2,
+                        reference_frame=shaft,
+                    ),
+                    shaft_T_cabin.rotation_matrix,
                     reference_frame=shaft,
                 ),
             )
