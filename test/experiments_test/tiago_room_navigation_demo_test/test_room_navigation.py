@@ -207,6 +207,34 @@ def test_the_demonstration_rides_with_its_elevator_exit_clearance(
     )
 
 
+@pytest.mark.parametrize(
+    "level_type, room",
+    [
+        (GroundFloor, AriseOfficeRoom.EAST_OFFICE),
+        (FirstFloor, AriseOfficeRoom.WEST_OFFICE),
+    ],
+)
+def test_the_elevator_operator_takes_tiago_to_the_target_rooms_level(
+    arise_office, level_type, room
+):
+    world = TiagoElevatorRideDemonstration(
+        used_robot=Tiago, execution_type=ExecutionType.KINEMATICALLY_SIMULATED
+    ).build_simulated_world()
+    demonstration = TiagoRoomNavigationDemonstration(
+        used_robot=Tiago,
+        execution_type=ExecutionType.KINEMATICALLY_SIMULATED,
+        target_room_name=arise_office.get_room(world, level_type, room).name.name,
+    )
+
+    demonstration.build_context(world)
+
+    assert (
+        demonstration.elevator_operator.floor
+        is world.get_semantic_annotations_by_type(level_type)[0]
+    )
+    demonstration.tear_down()
+
+
 def test_a_room_on_no_level_cannot_be_planned_for(lobby_context):
     world = lobby_context.world
     basement_floor = Floor.get_annotation_specification(

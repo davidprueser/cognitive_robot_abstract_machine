@@ -4,7 +4,7 @@ when the room lies on the first floor and driving into the room once the ride is
 
 In a kinematic simulation an
 :class:`~experiments.tiago_elevator_demo.demo.ElevatorOperator` sends the elevator to the
-first floor once Tiago boards it.
+target room's level once Tiago boards it.
 """
 
 from __future__ import annotations
@@ -18,6 +18,7 @@ from coraplex.plans.factories import sequential
 from coraplex.plans.plan_node import PlanNode
 from experiments.tiago_elevator_demo.demo import TiagoElevatorRideDemonstration
 from experiments.tiago_room_navigation_demo.exceptions import (
+    RoomOnNoLevelError,
     TargetRoomNotReachedError,
 )
 from experiments.tiago_room_navigation_demo.room_navigation import (
@@ -55,6 +56,17 @@ class TiagoRoomNavigationDemonstration(TiagoElevatorRideDemonstration):
     Distance Tiago keeps from the elevator's opening after driving out of the cabin, on
     top of half the cabin's depth.
     """
+
+    def destination_level(self, world: World) -> Level:
+        """
+        :return: The level of ``world`` the target room lies on.
+        :raises RoomOnNoLevelError: If the target room lies on no level.
+        """
+        target_room = world.get_semantic_annotation_by_name(self.target_room_name)
+        level = Level.under(target_room.floor.root)
+        if level is None:
+            raise RoomOnNoLevelError(self.target_room_name)
+        return level
 
     def build_plan(self, context: Context) -> PlanNode:
         """

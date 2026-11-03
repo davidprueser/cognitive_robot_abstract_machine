@@ -1,11 +1,12 @@
 import numpy as np
 import pytest
+from typing_extensions import Iterator
 
 from coraplex.datastructures.enums import ExecutionType
 from coraplex.robot_plans.actions.core.navigation import ElevatorRideAnnouncement
 from coraplex.robot_plans.actions.core.speech import SayAction
 from experiments.tiago_elevator_demo.demo import (
-    ElevatorMotor,
+    ElevatorController,
     TiagoElevatorRideDemonstration,
 )
 from experiments.tiago_elevator_waiting_demo.demo import (
@@ -14,14 +15,17 @@ from experiments.tiago_elevator_waiting_demo.demo import (
 )
 from experiments.tiago_elevator_waiting_demo.exceptions import BoardingFailedError
 from semantic_digital_twin.predefined_maps.arise_office import AriseOfficeRoom
+from semantic_digital_twin.robots.robot_parts import AbstractRobot
 from semantic_digital_twin.robots.tiago import Tiago
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Elevator,
     FirstFloor,
     GroundFloor,
 )
+from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
 from semantic_digital_twin.spatial_types.derivatives import Derivatives
 from semantic_digital_twin.world import World
+from semantic_digital_twin.world_description.world_entity import Region
 
 from .scripted_social_navigation import BoardingAnswer
 
@@ -83,10 +87,28 @@ def test_simulated_tiago_stands_on_the_ground_floor():
     )
 
 
-# %% holding the cabin at its floor
+# %% serving the elevator's floors
 
 
-def test_the_elevator_motor_keeps_a_cabin_a_motion_moves_off_its_floor_at_rest_there(
+def test_the_elevator_controller_opens_the_doors_at_the_floor_it_serves(
+    arise_office_world,
+):
+    elevator = arise_office_world.get_semantic_annotations_by_type(Elevator)[0]
+    first_floor = arise_office_world.get_semantic_annotations_by_type(FirstFloor)[0]
+    controller = ElevatorController(_world=arise_office_world, elevator=elevator)
+
+    controller.serve_floor(first_floor)
+
+    assert elevator.movable_joint.position == pytest.approx(
+        elevator.drive_position_for_floor(first_floor)
+    )
+    assert [door.movable_joint.position for door in elevator.doors] == [
+        door.movable_joint.dof.limits.upper.position for door in elevator.doors
+    ]
+    controller.stop()
+
+
+def test_the_elevator_controller_keeps_a_cabin_a_motion_moves_off_its_floor_at_rest_there(
     arise_office_world,
 ):
     """
@@ -95,8 +117,8 @@ def test_the_elevator_motor_keeps_a_cabin_a_motion_moves_off_its_floor_at_rest_t
     """
     elevator = arise_office_world.get_semantic_annotations_by_type(Elevator)[0]
     first_floor = arise_office_world.get_semantic_annotations_by_type(FirstFloor)[0]
-    motor = ElevatorMotor(_world=arise_office_world, elevator=elevator)
-    motor.drive_to_floor(first_floor)
+    controller = ElevatorController(_world=arise_office_world, elevator=elevator)
+    controller.serve_floor(first_floor)
     velocities = np.zeros(len(arise_office_world.state))
     (cabin_column,) = arise_office_world.state.column_indices(
         [elevator.movable_joint.raw_dof]
@@ -115,7 +137,74 @@ def test_the_elevator_motor_keeps_a_cabin_a_motion_moves_off_its_floor_at_rest_t
         cabin_state[derivative]
         for derivative in Derivatives.range(Derivatives.velocity, Derivatives.jerk)
     ] == [0.0, 0.0, 0.0]
-    motor.stop()
+    controller.stop()
+
+
+# %% calling the cabin
+
+
+@pytest.fixture
+def ride_demonstration() -> Iterator[TiagoElevatorRideDemonstration]:
+    demonstration = TiagoElevatorRideDemonstration(
+        used_robot=Tiago, execution_type=ExecutionType.KINEMATICALLY_SIMULATED
+    )
+    yield demonstration
+    demonstration.tear_down()
+
+
+@pytest.fixture
+def operated_world(ride_demonstration) -> World:
+    """
+    The office with Tiago in the lobby and the cabin sent up to the first floor, run by
+    the demonstration's elevator operator.
+    """
+    world = ride_demonstration.build_simulated_world()
+    ride_demonstration.build_context(world)
+    ride_demonstration.elevator_operator.controller.serve_floor(
+        world.get_semantic_annotations_by_type(FirstFloor)[0]
+    )
+    return world
+
+
+def move_robot_into(robot: AbstractRobot, region: Region) -> None:
+    """
+    Put ``robot``'s base on the middle of ``region``, on the level the robot stands on.
+    """
+    world = robot._world
+    odom = robot.root.parent_kinematic_structure_entity
+    odom_T_region = world.transform(
+        HomogeneousTransformationMatrix(reference_frame=region), odom
+    )
+    robot.root.parent_connection.origin = HomogeneousTransformationMatrix.from_xyz_rpy(
+        float(odom_T_region.x), float(odom_T_region.y), 0, reference_frame=odom
+    )
+    world.notify_state_change()
+
+
+def test_the_cabin_comes_to_a_robot_waiting_on_another_level(operated_world):
+    elevator = operated_world.get_semantic_annotations_by_type(Elevator)[0]
+    ground_floor = operated_world.get_semantic_annotations_by_type(GroundFloor)[0]
+    robot = operated_world.get_semantic_annotations_by_type(Tiago)[0]
+
+    move_robot_into(robot, elevator.waiting_areas[ground_floor])
+
+    assert elevator.movable_joint.position == pytest.approx(
+        elevator.drive_position_for_floor(ground_floor)
+    )
+    assert [door.movable_joint.position for door in elevator.doors] == [
+        door.movable_joint.dof.limits.upper.position for door in elevator.doors
+    ]
+
+
+def test_the_cabin_stays_while_no_robot_waits_for_it(operated_world):
+    elevator = operated_world.get_semantic_annotations_by_type(Elevator)[0]
+    first_floor = operated_world.get_semantic_annotations_by_type(FirstFloor)[0]
+
+    operated_world.notify_state_change()
+
+    assert elevator.movable_joint.position == pytest.approx(
+        elevator.drive_position_for_floor(first_floor)
+    )
 
 
 # %% handing the base over to the social navigation module

@@ -8,7 +8,7 @@ states. The elevator itself is operated outside the plan, by a person on the rea
 by the simulator's elevator operator in Gazebo.
 
 In a kinematic simulation an :class:`ElevatorOperator` stands in for whoever operates
-the elevator.
+the elevator: it brings the cabin to Tiago and takes Tiago to its destination.
 """
 
 from __future__ import annotations
@@ -33,6 +33,7 @@ from semantic_digital_twin.predefined_maps.arise_office import (
     AriseOfficeBuilding,
     AriseOfficeRoom,
 )
+from semantic_digital_twin.reasoning.predicates import InsideRegion
 from semantic_digital_twin.robots.robot_parts import AbstractRobot
 from semantic_digital_twin.robots.tiago import Tiago
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
@@ -45,15 +46,17 @@ from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
 from semantic_digital_twin.spatial_types.derivatives import Derivatives
 from semantic_digital_twin.specifications.robots import RobotSpecification
 from semantic_digital_twin.world import World
+from semantic_digital_twin.world_description.world_entity import Region
 
 # %% operating the elevator in a kinematic simulation
 
 
 @dataclass(eq=False)
-class ElevatorMotor(StateChangeCallback):
+class ElevatorController(StateChangeCallback):
     """
-    Drives an elevator's cabin to a floor and holds it there at rest, standing in for
-    the motor of a real elevator.
+    Serves the floors of an elevator: closes its doors, drives its cabin to a floor,
+    opens the doors there and holds the cabin at rest, standing in for the controller of
+    a real elevator.
 
     .. note:: A robot riding the cabin makes the cabin's drive part of the robot's
         motions, which move the drive in a kinematic simulation unless something holds
@@ -62,7 +65,7 @@ class ElevatorMotor(StateChangeCallback):
 
     elevator: Elevator = field(kw_only=True)
     """
-    The elevator whose cabin this motor drives.
+    The elevator whose floors this controller serves.
     """
 
     held_position: float = field(init=False)
@@ -74,12 +77,29 @@ class ElevatorMotor(StateChangeCallback):
         super().__post_init__()
         self.held_position = self.elevator.movable_joint.position
 
-    def drive_to_floor(self, floor: Level) -> None:
+    def serves(self, floor: Level, tolerance: float = 1e-6) -> bool:
         """
-        Drive the cabin to ``floor`` and hold it there.
+        :param tolerance: How far the held position may lie from ``floor``'s drive
+            position.
+        :return: Whether the cabin is held at ``floor``.
+        """
+        return bool(
+            np.isclose(
+                self.held_position,
+                self.elevator.drive_position_for_floor(floor),
+                rtol=0.0,
+                atol=tolerance,
+            )
+        )
+
+    def serve_floor(self, floor: Level) -> None:
+        """
+        Close the doors, drive the cabin to ``floor``, hold it there and open the doors.
         """
         self.held_position = self.elevator.drive_position_for_floor(floor)
+        self.elevator.close()
         self.elevator.drive_to_floor(floor)
+        self.elevator.open()
 
     def on_state_change(self, **kwargs) -> None:
         cabin_state = self._world.state[self.elevator.movable_joint.raw_dof.id]
@@ -94,10 +114,48 @@ class ElevatorMotor(StateChangeCallback):
 
 
 @dataclass(eq=False)
+class ElevatorCallButton(StateChangeCallback):
+    """
+    Calls an elevator's cabin to the level a robot waits on in front of its doors,
+    standing in for the robot pressing the elevator's call button.
+    """
+
+    controller: ElevatorController = field(kw_only=True)
+    """
+    The controller of the elevator this button calls.
+    """
+
+    robot: AbstractRobot = field(kw_only=True)
+    """
+    The robot whose waiting calls the cabin.
+    """
+
+    waiting_areas: dict[Level, Region] = field(init=False)
+    """
+    Where the robot waits for the cabin, per level.
+    """
+
+    def __post_init__(self) -> None:
+        self.waiting_areas = self.controller.elevator.waiting_areas
+        super().__post_init__()
+
+    def on_state_change(self, **kwargs) -> None:
+        level = Level.under(self.robot.root)
+        if level is None or self.controller.serves(level):
+            return
+        if not InsideRegion(
+            self.robot.bodies_with_collision[0], self.waiting_areas[level]
+        )():
+            return
+        self.controller.serve_floor(level)
+
+
+@dataclass(eq=False)
 class ElevatorOperator(ModelChangeCallback):
     """
-    Drives an elevator to a floor as soon as a robot boards it, standing in for whatever
-    operates the elevator in the real world.
+    Brings an elevator's cabin to a robot waiting for it and drives the elevator to a
+    floor as soon as the robot boards it, standing in for whatever operates the elevator
+    in the real world.
     """
 
     elevator: Elevator = field(kw_only=True)
@@ -115,24 +173,31 @@ class ElevatorOperator(ModelChangeCallback):
     The robot whose boarding sets the elevator off.
     """
 
-    motor: ElevatorMotor = field(init=False)
+    controller: ElevatorController = field(init=False)
     """
-    The motor that drives the cabin and holds it at its floor.
+    The controller that serves the elevator's floors.
+    """
+
+    call_button: ElevatorCallButton = field(init=False)
+    """
+    The call button the robot presses by waiting in front of the doors.
     """
 
     def __post_init__(self) -> None:
         super().__post_init__()
-        self.motor = ElevatorMotor(_world=self._world, elevator=self.elevator)
+        self.controller = ElevatorController(_world=self._world, elevator=self.elevator)
+        self.call_button = ElevatorCallButton(
+            _world=self._world, controller=self.controller, robot=self.robot
+        )
 
     def on_model_change(self, **kwargs) -> None:
         if self.robot.root.parent_kinematic_structure_entity is not self.elevator.root:
             return
-        self.elevator.close()
-        self.motor.drive_to_floor(self.floor)
-        self.elevator.open()
+        self.controller.serve_floor(self.floor)
 
     def stop(self) -> None:
-        self.motor.stop()
+        self.call_button.stop()
+        self.controller.stop()
         super().stop()
 
 
@@ -249,7 +314,7 @@ class TiagoElevatorRideDemonstration(RobotDemonstration):
             self.elevator_operator = ElevatorOperator(
                 _world=world,
                 elevator=elevator,
-                floor=world.get_semantic_annotations_by_type(FirstFloor)[0],
+                floor=self.destination_level(world),
                 robot=robot,
             )
         return Context(
@@ -279,17 +344,22 @@ class TiagoElevatorRideDemonstration(RobotDemonstration):
             self.elevator_drive_update_period, self.elevator_inputs.synchronize
         )
 
+    def destination_level(self, world: World) -> Level:
+        """
+        :return: The level of ``world`` Tiago rides the elevator to, the first floor.
+        """
+        return world.get_semantic_annotations_by_type(FirstFloor)[0]
+
     def build_plan(self, context: Context) -> PlanNode:
         """
-        Ride the elevator to the first floor.
+        Ride the elevator to :meth:`destination_level`.
         """
         elevator = context.world.get_semantic_annotations_by_type(Elevator)[0]
-        first_floor = context.world.get_semantic_annotations_by_type(FirstFloor)[0]
         return sequential(
             [
                 ElevatorNavigation(
                     elevator,
-                    first_floor,
+                    self.destination_level(context.world),
                     arrival_threshold=self.elevator_arrival_threshold,
                 )
             ],
