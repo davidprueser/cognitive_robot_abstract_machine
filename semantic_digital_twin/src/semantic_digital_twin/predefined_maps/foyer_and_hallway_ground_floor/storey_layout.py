@@ -506,7 +506,7 @@ class WallStretch:
         )
         for index, doorway in enumerate(self.segment.doorways()):
             self._cut_doorway(world, f"{name}_doorway_{index}", wall, doorway)
-        wall.root.dye(layout.wall_color)
+        wall.root.visual.dye_shapes(layout.wall_color)
         return wall
 
     def _cut_doorway(
@@ -746,10 +746,11 @@ class StoreyLayout:
             for stretch in opening_stretches
             for slab in stretch.opening_slabs(self.floor_thickness)
         ]
+        floor_shapes = ShapeCollection(slabs)
+        floor_shapes.dye_shapes(self.floor_color)
         floor = Floor.get_annotation_specification(
-            name, BodySpecification(name=name, shapes=ShapeCollection(slabs))
+            name, BodySpecification(name=name, shapes=floor_shapes)
         ).spawn(world, parent=parent, parent_T_self=parent_T_self)
-        floor.root.dye(self.floor_color)
         surface_name = f"{name}_supporting_surface"
         surface = RegionSpecification(
             name=surface_name,

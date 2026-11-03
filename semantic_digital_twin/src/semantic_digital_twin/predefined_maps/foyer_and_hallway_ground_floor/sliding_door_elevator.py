@@ -139,6 +139,7 @@ class SlidingDoorElevator:
         cabin_specification.inertial = Inertial.of_solid_box(
             self.cabin_mass, self.scale
         )
+        cabin_specification.shapes.dye_shapes(self.cabin_color)
         elevator = Elevator.get_annotation_specification(
             name,
             cabin_specification,
@@ -157,9 +158,6 @@ class SlidingDoorElevator:
                 ]
             },
         ).spawn(world, parent=parent, parent_T_self=parent_T_self)
-        elevator.root.dye(self.cabin_color)
-        for door in elevator.doors:
-            door.root.dye(self.door_color)
         with world.modify_world():
             self._add_servo(world, elevator.movable_joint.raw_dof, self.drive_servo)
             for door in elevator.doors:
@@ -212,4 +210,5 @@ class SlidingDoorElevator:
         root_specification.parent_T_self = HomogeneousTransformationMatrix.from_xyz_rpy(
             -self.scale.x / 2, side * self.scale.y / 4, 0
         )
+        root_specification.shapes.dye_shapes(self.door_color)
         return Door.get_annotation_specification(name, root_specification)
