@@ -1,3 +1,5 @@
+from copy import deepcopy
+
 import pytest
 
 from semantic_digital_twin.predefined_maps.foyer_and_hallway_ground_floor.rectilinear_room import (
@@ -118,6 +120,18 @@ def test_a_bathroom_lists_its_cabins(bathroom_with_a_cabin):
 
     bathroom = world.get_semantic_annotation_by_name("storey_bathroom")
     assert bathroom.cabins == [world.get_semantic_annotation_by_name("storey_cabin")]
+
+
+def test_a_copy_of_the_world_keeps_each_bathrooms_cabins(bathroom_with_a_cabin):
+    world = World.create_with_root_body("map")
+    bathroom_with_a_cabin.spawn(world, "storey")
+
+    copied_world = deepcopy(world)
+
+    bathroom = copied_world.get_semantic_annotation_by_name("storey_bathroom")
+    assert bathroom.cabins == [
+        copied_world.get_semantic_annotation_by_name("storey_cabin")
+    ]
 
 
 def test_the_hallway_is_a_hallway(storey_layout):

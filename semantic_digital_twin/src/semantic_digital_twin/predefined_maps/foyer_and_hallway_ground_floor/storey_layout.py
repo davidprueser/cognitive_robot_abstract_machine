@@ -729,8 +729,9 @@ class StoreyLayout:
                 ]
         with world.modify_world():
             world.add_semantic_annotation(hallway)
-            for annotation in annotation_of.values():
-                world.add_semantic_annotation(annotation)
+            # A bathroom refers to its cabins, so they enter the world before it.
+            for room in sorted(self.rooms, key=lambda room: bool(room.cabin_names)):
+                world.add_semantic_annotation(annotation_of[room.name])
         return hallway
 
     def _spawn_floor(
