@@ -244,6 +244,25 @@ def test_run_returns_the_world_it_acted_on(cylinder_bot_world):
     assert demonstration.run() is cylinder_bot_world
 
 
+# %% performing against a world already acquired
+
+
+def test_performing_against_a_world_runs_the_plan_without_acquiring_or_releasing(
+    cylinder_bot_world,
+):
+    demonstration = RecordingDemonstration(
+        world=cylinder_bot_world, used_robot=MinimalRobot
+    )
+
+    demonstration.perform(cylinder_bot_world)
+
+    assert demonstration.built_context.world is cylinder_bot_world
+    assert demonstration.observed_execution_type is demonstration.execution_type
+    assert demonstration.ros_session is None
+    assert demonstration.populate_scene_calls == 0
+    assert demonstration.tear_down_calls == 0
+
+
 # %% plans built in turn
 
 

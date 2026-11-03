@@ -297,14 +297,23 @@ class RobotDemonstration(ABC):
             world = self.acquire_world()
             if not self.is_scene_populated(world):
                 self.populate_scene(world)
-            for _ in range(self.repetitions):
-                context = self.build_context(world)
-                for plan in self.build_plans(context):
-                    self.perform_plan(plan, world)
-            self.conclude(world)
+            self.perform(world)
         finally:
             self.tear_down()
         return world
+
+    def perform(self, world: World) -> None:
+        """
+        Perform the plans against the populated ``world`` :attr:`repetitions` times and
+        act on the outcome.
+
+        :param world: The world the plans are performed in.
+        """
+        for _ in range(self.repetitions):
+            context = self.build_context(world)
+            for plan in self.build_plans(context):
+                self.perform_plan(plan, world)
+        self.conclude(world)
 
     def perform_plan(self, plan: PlanNode, world: World) -> None:
         """
@@ -319,10 +328,13 @@ class RobotDemonstration(ABC):
         event_segmentation = (
             self.segment_events(world) if self.event_segmentation else nullcontext()
         )
-        with ExecutionEnvironment(
-            execution_type=self.execution_type,
-            collision_avoidance=self.collision_avoidance,
-        ), event_segmentation:
+        with (
+            ExecutionEnvironment(
+                execution_type=self.execution_type,
+                collision_avoidance=self.collision_avoidance,
+            ),
+            event_segmentation,
+        ):
             plan.perform()
 
     def conclude(self, world: World) -> None:
