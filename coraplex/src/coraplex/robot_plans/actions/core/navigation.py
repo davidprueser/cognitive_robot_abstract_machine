@@ -152,6 +152,11 @@ class PathPlanningNavigateAction(ActionDescription):
     Where the robot should stand at the end of the path, with its base.
     """
 
+    obstacle_clearance: float = field(default=0.0, kw_only=True)
+    """
+    How far the robot's base keeps from obstacles on top of its base radius.
+    """
+
     @property
     def _action_plan(self) -> PlanNode:
         return sequential([MoveMotion(waypoint) for waypoint in self._path()])
@@ -234,7 +239,8 @@ class PathPlanningNavigateAction(ActionDescription):
             max_height=self.robot.as_bounding_box_collection_in_frame(self.robot.root)
             .bounding_box()
             .scale.z,
-            bloat_obstacles=self.robot.mobile_base.base_radius,
+            bloat_obstacles=self.robot.mobile_base.base_radius
+            + self.obstacle_clearance,
         )
         return free_space.path_from_to(
             Point2.from_pose(base_pose), Point2.from_pose(self.target)

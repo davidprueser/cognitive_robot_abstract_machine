@@ -82,7 +82,10 @@ from semantic_digital_twin.robots.tiago import Tiago
 from semantic_digital_twin.specifications.connections import (
     PrismaticConnectionSpecification,
 )
-from semantic_digital_twin.exceptions import MissingMovableJointError
+from semantic_digital_twin.exceptions import (
+    MissingMovableJointError,
+    PointOccupiedError,
+)
 from semantic_digital_twin.grasping.grasp_candidates import GraspCandidate
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Door,
@@ -942,6 +945,40 @@ def test_gcs_navigation_takes_a_waypoints_height_from_that_waypoints_frame(
             robot.root.global_transform, pose.reference_frame
         )
         assert float(pose.z) == pytest.approx(float(base_in_pose_frame.z))
+
+
+def test_gcs_navigation_keeps_its_obstacle_clearance_beyond_the_base_radius(
+    multiple_robot_apartment_context,
+):
+    """
+    A target the robot's base fits next to a table is refused once the robot has to keep
+    a clearance from the table on top of its base radius.
+    """
+    world, robot, context = multiple_robot_apartment_context
+    obstacle_clearance = 0.2
+    table = world.get_body_by_name("table_area_main")
+    table_box = table.collision.as_bounding_box_collection_in_frame(
+        world.root
+    ).bounding_box()
+    target = Pose.from_xyz_rpy(
+        (table_box.min_x + table_box.max_x) / 2,
+        table_box.min_y - robot.mobile_base.base_radius - obstacle_clearance / 2,
+        0,
+        reference_frame=world.root,
+    )
+
+    action_without_clearance = PathPlanningNavigateAction(target)
+    execute_single(action_without_clearance, context=context)
+    action_with_clearance = PathPlanningNavigateAction(
+        target, obstacle_clearance=obstacle_clearance
+    )
+    execute_single(action_with_clearance, context=context)
+
+    assert float(action_without_clearance._waypoints()[-1].y) == pytest.approx(
+        float(world.transform(target, action_without_clearance._floor.root).y)
+    )
+    with pytest.raises(PointOccupiedError):
+        action_with_clearance._waypoints()
 
 
 def test_gcs_navigation_needs_a_floor_below_the_robot(
