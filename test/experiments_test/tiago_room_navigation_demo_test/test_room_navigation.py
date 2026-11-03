@@ -235,6 +235,27 @@ def test_the_elevator_operator_takes_tiago_to_the_target_rooms_level(
     demonstration.tear_down()
 
 
+@pytest.mark.parametrize(
+    "level_type, room, floor_index",
+    [
+        (GroundFloor, AriseOfficeRoom.EAST_OFFICE, 0),
+        (FirstFloor, AriseOfficeRoom.WEST_OFFICE, 1),
+    ],
+)
+def test_the_destination_floor_counts_the_target_rooms_level_from_the_lowest(
+    arise_office, arise_office_world, level_type, room, floor_index
+):
+    demonstration = TiagoRoomNavigationDemonstration(
+        used_robot=Tiago,
+        execution_type=ExecutionType.KINEMATICALLY_SIMULATED,
+        target_room_name=arise_office.get_room(
+            arise_office_world, level_type, room
+        ).name.name,
+    )
+
+    assert demonstration.destination_floor_index(arise_office_world) == floor_index
+
+
 def test_a_room_on_no_level_cannot_be_planned_for(lobby_context):
     world = lobby_context.world
     basement_floor = Floor.get_annotation_specification(

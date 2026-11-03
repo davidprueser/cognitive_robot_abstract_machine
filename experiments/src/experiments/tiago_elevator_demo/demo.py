@@ -5,7 +5,8 @@ Running with :attr:`~coraplex.datastructures.enums.ExecutionType.REAL` drives th
 of the TIAGo ARISE Gazebo simulator, or the real TIAGo: the world comes from the running
 controller, the base lidar from ``/scan``, and the cabin's height from the elevator's joint
 states. The elevator itself is operated outside the plan, by a person on the real robot and
-by the simulator's elevator operator in Gazebo.
+by the simulator's elevator operator in Gazebo, which the demonstration tells the
+destination floor.
 
 In a kinematic simulation an :class:`ElevatorOperator` stands in for whoever operates
 the elevator: it brings the cabin to Tiago and takes Tiago to its destination.
@@ -24,6 +25,10 @@ from coraplex.plans.factories import sequential
 from coraplex.plans.plan_node import PlanNode
 from coraplex.robot_plans.actions.core.navigation import ElevatorNavigation
 from experiments.tiago_arise_gazebo.elevator_drive import ElevatorDrive, SimulatorTopic
+from experiments.tiago_arise_gazebo.elevator_operator import (
+    SimulatedElevatorOperator,
+    SimulatorService,
+)
 from semantic_digital_twin.callbacks.callback import (
     ModelChangeCallback,
     StateChangeCallback,
@@ -242,6 +247,14 @@ class TiagoElevatorRideDemonstration(RobotDemonstration):
     in a real run.
     """
 
+    elevator_operator_parameter_service: str | None = (
+        SimulatorService.ELEVATOR_OPERATOR_PARAMETERS
+    )
+    """
+    The service a real run tells the simulator's elevator operator the destination floor
+    through, or None where a person operates the elevator.
+    """
+
     elevator_operator: ElevatorOperator | None = field(init=False, default=None)
     """
     The operator of the elevator in a kinematic simulation.
@@ -310,6 +323,11 @@ class TiagoElevatorRideDemonstration(RobotDemonstration):
         if self.execution_type is ExecutionType.REAL:
             if self.elevator_inputs is None:
                 self._follow_elevator_drive(elevator)
+            if self.elevator_operator_parameter_service is not None:
+                SimulatedElevatorOperator(
+                    node=self.ros_node,
+                    parameter_service_name=self.elevator_operator_parameter_service,
+                ).set_destination_floor(self.destination_floor_index(world))
         elif self.elevator_operator is None:
             self.elevator_operator = ElevatorOperator(
                 _world=world,
@@ -349,6 +367,17 @@ class TiagoElevatorRideDemonstration(RobotDemonstration):
         :return: The level of ``world`` Tiago rides the elevator to, the first floor.
         """
         return world.get_semantic_annotations_by_type(FirstFloor)[0]
+
+    def destination_floor_index(self, world: World) -> int:
+        """
+        :return: The position of :meth:`destination_level` among the levels of
+            ``world``, counted from the lowest.
+        """
+        levels_from_the_lowest = sorted(
+            world.get_semantic_annotations_by_type(Level),
+            key=lambda level: float(level.floor_plane[0].z),
+        )
+        return levels_from_the_lowest.index(self.destination_level(world))
 
     def build_plan(self, context: Context) -> PlanNode:
         """
