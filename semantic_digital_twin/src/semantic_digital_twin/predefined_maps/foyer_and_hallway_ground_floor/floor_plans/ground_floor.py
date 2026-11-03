@@ -14,6 +14,12 @@ from semantic_digital_twin.predefined_maps.foyer_and_hallway_ground_floor.rectil
 from semantic_digital_twin.predefined_maps.foyer_and_hallway_ground_floor.storey import (
     Storey,
 )
+from semantic_digital_twin.semantic_annotations.semantic_annotations import (
+    Bathroom,
+    BathroomCabin,
+    Kitchen,
+    StorageRoom,
+)
 from semantic_digital_twin.spatial_types import Point2
 
 # %% ground floor
@@ -165,6 +171,8 @@ class GroundFloorPlan(FloorPlan):
             ),
             OfficeRoom(
                 number="0.40",
+                room_type=Bathroom,
+                cabin_numbers=["0.40.2", "0.40.3"],
                 outline_frame=OutlineFrame.HALLWAY_EAST_STRETCH,
                 layout=StoreyHighRoom(
                     outline=[
@@ -182,6 +190,7 @@ class GroundFloorPlan(FloorPlan):
             ),
             OfficeRoom(
                 number="0.40.1",
+                room_type=Bathroom,
                 outline_frame=OutlineFrame.HALLWAY_EAST_STRETCH,
                 layout=StoreyHighRoom(
                     outline=[
@@ -198,6 +207,7 @@ class GroundFloorPlan(FloorPlan):
             ),
             OfficeRoom(
                 number="0.40.2",
+                room_type=BathroomCabin,
                 outline_frame=OutlineFrame.HALLWAY_EAST_STRETCH,
                 layout=StoreyHighRoom(
                     outline=[
@@ -211,6 +221,7 @@ class GroundFloorPlan(FloorPlan):
             ),
             OfficeRoom(
                 number="0.40.3",
+                room_type=BathroomCabin,
                 outline_frame=OutlineFrame.HALLWAY_EAST_STRETCH,
                 layout=StoreyHighRoom(
                     outline=[
@@ -224,6 +235,8 @@ class GroundFloorPlan(FloorPlan):
             ),
             OfficeRoom(
                 number="0.41",
+                room_type=Bathroom,
+                cabin_numbers=["0.41.2", "0.41.3"],
                 outline_frame=OutlineFrame.HALLWAY_EAST_STRETCH,
                 layout=StoreyHighRoom(
                     outline=[
@@ -241,6 +254,7 @@ class GroundFloorPlan(FloorPlan):
             ),
             OfficeRoom(
                 number="0.41.1",
+                room_type=Bathroom,
                 outline_frame=OutlineFrame.HALLWAY_EAST_STRETCH,
                 layout=StoreyHighRoom(
                     outline=[
@@ -257,6 +271,7 @@ class GroundFloorPlan(FloorPlan):
             ),
             OfficeRoom(
                 number="0.41.2",
+                room_type=BathroomCabin,
                 outline_frame=OutlineFrame.HALLWAY_EAST_STRETCH,
                 layout=StoreyHighRoom(
                     outline=[
@@ -270,6 +285,7 @@ class GroundFloorPlan(FloorPlan):
             ),
             OfficeRoom(
                 number="0.41.3",
+                room_type=BathroomCabin,
                 outline_frame=OutlineFrame.HALLWAY_EAST_STRETCH,
                 layout=StoreyHighRoom(
                     outline=[
@@ -283,6 +299,7 @@ class GroundFloorPlan(FloorPlan):
             ),
             OfficeRoom(
                 number="0.42",
+                room_type=Kitchen,
                 outline_frame=OutlineFrame.HALLWAY_EAST_STRETCH,
                 layout=StoreyHighRoom(
                     outline=[
@@ -449,6 +466,8 @@ class GroundFloorPlan(FloorPlan):
             ),
             OfficeRoom(
                 number="0.69",
+                room_type=Bathroom,
+                cabin_numbers=["0.69.1", "0.69.2"],
                 outline_frame=OutlineFrame.HALLWAY_SOUTH_STRETCH,
                 layout=StoreyHighRoom(
                     outline=[
@@ -466,6 +485,7 @@ class GroundFloorPlan(FloorPlan):
             ),
             OfficeRoom(
                 number="0.69.1",
+                room_type=BathroomCabin,
                 outline_frame=OutlineFrame.HALLWAY_SOUTH_STRETCH,
                 layout=StoreyHighRoom(
                     outline=[
@@ -479,6 +499,7 @@ class GroundFloorPlan(FloorPlan):
             ),
             OfficeRoom(
                 number="0.69.2",
+                room_type=BathroomCabin,
                 outline_frame=OutlineFrame.HALLWAY_SOUTH_STRETCH,
                 layout=StoreyHighRoom(
                     outline=[
@@ -492,6 +513,8 @@ class GroundFloorPlan(FloorPlan):
             ),
             OfficeRoom(
                 number="0.70",
+                room_type=Bathroom,
+                cabin_numbers=["0.70.1", "0.70.2"],
                 outline_frame=OutlineFrame.HALLWAY_SOUTH_STRETCH,
                 layout=StoreyHighRoom(
                     outline=[
@@ -511,6 +534,7 @@ class GroundFloorPlan(FloorPlan):
             ),
             OfficeRoom(
                 number="0.70.1",
+                room_type=BathroomCabin,
                 outline_frame=OutlineFrame.HALLWAY_SOUTH_STRETCH,
                 layout=StoreyHighRoom(
                     outline=[
@@ -524,6 +548,7 @@ class GroundFloorPlan(FloorPlan):
             ),
             OfficeRoom(
                 number="0.70.2",
+                room_type=BathroomCabin,
                 outline_frame=OutlineFrame.HALLWAY_SOUTH_STRETCH,
                 layout=StoreyHighRoom(
                     outline=[
@@ -569,6 +594,7 @@ class GroundFloorPlan(FloorPlan):
             ),
             OfficeRoom(
                 number="0.73",
+                room_type=Kitchen,
                 outline_frame=OutlineFrame.HALLWAY_EAST_STRETCH,
                 layout=StoreyHighRoom(
                     outline=[
@@ -585,6 +611,7 @@ class GroundFloorPlan(FloorPlan):
             ),
             OfficeRoom(
                 number="T.0.4.1",
+                room_type=StorageRoom,
                 outline_frame=OutlineFrame.HALLWAY_EAST_STRETCH,
                 layout=StoreyHighRoom(
                     outline=[

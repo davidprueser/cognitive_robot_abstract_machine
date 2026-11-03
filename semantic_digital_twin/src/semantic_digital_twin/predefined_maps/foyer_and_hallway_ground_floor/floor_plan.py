@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum, auto
 
 from semantic_digital_twin.predefined_maps.foyer_and_hallway_ground_floor.rectilinear_room import (
@@ -9,6 +9,7 @@ from semantic_digital_twin.predefined_maps.foyer_and_hallway_ground_floor.rectil
 from semantic_digital_twin.predefined_maps.foyer_and_hallway_ground_floor.storey import (
     Storey,
 )
+from semantic_digital_twin.semantic_annotations.semantic_annotations import Room
 
 # %% frames
 
@@ -70,6 +71,16 @@ class OfficeRoom:
     layout: RectilinearRoom
     """
     The room's floor, walls and doorways.
+    """
+
+    room_type: type[Room] = field(default=Room, kw_only=True)
+    """
+    The kind of room the floor plan shows, which its annotation takes.
+    """
+
+    cabin_numbers: list[str] = field(default_factory=list, kw_only=True)
+    """
+    The numbers of the toilet cabins entered from this room, if it is a bathroom.
     """
 
 

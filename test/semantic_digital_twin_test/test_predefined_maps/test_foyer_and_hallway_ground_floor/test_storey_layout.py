@@ -9,7 +9,10 @@ from semantic_digital_twin.predefined_maps.foyer_and_hallway_ground_floor.storey
     StoreyLayout,
 )
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
+    Bathroom,
+    BathroomCabin,
     Floor,
+    Hallway,
     Wall,
 )
 from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix, Point2
@@ -66,3 +69,60 @@ def test_every_floor_takes_the_layouts_floor_color(storey_layout, storey_world):
         for shape in floor.root.collision.shapes + floor.root.visual.shapes
     }
     assert floor_colors == {storey_layout.floor_color}
+
+
+# %% kinds of rooms
+
+
+@pytest.fixture
+def bathroom_with_a_cabin() -> StoreyLayout:
+    """
+    A bathroom with one toilet cabin entered from it, side by side.
+    """
+    square = [Point2(0.0, 0.0), Point2(2.0, 0.0), Point2(2.0, 2.0), Point2(0.0, 2.0)]
+    return StoreyLayout(
+        rooms=[
+            PlacedRoom(
+                name="bathroom",
+                layout=RectilinearRoom(outline=square),
+                storey_T_outline=HomogeneousTransformationMatrix(),
+                room_type=Bathroom,
+                cabin_names=["cabin"],
+            ),
+            PlacedRoom(
+                name="cabin",
+                layout=RectilinearRoom(outline=square),
+                storey_T_outline=HomogeneousTransformationMatrix.from_xyz_rpy(x=5.0),
+                room_type=BathroomCabin,
+            ),
+        ],
+        hallway=[],
+    )
+
+
+def test_a_room_takes_its_room_type(bathroom_with_a_cabin):
+    world = World.create_with_root_body("map")
+
+    bathroom_with_a_cabin.spawn(world, "storey")
+
+    assert [
+        type(world.get_semantic_annotation_by_name(f"storey_{room.name}"))
+        for room in bathroom_with_a_cabin.rooms
+    ] == [room.room_type for room in bathroom_with_a_cabin.rooms]
+
+
+def test_a_bathroom_lists_its_cabins(bathroom_with_a_cabin):
+    world = World.create_with_root_body("map")
+
+    bathroom_with_a_cabin.spawn(world, "storey")
+
+    bathroom = world.get_semantic_annotation_by_name("storey_bathroom")
+    assert bathroom.cabins == [world.get_semantic_annotation_by_name("storey_cabin")]
+
+
+def test_the_hallway_is_a_hallway(storey_layout):
+    world = World.create_with_root_body("map")
+
+    hallway = storey_layout.spawn(world, "storey")
+
+    assert type(hallway) is Hallway

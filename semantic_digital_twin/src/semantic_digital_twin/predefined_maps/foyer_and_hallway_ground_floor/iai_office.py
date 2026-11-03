@@ -28,6 +28,9 @@ from semantic_digital_twin.predefined_maps.foyer_and_hallway_ground_floor.storey
     PlacedRoom,
     StoreyLayout,
 )
+from semantic_digital_twin.semantic_annotations.semantic_annotations import (
+    ElevatorLobby,
+)
 from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
 from semantic_digital_twin.world_description.geometry import (
     PlanarBoundingBox,
@@ -128,6 +131,11 @@ class IAIOffice:
                     f"room_{office_room.number}",
                     office_room.layout,
                     self.map_T_outline_frame(office_room.outline_frame),
+                    room_type=office_room.room_type,
+                    cabin_names=[
+                        f"room_{cabin_number}"
+                        for cabin_number in office_room.cabin_numbers
+                    ],
                 )
                 for office_room in office_rooms
             ]
@@ -140,6 +148,7 @@ class IAIOffice:
                     "elevator_room",
                     self.elevator_room.room,
                     self.elevator_room.map_T_room,
+                    room_type=ElevatorLobby,
                 )
             )
             hallway += [

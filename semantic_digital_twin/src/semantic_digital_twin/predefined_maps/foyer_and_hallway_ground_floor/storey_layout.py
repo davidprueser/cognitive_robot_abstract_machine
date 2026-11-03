@@ -15,6 +15,7 @@ from semantic_digital_twin.predefined_maps.foyer_and_hallway_ground_floor.rectil
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Aperture,
     Floor,
+    Hallway,
     Room,
     Wall,
 )
@@ -54,6 +55,16 @@ class PlacedRoom:
     """
     Placement of the outline's frame in the storey's frame: a turn about the vertical
     axis and a horizontal shift.
+    """
+
+    room_type: type[Room] = field(default=Room, kw_only=True)
+    """
+    The annotation type the room is spawned with.
+    """
+
+    cabin_names: list[str] = field(default_factory=list, kw_only=True)
+    """
+    The names of the rooms on the storey that are this bathroom's toilet cabins.
     """
 
     @cached_property
@@ -656,7 +667,7 @@ class StoreyLayout:
         name: str,
         parent: KinematicStructureEntity | None = None,
         parent_T_self: HomogeneousTransformationMatrix | None = None,
-    ) -> Room:
+    ) -> Hallway:
         """
         Materialize the storey in ``world``: a floor with its supporting surface and a
         room annotation for the hallway and for each room, and the walls with their
@@ -668,7 +679,7 @@ class StoreyLayout:
             used.
         :param parent_T_self: Placement of the storey's frame in ``parent``'s frame.
             Identity if None.
-        :return: The room annotation of the hallway.
+        :return: The hallway annotation.
         """
         stretches = self.wall_stretches()
         into_hallway = [
@@ -704,13 +715,22 @@ class StoreyLayout:
             stretch.spawn(
                 world, f"{name}_wall_{index}", floor_of[stretch.segment.edge.room]
             )
-        hallway = Room(name=PrefixedName(f"{name}_hallway"), floor=hallway_floor)
+        hallway = Hallway(name=PrefixedName(f"{name}_hallway"), floor=hallway_floor)
+        annotation_of = {
+            room.name: room.room_type(
+                name=PrefixedName(f"{name}_{room.name}"), floor=floor_of[room]
+            )
+            for room in self.rooms
+        }
+        for room in self.rooms:
+            if room.cabin_names:
+                annotation_of[room.name].cabins = [
+                    annotation_of[cabin_name] for cabin_name in room.cabin_names
+                ]
         with world.modify_world():
             world.add_semantic_annotation(hallway)
-            for room in self.rooms:
-                world.add_semantic_annotation(
-                    Room(name=PrefixedName(f"{name}_{room.name}"), floor=floor_of[room])
-                )
+            for annotation in annotation_of.values():
+                world.add_semantic_annotation(annotation)
         return hallway
 
     def _spawn_floor(

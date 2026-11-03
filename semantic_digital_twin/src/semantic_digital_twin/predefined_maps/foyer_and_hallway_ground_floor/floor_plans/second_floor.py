@@ -15,6 +15,12 @@ from semantic_digital_twin.predefined_maps.foyer_and_hallway_ground_floor.rectil
 from semantic_digital_twin.predefined_maps.foyer_and_hallway_ground_floor.storey import (
     Storey,
 )
+from semantic_digital_twin.semantic_annotations.semantic_annotations import (
+    Bathroom,
+    BathroomCabin,
+    Kitchen,
+    StorageRoom,
+)
 from semantic_digital_twin.spatial_types import Point2
 
 # %% second floor
@@ -33,6 +39,8 @@ class SecondFloorPlan(FloorPlan):
         default_factory=lambda: [
             OfficeRoom(
                 number="2.16d",
+                room_type=Bathroom,
+                cabin_numbers=["2.16d.1", "2.16d.2"],
                 outline_frame=OutlineFrame.HALLWAY_SOUTH_STRETCH,
                 layout=StoreyHighRoom(
                     outline=[
@@ -52,6 +60,7 @@ class SecondFloorPlan(FloorPlan):
             ),
             OfficeRoom(
                 number="2.16d.1",
+                room_type=BathroomCabin,
                 outline_frame=OutlineFrame.HALLWAY_SOUTH_STRETCH,
                 layout=StoreyHighRoom(
                     outline=[
@@ -65,6 +74,7 @@ class SecondFloorPlan(FloorPlan):
             ),
             OfficeRoom(
                 number="2.16d.2",
+                room_type=BathroomCabin,
                 outline_frame=OutlineFrame.HALLWAY_SOUTH_STRETCH,
                 layout=StoreyHighRoom(
                     outline=[
@@ -78,6 +88,8 @@ class SecondFloorPlan(FloorPlan):
             ),
             OfficeRoom(
                 number="2.16e",
+                room_type=Bathroom,
+                cabin_numbers=["2.16e.1", "2.16e.2"],
                 outline_frame=OutlineFrame.HALLWAY_SOUTH_STRETCH,
                 layout=StoreyHighRoom(
                     outline=[
@@ -95,6 +107,7 @@ class SecondFloorPlan(FloorPlan):
             ),
             OfficeRoom(
                 number="2.16e.1",
+                room_type=BathroomCabin,
                 outline_frame=OutlineFrame.HALLWAY_SOUTH_STRETCH,
                 layout=StoreyHighRoom(
                     outline=[
@@ -108,6 +121,7 @@ class SecondFloorPlan(FloorPlan):
             ),
             OfficeRoom(
                 number="2.16e.2",
+                room_type=BathroomCabin,
                 outline_frame=OutlineFrame.HALLWAY_SOUTH_STRETCH,
                 layout=StoreyHighRoom(
                     outline=[
@@ -121,6 +135,8 @@ class SecondFloorPlan(FloorPlan):
             ),
             OfficeRoom(
                 number="2.16f",
+                room_type=Bathroom,
+                cabin_numbers=["2.16f.2", "2.16f.3"],
                 outline_frame=OutlineFrame.HALLWAY_EAST_STRETCH,
                 layout=StoreyHighRoom(
                     outline=[
@@ -138,6 +154,7 @@ class SecondFloorPlan(FloorPlan):
             ),
             OfficeRoom(
                 number="2.16f.1",
+                room_type=Bathroom,
                 outline_frame=OutlineFrame.HALLWAY_EAST_STRETCH,
                 layout=StoreyHighRoom(
                     outline=[
@@ -154,6 +171,7 @@ class SecondFloorPlan(FloorPlan):
             ),
             OfficeRoom(
                 number="2.16f.2",
+                room_type=BathroomCabin,
                 outline_frame=OutlineFrame.HALLWAY_EAST_STRETCH,
                 layout=StoreyHighRoom(
                     outline=[
@@ -167,6 +185,7 @@ class SecondFloorPlan(FloorPlan):
             ),
             OfficeRoom(
                 number="2.16f.3",
+                room_type=BathroomCabin,
                 outline_frame=OutlineFrame.HALLWAY_EAST_STRETCH,
                 layout=StoreyHighRoom(
                     outline=[
@@ -180,6 +199,8 @@ class SecondFloorPlan(FloorPlan):
             ),
             OfficeRoom(
                 number="2.16g",
+                room_type=Bathroom,
+                cabin_numbers=["2.16g.2", "2.16g.3"],
                 outline_frame=OutlineFrame.HALLWAY_EAST_STRETCH,
                 layout=StoreyHighRoom(
                     outline=[
@@ -197,6 +218,7 @@ class SecondFloorPlan(FloorPlan):
             ),
             OfficeRoom(
                 number="2.16g.1",
+                room_type=Bathroom,
                 outline_frame=OutlineFrame.HALLWAY_EAST_STRETCH,
                 layout=StoreyHighRoom(
                     outline=[
@@ -213,6 +235,7 @@ class SecondFloorPlan(FloorPlan):
             ),
             OfficeRoom(
                 number="2.16g.2",
+                room_type=BathroomCabin,
                 outline_frame=OutlineFrame.HALLWAY_EAST_STRETCH,
                 layout=StoreyHighRoom(
                     outline=[
@@ -226,6 +249,7 @@ class SecondFloorPlan(FloorPlan):
             ),
             OfficeRoom(
                 number="2.16g.3",
+                room_type=BathroomCabin,
                 outline_frame=OutlineFrame.HALLWAY_EAST_STRETCH,
                 layout=StoreyHighRoom(
                     outline=[
@@ -408,6 +432,7 @@ class SecondFloorPlan(FloorPlan):
             ),
             OfficeRoom(
                 number="2.71",
+                room_type=StorageRoom,
                 outline_frame=OutlineFrame.HALLWAY_EAST_STRETCH,
                 layout=StoreyHighRoom(
                     outline=[
@@ -644,6 +669,7 @@ class SecondFloorPlan(FloorPlan):
             ),
             OfficeRoom(
                 number="2.93",
+                room_type=StorageRoom,
                 outline_frame=OutlineFrame.HALLWAY_EAST_STRETCH,
                 layout=StoreyHighRoom(
                     outline=[
@@ -672,6 +698,7 @@ class SecondFloorPlan(FloorPlan):
             ),
             OfficeRoom(
                 number="2.97",
+                room_type=Kitchen,
                 outline_frame=OutlineFrame.HALLWAY_EAST_STRETCH,
                 layout=StoreyHighRoom(
                     outline=[
@@ -688,6 +715,7 @@ class SecondFloorPlan(FloorPlan):
             ),
             OfficeRoom(
                 number="2.97a",
+                room_type=Kitchen,
                 outline_frame=OutlineFrame.HALLWAY_EAST_STRETCH,
                 layout=StoreyHighRoom(
                     outline=[

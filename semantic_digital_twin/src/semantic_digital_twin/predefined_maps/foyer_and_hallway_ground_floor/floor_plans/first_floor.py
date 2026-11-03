@@ -15,6 +15,12 @@ from semantic_digital_twin.predefined_maps.foyer_and_hallway_ground_floor.rectil
 from semantic_digital_twin.predefined_maps.foyer_and_hallway_ground_floor.storey import (
     Storey,
 )
+from semantic_digital_twin.semantic_annotations.semantic_annotations import (
+    Bathroom,
+    BathroomCabin,
+    Kitchen,
+    StorageRoom,
+)
 from semantic_digital_twin.spatial_types import Point2
 
 # %% first floor
@@ -33,6 +39,8 @@ class FirstFloorPlan(FloorPlan):
         default_factory=lambda: [
             OfficeRoom(
                 number="1.18b",
+                room_type=Bathroom,
+                cabin_numbers=["1.18b.1", "1.18b.2"],
                 outline_frame=OutlineFrame.HALLWAY_SOUTH_STRETCH,
                 layout=StoreyHighRoom(
                     outline=[
@@ -52,6 +60,7 @@ class FirstFloorPlan(FloorPlan):
             ),
             OfficeRoom(
                 number="1.18b.1",
+                room_type=BathroomCabin,
                 outline_frame=OutlineFrame.HALLWAY_SOUTH_STRETCH,
                 layout=StoreyHighRoom(
                     outline=[
@@ -65,6 +74,7 @@ class FirstFloorPlan(FloorPlan):
             ),
             OfficeRoom(
                 number="1.18b.2",
+                room_type=BathroomCabin,
                 outline_frame=OutlineFrame.HALLWAY_SOUTH_STRETCH,
                 layout=StoreyHighRoom(
                     outline=[
@@ -78,6 +88,8 @@ class FirstFloorPlan(FloorPlan):
             ),
             OfficeRoom(
                 number="1.18c",
+                room_type=Bathroom,
+                cabin_numbers=["1.18c.1", "1.18c.2"],
                 outline_frame=OutlineFrame.HALLWAY_SOUTH_STRETCH,
                 layout=StoreyHighRoom(
                     outline=[
@@ -95,6 +107,7 @@ class FirstFloorPlan(FloorPlan):
             ),
             OfficeRoom(
                 number="1.18c.1",
+                room_type=BathroomCabin,
                 outline_frame=OutlineFrame.HALLWAY_SOUTH_STRETCH,
                 layout=StoreyHighRoom(
                     outline=[
@@ -108,6 +121,7 @@ class FirstFloorPlan(FloorPlan):
             ),
             OfficeRoom(
                 number="1.18c.2",
+                room_type=BathroomCabin,
                 outline_frame=OutlineFrame.HALLWAY_SOUTH_STRETCH,
                 layout=StoreyHighRoom(
                     outline=[
@@ -121,6 +135,8 @@ class FirstFloorPlan(FloorPlan):
             ),
             OfficeRoom(
                 number="1.18d",
+                room_type=Bathroom,
+                cabin_numbers=["1.18d.2", "1.18d.3"],
                 outline_frame=OutlineFrame.HALLWAY_EAST_STRETCH,
                 layout=StoreyHighRoom(
                     outline=[
@@ -138,6 +154,7 @@ class FirstFloorPlan(FloorPlan):
             ),
             OfficeRoom(
                 number="1.18d.1",
+                room_type=Bathroom,
                 outline_frame=OutlineFrame.HALLWAY_EAST_STRETCH,
                 layout=StoreyHighRoom(
                     outline=[
@@ -154,6 +171,7 @@ class FirstFloorPlan(FloorPlan):
             ),
             OfficeRoom(
                 number="1.18d.2",
+                room_type=BathroomCabin,
                 outline_frame=OutlineFrame.HALLWAY_EAST_STRETCH,
                 layout=StoreyHighRoom(
                     outline=[
@@ -167,6 +185,7 @@ class FirstFloorPlan(FloorPlan):
             ),
             OfficeRoom(
                 number="1.18d.3",
+                room_type=BathroomCabin,
                 outline_frame=OutlineFrame.HALLWAY_EAST_STRETCH,
                 layout=StoreyHighRoom(
                     outline=[
@@ -180,6 +199,8 @@ class FirstFloorPlan(FloorPlan):
             ),
             OfficeRoom(
                 number="1.18e",
+                room_type=Bathroom,
+                cabin_numbers=["1.18e.2", "1.18e.3"],
                 outline_frame=OutlineFrame.HALLWAY_EAST_STRETCH,
                 layout=StoreyHighRoom(
                     outline=[
@@ -197,6 +218,7 @@ class FirstFloorPlan(FloorPlan):
             ),
             OfficeRoom(
                 number="1.18e.1",
+                room_type=Bathroom,
                 outline_frame=OutlineFrame.HALLWAY_EAST_STRETCH,
                 layout=StoreyHighRoom(
                     outline=[
@@ -213,6 +235,7 @@ class FirstFloorPlan(FloorPlan):
             ),
             OfficeRoom(
                 number="1.18e.2",
+                room_type=BathroomCabin,
                 outline_frame=OutlineFrame.HALLWAY_EAST_STRETCH,
                 layout=StoreyHighRoom(
                     outline=[
@@ -226,6 +249,7 @@ class FirstFloorPlan(FloorPlan):
             ),
             OfficeRoom(
                 number="1.18e.3",
+                room_type=BathroomCabin,
                 outline_frame=OutlineFrame.HALLWAY_EAST_STRETCH,
                 layout=StoreyHighRoom(
                     outline=[
@@ -239,6 +263,7 @@ class FirstFloorPlan(FloorPlan):
             ),
             OfficeRoom(
                 number="1.20",
+                room_type=Kitchen,
                 outline_frame=OutlineFrame.HALLWAY_EAST_STRETCH,
                 layout=StoreyHighRoom(
                     outline=[
@@ -255,6 +280,7 @@ class FirstFloorPlan(FloorPlan):
             ),
             OfficeRoom(
                 number="1.21",
+                room_type=StorageRoom,
                 outline_frame=OutlineFrame.HALLWAY_EAST_STRETCH,
                 layout=StoreyHighRoom(
                     outline=[
@@ -333,6 +359,7 @@ class FirstFloorPlan(FloorPlan):
             ),
             OfficeRoom(
                 number="1.24",
+                room_type=Kitchen,
                 outline_frame=OutlineFrame.HALLWAY_EAST_STRETCH,
                 layout=StoreyHighRoom(
                     outline=[
@@ -349,6 +376,7 @@ class FirstFloorPlan(FloorPlan):
             ),
             OfficeRoom(
                 number="1.44",
+                room_type=StorageRoom,
                 outline_frame=OutlineFrame.HALLWAY_EAST_STRETCH,
                 layout=StoreyHighRoom(
                     outline=[
