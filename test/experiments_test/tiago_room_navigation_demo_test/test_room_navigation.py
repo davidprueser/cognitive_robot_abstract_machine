@@ -127,6 +127,48 @@ def test_a_room_on_another_level_is_approached_by_riding_the_elevator_to_its_lev
     assert ride.target_floor is world.get_semantic_annotations_by_type(FirstFloor)[0]
 
 
+@pytest.mark.parametrize(
+    "level_type, room",
+    [
+        (GroundFloor, AriseOfficeRoom.EAST_OFFICE),
+        (FirstFloor, AriseOfficeRoom.WEST_OFFICE),
+    ],
+)
+def test_every_drive_to_a_room_keeps_the_obstacle_clearance(
+    lobby_demonstration, lobby_context, level_type, room
+):
+    target_room = lobby_demonstration.office.get_room(
+        lobby_context.world, level_type, room
+    )
+    action = NavigateToRoomAction(target_room, obstacle_clearance=0.15)
+
+    drives = [
+        step
+        for step in planned_steps(action, lobby_context)
+        if isinstance(step, PathPlanningNavigateAction)
+    ]
+
+    assert [drive.obstacle_clearance for drive in drives] == [action.obstacle_clearance]
+
+
+def test_the_demonstration_drives_with_its_obstacle_clearance(
+    lobby_demonstration, lobby_context
+):
+    east_office = lobby_demonstration.office.get_room(
+        lobby_context.world, GroundFloor, AriseOfficeRoom.EAST_OFFICE
+    )
+    demonstration = TiagoRoomNavigationDemonstration(
+        used_robot=Tiago,
+        execution_type=ExecutionType.KINEMATICALLY_SIMULATED,
+        target_room_name=east_office.name.name,
+        obstacle_clearance=0.15,
+    )
+
+    [navigation] = demonstration.build_plan(lobby_context).children
+
+    assert navigation.designator.obstacle_clearance == demonstration.obstacle_clearance
+
+
 def test_a_room_on_no_level_cannot_be_planned_for(lobby_context):
     world = lobby_context.world
     basement_floor = Floor.get_annotation_specification(

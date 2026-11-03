@@ -45,6 +45,11 @@ class TiagoRoomNavigationDemonstration(TiagoElevatorRideDemonstration):
     The name of the room annotation Tiago drives to.
     """
 
+    obstacle_clearance: float = field(default=0.0, kw_only=True)
+    """
+    How far Tiago's base keeps from obstacles on top of its base radius while it drives.
+    """
+
     def build_plan(self, context: Context) -> PlanNode:
         """
         Drive one leg of the way to the target room.
@@ -56,6 +61,7 @@ class TiagoRoomNavigationDemonstration(TiagoElevatorRideDemonstration):
                         self.target_room_name
                     ),
                     elevator_arrival_threshold=self.elevator_arrival_threshold,
+                    obstacle_clearance=self.obstacle_clearance,
                 )
             ],
             context=context,

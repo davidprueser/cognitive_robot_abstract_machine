@@ -58,6 +58,12 @@ class NavigateToRoomAction(ActionDescription):
     Position error within which the elevator's drive counts as having arrived.
     """
 
+    obstacle_clearance: float = field(default=0.0, kw_only=True)
+    """
+    How far the robot's base keeps from obstacles on top of its base radius while it
+    drives.
+    """
+
     @property
     def _action_plan(self) -> PlanNode:
         """
@@ -70,7 +76,12 @@ class NavigateToRoomAction(ActionDescription):
             raise RoomOnNoLevelError(self.target_room.name.name)
         if Level.under(self.robot.root) is target_level:
             return sequential(
-                [PathPlanningNavigateAction(self.target_room.floor_centre)]
+                [
+                    PathPlanningNavigateAction(
+                        self.target_room.floor_centre,
+                        obstacle_clearance=self.obstacle_clearance,
+                    )
+                ]
             )
         elevators = self.world.get_semantic_annotations_by_type(Elevator)
         if not elevators:
@@ -79,7 +90,8 @@ class NavigateToRoomAction(ActionDescription):
         return sequential(
             [
                 PathPlanningNavigateAction(
-                    elevator.pose_in_front_of_doors(self.elevator_waiting_distance)
+                    elevator.pose_in_front_of_doors(self.elevator_waiting_distance),
+                    obstacle_clearance=self.obstacle_clearance,
                 ),
                 ElevatorNavigation(
                     elevator,
