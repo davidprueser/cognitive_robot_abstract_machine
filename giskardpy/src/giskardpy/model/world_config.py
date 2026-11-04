@@ -112,6 +112,16 @@ class WorldWithDiffDriveRobot(WorldConfig):
     robot_name: PrefixedName = field(default=PrefixedName("robot"))
     odom_body_name: PrefixedName = field(default=PrefixedName("odom"))
     urdf_view: AbstractRobot = field(kw_only=True, default=MinimalRobot)
+    translation_velocity_limit: float = field(kw_only=True, default=0.2)
+    """
+    The fastest the base may drive forwards or backwards, in m/s.
+    """
+
+    rotation_velocity_limit: float = field(kw_only=True, default=0.2)
+    """
+    The fastest the base may turn, in rad/s.
+    """
+
     localization: Connection6DoF = field(init=False)
     robot: AbstractRobot = field(init=False)
 
@@ -130,8 +140,8 @@ class WorldWithDiffDriveRobot(WorldConfig):
         odom = DifferentialDrive.create_with_dofs(
             parent=odom,
             child=world_with_robot.root,
-            translation_velocity_limits=0.2,
-            rotation_velocity_limits=0.2,
+            translation_velocity_limits=self.translation_velocity_limit,
+            rotation_velocity_limits=self.rotation_velocity_limit,
             world=self.world,
         )
 

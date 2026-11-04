@@ -41,7 +41,8 @@ class DifferentialDriveBaseGoal(Sequence):
     steps 1 and 2 follow the base as it drives. The goal is reached at the base's own
     height, which the drive cannot change. Step 1 turns on the spot, see
     :attr:`translation_velocity_while_turning`, and towards the goal's orientation if the
-    base already stands within :attr:`threshold` of the goal position.
+    base already stands within :attr:`threshold` of the goal position. Every step drives
+    and turns as fast as the velocity limits of :attr:`diff_drive_connection` allow.
     """
 
     diff_drive_connection: DifferentialDrive | None = field(kw_only=True, default=None)
@@ -100,6 +101,8 @@ class DifferentialDriveBaseGoal(Sequence):
                     entity_type=DifferentialDrive,
                 )
             self.diff_drive_connection = diff_drives[0]
+        translation_speed = self.diff_drive_connection.x_velocity.limits.upper.velocity
+        rotation_speed = self.diff_drive_connection.yaw.limits.upper.velocity
         map = context.world.root
         tip = self.diff_drive_connection.child
 
@@ -147,6 +150,7 @@ class DifferentialDriveBaseGoal(Sequence):
                         root_link=map,
                         tip_link=tip,
                         goal_orientation=root_R_first_orientation,
+                        reference_velocity=rotation_speed,
                         weight=self.weight,
                         threshold=min(self.threshold, self.heading_threshold),
                     ),
@@ -166,6 +170,8 @@ class DifferentialDriveBaseGoal(Sequence):
                 root_link=map,
                 tip_link=tip,
                 goal_pose=root_T_goal2,
+                reference_linear_velocity=translation_speed,
+                reference_angular_velocity=rotation_speed,
                 weight=self.weight,
                 translation_threshold=self.threshold,
                 orientation_threshold=self.threshold,
@@ -175,6 +181,8 @@ class DifferentialDriveBaseGoal(Sequence):
                 root_link=map,
                 tip_link=tip,
                 goal_pose=root_T_goal,
+                reference_linear_velocity=translation_speed,
+                reference_angular_velocity=rotation_speed,
                 weight=self.weight,
                 translation_threshold=self.threshold,
                 orientation_threshold=self.threshold,

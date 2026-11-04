@@ -1516,6 +1516,30 @@ class TestDiffDriveBaseGoal:
             assert step.translation_threshold == 0.3
             assert step.orientation_threshold == 0.3
 
+    def test_every_step_asks_for_the_speeds_the_drive_allows(
+        self, cylinder_bot_diff_world
+    ):
+        drive = cylinder_bot_diff_world.get_connections_by_type(DifferentialDrive)[0]
+        goal_pose = Pose.from_xyz_rpy(
+            x=1, y=1, yaw=np.pi / 4, reference_frame=cylinder_bot_diff_world.root
+        )
+        motion_statechart = MotionStatechart()
+        motion_statechart.add_node(
+            goal := DifferentialDriveBaseGoal(goal_pose=goal_pose)
+        )
+        motion_statechart.add_node(EndMotion.when_true(goal))
+
+        executor = Executor(MotionStatechartContext(world=cylinder_bot_diff_world))
+        executor.compile(motion_statechart=motion_statechart)
+
+        turn = goal.nodes[0].nodes[0]
+        assert turn.reference_velocity == drive.yaw.limits.upper.velocity
+        for step in goal.nodes[1:]:
+            assert (
+                step.reference_linear_velocity == drive.x_velocity.limits.upper.velocity
+            )
+            assert step.reference_angular_velocity == drive.yaw.limits.upper.velocity
+
     def test_second_goal_drives_from_where_the_first_one_ended(
         self, cylinder_bot_diff_world
     ):

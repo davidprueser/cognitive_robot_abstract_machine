@@ -10,6 +10,8 @@ from semantic_digital_twin.world_description.connections import DifferentialDriv
 @dataclass
 class WorldWithTiagoConfig(WorldWithDiffDriveRobot):
     urdf_view: AbstractRobot = field(kw_only=True, default=Tiago, init=False)
+    translation_velocity_limit: float = field(kw_only=True, default=0.5)
+    rotation_velocity_limit: float = field(kw_only=True, default=0.6)
 
 
 @dataclass
