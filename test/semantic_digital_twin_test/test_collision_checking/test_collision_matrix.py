@@ -527,6 +527,25 @@ class TestCollisionRules:
             in rule.allowed_collision_pairs
         )
 
+    def test_adjacent_pairs_are_the_pairs_no_controlled_connection_separates(
+        self, pr2_world_state_reset
+    ):
+        """
+        Two bodies are allowed to collide if no controlled connection lies on the chain
+        between them, or if one is the parent of the other.
+        """
+        world = pr2_world_state_reset
+        expected = {
+            CollisionCheck.create_for_bodies_with_collision(body_a, body_b)
+            for body_a, body_b in combinations(world.bodies_with_collision, 2)
+            if not world.is_controlled_connection_in_chain(body_a, body_b)
+            or body_a == body_b.parent_kinematic_structure_entity
+            or body_b == body_a.parent_kinematic_structure_entity
+        }
+        rule = AllowCollisionForAdjacentPairs()
+        rule.update(world)
+        assert rule.allowed_collision_pairs == expected
+
     def test_double_update(self, pr2_world_state_reset):
         rule = AllowCollisionForAdjacentPairs()
         rule.update(pr2_world_state_reset)
