@@ -8,6 +8,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from krrood.code_generation.naming import to_snake_case
 
 from semantic_digital_twin.adapters.exceptions import (
     DuplicateSDFName,
@@ -26,8 +27,10 @@ from semantic_digital_twin.adapters.gazebo_writer import (
     GazeboModelSystem,
     GazeboSystem,
     GazeboWriter,
+    StaticLinkDivision,
 )
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
+from semantic_digital_twin.semantic_annotations.semantic_annotations import Floor, Wall
 from semantic_digital_twin.spatial_types.spatial_types import (
     HomogeneousTransformationMatrix,
     Vector3,
@@ -473,6 +476,161 @@ class TestModelDivision:
         parsed = write_and_parse(mini_world, tmp_path)
         root = body_named(parsed, mini_world.root.name.name)
         assert isinstance(root.parent_connection, FixedConnection)
+
+
+# %% static part written by kind
+
+
+def offset_box() -> ShapeCollection:
+    """
+    :return: A box placed off the origin of its body and turned against it.
+    """
+    return ShapeCollection(
+        [
+            Box(
+                origin=HomogeneousTransformationMatrix.from_xyz_rpy(y=0.5, yaw=0.1),
+                scale=Scale(1.0, 0.1, 2.0),
+            )
+        ]
+    )
+
+
+@pytest.fixture
+def building_world() -> World:
+    """
+    A building of two walls, a floor slab and an unannotated pillar fixed to its root.
+
+    The shapes sit off their bodies' origins and the bodies are turned, so a shape's
+    pose relative to the model depends on both.
+    """
+    world = World()
+    with world.modify_world():
+        root = Body(name=PrefixedName("building", "office"))
+        bodies = []
+        for name, x, yaw in (
+            ("wall_north", 2.0, 0.3),
+            ("wall_south", -2.0, -0.4),
+            ("slab", 0.0, 0.2),
+            ("pillar", 1.0, 0.7),
+        ):
+            body = Body(
+                name=PrefixedName(name, "office"),
+                visual=offset_box(),
+                collision=offset_box(),
+            )
+            world.add_connection(
+                FixedConnection(
+                    parent=root,
+                    child=body,
+                    parent_T_connection_expression=HomogeneousTransformationMatrix.from_xyz_rpy(
+                        x=x, z=0.5, yaw=yaw
+                    ),
+                )
+            )
+            bodies.append(body)
+        wall_north, wall_south, slab, _ = bodies
+        world.add_semantic_annotation(Wall(root=wall_north))
+        world.add_semantic_annotation(Wall(root=wall_south))
+        world.add_semantic_annotation(Floor(root=slab))
+    return world
+
+
+@pytest.fixture
+def building_world_with_hinged_lid(building_world: World) -> World:
+    """
+    The building with a lid swinging on a hinge on its floor slab.
+    """
+    slab = body_named(building_world, "slab")
+    with building_world.modify_world():
+        lid = Body(
+            name=PrefixedName("lid", "office"),
+            collision=ShapeCollection([Box(scale=Scale(1.0, 1.0, 0.05))]),
+        )
+        building_world.add_connection(
+            RevoluteConnection.create_with_dofs(
+                world=building_world, parent=slab, child=lid, axis=Vector3.Y()
+            )
+        )
+    return building_world
+
+
+def root_T_collisions(world: World) -> np.ndarray:
+    """
+    :param world: A world.
+    :return: The positions of all collision shapes of the world relative to its root,
+        sorted so that two worlds holding the same shapes give the same array.
+    """
+    positions = [
+        (world.compute_forward_kinematics_np(world.root, body) @ shape.origin.to_np())[
+            :3, 3
+        ]
+        for body in world.bodies
+        for shape in body.collision
+    ]
+    return np.array(sorted(map(tuple, np.round(positions, 9))))
+
+
+class TestStaticLinksByKind:
+    """
+    The static part of the model holding the world's root, written as one link per kind
+    of body.
+    """
+
+    def test_static_part_has_one_link_per_kind_of_body(
+        self, building_world: World, tmp_path: Path
+    ) -> None:
+        """
+        Bodies held by no annotation go into the link named after the root.
+        """
+        writer = GazeboWriter(
+            world=building_world, static_link_division=StaticLinkDivision.ONE_PER_KIND
+        )
+        (fixed_part,) = writer.models
+        document = write_with(writer, tmp_path)
+        links = model_element_named(document, fixed_part.name).findall(SDFElement.LINK)
+        assert {link.get(SDFAttribute.NAME) for link in links} == {
+            building_world.root.name.name,
+            to_snake_case(Wall.__name__),
+            to_snake_case(Floor.__name__),
+        }
+
+    def test_static_part_has_no_joints(
+        self, building_world: World, tmp_path: Path
+    ) -> None:
+        writer = GazeboWriter(
+            world=building_world, static_link_division=StaticLinkDivision.ONE_PER_KIND
+        )
+        (fixed_part,) = writer.models
+        document = write_with(writer, tmp_path)
+        assert model_element_named(document, fixed_part.name).find(
+            SDFElement.JOINT
+        ) is (None)
+
+    def test_shapes_keep_their_place(
+        self, building_world: World, tmp_path: Path
+    ) -> None:
+        file_path = str(tmp_path / "world.sdf")
+        GazeboWriter(
+            world=building_world, static_link_division=StaticLinkDivision.ONE_PER_KIND
+        ).write(file_path)
+        parsed = GazeboParser.from_file(file_path).parse()
+        assert np.allclose(root_T_collisions(parsed), root_T_collisions(building_world))
+
+    def test_moving_parts_keep_one_link_per_body(
+        self, building_world_with_hinged_lid: World, tmp_path: Path
+    ) -> None:
+        writer = GazeboWriter(
+            world=building_world_with_hinged_lid,
+            static_link_division=StaticLinkDivision.ONE_PER_KIND,
+        )
+        _, moving_parts = writer.models
+        document = write_with(writer, tmp_path)
+        links = model_element_named(document, moving_parts.name).findall(
+            SDFElement.LINK
+        )
+        assert {link.get(SDFAttribute.NAME) for link in links} == {
+            body.name.name for body in moving_parts.anchors + moving_parts.bodies
+        }
 
 
 # %% simulation

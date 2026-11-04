@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import xml.etree.ElementTree as ElementTree
 from abc import ABC, abstractmethod
-from collections import Counter
+from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from enum import Enum, StrEnum
 from functools import cached_property
 from pathlib import Path
 
 import numpy as np
+from krrood.code_generation.naming import to_snake_case
 from krrood.ormatic.utils import classproperty
 
 from semantic_digital_twin.adapters.exceptions import (
@@ -26,6 +27,7 @@ from semantic_digital_twin.adapters.gazebo import (
     SDFLightType,
     SDFPhysicsType,
 )
+from semantic_digital_twin.semantic_annotations.mixins import HasRootBody
 from semantic_digital_twin.spatial_types.spatial_types import (
     HomogeneousTransformationMatrix,
     Vector3,
@@ -170,6 +172,26 @@ class GazeboPhysicsEngine(StrEnum):
     """
     DART, the engine Gazebo picks when a world names none, which does not enforce mimic
     joints.
+    """
+
+
+class StaticLinkDivision(Enum):
+    """
+    How the part of the model holding the world's root that never moves is divided into
+    links.
+    """
+
+    ONE_PER_BODY = "one_per_body"
+    """
+    Every body is a link, fixed to its parent by a joint, so the written world parses
+    back into the same bodies and connections.
+    """
+
+    ONE_PER_KIND = "one_per_kind"
+    """
+    The bodies are grouped into one link per kind: the types of the semantic annotations
+    rooted at a body, or none for a body that roots no annotation. A link holds the
+    shapes of its bodies where they are, and the part has no joints.
     """
 
 
@@ -406,6 +428,12 @@ class GazeboWriter:
     physics_engine: GazeboPhysicsEngine = GazeboPhysicsEngine.BULLET_FEATHERSTONE
     """
     The physics engine Gazebo simulates the written world with.
+    """
+
+    static_link_division: StaticLinkDivision = StaticLinkDivision.ONE_PER_BODY
+    """
+    How the part of the model holding the world's root that never moves is divided into
+    links.
     """
 
     systems: list[GazeboSystem] = field(
@@ -703,22 +731,28 @@ class GazeboWriter:
     def model_element(self, model: SDFModelContents) -> ElementTree.Element:
         """
         :param model: The model to describe.
-        :return: The ``model`` element holding the model's links and joints.
+        :return: The ``model`` element holding the model's links and joints, a static
+            model divided into links as :attr:`static_link_division` says.
         """
+        root_T_model = self.root_T_body_at_zero[model.origin_body]
+        model_T_root = np.linalg.inv(root_T_model)
+        element = ElementTree.Element(SDFElement.MODEL, {SDFAttribute.NAME: model.name})
+        element.append(self.pose_element(root_T_model))
+        if model.is_static:
+            ElementTree.SubElement(element, SDFElement.STATIC).text = "true"
+        if (
+            model.is_static
+            and self.static_link_division is StaticLinkDivision.ONE_PER_KIND
+        ):
+            element.extend(self.kind_link_elements(model, model_T_root))
+            return element
+
         self.check_names(
             [body.name.name for body in model.anchors + model.bodies]
             + [connection.name.name for connection in model.connections]
             + [self.anchor_joint_name(anchor) for anchor in model.anchors],
             model.name,
         )
-
-        root_T_model = self.root_T_body_at_zero[model.origin_body]
-        element = ElementTree.Element(SDFElement.MODEL, {SDFAttribute.NAME: model.name})
-        element.append(self.pose_element(root_T_model))
-        if model.is_static:
-            ElementTree.SubElement(element, SDFElement.STATIC).text = "true"
-
-        model_T_root = np.linalg.inv(root_T_model)
         element.extend(
             [
                 self.anchor_link_element(
@@ -853,31 +887,125 @@ class GazeboWriter:
         element.append(self.pose_element(model_T_link))
         if body.inertial is not None:
             element.append(self.inertial_element(body.inertial))
-        element.extend(
-            [
-                self.visual_element(index, shape)
-                for index, shape in enumerate(body.visual)
-            ]
-        )
-        element.extend(
-            [
-                self.collision_element(index, shape, collide_bitmask)
-                for index, shape in enumerate(body.collision)
-            ]
-        )
+        element.extend(self.shape_elements(body, np.eye(4), collide_bitmask, ""))
         return element
 
-    def collision_element(
-        self, index: int, shape: Shape, collide_bitmask: CollideBitmask | None
+    @cached_property
+    def kind_by_body(self) -> dict[Body, str]:
+        """
+        The kind of every body that roots a semantic annotation: the names of the types
+        of the annotations it roots, in snake case, sorted and joined by underscores.
+        """
+        type_names_by_body = defaultdict(set)
+        for annotation in self.world.semantic_annotations:
+            if isinstance(annotation, HasRootBody):
+                type_names_by_body[annotation.root].add(
+                    to_snake_case(type(annotation).__name__)
+                )
+        return {
+            body: "_".join(sorted(type_names))
+            for body, type_names in type_names_by_body.items()
+        }
+
+    def kind_link_elements(
+        self, model: SDFModelContents, model_T_root: np.ndarray
+    ) -> list[ElementTree.Element]:
+        """
+        :param model: A static model.
+        :param model_T_root: The pose of the root of the world relative to the model.
+        :return: One ``link`` element per kind of the model's bodies, see
+            :attr:`kind_by_body`, named after the kind; the bodies of no kind are in the
+            link named after the model's origin body.
+        """
+        bodies_by_link_name = defaultdict(list)
+        for body in model.bodies:
+            bodies_by_link_name[
+                self.kind_by_body.get(body, model.origin_body.name.name)
+            ].append(body)
+        self.check_names(list(bodies_by_link_name), model.name)
+        return [
+            self.kind_link_element(name, bodies, model_T_root, model.collide_bitmask)
+            for name, bodies in bodies_by_link_name.items()
+        ]
+
+    def kind_link_element(
+        self,
+        name: str,
+        bodies: list[Body],
+        model_T_root: np.ndarray,
+        collide_bitmask: CollideBitmask | None,
     ) -> ElementTree.Element:
         """
-        :param index: The position of the shape among the collision shapes of its body.
+        :param name: The name of the link.
+        :param bodies: The bodies of one kind.
+        :param model_T_root: The pose of the root of the world relative to the model.
+        :param collide_bitmask: The bitmask of the link's collisions, or None if they
+            collide with everything.
+        :return: The ``link`` element at the model's origin holding the shapes of the
+            bodies where they are, each named after its body.
+        """
+        element = ElementTree.Element(SDFElement.LINK, {SDFAttribute.NAME: name})
+        for body in bodies:
+            element.extend(
+                self.shape_elements(
+                    body,
+                    model_T_root @ self.root_T_body_at_zero[body],
+                    collide_bitmask,
+                    f"{body.name.name}_",
+                )
+            )
+        return element
+
+    def shape_elements(
+        self,
+        body: Body,
+        link_T_body: np.ndarray,
+        collide_bitmask: CollideBitmask | None,
+        name_prefix: str,
+    ) -> list[ElementTree.Element]:
+        """
+        :param body: The body whose shapes are described.
+        :param link_T_body: The pose of the body relative to the link holding its shapes.
+        :param collide_bitmask: The bitmask of the body's collisions, or None if they
+            collide with everything.
+        :param name_prefix: The text the name of every element starts with.
+        :return: The ``visual`` elements of the body's visual shapes, then the
+            ``collision`` elements of its collision shapes, each named by its kind and
+            position among the shapes of that kind.
+        """
+        return [
+            self.visual_element(
+                f"{name_prefix}{SDFElement.VISUAL}_{index}",
+                link_T_body @ shape.origin.to_np(),
+                shape,
+            )
+            for index, shape in enumerate(body.visual)
+        ] + [
+            self.collision_element(
+                f"{name_prefix}{SDFElement.COLLISION}_{index}",
+                link_T_body @ shape.origin.to_np(),
+                shape,
+                collide_bitmask,
+            )
+            for index, shape in enumerate(body.collision)
+        ]
+
+    def collision_element(
+        self,
+        name: str,
+        link_T_shape: np.ndarray,
+        shape: Shape,
+        collide_bitmask: CollideBitmask | None,
+    ) -> ElementTree.Element:
+        """
+        :param name: The name of the element.
+        :param link_T_shape: The pose of the shape relative to its link.
         :param shape: The shape to describe.
         :param collide_bitmask: The bitmask of the collision, or None if it collides
             with everything.
         :return: The ``collision`` element describing the shape.
         """
-        element = self.shape_element(SDFElement.COLLISION, index, shape)
+        element = self.shape_element(SDFElement.COLLISION, name, link_T_shape, shape)
         if collide_bitmask is None:
             return element
         contact = ElementTree.SubElement(
@@ -918,15 +1046,18 @@ class GazeboWriter:
 
     # %% shapes
 
-    def visual_element(self, index: int, shape: Shape) -> ElementTree.Element:
+    def visual_element(
+        self, name: str, link_T_shape: np.ndarray, shape: Shape
+    ) -> ElementTree.Element:
         """
-        :param index: The position of the shape among the visual shapes of its body.
+        :param name: The name of the element.
+        :param link_T_shape: The pose of the shape relative to its link.
         :param shape: The shape to describe.
         :return: The ``visual`` element describing the shape, painted in its color,
             except for a mesh whose color was never set, which keeps the materials of
             its file.
         """
-        element = self.shape_element(SDFElement.VISUAL, index, shape)
+        element = self.shape_element(SDFElement.VISUAL, name, link_T_shape, shape)
         if isinstance(shape, Mesh) and shape.color == Color():
             return element
         rgba = self.format_numbers(shape.color.to_rgba())
@@ -936,16 +1067,17 @@ class GazeboWriter:
         return element
 
     def shape_element(
-        self, tag: SDFElement, index: int, shape: Shape
+        self, tag: SDFElement, name: str, link_T_shape: np.ndarray, shape: Shape
     ) -> ElementTree.Element:
         """
         :param tag: Whether the shape is written as a visual or a collision.
-        :param index: The position of the shape among the shapes of its kind.
+        :param name: The name of the element.
+        :param link_T_shape: The pose of the shape relative to its link.
         :param shape: The shape to describe.
         :return: The element placing the shape's geometry on its link.
         """
-        element = ElementTree.Element(tag, {SDFAttribute.NAME: f"{tag}_{index}"})
-        element.append(self.pose_element(shape.origin.to_np()))
+        element = ElementTree.Element(tag, {SDFAttribute.NAME: name})
+        element.append(self.pose_element(link_T_shape))
         ElementTree.SubElement(element, SDFElement.GEOMETRY).append(
             self.geometry_element(shape)
         )
