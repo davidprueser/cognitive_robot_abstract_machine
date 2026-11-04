@@ -54,6 +54,24 @@ class ElevatorDrive(TopicInputSynchronizer[JointState]):
     so that an elevator standing still causes no world changes.
     """
 
+    position_offset: float = field(init=False)
+    """
+    The drive position minus the joint position the simulator reports, read from the
+    world when the drive is created.
+
+    .. note:: The simulator's joint is 0 where the cabin serves the lowest floor.
+    """
+
+    def __post_init__(self) -> None:
+        """
+        Read :attr:`position_offset` from the world, so that applying a message computes
+        nothing in it.
+        """
+        self.position_offset = self.elevator.drive_position_for_floor(
+            self.elevator.floors[0]
+        )
+        super().__post_init__()
+
     def take_message(self) -> JointState | None:
         """
         :return: The latest joint states, unless they name no position of the drive
@@ -73,15 +91,6 @@ class ElevatorDrive(TopicInputSynchronizer[JointState]):
         self.world.state[self.elevator.movable_joint.raw_dof.id].position = (
             self.drive_position(message)
         )
-
-    @property
-    def position_offset(self) -> float:
-        """
-        The drive position minus the joint position the simulator reports.
-
-        .. note:: The simulator's joint is 0 where the cabin serves the lowest floor.
-        """
-        return self.elevator.drive_position_for_floor(self.elevator.floors[0])
 
     def drive_position(self, message: JointState) -> float:
         """

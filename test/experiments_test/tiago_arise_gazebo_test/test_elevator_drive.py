@@ -6,6 +6,7 @@ from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Elevator,
     FirstFloor,
 )
+from semantic_digital_twin.world import World
 
 # %% fixtures
 
@@ -81,3 +82,26 @@ def test_drive_writes_nothing_while_the_cabin_stands_still(
     state_version = elevator._world.state.version
     assert not drive.apply()
     assert elevator._world.state.version == state_version
+
+
+# %% thread safety
+
+
+def test_applying_a_message_transforms_nothing_in_the_world(
+    drive, elevator, monkeypatch
+):
+    # The drive is applied on the ROS executor's thread while the plan computes in the
+    # world, and the world's symbolic computations must not run on two threads at once.
+    transforms = []
+    transform = World.transform
+    monkeypatch.setattr(
+        World,
+        "transform",
+        lambda world, *arguments, **keywords: transforms.append(arguments)
+        or transform(world, *arguments, **keywords),
+    )
+    drive.buffer_message(JointState(name=[drive.joint_name], position=[2.0]))
+
+    assert drive.apply()
+
+    assert transforms == []
