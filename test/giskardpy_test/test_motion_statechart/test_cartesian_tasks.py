@@ -1278,6 +1278,63 @@ class TestCartesianTasks:
         assert distance_error <= goal.threshold
 
 
+# %% differential drive
+
+
+@dataclass
+class TurnTowardsTheGoal:
+    """
+    The first step of a :class:`DifferentialDriveBaseGoal`, which turns the base towards
+    its goal, run until it ends.
+    """
+
+    goal: DifferentialDriveBaseGoal
+    """
+    The goal whose first step ran.
+    """
+
+    life_cycle: LifeCycleValues
+    """
+    The state the first step ended in.
+    """
+
+    largest_drift: float
+    """
+    The farthest the base moved from where it stood when the step started, relative to
+    what its drive stands on, in meters.
+    """
+
+    @classmethod
+    def run(cls, world: World, goal_pose: Pose) -> TurnTowardsTheGoal:
+        """
+        :param world: A world with one differential drive whose base is the body ``bot``.
+        :param goal_pose: Where the goal sends the base.
+        :return: How the first step of a goal to ``goal_pose`` ended and how far the
+            base moved during it.
+        """
+        bot = world.get_body_by_name("bot")
+        ground = world.get_connections_by_type(DifferentialDrive)[0].parent
+        motion_statechart = MotionStatechart()
+        motion_statechart.add_node(
+            goal := DifferentialDriveBaseGoal(goal_pose=goal_pose)
+        )
+        motion_statechart.add_node(EndMotion.when_true(goal))
+        executor = Executor(MotionStatechartContext(world=world))
+        executor.compile(motion_statechart=motion_statechart)
+        start = world.compute_forward_kinematics_np(ground, bot)[:3, 3].copy()
+        turn = goal.nodes[0]
+        life_cycle_state = executor.motion_statechart.life_cycle_state
+
+        largest_drift = 0.0
+        for _ in range(2000):
+            executor.tick()
+            if life_cycle_state[turn] != LifeCycleValues.RUNNING:
+                break
+            position = world.compute_forward_kinematics_np(ground, bot)[:3, 3]
+            largest_drift = max(largest_drift, float(np.linalg.norm(position - start)))
+        return cls(goal, LifeCycleValues(int(life_cycle_state[turn])), largest_drift)
+
+
 class TestDiffDriveBaseGoal:
     @pytest.mark.parametrize(
         "goal_pose",
@@ -1338,8 +1395,68 @@ class TestDiffDriveBaseGoal:
         space such as an elevator cabin cannot afford.
         """
         world = cylinder_bot_diff_world
+        turn = TurnTowardsTheGoal.run(
+            world, Pose.from_xyz_rpy(y=1, reference_frame=world.root)
+        )
+
+        assert turn.life_cycle == LifeCycleValues.SUCCEEDED
+        assert turn.largest_drift < turn.goal.threshold
+
+    def test_turning_round_in_a_cabin_far_from_the_map_origin_keeps_the_base_in_place(
+        self, cylinder_bot_diff_world_on_lift
+    ):
+        """
+        A base that rode an elevator cabin to the top floor turns round towards a goal
+        just behind it, far from the map origin. The cabin's joint in its chain and its
+        distance from the map origin must not let it drive while it turns.
+        """
+        world = cylinder_bot_diff_world_on_lift
+        drive = world.get_connections_by_type(DifferentialDrive)[0]
+        # Where Tiago stops after boarding the IAI office's elevator, and the line-up
+        # pose at the cabin's centre it leaves the cabin from (Gazebo, 2026-11-05).
+        world.state[drive.x.id].position = -19.745
+        world.state[drive.y.id].position = 43.12
+        world.state[drive.yaw.id].position = np.deg2rad(85.0)
+        world.notify_state_change()
+        turn = TurnTowardsTheGoal.run(
+            world,
+            Pose.from_xyz_rpy(
+                x=-19.751,
+                y=43.065,
+                z=6.9,
+                yaw=np.deg2rad(-95.7),
+                reference_frame=world.root,
+            ),
+        )
+
+        assert turn.life_cycle == LifeCycleValues.SUCCEEDED
+        assert turn.largest_drift < turn.goal.threshold
+
+    def test_driving_off_a_lift_leaves_the_lift_where_it_stands(
+        self, cylinder_bot_diff_world_on_lift
+    ):
+        """
+        The drive moves the base only relative to what it stands on, so a goal must
+        not move the joints between the map and the drive, such as an elevator
+        cabin's, which nothing the robot commands can move.
+        """
+        world = cylinder_bot_diff_world_on_lift
         bot = world.get_body_by_name("bot")
-        goal_pose = Pose.from_xyz_rpy(y=1, reference_frame=world.root)
+        lift_joint = world.get_body_by_name("lift").parent_connection
+        lift_position = lift_joint.position
+        drive = world.get_connections_by_type(DifferentialDrive)[0]
+        # Where Tiago stops after boarding the IAI office's elevator (Gazebo, 2026-11-05)
+        world.state[drive.x.id].position = -19.745
+        world.state[drive.y.id].position = 43.12
+        world.state[drive.yaw.id].position = np.deg2rad(85.0)
+        world.notify_state_change()
+        goal_pose = Pose.from_xyz_rpy(
+            x=-19.9,
+            y=42.0,
+            z=lift_position,
+            yaw=-np.pi / 2,
+            reference_frame=world.root,
+        )
         motion_statechart = MotionStatechart()
         motion_statechart.add_node(
             goal := DifferentialDriveBaseGoal(goal_pose=goal_pose)
@@ -1347,20 +1464,12 @@ class TestDiffDriveBaseGoal:
         motion_statechart.add_node(EndMotion.when_true(goal))
         executor = Executor(MotionStatechartContext(world=world))
         executor.compile(motion_statechart=motion_statechart)
-        start = world.compute_forward_kinematics_np(world.root, bot)[:3, 3].copy()
-        turn = goal.nodes[0]
-        life_cycle_state = executor.motion_statechart.life_cycle_state
+        executor.tick_until_end()
 
-        largest_drift = 0.0
-        for _ in range(2000):
-            executor.tick()
-            if life_cycle_state[turn] != LifeCycleValues.RUNNING:
-                break
-            position = world.compute_forward_kinematics_np(world.root, bot)[:3, 3]
-            largest_drift = max(largest_drift, float(np.linalg.norm(position - start)))
-
-        assert life_cycle_state[turn] == LifeCycleValues.SUCCEEDED
-        assert largest_drift < goal.threshold
+        assert lift_joint.position == lift_position
+        assert np.allclose(
+            world.compute_forward_kinematics(world.root, bot), goal_pose, atol=1e-2
+        )
 
     def test_base_standing_at_the_goal_turns_straight_to_its_orientation(
         self, cylinder_bot_diff_world

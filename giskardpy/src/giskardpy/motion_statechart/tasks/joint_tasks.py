@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from abc import ABC, abstractmethod
 from dataclasses import field, dataclass
 from typing_extensions import List
 
@@ -18,6 +19,7 @@ from semantic_digital_twin.world_description.connections import (
     PrismaticConnection,
     ActiveConnection1DOF,
 )
+from semantic_digital_twin.world_description.degree_of_freedom import DegreeOfFreedom
 
 
 @dataclass(eq=False, repr=False)
@@ -103,24 +105,19 @@ class JointPositionList(ConvergingTask):
 
 
 @dataclass(eq=False, repr=False)
-class JointVelocityLimit(Task):
+class JointSpaceVelocityLimit(ABC, Task):
     """
-    Limits the velocity of a set of joints to a maximum value.
+    Limits the velocity of a set of degrees of freedom to a maximum value.
 
     The joint-space equivalent of
     :class:`~giskardpy.motion_statechart.tasks.cartesian_tasks.CartesianPositionVelocityLimit`:
     enforcement is performed by adding a real inequality constraint to the optimizer
-    for each given joint, not by tuning a reference/normalization velocity.
-    """
-
-    connections: List[ActiveConnection1DOF] = field(kw_only=True)
-    """
-    The joints whose velocity is constrained.
+    for each degree of freedom, not by tuning a reference/normalization velocity.
     """
 
     max_velocity: float = field(default=0.1, kw_only=True)
     """
-    Maximum allowed velocity (in rad/s or m/s, per joint).
+    Maximum allowed velocity (in rad/s or m/s, per degree of freedom).
     """
 
     weight: float = field(
@@ -137,21 +134,61 @@ class JointVelocityLimit(Task):
     :class:`JointPositionList`).
     """
 
+    @property
+    @abstractmethod
+    def limited_degrees_of_freedom(self) -> list[DegreeOfFreedom]:
+        """
+        The degrees of freedom whose velocity is constrained.
+        """
+
     def build_artifacts(self, context: MotionStatechartContext) -> NodeArtifacts:
         artifacts = NodeArtifacts()
         velocities = []
-        for connection in self.connections:
-            position = connection.dof.variables.position
+        for degree_of_freedom in self.limited_degrees_of_freedom:
             artifacts.constraints.add_velocity_constraint(
                 upper_velocity_limit=self.max_velocity,
                 lower_velocity_limit=-self.max_velocity,
                 quadratic_weight=self.weight,
-                task_expression=position,
+                task_expression=degree_of_freedom.variables.position,
                 velocity_limit=self.max_velocity,
-                name=str(connection.name),
+                name=str(degree_of_freedom.name),
             )
-            velocities.append(connection.dof.variables.velocity)
+            velocities.append(degree_of_freedom.variables.velocity)
         artifacts.observation = sm.logic_all(
             sm.abs(sm.Vector(velocities)) <= self.max_velocity
         )
         return artifacts
+
+
+@dataclass(eq=False, repr=False)
+class JointVelocityLimit(JointSpaceVelocityLimit):
+    """
+    Limits the velocity of a set of joints to a maximum value.
+    """
+
+    connections: List[ActiveConnection1DOF] = field(kw_only=True)
+    """
+    The joints whose velocity is constrained.
+    """
+
+    @property
+    def limited_degrees_of_freedom(self) -> list[DegreeOfFreedom]:
+        return [connection.dof for connection in self.connections]
+
+
+@dataclass(eq=False, repr=False)
+class DegreeOfFreedomVelocityLimit(JointSpaceVelocityLimit):
+    """
+    Limits the velocity of a set of degrees of freedom to a maximum value, also those of
+    a connection with several, such as the forward speed of a
+    :class:`~semantic_digital_twin.world_description.connections.DifferentialDrive`.
+    """
+
+    degrees_of_freedom: list[DegreeOfFreedom] = field(kw_only=True)
+    """
+    The degrees of freedom whose velocity is constrained.
+    """
+
+    @property
+    def limited_degrees_of_freedom(self) -> list[DegreeOfFreedom]:
+        return self.degrees_of_freedom

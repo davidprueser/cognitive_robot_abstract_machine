@@ -122,6 +122,7 @@ from semantic_digital_twin.world_description.connections import (
     DifferentialDrive,
     FixedConnection,
     Connection6DoF,
+    PrismaticConnection,
     RevoluteConnection,
 )
 from semantic_digital_twin.world_description.geometry import (
@@ -515,6 +516,33 @@ def cylinder_bot_diff_world():
         world.merge_world(robot_world, connection)
         connection.has_hardware_interface = True
 
+    return world
+
+
+@pytest.fixture()
+def cylinder_bot_diff_world_on_lift(cylinder_bot_diff_world: World) -> World:
+    """
+    :func:`cylinder_bot_diff_world` with the drive standing on a lift: a vertical
+    prismatic joint at the top of its travel between the map and the drive, as when a
+    robot rides an elevator cabin to the top floor.
+    """
+    world = cylinder_bot_diff_world
+    drive = world.get_connections_by_type(DifferentialDrive)[0]
+    with world.modify_world():
+        lift = Body(name=PrefixedName("lift"))
+        world.add_body(lift)
+        lift_joint = PrismaticConnection.create_with_dofs(
+            world=world,
+            parent=world.root,
+            child=lift,
+            axis=Vector3.Z(),
+            dof_limits=DegreeOfFreedomLimits.from_position_range_and_speed(
+                lower_position=0.0, upper_position=6.9, maximum_speed=1.0
+            ),
+        )
+        world.add_connection(lift_joint)
+    world.move_branch(drive.child, lift)
+    lift_joint.position = 6.9
     return world
 
 

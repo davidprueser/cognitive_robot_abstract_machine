@@ -23,9 +23,9 @@ from giskardpy.motion_statechart.graph_node import Goal, MotionStatechartNode
 from giskardpy.motion_statechart.tasks.cartesian_tasks import (
     CartesianOrientation,
     CartesianPositionStraight,
-    CartesianPositionVelocityLimit,
     CartesianPose,
 )
+from giskardpy.motion_statechart.tasks.joint_tasks import DegreeOfFreedomVelocityLimit
 
 
 @dataclass(eq=False, repr=False)
@@ -43,6 +43,10 @@ class DifferentialDriveBaseGoal(Sequence):
     :attr:`translation_velocity_while_turning`, and towards the goal's orientation if the
     base already stands within :attr:`threshold` of the goal position. Every step drives
     and turns as fast as the velocity limits of :attr:`diff_drive_connection` allow.
+
+    The goal pose is held where it was, when the goal started, relative to what the drive
+    stands on, the parent of :attr:`diff_drive_connection`. The goal moves no joint above
+    the drive, such as an elevator cabin's.
     """
 
     diff_drive_connection: DifferentialDrive | None = field(kw_only=True, default=None)
@@ -103,26 +107,26 @@ class DifferentialDriveBaseGoal(Sequence):
             self.diff_drive_connection = diff_drives[0]
         translation_speed = self.diff_drive_connection.x_velocity.limits.upper.velocity
         rotation_speed = self.diff_drive_connection.yaw.limits.upper.velocity
-        map = context.world.root
+        root = self.diff_drive_connection.parent
         tip = self.diff_drive_connection.child
 
-        root_T_given_goal = context.world.transform(self.goal_pose, map)
-        root_T_current = context.world.compose_forward_kinematics_expression(map, tip)
+        root_T_given_goal = context.world.transform(self.goal_pose, root)
+        root_T_current = context.world.compose_forward_kinematics_expression(root, tip)
         # The drive cannot change the base's height, so the goal lies at that height
         root_T_goal = Pose(
             position=Point3(
                 root_T_given_goal.x,
                 root_T_given_goal.y,
                 root_T_current.z,
-                reference_frame=map,
+                reference_frame=root,
             ),
             orientation=root_T_given_goal.orientation,
-            reference_frame=map,
+            reference_frame=root,
         )
         root_V_current_to_goal = root_T_goal.position - root_T_current.position
         distance_to_goal = root_V_current_to_goal.norm()
         root_V_current_to_goal.scale(1)
-        root_V_z = Vector3.Z(reference_frame=map)
+        root_V_z = Vector3.Z(reference_frame=root)
         # A goal within the threshold is too close for the direction to it to mean
         # anything, so the base turns to the goal's orientation instead.
         root_R_first_orientation = sm.if_less(
@@ -130,15 +134,15 @@ class DifferentialDriveBaseGoal(Sequence):
             self.threshold,
             root_T_goal.rotation_matrix,
             RotationMatrix.from_vectors(
-                x=root_V_current_to_goal, z=root_V_z, reference_frame=map
+                x=root_V_current_to_goal, z=root_V_z, reference_frame=root
             ),
         )
-        root_R_first_orientation.reference_frame = map
+        root_R_first_orientation.reference_frame = root
 
         root_T_goal2 = Pose(
             position=root_T_goal.position,
             orientation=root_R_first_orientation.quaternion,
-            reference_frame=map,
+            reference_frame=root,
         )
 
         self.nodes = [
@@ -147,18 +151,17 @@ class DifferentialDriveBaseGoal(Sequence):
                 nodes=[
                     CartesianOrientation(
                         name=f"{self.name}/step1/orientation",
-                        root_link=map,
+                        root_link=root,
                         tip_link=tip,
                         goal_orientation=root_R_first_orientation,
                         reference_velocity=rotation_speed,
                         weight=self.weight,
                         threshold=min(self.threshold, self.heading_threshold),
                     ),
-                    CartesianPositionVelocityLimit(
+                    DegreeOfFreedomVelocityLimit(
                         name=f"{self.name}/step1/stay_in_place",
-                        root_link=map,
-                        tip_link=tip,
-                        max_linear_velocity=self.translation_velocity_while_turning,
+                        degrees_of_freedom=[self.diff_drive_connection.x_velocity],
+                        max_velocity=self.translation_velocity_while_turning,
                         # Above the turn itself, so a base that lags behind its commands
                         # keeps turning on the spot instead of trading it for reversing
                         weight=DefaultWeights.WEIGHT_MAXIMUM,
@@ -167,7 +170,7 @@ class DifferentialDriveBaseGoal(Sequence):
             ),
             CartesianPose(
                 name=f"{self.name}/step2",
-                root_link=map,
+                root_link=root,
                 tip_link=tip,
                 goal_pose=root_T_goal2,
                 reference_linear_velocity=translation_speed,
@@ -178,7 +181,7 @@ class DifferentialDriveBaseGoal(Sequence):
             ),
             CartesianPose(
                 name=f"{self.name}/step3",
-                root_link=map,
+                root_link=root,
                 tip_link=tip,
                 goal_pose=root_T_goal,
                 reference_linear_velocity=translation_speed,
