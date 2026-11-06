@@ -460,7 +460,7 @@ class GazeboWriter:
     a light source.
     """
 
-    sunlight: Color = field(default_factory=lambda: Color(0.7, 0.7, 0.7))
+    sunlight: Color = field(default_factory=lambda: Color.from_rgba(0.7, 0.7, 0.7))
     """
     The light of the sun, which reaches every surface facing it, the inside of buildings
     included, because it casts no shadows.

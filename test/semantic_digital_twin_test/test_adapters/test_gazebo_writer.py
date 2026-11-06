@@ -695,6 +695,17 @@ class TestSimulationSetup:
         )
         assert float(step_size) == writer.step_size
 
+    def test_default_sunlight_has_no_tint(
+        self, mini_world: World, tmp_path: Path
+    ) -> None:
+        writer = GazeboWriter(world=mini_world)
+        document = write_with(writer, tmp_path)
+        diffuse = document.findtext(
+            f"{SDFElement.WORLD}/{SDFElement.LIGHT}/{SDFElement.DIFFUSE}"
+        )
+        red, green, blue, _ = (float(channel) for channel in diffuse.split())
+        assert [red, green, blue] == [writer.sunlight.value] * 3
+
     def test_moving_parts_of_the_environment_pass_through_its_static_part(
         self, world_with_hinged_lid: World, tmp_path: Path
     ) -> None:
