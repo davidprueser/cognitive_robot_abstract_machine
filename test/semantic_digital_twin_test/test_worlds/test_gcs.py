@@ -513,6 +513,57 @@ def test_path_from_to_shortcuts_redundant_waypoints():
     assert path == [start, goal]
 
 
+# %% connecting boxes that lie within the tolerance of each other
+
+
+def _graph_of_two_boxes_apart(gap: float) -> VolumetricGraphOfBoundingBoxes:
+    """
+    :param gap: The distance between the two unit boxes along x.
+    :return: A graph of two unit boxes side by side along x, not yet connected.
+    """
+    world = World()
+    with world.modify_world():
+        world.add_kinematic_structure_entity(Body())
+    graph_of_convex_sets = VolumetricGraphOfBoundingBoxes(world)
+    origin = world.root.global_pose
+    graph_of_convex_sets.add_node(VolumetricBoundingBox(0, 0, 0, 1, 1, 1, origin))
+    graph_of_convex_sets.add_node(
+        VolumetricBoundingBox(1 + gap, 0, 0, 2 + gap, 1, 1, origin)
+    )
+    return graph_of_convex_sets
+
+
+def test_boxes_closer_than_the_tolerance_are_connected():
+    tolerance = 0.001
+    graph_of_convex_sets = _graph_of_two_boxes_apart(gap=tolerance / 2)
+
+    graph_of_convex_sets.calculate_connectivity(tolerance)
+
+    assert graph_of_convex_sets.graph.num_edges() == 1
+
+
+def test_boxes_farther_apart_than_the_tolerance_are_not_connected():
+    tolerance = 0.001
+    graph_of_convex_sets = _graph_of_two_boxes_apart(gap=tolerance * 2)
+
+    graph_of_convex_sets.calculate_connectivity(tolerance)
+
+    assert graph_of_convex_sets.graph.num_edges() == 0
+
+
+def test_path_from_to_crosses_a_gap_smaller_than_the_tolerance():
+    tolerance = 0.001
+    graph_of_convex_sets = _graph_of_two_boxes_apart(gap=tolerance / 2)
+    graph_of_convex_sets.calculate_connectivity(tolerance)
+    world = graph_of_convex_sets.world
+    start = Point3(0.5, 0.5, 0.5, reference_frame=world.root)
+    goal = Point3(1.5 + tolerance / 2, 0.5, 0.5, reference_frame=world.root)
+
+    path = graph_of_convex_sets.path_from_to(start, goal)
+
+    assert [path[0], path[-1]] == [start, goal]
+
+
 def test_path_from_to_scales_to_a_real_apartment_scene():
     """
     Regression test for a real scalability bug: ``path_from_to`` used to enumerate *all*
