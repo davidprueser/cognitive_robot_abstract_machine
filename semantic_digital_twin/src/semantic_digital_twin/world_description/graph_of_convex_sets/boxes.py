@@ -145,20 +145,23 @@ class GraphOfBoundingBoxes(
         """
         self.box_to_index_map[box] = self.graph.add_node(box)
 
-    def calculate_connectivity(self, tolerance: float = 0.001):
+    def calculate_connectivity(self, tolerance: float = 0.001) -> None:
         """
-        Calculate the connectivity of the graph by checking for intersections between
-        the bounding boxes of the nodes. This uses an R-tree for efficient spatial
-        indexing and intersection queries. Each edge is weighted by the Euclidean
-        distance between the centers of the two boxes it connects, for use by
-        :meth:`path_from_to`.
+        Connect every two nodes whose boxes overlap or lie within ``tolerance`` of each
+        other. Each edge holds the boxes' intersection, or the gap between them where
+        they do not touch, and is weighted by the Euclidean distance between the centers
+        of the two boxes it connects, for use by :meth:`path_from_to`.
 
-        :param tolerance: The tolerance for the intersection when calculating the
-            connectivity.
+        :param tolerance: How far apart two boxes may lie and still be connected.
         """
 
-        def _overlap(a_min, a_max, b_min, b_max) -> bool:
-            return bool(np.all(a_min <= b_max) and np.all(b_min <= a_max))
+        def _overlap(
+            a_min: np.ndarray, a_max: np.ndarray, b_min: np.ndarray, b_max: np.ndarray
+        ) -> bool:
+            return bool(
+                np.all(a_min <= b_max + tolerance)
+                and np.all(b_min <= a_max + tolerance)
+            )
 
         node_list = list(self.graph.nodes())
         if not node_list:
@@ -191,11 +194,13 @@ class GraphOfBoundingBoxes(
                     bounds_i.lower, bounds_i.upper, bounds_j.lower, bounds_j.upper
                 ):
                     continue  # no true overlap
-                lower = np.maximum(bounds_i.lower, bounds_j.lower)
-                upper = np.minimum(bounds_i.upper, bounds_j.upper)
+                inner_lower = np.maximum(bounds_i.lower, bounds_j.lower)
+                inner_upper = np.minimum(bounds_i.upper, bounds_j.upper)
+                # Along an axis where the boxes do not touch, the inner bounds are
+                # swapped and span the gap between them
                 box = type(node_list[i]).from_array_bounds(
-                    lower,
-                    upper,
+                    np.minimum(inner_lower, inner_upper),
+                    np.maximum(inner_lower, inner_upper),
                     HomogeneousTransformationMatrix(
                         reference_frame=self.search_space.reference_frame
                     ),
