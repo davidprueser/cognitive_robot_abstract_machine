@@ -55,8 +55,10 @@ from semantic_digital_twin.datastructures.variables import SpatialVariables
 from semantic_digital_twin.exceptions import (
     AmbiguousPart,
     CannotBeAPartOf,
-    NoSupportingSurfaceError,
     UnknownPartWholeRelationshipField,
+)
+from semantic_digital_twin.semantic_annotations.exceptions import (
+    NoSupportingSurfaceError,
 )
 from semantic_digital_twin.reasoning.predicates import SupportedBy
 from semantic_digital_twin.semantic_annotations.part_whole import (

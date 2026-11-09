@@ -18,7 +18,6 @@ from semantic_digital_twin.datastructures.alignment import AlignmentPair
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.datastructures.variables import SpatialVariables
 from semantic_digital_twin.exceptions import (
-    NoFloorOnLevelError,
     NoGraspGeometry,
     InvalidPlaneDimensions,
     InvalidHingeActiveAxis,
@@ -27,6 +26,7 @@ from semantic_digital_twin.exceptions import (
     DoorLeafNotFoundError,
 )
 from semantic_digital_twin.reasoning.predicates import InsideOf
+from semantic_digital_twin.semantic_annotations.exceptions import NoFloorOnLevelError
 from semantic_digital_twin.semantic_annotations.part_whole import (
     IsPartWholeRelationship,
 )
@@ -826,6 +826,18 @@ class Wardrobe(Cabinet): ...
 
 @dataclass(eq=False)
 class Floor(HasSupportingSurface):
+    """
+    The ground of a building that people and robots stand on.
+    """
+
+    @classproperty
+    def height_tolerance(cls) -> float:
+        """
+        How far a floor's top may lie from a height and still count as being at that
+        height.
+        """
+        return 0.2
+
     @classmethod
     def create_with_new_body_from_polytope_in_world(
         cls,
@@ -884,8 +896,8 @@ class Floor(HasSupportingSurface):
     def covers(self, point: Point3) -> bool:
         """
         :param point: The point to test, at any height.
-        :return: Whether one of the floor's own shapes lies straight above or below
-            ``point``.
+        :return: Whether the bounding box of one of the floor's own shapes, in that
+            shape's frame, lies straight above or below ``point``.
         """
         point_in_floor = self._world.transform(point, self.root)
         for shape in self.root.collision.shapes:
@@ -968,13 +980,13 @@ class Level(HasRootRegion, HasPlanarFreeSpace):
     A level of a building, whose region spans it from its floor up.
     """
 
-    def _ground(self, floor_tolerance: float = 0.2) -> BoundingBoxCollection:
+    def _ground(self) -> BoundingBoxCollection:
         """
-        The parts of the floors of this level's world that lie within the footprint of
-        its region, at the height of the region's bottom.
+        The parts of the floors of this level's world that cover an area within the
+        footprint of its region, within :attr:`Floor.height_tolerance` of the region's
+        bottom. Each floor shape counts with its bounding box in the frame of this
+        level's root.
 
-        :param floor_tolerance: How far a floor may lie from the region's bottom to
-            count as part of this level.
         :raises NoFloorOnLevelError: If no floor lies there.
         """
         region = self.root.area.as_bounding_box_collection_at_origin(
@@ -983,10 +995,10 @@ class Level(HasRootRegion, HasPlanarFreeSpace):
         height_of_floors = VolumetricBoundingBox(
             region.min_x,
             region.min_y,
-            region.min_z - floor_tolerance,
+            region.min_z - Floor.height_tolerance,
             region.max_x,
             region.max_y,
-            region.min_z + floor_tolerance,
+            region.min_z + Floor.height_tolerance,
             region.origin,
         )
         slabs_on_level = [
@@ -996,6 +1008,8 @@ class Level(HasRootRegion, HasPlanarFreeSpace):
                 self.root
             )
             if (slab_on_level := slab.intersection_with(height_of_floors)) is not None
+            and slab_on_level.depth > 0
+            and slab_on_level.width > 0
         ]
         if not slabs_on_level:
             raise NoFloorOnLevelError(self)
@@ -1044,7 +1058,9 @@ class Level(HasRootRegion, HasPlanarFreeSpace):
 
     @classmethod
     def under(
-        cls, entity: KinematicStructureEntity, floor_tolerance: float = 0.2
+        cls,
+        entity: KinematicStructureEntity,
+        floor_tolerance: float = Floor.height_tolerance,
     ) -> Self | None:
         """
         :param floor_tolerance: How far a level's floor may lie above ``entity``'s origin

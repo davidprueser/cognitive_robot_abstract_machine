@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
-from semantic_digital_twin.exceptions import NoFloorOnLevelError
+from semantic_digital_twin.semantic_annotations.exceptions import NoFloorOnLevelError
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Floor,
     GroundFloor,
@@ -98,11 +98,17 @@ def body_at(world: World, x: float, y: float, z: float = 0.0) -> Body:
 
 @pytest.fixture
 def world() -> World:
+    """
+    :return: An empty world with a single root body.
+    """
     return World.create_with_root_body("map")
 
 
 @pytest.fixture
 def storey_height() -> float:
+    """
+    :return: The height of one storey, from its floor to the floor above.
+    """
     return 3.0
 
 
@@ -209,6 +215,9 @@ def spawn_level(
 
 
 def point_at(world: World, x: float, y: float) -> Point2:
+    """
+    :return: The point at ``x``, ``y`` in the frame of ``world``'s root.
+    """
     return Point2(x, y, reference_frame=world.root)
 
 
@@ -227,7 +236,7 @@ def test_level_free_space_stops_at_the_edge_of_its_floors(world, storey_height):
         free_space.path_from_to(point_at(world, 2, 2), point_at(world, 5, 2))
 
 
-def test_level_path_leads_around_a_hole_in_its_floors(world, storey_height):
+def test_level_path_leads_around_a_notch_in_its_floors(world, storey_height):
     floor = spawn_floor(
         world,
         "u_shaped",
@@ -299,6 +308,34 @@ def test_level_ground_follows_slabs_turned_with_the_level(
 
     with pytest.raises(PointOutsideSearchSpaceError):
         free_space.path_from_to(point_at(world, 3, 3), point_at(world, 3, -3))
+
+
+def test_level_ground_is_not_raised_by_a_floor_touching_its_edge(world, storey_height):
+    """
+    A raised floor beside the level only touches the edge of its region, so the free
+    space has to start above the level's own floor and keep the kerb on it as an
+    obstacle.
+    """
+    spawn_floor(world, "inside", [slab(0, 0, 4, 4)])
+    spawn_floor(world, "raised_neighbour", [slab(4, 0, 8, 4)], elevation=0.15)
+    Wall.get_annotation_specification(
+        "kerb",
+        Wall.get_default_root_kinematic_structure_entity_specification(
+            scale=Scale(0.1, 4.0, 0.12)
+        ),
+    ).spawn(world, parent_T_self=HomogeneousTransformationMatrix.from_xyz_rpy(2, 2))
+    level = spawn_level(
+        world,
+        "level",
+        Scale(4, 4, storey_height),
+        HomogeneousTransformationMatrix.from_xyz_rpy(2, 2),
+    )
+
+    path = level.planar_free_space().path_from_to(
+        point_at(world, 0.5, 2), point_at(world, 3.5, 2)
+    )
+
+    assert path is None
 
 
 def test_level_without_a_floor_has_no_free_space(world, storey_height):

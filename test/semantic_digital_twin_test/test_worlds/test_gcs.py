@@ -14,9 +14,9 @@ from random_events.product_algebra import SimpleEvent
 from semantic_digital_twin.adapters.mjcf import MJCFParser
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.datastructures.variables import SpatialVariables
-from semantic_digital_twin.exceptions import (
+from semantic_digital_twin.exceptions import PointOccupiedError
+from semantic_digital_twin.semantic_annotations.exceptions import (
     NoSupportingSurfaceError,
-    PointOccupiedError,
 )
 from semantic_digital_twin.semantic_annotations.semantic_annotations import Floor
 from semantic_digital_twin.spatial_types import Point2, Point3, Pose

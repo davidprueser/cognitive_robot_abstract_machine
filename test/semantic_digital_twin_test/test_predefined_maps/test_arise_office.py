@@ -15,11 +15,11 @@ from semantic_digital_twin.spatial_types import (
     Point2,
     Vector3,
 )
-
-# %% elevator
 from semantic_digital_twin.world_description.graph_of_convex_sets.exceptions import (
     PointOutsideSearchSpaceError,
 )
+
+# %% elevator
 
 
 def test_cabin_floor_is_level_with_the_ground_floor(arise_office_world, arise_office):

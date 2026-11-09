@@ -26,15 +26,9 @@ from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 if TYPE_CHECKING:
     from semantic_digital_twin.adapters.ros.messages import MetaData
     from semantic_digital_twin.input_synchronization import InputSynchronizer
-    from semantic_digital_twin.semantic_annotations.mixins import (
-        HasRootBody,
-        HasSupportingSurface,
-    )
+    from semantic_digital_twin.semantic_annotations.mixins import HasRootBody
     from semantic_digital_twin.grasping.grasp_candidates import HasGraspCandidates
-    from semantic_digital_twin.semantic_annotations.semantic_annotations import (
-        Door,
-        Level,
-    )
+    from semantic_digital_twin.semantic_annotations.semantic_annotations import Door
     from semantic_digital_twin.robots.robot_parts import (
         AbstractRobot,
         AbstractRobotPart,
@@ -2167,52 +2161,6 @@ class MoreThanOneBodyHeld(UsageError):
         return (
             "detach everything but the grasped body from the tool frame, so that the "
             "body the gripper holds is unambiguous."
-        )
-
-
-@dataclass
-class NoFloorOnLevelError(UsageError):
-    """
-    Raised when a level holds no floor, so that it offers no ground to drive on.
-    """
-
-    level: Level
-    """
-    The level that was asked for its ground.
-    """
-
-    def error_message(self) -> str:
-        return f"'{self.level.root.name}' holds no floor at the height of its region."
-
-    def suggest_correction(self) -> str:
-        return (
-            "spawn the storey's floors with their tops at the bottom of the level's "
-            "region, within its footprint."
-        )
-
-
-@dataclass
-class NoSupportingSurfaceError(UsageError):
-    """
-    Raised when an annotation's geometry offers no surface anything could be supported
-    on.
-    """
-
-    annotation: HasSupportingSurface
-    """
-    The annotation that was asked for its supporting surface.
-    """
-
-    def error_message(self) -> str:
-        return (
-            f"'{self.annotation.root.name}' has no supporting surface and none could "
-            f"be derived from its geometry."
-        )
-
-    def suggest_correction(self) -> str:
-        return (
-            "attach a supporting surface region to the annotation, or give its root "
-            "body geometry with an upward facing face."
         )
 
 
