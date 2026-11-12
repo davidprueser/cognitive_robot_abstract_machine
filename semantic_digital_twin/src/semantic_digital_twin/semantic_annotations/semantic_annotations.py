@@ -838,7 +838,7 @@ class Wall(HasApertures):
             for door in self._world.get_semantic_annotations_by_type(Door)
             if door.entry_way
             and InsideOf(
-                door.entry_way.root, self.root, minimum_containment_ratio=0.1
+                body=door.entry_way.root, other=self.root, minimum_containment_ratio=0.1
             )()
         ]
 
@@ -1148,6 +1148,13 @@ class Milk(Food, IsPerceivable):
 class SaltContainer(Container, IsPerceivable):
     """
     A container of salt.
+    """
+
+
+@dataclass(eq=False)
+class PerceivedObject(HasRootBody, IsPerceivable):
+    """
+    An object perception found that no more specific semantic annotation describes.
     """
 
 

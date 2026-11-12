@@ -1,5 +1,8 @@
 import logging
 
+import numpy as np
+
+from krrood.adapters.json_serializer import from_json, to_json
 from krrood.entity_query_language.core.base_expressions import SymbolicExpression
 from krrood.entity_query_language.explanation.explanation import explain_inference
 from krrood.entity_query_language.factories import entity, variable, in_, inference, an
@@ -313,8 +316,8 @@ def test_verbalize_query_that_inferred_semantic_annotations(apartment_world_copy
     explanation = explain_inference(drawer)
     verbalization_paragraph = verbalize_expression(explanation.query_root)
     verbalization_hierarchical = VerbalizationPipeline(
-        HierarchicalRenderer()
-    ).verbalize(explanation.query_root)
+        renderer=HierarchicalRenderer()
+    ).verbalize(expression=explanation.query_root)
     assert verbalization_paragraph == (
         "If the child of a PrismaticConnection has collision geometry,"
         " the child of the PrismaticConnection is not part of a robot,"
@@ -354,7 +357,7 @@ def test_semantic_annotation_serialization_deserialization_once(apartment_world_
     tracker = WorldEntityWithIDKwargsTracker.from_world(apartment_world_copy)
     kwargs = tracker.create_kwargs()
 
-    door_de = Door.from_json(door_se, **kwargs)
+    door_de = Door.from_json(data=door_se, **kwargs)
 
     assert type(door.handle) == type(door_de.handle)
     assert type(door.root) == type(door_de.root)
@@ -689,3 +692,22 @@ def test_every_kitchen_drawer_stands_closed_at_the_lower_limit_of_its_rails(
     kitchen_environment_world.notify_state_change()
 
     assert [drawer.opening_ratio for drawer in drawers] == [0] * len(drawers)
+
+
+# %% perceived objects
+
+
+def test_perceived_object_keeps_its_class_label_when_sent_to_another_process():
+    world = World()
+    body = Body(name=PrefixedName("perceived_object"))
+    with world.modify_world():
+        world.add_body(body)
+        perceived_object = PerceivedObject(root=body, class_label="fork")
+        world.add_semantic_annotation(perceived_object)
+    tracker = WorldEntityWithIDKwargsTracker.from_world(world)
+
+    received = from_json(to_json(perceived_object), **tracker.create_kwargs())
+
+    assert type(received) is PerceivedObject
+    assert received.root is body
+    assert received.class_label == perceived_object.class_label
