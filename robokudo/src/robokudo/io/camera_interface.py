@@ -24,7 +24,9 @@ from __future__ import annotations
 
 # %% Imports
 import logging
+import math
 import struct
+from dataclasses import dataclass
 from threading import Lock
 
 import builtin_interfaces.msg
@@ -36,31 +38,32 @@ from message_filters import ApproximateTimeSynchronizer, Subscriber
 from rclpy.duration import Duration
 from rclpy.node import Node
 from rclpy.time import Time
+from geometry_msgs.msg import TransformStamped
 from sensor_msgs.msg import CompressedImage, CameraInfo, Image
 from typing_extensions import Any, TYPE_CHECKING
 
+from krrood.patterns.called_positionally import called_positionally
 from krrood.patterns.classproperty import classproperty
 from robokudo.cas import CASViews, CAS
 from robokudo.defs import PACKAGE_NAME
+from robokudo.descriptors.camera_configs.components import TfComponent
 from robokudo.exceptions import (
     CameraDataMissing,
     CameraPoseMissing,
     InvalidCameraObservation,
+    UnknownWorldFrameError,
 )
 from robokudo.io.exceptions import CameraAnnotationAmbiguous
 from robokudo.io.camera_model_adapters import RosCameraModelAdapter
 from robokudo.types.camera import CameraObservation
 from robokudo.utils.cv_bridge_workaround import CVBridgeWorkaround
 from robokudo.utils.ros_frames import find_bodies_for_ros_frame, normalize_ros_frame_id
-from robokudo.world import (
-    init_world_entity_tracker_from_world,
-    world_instance,
-)
 from semantic_digital_twin.adapters.ros.node_registry import ROSNodeRegistry
 from semantic_digital_twin.adapters.ros.ros2_to_semdt_converters import (
     TransformToSemDTConverter,
 )
 from semantic_digital_twin.adapters.ros.tfwrapper import TFWrapper
+from semantic_digital_twin.adapters.ros.world_synchronizer import WorldSynchronizer
 from semantic_digital_twin.datastructures.camera_model import (
     CameraModality,
     PinholeCameraModel,
@@ -123,21 +126,40 @@ class CameraInterface(object):
         """
         return self._has_new_data
 
-    @staticmethod
+    def adds_missing_camera(self, *, world: World) -> bool:
+        """
+        Whether this interface adds its camera to ``world`` when ``world`` lacks it.
+
+        :param world: The world perception perceives into.
+        :return: Whether a missing camera body and :class:`Camera` are added.
+        """
+        return True
+
     def bind_world_T_camera(
+        self,
+        *,
+        world: World,
         world_frame: str,
         camera_frame: str,
         world_T_camera: HomogeneousTransformationMatrix,
     ) -> HomogeneousTransformationMatrix:
         """
-        Bind a sampled pose without changing a robot camera's attachment.
+        Bind a sampled camera pose to the bodies of ``world``.
 
+        A camera another process attached, such as a robot's camera, keeps that
+        attachment. Any other camera hangs below the world frame at the sampled pose,
+        unless ``world`` lacks it and :meth:`adds_missing_camera` is false.
+
+        :param world: The world perception perceives into.
         :param world_frame: Name of the pose reference frame.
         :param camera_frame: Name of the camera frame.
         :param world_T_camera: Sampled numeric camera pose.
-        :return: Camera pose bound to runtime-world bodies.
+        :return: Camera pose bound to the bodies of ``world``, without a child frame for
+            a camera that has no body there.
+        :raises InvalidCameraObservation: If the frames are identical or ambiguous.
+        :raises UnknownWorldFrameError: If ``world`` has a root but no body for
+            ``world_frame``.
         """
-        world = world_instance()
         reference_name = normalize_ros_frame_id(world_frame)
         camera_name = normalize_ros_frame_id(camera_frame)
         if reference_name == camera_name:
@@ -149,16 +171,17 @@ class CameraInterface(object):
         if len(reference_matches) > 1 or len(camera_matches) > 1:
             raise InvalidCameraObservation(reason="camera pose frame is ambiguous")
 
-        world_body = reference_matches[0] if reference_matches else None
         camera_body = camera_matches[0] if camera_matches else None
-        current_root = world.root
+        world_body = reference_matches[0] if reference_matches else None
         if (
             world_body is None
-            and current_root is not None
-            and current_root is not camera_body
+            and world.root is not None
+            and world.root is not camera_body
         ):
-            raise InvalidCameraObservation(
-                reason=f"world reference frame '{reference_name}' is absent"
+            raise UnknownWorldFrameError(world_frame=reference_name)
+        if camera_body is None and not self.adds_missing_camera(world=world):
+            return HomogeneousTransformationMatrix(
+                data=world_T_camera, reference_frame=world_body
             )
 
         mount = None
@@ -178,27 +201,36 @@ class CameraInterface(object):
                     parent=world_body,
                     child=camera_body,
                     world=world,
-                    name=CameraInterface._standalone_mount_name(camera_body),
+                    name=self._standalone_mount_name(camera_body),
                 )
                 world.add_connection(mount)
-        if (
-            mount is None
-            and camera_body.parent_connection is not None
+        elif (
+            self.is_mounted_standalone(camera_body=camera_body)
             and camera_body.parent_connection.parent is world_body
-            and camera_body.parent_connection.name
-            == CameraInterface._standalone_mount_name(camera_body)
         ):
             mount = camera_body.parent_connection
 
-        runtime_world_T_camera = HomogeneousTransformationMatrix(
+        bound_world_T_camera = HomogeneousTransformationMatrix(
             data=world_T_camera,
             reference_frame=world_body,
             child_frame=camera_body,
         )
         if mount is not None:
             with world.modify_world():
-                mount.origin = runtime_world_T_camera
-        return runtime_world_T_camera
+                mount.origin = bound_world_T_camera
+        return bound_world_T_camera
+
+    @classmethod
+    def is_mounted_standalone(cls, *, camera_body: Body) -> bool:
+        """
+        :return: Whether ``camera_body`` hangs on the adjustable mount perception
+            created for it, rather than on an attachment another process made.
+        """
+        return (
+            camera_body.parent_connection is not None
+            and camera_body.parent_connection.name
+            == cls._standalone_mount_name(camera_body)
+        )
 
     @staticmethod
     def _standalone_mount_name(camera_body: Body) -> PrefixedName:
@@ -210,18 +242,20 @@ class CameraInterface(object):
         )
 
     def static_world_T_camera_if_configured(
-        self, camera_frame: str
+        self, *, world: World, camera_frame: str
     ) -> HomogeneousTransformationMatrix | None:
         """
-        Return the configured static camera pose bound to the runtime world.
+        Return the configured static camera pose bound to ``world``.
 
-        :param camera_frame: Optical frame identifying the camera in the runtime world.
+        :param world: The world perception perceives into.
+        :param camera_frame: Optical frame identifying the camera in ``world``.
         :return: Camera pose in the configured world frame, or ``None`` if disabled.
         """
         if not self.camera_config.static_camera_transform_enabled:
             return None
 
         return self.bind_world_T_camera(
+            world=world,
             world_frame=self.camera_config.static_world_frame,
             camera_frame=camera_frame,
             world_T_camera=self.camera_config.static_world_T_camera,
@@ -229,7 +263,9 @@ class CameraInterface(object):
 
     def store_camera_observation(
         self,
+        *,
         cas: CAS,
+        world: World,
         camera_model: PinholeCameraModel,
         camera_frame: str,
         timestamp_nanoseconds: int,
@@ -240,6 +276,7 @@ class CameraInterface(object):
         Store semantic identity and effective calibration for a camera frame.
 
         :param cas: CAS receiving the observation.
+        :param world: The world perception perceives into.
         :param camera_model: Effective calibration of the delivered image.
         :param camera_frame: Optical frame associated with the calibration.
         :param timestamp_nanoseconds: Acquisition time in nanoseconds since the epoch.
@@ -248,6 +285,7 @@ class CameraInterface(object):
         """
         camera_frame = normalize_ros_frame_id(camera_frame)
         camera = self._resolve_or_create_camera(
+            world=world,
             camera_frame=camera_frame,
             camera_model=camera_model,
             modalities=modalities,
@@ -268,40 +306,33 @@ class CameraInterface(object):
                     child_frame=camera.root,
                 )
             )
-        self._register_camera(camera)
+        self._register_camera(world=world, camera=camera)
         cas.camera_observation = observation
 
     def _resolve_or_create_camera(
         self,
+        *,
+        world: World,
         camera_frame: str,
         camera_model: PinholeCameraModel,
         modalities: tuple[CameraModality, ...],
     ) -> Camera:
         """
-        Resolve the stream camera or construct an unregistered standalone camera.
+        Resolve the camera annotating the body of the stream frame, or construct an
+        unregistered camera for that body, or for a new standalone body if ``world``
+        lacks one.
 
+        :param world: The world perception perceives into.
         :param camera_frame: Optical frame associated with the image stream.
         :param camera_model: First trustworthy calibration for a new camera.
         :param modalities: Kinds of image data produced by a new camera.
         :return: Camera annotation representing the physical image source.
-        :raises CameraAnnotationAmbiguous: If several cameras use the stream frame.
+        :raises InvalidCameraObservation: If the stream frame names several bodies.
+        :raises CameraAnnotationAmbiguous: If several cameras annotate the body of the
+            stream frame.
         """
         camera_frame = normalize_ros_frame_id(camera_frame)
-        runtime_world = world_instance()
-        cameras = runtime_world.get_semantic_annotations_by_type(Camera)
-        frame_cameras = [
-            camera
-            for camera in cameras
-            if normalize_ros_frame_id(camera.root.name.name) == camera_frame
-        ]
-        if len(frame_cameras) == 1:
-            return frame_cameras[0]
-        if len(frame_cameras) > 1:
-            raise CameraAnnotationAmbiguous(
-                camera_names=tuple(str(camera.name) for camera in frame_cameras)
-            )
-
-        camera_bodies = find_bodies_for_ros_frame(runtime_world, camera_frame)
+        camera_bodies = find_bodies_for_ros_frame(world, camera_frame)
         if len(camera_bodies) > 1:
             raise InvalidCameraObservation(reason="camera frame is ambiguous")
         camera_body = (
@@ -309,6 +340,17 @@ class CameraInterface(object):
             if camera_bodies
             else Body(name=PrefixedName(name=camera_frame))
         )
+        body_cameras = [
+            camera
+            for camera in world.get_semantic_annotations_by_type(Camera)
+            if camera.root is camera_body
+        ]
+        if len(body_cameras) > 1:
+            raise CameraAnnotationAmbiguous(
+                camera_names=tuple(str(camera.name) for camera in body_cameras)
+            )
+        if body_cameras:
+            return body_cameras[0]
         return Camera(
             name=PrefixedName(name=camera_frame),
             root=camera_body,
@@ -316,42 +358,49 @@ class CameraInterface(object):
             modalities=modalities,
         )
 
-    def _register_camera(self, camera: Camera) -> None:
+    def _register_camera(self, *, world: World, camera: Camera) -> None:
         """
-        Register a validated stream camera and connect a new optical root to the world.
+        Register a validated stream camera and connect a new optical root to ``world``.
 
+        Nothing is registered when :meth:`adds_missing_camera` is false.
+
+        :param world: The world perception perceives into.
         :param camera: Semantic camera whose observation has passed frame validation.
         """
-        runtime_world = world_instance()
-        if runtime_world.find_world_entity_with_id(camera.id) is camera:
+        if world.find_world_entity_with_id(camera.id) is camera:
             return
-        existing_root = runtime_world.root
+        if not self.adds_missing_camera(world=world):
+            return
+        existing_root = world.root
         camera_body = camera.root
-        with runtime_world.modify_world():
+        with world.modify_world():
             if camera_body._world is None:
-                runtime_world.add_body(camera_body)
+                world.add_body(camera_body)
                 if existing_root is not None:
                     # An unconstrained mount keeps the world connected without
                     # representing an observed camera pose.
-                    runtime_world.add_connection(
+                    world.add_connection(
                         Connection6DoF.create_with_dofs(
                             parent=existing_root,
                             child=camera_body,
-                            world=runtime_world,
+                            world=world,
                             name=self._standalone_mount_name(camera_body),
                         )
                     )
-            runtime_world.add_semantic_annotation(camera)
-        init_world_entity_tracker_from_world(runtime_world)
+            world.add_semantic_annotation(camera)
 
-    def set_data(self, cas: CAS) -> None:
+    def set_data(self, *, cas: CAS, world: World) -> None:
         """
         This method is supposed to read in, convert (if needed) and put the data into
         the CAS. If you are running a CameraInterface which is getting data via callback
         methods, please make sure to keep callbacks light and do the main conversion
         work here! Callbacks should be short.
 
+        The camera is placed in ``world`` where it was when it recorded the data, if
+        that is known.
+
         :param cas: The CAS where the data should be placed in
+        :param world: The world perception perceives into
         """
         raise NotImplementedError
 
@@ -364,7 +413,7 @@ class ROSCameraInterface(CameraInterface):
     transform lookups and camera intrinsics handling.
     """
 
-    def __init__(self, camera_config: Any, node: Node | None = None) -> None:
+    def __init__(self, camera_config: TfComponent, node: Node | None = None) -> None:
         """
         Initialize the ROS camera interface.
 
@@ -377,33 +426,38 @@ class ROSCameraInterface(CameraInterface):
         """
         ROS node for communication with ROS.
         """
-        if hasattr(self.camera_config, "lookup_viewpoint"):
-            self.lookup_viewpoint: bool = self.camera_config.lookup_viewpoint
-
-            self.tf_from: str = (
-                normalize_ros_frame_id(camera_config.tf_from)
-                if self.lookup_viewpoint
-                else camera_config.tf_from
-            )
-            """
-            Transform source frame.
-            """
-            self.tf_to: str = (
-                normalize_ros_frame_id(camera_config.tf_to)
-                if self.lookup_viewpoint
-                else camera_config.tf_to
-            )
-            """
-            Transform target frame.
-            """
-        else:
-            self.lookup_viewpoint: bool = False
-            """
-            Whether to look up camera transforms.
-            """
-        self._world_T_camera: HomogeneousTransformationMatrix | None = None
+        self.lookup_viewpoint: bool = camera_config.lookup_viewpoint
         """
-        Camera pose from the most recent successful TF lookup.
+        Whether the camera pose is looked up through TF.
+        """
+        self.tf_from: str = (
+            normalize_ros_frame_id(camera_config.tf_from)
+            if self.lookup_viewpoint
+            else camera_config.tf_from
+        )
+        """
+        Transform source frame.
+        """
+        self.tf_to: str = (
+            normalize_ros_frame_id(camera_config.tf_to)
+            if self.lookup_viewpoint
+            else camera_config.tf_to
+        )
+        """
+        Transform target frame.
+        """
+        self._world_T_camera: TransformStamped | None = None
+        """
+        Camera pose from the most recent successful TF lookup, stamped with the time TF
+        provided it for.
+        """
+        self.latest_frame: CameraFrame | None = None
+        """
+        The latest frame the camera delivered; None before its first frame.
+        """
+        self.lock: Lock = Lock()
+        """
+        Guards the latest frame against being replaced while it is read.
         """
         if self.lookup_viewpoint:
             self.tf_wrapper: TFWrapper = TFWrapper(node=self.node)
@@ -411,9 +465,46 @@ class ROSCameraInterface(CameraInterface):
             Looks the camera pose up in TF.
             """
 
+    def has_new_data(self) -> bool:
+        """
+        Check :meth:`CameraInterface.has_new_data`, dropping a new frame for which TF
+        provides no camera pose at its acquisition time as :meth:`lookup_transform`
+        waits for it.
+        """
+        with self.lock:
+            if not self._has_new_data:
+                return False
+            self._has_new_data = self.lookup_transform(
+                timestamp=Time.from_msg(self.latest_frame.timestamp)
+            )
+            return self._has_new_data
+
+    def store_frame(self, *, frame: CameraFrame) -> None:
+        """
+        Make ``frame`` the latest frame, or drop it while the latest frame is read.
+        """
+        # Skip the frame instead of waiting, so that the executor delivering it keeps
+        # delivering TF while a frame is read.
+        if not self.lock.acquire(blocking=False):
+            return
+        self.latest_frame = frame
+        self._has_new_data = True
+        self.lock.release()
+
+    def adds_missing_camera(self, *, world: World) -> bool:
+        """
+        Unlike :meth:`CameraInterface.adds_missing_camera`, leave a camera located
+        through TF to the processes ``world`` is synchronized with.
+        """
+        return not (
+            self.lookup_viewpoint
+            and WorldSynchronizer.all_callbacks_of_this_type_from_world(world)
+        )
+
     def lookup_transform(self, *, timestamp: Time | None = None) -> bool:
         """
-        Cache a camera pose when the requested TF sample is available.
+        Cache a camera pose when the requested TF sample is available, waiting for it at
+        most the configured camera pose timeout.
 
         :param timestamp: Acquisition time, or the latest sample when omitted.
         :return: Whether lookup is disabled or a sample was available.
@@ -425,34 +516,85 @@ class ROSCameraInterface(CameraInterface):
             target_frame=self.tf_to,
             source_frame=self.tf_from,
             time=timestamp,
-            timeout=Duration(seconds=1.0 / 30.0),
+            timeout=Duration(
+                seconds=self.camera_config.camera_pose_timeout.total_seconds()
+            ),
         ):
             return False
-        world_T_camera = self.tf_wrapper.lookup_transform(
+        self._world_T_camera = self.tf_wrapper.lookup_transform(
             target_frame=self.tf_to, source_frame=self.tf_from, time=timestamp
-        )
-        self._world_T_camera = TransformToSemDTConverter.convert(
-            data=world_T_camera.transform, world=world_instance()
         )
         return True
 
     def world_T_camera_from_tf(
-        self, timestamp: builtin_interfaces.msg.Time
+        self, *, world: World, timestamp: builtin_interfaces.msg.Time
     ) -> HomogeneousTransformationMatrix | None:
         """
-        Return the sampled TF camera pose bound to the runtime world.
+        Return the camera pose TF provides at ``timestamp``, bound to ``world``.
 
-        :param timestamp: Acquisition time associated with the cached TF sample.
+        :param world: The world perception perceives into.
+        :param timestamp: Acquisition time of the frame the camera pose is for.
         :return: Bound camera pose, or ``None`` when TF lookup is disabled.
+        :raises CameraPoseMissing: If TF provides no camera pose at ``timestamp``.
         """
         if not self.lookup_viewpoint:
             return None
-        if self._world_T_camera is None:
+        if (
+            self._world_T_camera is None
+            or self._world_T_camera.header.stamp != timestamp
+        ) and not self.lookup_transform(timestamp=Time.from_msg(timestamp)):
             raise CameraPoseMissing()
-        return self.bind_world_T_camera(
+        world_T_camera = self.bind_world_T_camera(
+            world=world,
             world_frame=self.tf_to,
             camera_frame=self.tf_from,
-            world_T_camera=self._world_T_camera,
+            world_T_camera=TransformToSemDTConverter.convert(
+                data=self._world_T_camera.transform, world=world
+            ),
+        )
+        self.warn_if_world_disagrees_with_tf(world=world, world_T_camera=world_T_camera)
+        return world_T_camera
+
+    def warn_if_world_disagrees_with_tf(
+        self, *, world: World, world_T_camera: HomogeneousTransformationMatrix
+    ) -> None:
+        """
+        Log a warning if the world currently places a camera another process attached
+        farther from TF's latest camera pose than the configured tolerances allow.
+
+        :param world: The world perception perceives into.
+        :param world_T_camera: Camera pose bound to ``world``.
+        """
+        camera_body = world_T_camera.child_frame
+        if (
+            camera_body is None
+            or camera_body.parent_connection is None
+            or self.is_mounted_standalone(camera_body=camera_body)
+        ):
+            return
+        latest_world_T_camera = TransformToSemDTConverter.convert(
+            data=self.tf_wrapper.lookup_transform(
+                target_frame=self.tf_to, source_frame=self.tf_from
+            ).transform,
+            world=world,
+        )
+        disagreement = HomogeneousTransformationMatrix(
+            data=np.linalg.inv(latest_world_T_camera.to_np())
+            @ np.linalg.inv(world_T_camera.reference_frame.global_transform.to_np())
+            @ camera_body.global_transform.to_np()
+        )
+        distance = float(disagreement.position.norm())
+        angle = float(disagreement.axis_angle.angle)
+        if (
+            distance <= self.camera_config.tolerated_camera_pose_distance
+            and angle <= self.camera_config.tolerated_camera_pose_angle
+        ):
+            return
+        self.rk_logger.warning(
+            f"The world places camera '{self.tf_from}' {distance:.3f} m and "
+            f"{math.degrees(angle):.1f} degrees away from where TF places it in "
+            f"'{self.tf_to}'; perceived objects follow TF and may be misplaced "
+            f"relative to the robot in the world."
         )
 
     def validate_camera_frame_for_tf(self, camera_frame: str) -> None:
@@ -525,6 +667,77 @@ def depth_convert_workaround(msg: CompressedImage) -> npt.NDArray:
         raise Exception("Decoding of '" + depth_fmt + "' is not implemented!")
 
 
+# %% camera frame
+
+
+@dataclass(kw_only=True)
+class CameraFrame:
+    """
+    The decoded images of one frame a ROS camera delivered, with its calibration.
+    """
+
+    color: npt.NDArray
+    """
+    The color image, in BGR channel order.
+    """
+
+    depth: npt.NDArray | None = None
+    """
+    The depth image; None for a camera without depth.
+    """
+
+    camera_info: CameraInfo | None = None
+    """
+    The calibration of the camera; None if the camera delivered none.
+    """
+
+    timestamp: builtin_interfaces.msg.Time
+    """
+    Acquisition time of the color image.
+    """
+
+    @classmethod
+    def from_messages(
+        cls,
+        *,
+        color_data: Image | CompressedImage,
+        depth_data: Image | CompressedImage | None = None,
+        camera_info: CameraInfo | None = None,
+    ) -> CameraFrame:
+        """
+        Decode the messages of one frame.
+
+        :param color_data: The color image message.
+        :param depth_data: The depth image message; None for a camera without depth.
+        :param camera_info: The calibration message.
+        :return: The frame the messages carry.
+        """
+        # TODO make this generic. handle the encoding and order properly. For standard
+        # and compressed images. this might also depend on the fix of
+        # image_transport_plugins being published as a package.
+        bridge = CVBridgeWorkaround()
+        color = (
+            cv2.imdecode(np.frombuffer(color_data.data, np.uint8), cv2.IMREAD_COLOR)
+            if isinstance(color_data, CompressedImage)
+            else bridge.imgmsg_to_cv2(color_data, "bgr8")
+        )
+        if depth_data is None:
+            depth = None
+        elif isinstance(depth_data, CompressedImage):
+            depth = depth_convert_workaround(depth_data)
+        else:
+            depth = bridge.imgmsg_to_cv2(depth_data, "32FC1")
+        return cls(
+            color=color,
+            depth=depth,
+            camera_info=camera_info,
+            timestamp=color_data.header.stamp,
+        )
+
+
+# %% RGB-D camera
+
+
 class KinectCameraInterface(ROSCameraInterface):
     """
     Interface for Kinect-style RGB-D cameras using ROS.
@@ -578,33 +791,9 @@ class KinectCameraInterface(ROSCameraInterface):
         self.rk_logger.info(f"  {camera_config.topic_depth}")
         self.rk_logger.info(f"  {camera_config.topic_camera_info}")
 
-        self.color: npt.NDArray | None = None
-        """
-        Latest color image.
-        """
-        self.depth: npt.NDArray | None = None
-        """
-        Latest depth image.
-        """
-        self.camera_info: CameraInfo | None = None
-        """
-        Latest camera info message.
-        """
         self.color_to_depth_ratio: ColorToDepthRatio | None = None
         """
         Ratio between color and depth image sizes.
-        """
-        self.timestamp: builtin_interfaces.msg.Time | None = None
-        """
-        Latest message timestamp.
-        """
-        self.lock: Lock = Lock()
-        """
-        Thread synchronization lock.
-        """
-        self.bridge: CVBridgeWorkaround = CVBridgeWorkaround()
-        """
-        NumPy-compatible replacement for cv_bridge.
         """
 
     def compressed_depth_configured(self) -> bool:
@@ -641,6 +830,7 @@ class KinectCameraInterface(ROSCameraInterface):
         """
         pass
 
+    @called_positionally
     def callback(
         self,
         color_data: Image | CompressedImage,
@@ -648,21 +838,15 @@ class KinectCameraInterface(ROSCameraInterface):
         camera_info: CameraInfo | None = None,
     ) -> None:
         """
-        Process synchronized camera data.
+        Make the synchronized color, depth and camera info messages the latest frame.
 
-        This callback handles incoming color, depth, and camera info messages. It
-        converts the data to OpenCV format and stores it for later use.
-
-        TODO make this generic. handle the encoding and order properly. For standard and
-        compressed images. this might also depend on the fix of image_transport_plugins
-        being published as a package. Startpoint can be found at the bottom of this
-        method.
+        .. note:: A frame arriving while the previous frame is read is dropped.
 
         :param color_data: Color image message
         :param depth_data: Depth image message
         :param camera_info: Camera calibration message
+        :raises CameraDataMissing: If the frame has no depth image.
         """
-        self.lock.acquire()
         if self.rk_logger.isEnabledFor(logging.DEBUG):
             self.rk_logger.debug("Received data:")
 
@@ -689,75 +873,52 @@ class KinectCameraInterface(ROSCameraInterface):
                     f"  Color time - Camera Info time: {(color_time - camera_info_time).nanoseconds / 1e9:.6f}"
                 )
 
-        if self.compressed_color_configured():
-            color_arr = np.frombuffer(color_data.data, np.uint8)
-            self.color = cv2.imdecode(color_arr, cv2.IMREAD_COLOR)
-        else:
-            self.color = self.bridge.imgmsg_to_cv2(color_data, "bgr8")
-
-        self.timestamp = color_data.header.stamp
-
-        if self.compressed_depth_configured():
-            if depth_data is None:
-                raise CameraDataMissing(
-                    data_name="Depth data",
-                    context="compressed depth conversion",
-                )
-            self.depth = depth_convert_workaround(depth_data)
-        else:
-            if depth_data is None:
-                raise CameraDataMissing(
-                    data_name="Depth data",
-                    context="uncompressed depth conversion",
-                )
-            self.depth = self.bridge.imgmsg_to_cv2(depth_data, "32FC1")
-
-        self.camera_info = camera_info
-
-        # self.rk_logger.info("Callback processing done - Final steps")
-        if not self.lookup_transform():
-            self._has_new_data = False
-            self.lock.release()
-            return
-
-        self._has_new_data = True
-        self.lock.release()
-
-    def set_data(self, cas: CAS) -> None:
-        if not self.has_new_data():
-            return
-
-        self.lock.acquire()
-        if self.camera_config.hi_res_mode:
-            self.color = self.color[0:960, 0:1280]
-
-        width = self.camera_info.width
-        height = self.camera_info.height
-        if self.camera_config.hi_res_mode:
-            height = 960
-        self.camera_info.width = width
-        self.camera_info.height = height
-
-        self.color_to_depth_ratio = self.camera_config.color_to_depth_ratio
-
-        cas.set(CASViews.COLOR_IMAGE, self.color)
-        cas.set(CASViews.DEPTH_IMAGE, self.depth)
-        cas.set(CASViews.COLOR_TO_DEPTH_RATIO, self.color_to_depth_ratio)
-
-        camera_frame = self.camera_info.header.frame_id or self.camera_config.tf_from
-        self.validate_camera_frame_for_tf(camera_frame)
-        world_T_camera = self.world_T_camera_from_tf(self.timestamp)
-        self.store_camera_observation(
-            cas=cas,
-            camera_model=RosCameraModelAdapter.from_camera_info(self.camera_info),
-            camera_frame=camera_frame,
-            timestamp_nanoseconds=(
-                self.timestamp.sec * 1_000_000_000 + self.timestamp.nanosec
-            ),
-            modalities=(CameraModality.COLOR, CameraModality.DEPTH),
-            world_T_camera=world_T_camera,
+        if depth_data is None:
+            raise CameraDataMissing(data_name="Depth data", context="an RGB-D frame")
+        self.store_frame(
+            frame=CameraFrame.from_messages(
+                color_data=color_data, depth_data=depth_data, camera_info=camera_info
+            )
         )
 
-        self._has_new_data = False
+    def set_data(self, *, cas: CAS, world: World) -> None:
+        """
+        Put :attr:`latest_frame` into ``cas`` as :meth:`CameraInterface.set_data` does,
+        with its color image and calibration cropped to 1280x960 in high-resolution
+        mode, unless no new frame has arrived since the last call.
+        """
+        with self.lock:
+            if not self._has_new_data:
+                return
+            frame = self.latest_frame
+            camera_info = frame.camera_info
 
-        self.lock.release()
+            color = frame.color
+            if self.camera_config.hi_res_mode:
+                color = color[0:960, 0:1280]
+                camera_info.height = 960
+
+            self.color_to_depth_ratio = self.camera_config.color_to_depth_ratio
+
+            cas.set(CASViews.COLOR_IMAGE, color)
+            cas.set(CASViews.DEPTH_IMAGE, frame.depth)
+            cas.set(CASViews.COLOR_TO_DEPTH_RATIO, self.color_to_depth_ratio)
+
+            camera_frame = camera_info.header.frame_id or self.camera_config.tf_from
+            self.validate_camera_frame_for_tf(camera_frame)
+            world_T_camera = self.world_T_camera_from_tf(
+                world=world, timestamp=frame.timestamp
+            )
+            self.store_camera_observation(
+                cas=cas,
+                world=world,
+                camera_model=RosCameraModelAdapter.from_camera_info(camera_info),
+                camera_frame=camera_frame,
+                timestamp_nanoseconds=(
+                    frame.timestamp.sec * 1_000_000_000 + frame.timestamp.nanosec
+                ),
+                modalities=(CameraModality.COLOR, CameraModality.DEPTH),
+                world_T_camera=world_T_camera,
+            )
+
+            self._has_new_data = False
