@@ -32,6 +32,7 @@ from semantic_digital_twin.adapters.ros.messages import (
     MetaData,
     WorldStateUpdate,
     LoadModel,
+    ReceivedMessage,
     StreamPosition,
     WorldUpdate,
 )
@@ -2784,6 +2785,7 @@ def test_deferred_model_reload_is_only_applied_on_demand(
         receiver_synchronizer.close()
 
 
+@pytest.mark.filterwarnings("error::pytest.PytestUnhandledThreadExceptionWarning")
 def test_message_arriving_during_a_drain_stays_buffered(rclpy_node):
     """
     The buffer is appended to on the subscription thread while its owner drains it, so
@@ -2800,23 +2802,31 @@ def test_message_arriving_during_a_drain_stays_buffered(rclpy_node):
         empty_state_update = WorldStateUpdate(
             meta_data=synchronizer.meta_data, ids=[], states=[]
         )
+        drained_update = WorldUpdate(
+            meta_data=synchronizer.meta_data,
+            sequence_number=1,
+            state_update=empty_state_update,
+        )
+        late_update = WorldUpdate(
+            meta_data=synchronizer.meta_data,
+            sequence_number=2,
+            state_update=empty_state_update,
+        )
         synchronizer.missed_messages.append(
-            WorldUpdate(
-                meta_data=synchronizer.meta_data, state_update=empty_state_update
-            )
+            ReceivedMessage.from_json(to_json(drained_update))
         )
         drain = threading.Thread(
             target=synchronizer.apply_missed_messages, name="drain-race"
         )
         drain.start()
         time.sleep(0.1)
-        late_message = WorldUpdate(
-            meta_data=synchronizer.meta_data, state_update=empty_state_update
-        )
+        late_message = ReceivedMessage.from_json(to_json(late_update))
         synchronizer._subscription_callback(late_message)
         drain.join(timeout=5.0)
 
         assert not drain.is_alive()
+        assert synchronizer.has_applied(drained_update.position)
+        assert not synchronizer.has_applied(late_update.position)
         assert synchronizer.missed_messages == [late_message]
     finally:
         synchronizer.close()
