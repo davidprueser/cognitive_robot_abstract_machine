@@ -1,0 +1,32 @@
+# Written by basstler's /setup-personal-notes; re-run it to update this file rather than
+# editing it here.
+name: Plan site dispatch
+
+# Every push to the notes branch starts the plan site's build in davidprueser-plans/plans.
+on:
+  push:
+    branches: [claude/personal-notes]
+  workflow_dispatch: {}
+
+permissions: {}
+
+concurrency:
+  group: plan-site-dispatch
+  cancel-in-progress: true
+
+jobs:
+  dispatch:
+    name: Start the plan site build
+    if: github.repository == 'davidprueser/cognitive_robot_abstract_machine'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Start the build
+        env:
+          GH_TOKEN: ${{ secrets.PLAN_SITE_TOKEN }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::error title=PLAN_SITE_TOKEN is not stored::davidprueser/cognitive_robot_abstract_machine stores no PLAN_SITE_TOKEN secret, so this run started no build in davidprueser-plans/plans. Run /setup-personal-notes, or create the token at https://github.com/settings/personal-access-tokens/new?name=basstler%20plan%20site&description=Starts%20the%20plan%20site%20build%20in%20davidprueser-plans%2Fplans&target_name=davidprueser-plans&actions=write and store it at https://github.com/davidprueser/cognitive_robot_abstract_machine/settings/secrets/actions/new"
+            exit 1
+          fi
+          gh workflow run plan-site.yml --repo davidprueser-plans/plans
