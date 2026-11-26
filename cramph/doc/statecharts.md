@@ -739,6 +739,27 @@ statement: the statement is grounded only when the node starts, and the chooser 
 which of its candidates run. The statement itself is not serialized; a process that ticks
 the statechart elsewhere receives the chosen children instead.
 
+## Leaves another process owns
+
+A leaf may name the process that runs it as its `owning_process`, for example a perception
+process for a detector whose class only that process imports. One process ticks the
+statechart and decides every life cycle, including the owned leaf's. The owner runs the
+leaf's callbacks and observes it. A leaf without an owning process belongs to the ticking
+process. Composite nodes always run in the ticking process and take no owning process.
+
+The ticking process names itself in a `NodeOwnership` context extension. A statechart read
+from JSON in such a context holds a `ProxyNode` for every leaf another process owns, built
+without the leaf's class:
+
+- It ends as the leaf does: it succeeds on observing True and fails on observing False if
+  the leaf does. An owned leaf therefore ends on nothing else of its own; it writes that end
+  behaviour into its JSON.
+- Every life cycle state it reaches goes to the owner through the extension's connection,
+  with a run number that counts its starts.
+- It observes the latest observation the owner reported for its current run, Unknown until
+  then. It never waits for one, and a report for an earlier run is ignored.
+- It is written to JSON as the leaf it stands for, so the statechart can be passed on.
+
 ## Example
 
 A plan that first tries a slow approach and falls back to a fast one once the slow one fails.

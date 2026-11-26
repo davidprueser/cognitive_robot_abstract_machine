@@ -55,6 +55,7 @@ from cramph.nodes_for_testing import (
     ConstTrueNode,
     NodeFailingOnObservingFalse,
 )
+from cramph.ownership import ProxyNode
 from cramph.threaded_nodes import FunctionCall
 from cramph.world_modification_nodes import MoveBranch
 from krrood.entity_query_language.factories import a
@@ -247,13 +248,14 @@ def cases() -> list[NodeRoundTripCase]:
 @pytest.fixture()
 def node_types_needing_a_case() -> set[type[StatechartNode]]:
     """
-    :return: The node classes of cramph, apart from those it gives tests to build on
-        and the one holding a Python callable, which cannot be sent.
+    :return: The node classes of cramph, apart from those it gives tests to build on,
+        the one holding a Python callable, which cannot be sent, and the proxy, which
+        is written as the leaf it stands for.
     """
     return (
         concrete_node_types(cramph)
         - concrete_node_types(nodes_for_testing)
-        - {FunctionCall}
+        - {FunctionCall, ProxyNode}
     )
 
 

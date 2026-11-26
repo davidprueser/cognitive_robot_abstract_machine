@@ -39,6 +39,8 @@ from cramph.exceptions import (
     EndInCompositeNodeError,
     CompositeNodeWithoutChildrenError,
     InputNotExpressionError,
+    IrreproducibleEndBehaviourError,
+    OwnedCompositeNodeError,
     SelfInStartConditionError,
     UnsupportedConditionVariableError,
     NodeAlreadyBelongsToDifferentNodeError,
@@ -56,6 +58,7 @@ from krrood.adapters.exceptions import UntrackedObjectError
 from krrood.adapters.json_serializer import (
     DataclassJSONSerializer,
     SubclassJSONSerializer,
+    to_json,
 )
 from krrood.exceptions import DataclassException
 from krrood.patterns.classproperty import classproperty
@@ -85,6 +88,18 @@ class NodeJSONKey(StrEnum):
     """
     Tells apart the nodes of one JSON document, so every place referring to the same node
     deserializes to the same instance.
+    """
+
+    OWNING_PROCESS = "owning_process"
+    """
+    The field :attr:`StatechartNode.owning_process`, read before the class of the node
+    is known.
+    """
+
+    END_BEHAVIOUR = "end_behaviour"
+    """
+    The :class:`EndBehaviour` of a node with an owning process, which a proxy of it
+    reproduces without its class.
     """
 
 
@@ -860,6 +875,14 @@ class StatechartNode(SubclassJSONSerializer, metaclass=ABCMeta):
     The name is not unique, use :attr:`unique_name`, if you need a unique identifier.
     """
 
+    owning_process: str | None = None
+    """
+    The name of the process that runs the callbacks of this leaf and observes it, while
+    the process ticking the statechart decides its life cycle; None for the ticking
+    process itself. Every other process holds a :class:`~cramph.ownership.ProxyNode`.
+    Kept as a plain string, so every process reads it without the class of the name.
+    """
+
     _statechart: Statechart = field(init=False, default=None)
     """
     Back reference to the statechart that owns this node.
@@ -968,6 +991,8 @@ class StatechartNode(SubclassJSONSerializer, metaclass=ABCMeta):
     def __post_init__(self) -> None:
         if self.name is None:
             self.name = self.__class__.__name__
+        if self.owning_process is not None:
+            self.owning_process = str(self.owning_process)
         self._node_id = str(uuid.uuid4())
         self._create_state_variables()
         self._start_condition = TransitionCondition.create_true(
@@ -1178,9 +1203,21 @@ class StatechartNode(SubclassJSONSerializer, metaclass=ABCMeta):
         return self.statechart.top_level_nodes
 
     def to_json(self, **kwargs: Any) -> dict[str, Any]:
-        return {
+        """
+        A node with an :attr:`owning_process` also writes its :class:`EndBehaviour`.
+
+        :raises IrreproducibleEndBehaviourError: If this node has an owning process and
+            ends on a condition of its own other than observing True or False.
+        """
+        node_json = {
             **DataclassJSONSerializer.to_json(instance=self, **kwargs),
             NodeJSONKey.NODE_ID: self._node_id,
+        }
+        if self.owning_process is None:
+            return node_json
+        return {
+            **node_json,
+            NodeJSONKey.END_BEHAVIOUR: to_json(EndBehaviour.from_node(node=self)),
         }
 
     @classmethod
@@ -1193,10 +1230,18 @@ class StatechartNode(SubclassJSONSerializer, metaclass=ABCMeta):
         node_id = data[NodeJSONKey.NODE_ID]
         if tracker.has(key=node_id):
             return tracker.get(key=node_id)
-        node = DataclassJSONSerializer.from_json(data=data, clazz=cls, **kwargs)
+        node = cls._create_from_json(data=data, **kwargs)
         node._take_over_node_id(node_id=node_id)
         tracker.add(key=node_id, tracked_object=node)
         return node
+
+    @classmethod
+    def _create_from_json(cls, *, data: dict[str, Any], **kwargs: Any) -> Self:
+        """
+        :param data: The JSON dict of one node of a document.
+        :return: A new node built from `data`, not yet known to the document's tracker.
+        """
+        return DataclassJSONSerializer.from_json(data=data, clazz=cls, **kwargs)
 
     def _take_over_node_id(self, *, node_id: str) -> None:
         """
@@ -2270,6 +2315,46 @@ class FailsOnObservingFalse(StatechartNode):
         return self.observes_false
 
 
+@dataclass(kw_only=True, frozen=True)
+class EndBehaviour:
+    """
+    How a leaf ends on its own, without anything written as its success or fail
+    condition: what a proxy of it in another process reproduces.
+    """
+
+    succeeds_on_observing_true: bool
+    """
+    Whether the leaf succeeds once it observes True, see :class:`SucceedsOnObservingTrue`.
+    """
+
+    fails_on_observing_false: bool
+    """
+    Whether the leaf fails once it observes False, see :class:`FailsOnObservingFalse`.
+    """
+
+    @classmethod
+    def from_node(cls, *, node: StatechartNode) -> Self:
+        """
+        :param node: The leaf whose end behaviour to read.
+        :return: The end behaviour of `node`.
+        :raises IrreproducibleEndBehaviourError: If `node` ends on a condition of its
+            own other than observing True or False.
+        """
+        success_condition = node.inherent_success_condition
+        fail_condition = node.inherent_fail_condition
+        succeeds_on_observing_true = success_condition is node.observes_true
+        fails_on_observing_false = fail_condition is node.observes_false
+        is_reproducible = (
+            succeeds_on_observing_true or success_condition.is_constant_false()
+        ) and (fails_on_observing_false or fail_condition.is_constant_false())
+        if not is_reproducible:
+            raise IrreproducibleEndBehaviourError(node=node)
+        return cls(
+            succeeds_on_observing_true=succeeds_on_observing_true,
+            fails_on_observing_false=fails_on_observing_false,
+        )
+
+
 @dataclass(eq=False, repr=False, kw_only=True)
 class StructureCopyNode(EndedByOwner, StatechartNode):
     """
@@ -2369,6 +2454,14 @@ class CompositeNode(StatechartNode):
     plot_specifications: NodePlotSpec = plot_specification_field(
         NodePlotSpec.create_composite_node_style
     )
+
+    def __post_init__(self) -> None:
+        """
+        :raises OwnedCompositeNodeError: If this node is given an owning process.
+        """
+        super().__post_init__()
+        if self.owning_process is not None:
+            raise OwnedCompositeNodeError(node=self)
 
     @property
     def children(self) -> list[StatechartNode]:

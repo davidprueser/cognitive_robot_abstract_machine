@@ -916,6 +916,81 @@ class NodeStateVariableNotSerializableError(JSONSerializationError):
         return ""
 
 
+# %% nodes another process owns
+
+
+@dataclass(kw_only=True)
+class OwnedCompositeNodeError(NodeInitializationError):
+    """
+    Raised when a composite node is given a process that owns it.
+    """
+
+    def error_message(self) -> str:
+        return (
+            f'Composite node "{self.node.name}" is given to process '
+            f'"{self.node.owning_process}", but a composite node runs in the process '
+            f"that ticks the statechart."
+        )
+
+    def suggest_correction(self) -> str:
+        return (
+            "Give the owning process to the leaves below the composite node, or make "
+            "the work of that process a single leaf it owns."
+        )
+
+
+@dataclass(kw_only=True)
+class IrreproducibleEndBehaviourError(NodeInitializationError):
+    """
+    Raised when a leaf another process owns ends on conditions of its own that a proxy
+    of it cannot reproduce.
+    """
+
+    def error_message(self) -> str:
+        return (
+            f'Node "{self.node.name}", owned by process "{self.node.owning_process}", '
+            f"ends on a condition of its own other than observing True or False, which "
+            f"its proxy in the ticking process cannot reproduce."
+        )
+
+    def suggest_correction(self) -> str:
+        return (
+            "Let the node inherit EndedByOwner or SucceedsOnObservingTrue, and "
+            "FailsOnObservingFalse if it fails on its own, and write any further "
+            "condition as its success or fail condition."
+        )
+
+
+@dataclass(kw_only=True)
+class UnknownProxyNodeError(StatechartError):
+    """
+    Raised when an owning process reports an observation of a node the process ticking
+    the statechart holds no proxy of.
+    """
+
+    process_name: str
+    """
+    The name of the process the observation was reported to.
+    """
+
+    node_id: str
+    """
+    The id of the node the observation was reported for.
+    """
+
+    def error_message(self) -> str:
+        return (
+            f'Process "{self.process_name}" holds no proxy of node "{self.node_id}" '
+            f"to take its observation."
+        )
+
+    def suggest_correction(self) -> str:
+        return (
+            "Report observations only for the nodes of a life cycle state the process "
+            "sent, by the node id that state names."
+        )
+
+
 # %% a statechart that ran but did not reach its goal
 
 

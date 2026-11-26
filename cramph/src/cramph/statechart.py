@@ -54,6 +54,7 @@ from cramph.node import (
 )
 from cramph.composites import CompositeNodeChoosingItsChild, ControlStructureNode
 from cramph.compiler import StatechartCompiler
+from cramph.ownership import NodeOwnership
 from cramph.plotters.graphviz import StatechartGraphviz
 from cramph.plotters.interactive_graph import StatechartGraphVisualizer
 from cramph.state import LastObservationState, LifeCycleState, ObservationState
@@ -1154,22 +1155,30 @@ class Statechart(SubclassJSONSerializer):
     def _register_nodes_from_json(self, *, data: dict[str, Any], **kwargs: Any) -> None:
         """
         Registers the written nodes, then their transition conditions, then hands every
-        goal holding one of them its children in the order it was written with.
+        goal holding one of them its children in the order it was written with. In a
+        context holding a :class:`~cramph.ownership.NodeOwnership`, every node another
+        process owns is registered as its :class:`~cramph.ownership.ProxyNode`.
         """
+        ownership = self.context.get_extension(extension_type=NodeOwnership)
+        document = (
+            data
+            if ownership is None
+            else ownership.replace_nodes_owned_elsewhere(document=data)
+        )
         DeserializedNodeTracker.from_kwargs(from_json_kwargs=kwargs)
-        for json_data in data[StatechartJSONKey.NODES]:
+        for json_data in document[StatechartJSONKey.NODES]:
             node = from_json(json_data, **kwargs)
             self._register_node(node=node)
-        for json_data in data[StatechartJSONKey.CONDITIONS]:
+        for json_data in document[StatechartJSONKey.CONDITIONS]:
             transition = TransitionCondition.from_json(data=json_data, **kwargs)
             transition.owner._set_transition(transition=transition)
-        for parent_index, child_indices in data[StatechartJSONKey.CHILDREN].items():
+        for parent_index, child_indices in document[StatechartJSONKey.CHILDREN].items():
             # JSON writes the integer keys as strings
             self.get_node_by_index(index=int(parent_index)).nodes = [
                 self.get_node_by_index(index=child_index)
                 for child_index in child_indices
             ]
-        for node_index, child_indices in data[
+        for node_index, child_indices in document[
             StatechartJSONKey.CHOSEN_CHILDREN
         ].items():
             self.get_node_by_index(index=int(node_index)).restore_chosen_children(
