@@ -177,19 +177,21 @@ items:
     recommended_model: opus
     depends_on: []
     notes: >
-      Authors' problems 1, 2 and 7. Nodes get owners; a process holds the real class only of
-      the nodes it owns. Composites stay real classes everywhere; only working leaves become
-      proxies that keep their end behaviour and take their observation from the owner. One
-      process decides every life cycle; owners run the callbacks and report observations,
-      read as latched values, never awaited inside a tick. Fresh node instances, no shared
-      nodes. Likely several PRs: split at kickoff.
+      Authors' problems 1, 2 and 7, ticking side. Nodes get owners; a process holds the real
+      class only of the nodes it owns. Composites stay real classes everywhere and have no
+      owner; only working leaves become proxies that keep their end behaviour and take their
+      observation from the owner. One process decides every life cycle; a proxy sends its
+      life cycle state with a run number per start to an abstract connection and observes
+      the latest observation reported for its current run, never awaited in a tick.
+      Fresh node instances, no shared nodes. Split at kickoff; owner side:
+      cramph-owned-node-runner.
 
   - id: cramph-ownership-transport
     title: "Transport for life cycles and observations between owners"
     track: node-ownership
     status: not started
     recommended_model: opus
-    depends_on: [cramph-executable-proxies]
+    depends_on: [cramph-owned-node-runner]
     notes: >
       Authors' problem 4. Life cycle changes flow down to owners, observations flow back.
       A run counter on every start; observations carry a world StreamPosition and count only
@@ -237,3 +239,17 @@ items:
       (the goal is the query, cancelling is an interrupt). Decide whether the external
       robokudo_* packages (faces, yolo_world, grounded_sam, ...) are ported in this stack or
       by their owners. api-break: describe the migration for users.
+
+  - id: cramph-owned-node-runner
+    title: "The owning process runs its nodes of a statechart another process ticks"
+    track: node-ownership
+    status: not started
+    recommended_model: opus
+    depends_on: [cramph-executable-proxies]
+    notes: >
+      Split from cramph-executable-proxies at kickoff. The owner deserializes the same
+      statechart: its own leaves are real, fresh instances, every other leaf is a proxy.
+      It decides no transition: it follows the life cycle states and run numbers it is
+      sent, runs the matching callbacks, observes its running nodes on its own loop
+      (on_tick or the built observation expression) and reports them. An in-process
+      connection pairs two contexts, so one test runs an owned node end to end without ROS.
