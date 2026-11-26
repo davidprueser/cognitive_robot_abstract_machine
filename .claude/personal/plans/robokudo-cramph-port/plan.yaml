@@ -48,8 +48,11 @@ items:
   - id: demo-rosbag-baseline
     title: "Test today's py_trees demo.py against a rosbag"
     track: demo-port
-    status: not started
+    status: in progress
     recommended_model: sonnet
+    branch: demo-rosbag-baseline
+    pull_request_number: 45
+    session: local Claude Code session 4ef8b12a-b4e4-4ca3-b016-fc4c68ab18d8
     depends_on: []
     notes: >
       TDD baseline before anything changes. Play ~/workspaces/cram_ws/test/test.db3 (PR2
