@@ -14,8 +14,9 @@
   threaded outcomes are latched values it reads.
 - Generic statechart behaviour (threaded nodes, ownership, proxies, transport) goes into cramph,
   with ROS only as a soft dependency; perception goes into robokudo.
-- Rosbag tests run locally only and are skipped when the bag is absent; CI covers the same nodes
-  with the stored CAS frames in robokudo_test_data.
+- Rosbag tests run locally only, are skipped when the bag is absent, and stay on fork-only draft
+  branches that are never promoted or stacked on; upstream tests use the stored CAS frames in
+  robokudo_test_data.
 - No cross-framework communication before the shared-statechart wave; the proof of concept is
   standalone RoboKudo.
 - The cramph authors' design (RoboKudo on cramph doc, 2026-11-25) and the original proposal

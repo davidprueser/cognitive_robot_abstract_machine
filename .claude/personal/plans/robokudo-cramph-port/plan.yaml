@@ -1,231 +1,229 @@
 schema_version: 1
 id: robokudo-cramph-port
-title: "RoboKudo on cramph: incremental port from py_trees to statecharts"
-description: >
-  Port RoboKudo from py_trees behaviour trees to cramph statecharts as a stack of
-  pull requests. Wave 1 is the proof of concept: the core demo.py runs as a statechart
-  on a rosbag, with no cross-framework communication. Later waves give RoboKudo its own
-  executor that hosts cramphs, then let one shared statechart carry nodes owned by
-  coraplex, Giskard and RoboKudo, each run by its own executor. The last wave ports the
-  remaining annotators and engines and removes py_trees.
+title: 'RoboKudo on cramph: incremental port from py_trees to statecharts'
+description: 'Port RoboKudo from py_trees behaviour trees to cramph statecharts as a stack
+  of pull requests. Wave 1 is the proof of concept: the core demo.py runs as a statechart
+  on a rosbag, with no cross-framework communication. Later waves give RoboKudo its own executor
+  that hosts cramphs, then let one shared statechart carry nodes owned by coraplex, Giskard
+  and RoboKudo, each run by its own executor. The last wave ports the remaining annotators
+  and engines and removes py_trees.
+
+  '
 default_repository: davidprueser/cognitive_robot_abstract_machine
 tracking_issue: 43
-
 waves:
-  - id: proof-of-concept
-    name: "Proof of concept: demo.py as a statechart on a rosbag"
-    description: "Standalone RoboKudo only; no Giskard or coraplex involved."
-  - id: perception-process
-    name: "RoboKudo hosts cramphs in its own process"
-    description: "A dedicated executor that joins the world and runs whichever cramph it is given."
-  - id: shared-statechart
-    name: "One statechart, nodes owned by several processes"
-    description: "Coraplex sends the statechart; Giskard and RoboKudo each run the nodes they own."
-  - id: migration
-    name: "Port the rest and remove py_trees"
-
+- id: proof-of-concept
+  name: 'Proof of concept: demo.py as a statechart on a rosbag'
+  description: Standalone RoboKudo only; no Giskard or coraplex involved.
+- id: perception-process
+  name: RoboKudo hosts cramphs in its own process
+  description: A dedicated executor that joins the world and runs whichever cramph it is given.
+- id: shared-statechart
+  name: One statechart, nodes owned by several processes
+  description: Coraplex sends the statechart; Giskard and RoboKudo each run the nodes they
+    own.
+- id: migration
+  name: Port the rest and remove py_trees
 tracks:
-  - id: cramph-gaps
-    name: "cramph features the port needs"
-    wave: proof-of-concept
-  - id: demo-port
-    name: "demo.py ported to nodes"
-    wave: proof-of-concept
-  - id: perception-executor
-    name: "RoboKudo executor and its extensions"
-    wave: perception-process
-  - id: node-ownership
-    name: "Ownership and transport in cramph"
-    wave: shared-statechart
-  - id: owned-perception
-    name: "RoboKudo hosts the perception nodes of a shared statechart"
-    wave: shared-statechart
-  - id: remaining-port
-    name: "Remaining annotators, engines and packages"
-    wave: migration
-
+- id: cramph-gaps
+  name: cramph features the port needs
+  wave: proof-of-concept
+- id: demo-port
+  name: demo.py ported to nodes
+  wave: proof-of-concept
+- id: perception-executor
+  name: RoboKudo executor and its extensions
+  wave: perception-process
+- id: node-ownership
+  name: Ownership and transport in cramph
+  wave: shared-statechart
+- id: owned-perception
+  name: RoboKudo hosts the perception nodes of a shared statechart
+  wave: shared-statechart
+- id: remaining-port
+  name: Remaining annotators, engines and packages
+  wave: migration
 items:
-  - id: demo-rosbag-baseline
-    title: "Test today's py_trees demo.py against a rosbag"
-    track: demo-port
-    status: in progress
-    recommended_model: sonnet
-    branch: demo-rosbag-baseline
-    pull_request_number: 45
-    session: local Claude Code session 4ef8b12a-b4e4-4ca3-b016-fc4c68ab18d8
-    depends_on: []
-    notes: >
-      TDD baseline before anything changes. Play ~/workspaces/cram_ws/test/test.db3 (PR2
-      kinect_head topics plus /tf, 55 frames; matches the kinect_wo_tf camera config) and
-      run descriptors/analysis_engines/demo.py on it. Assert the exact plane, cluster count
-      and world bodies it produces. Runs only locally: skipped when the bag is absent, so
-      CI stays green. The PoC item reuses these assertions.
+- id: cramph-non-waiting-threaded-node
+  title: A threaded cramph node that observes UNKNOWN instead of waiting for its thread
+  track: cramph-gaps
+  status: in progress
+  recommended_model: sonnet
+  branch: cramph-non-waiting-threaded-node
+  pull_request_number: 44
+  session: local Claude Code session f7568cad-9bdc-47d3-92ed-b404a047233c
+  depends_on: []
+  notes: 'Gap named by the cramph authors: FunctionCall joins its thread in on_tick, which
+    holds up the tick. Add a ThreadedNode variant that observes UNKNOWN while run() works
+    and TRUE/FALSE once it returned or raised. Include a run counter per start, so an outcome
+    from before a restart never overwrites a later one (the ThreadedNode warning). Generic,
+    so it goes in cramph; its own small PR for the cramph authors to review.
 
-  - id: cramph-non-waiting-threaded-node
-    title: "A threaded cramph node that observes UNKNOWN instead of waiting for its thread"
-    track: cramph-gaps
-    status: in progress
-    recommended_model: sonnet
-    branch: cramph-non-waiting-threaded-node
-    pull_request_number: 44
-    session: local Claude Code session f7568cad-9bdc-47d3-92ed-b404a047233c
-    depends_on: []
-    notes: >
-      Gap named by the cramph authors: FunctionCall joins its thread in on_tick, which holds
-      up the tick. Add a ThreadedNode variant that observes UNKNOWN while run() works and
-      TRUE/FALSE once it returned or raised. Include a run counter per start, so an outcome
-      from before a restart never overwrites a later one (the ThreadedNode warning).
-      Generic, so it goes in cramph; its own small PR for the cramph authors to review.
+    '
+- id: cas-context-and-annotator-node
+  title: Annotator node, pipeline node and the CAS as a context extension
+  track: demo-port
+  status: not started
+  recommended_model: opus
+  depends_on:
+  - cramph-non-waiting-threaded-node
+  notes: 'Authors'' design: an extension holding the current CAS, added by the pipeline''s
+    executor in extend_context; the pipeline node puts a fresh CAS in on every start and reset;
+    annotators list it in required_context_extensions. One pipeline per statechart. Decide
+    here the split between annotator nodes (work on the CAS) and utility nodes (read frame,
+    write the world). Threaded annotators build on the non-waiting node. World writes stay
+    on the tick thread (CasADi is not thread-safe). Test with mimics.
 
-  - id: cas-context-and-annotator-node
-    title: "Annotator node, pipeline node and the CAS as a context extension"
-    track: demo-port
-    status: not started
-    recommended_model: opus
-    depends_on: [cramph-non-waiting-threaded-node]
-    notes: >
-      Authors' design: an extension holding the current CAS, added by the pipeline's
-      executor in extend_context; the pipeline node puts a fresh CAS in on every start and
-      reset; annotators list it in required_context_extensions. One pipeline per statechart.
-      Decide here the split between annotator nodes (work on the CAS) and utility nodes
-      (read frame, write the world). Threaded annotators build on the non-waiting node.
-      World writes stay on the tick thread (CasADi is not thread-safe). Test with mimics.
+    '
+- id: read-frame-node
+  title: Camera reading node and the camera as an extension
+  track: demo-port
+  status: not started
+  recommended_model: sonnet
+  depends_on:
+  - cas-context-and-annotator-node
+  notes: 'CollectionReaderAnnotator becomes a node that observes UNKNOWN until a frame newer
+    than its own start arrives, then puts the frame into the CAS. Camera interfaces live in
+    an extension of the RoboKudo process; the node only names the camera. The demo''s kinect_wo_tf
+    config needs no TF, so the camera pose rework (fork PR #22, one pose source per camera
+    config) stays out of scope here. Shared core, two shells: the py_trees CollectionReaderAnnotator
+    keeps working on the same reading code.
 
-  - id: read-frame-node
-    title: "Camera reading node and the camera as an extension"
-    track: demo-port
-    status: not started
-    recommended_model: sonnet
-    depends_on: [cas-context-and-annotator-node]
-    notes: >
-      CollectionReaderAnnotator becomes a node that observes UNKNOWN until a frame newer
-      than its own start arrives, then puts the frame into the CAS. Camera interfaces live
-      in an extension of the RoboKudo process; the node only names the camera. The demo's
-      kinect_wo_tf config needs no TF, so the camera pose rework (fork PR #22, one pose
-      source per camera config) stays out of scope here. Shared core, two shells: the
-      py_trees CollectionReaderAnnotator keeps working on the same reading code.
+    '
+- id: demo-annotator-nodes
+  title: Port demo.py's annotators to native nodes
+  track: demo-port
+  status: not started
+  recommended_model: sonnet
+  depends_on:
+  - cas-context-and-annotator-node
+  notes: 'ImagePreprocessor, PointcloudCrop, Plane, PointCloudClusterExtractor and WorldUpdating.
+    Shared core, two shells: the computation moves onto a dataclass the node owns, configured
+    by its own fields (no Descriptor classes), and the py_trees annotator becomes a thin shell
+    over it until the migration wave deletes it. Based on main, independent of fork PR #18
+    and cram2#933. Unit tests on the stored CAS frames in robokudo_test_data, so they run
+    in CI.
 
-  - id: demo-annotator-nodes
-    title: "Port demo.py's annotators to native nodes"
-    track: demo-port
-    status: not started
-    recommended_model: sonnet
-    depends_on: [cas-context-and-annotator-node]
-    notes: >
-      ImagePreprocessor, PointcloudCrop, Plane, PointCloudClusterExtractor and
-      WorldUpdating. Shared core, two shells: the computation moves onto a dataclass the
-      node owns, configured by its own fields (no Descriptor classes), and the py_trees
-      annotator becomes a thin shell over it until the migration wave deletes it. Based on
-      main, independent of fork PR #18 and cram2#933. Unit tests on the stored CAS frames
-      in robokudo_test_data, so they run in CI.
+    '
+- id: demo-statechart-proof-of-concept
+  title: Run demo.py as a statechart on the rosbag
+  track: demo-port
+  status: not started
+  recommended_model: opus
+  depends_on:
+  - read-frame-node
+  - demo-annotator-nodes
+  notes: 'The demo engine becomes a cramph in standalone mode: RepeatUntil at the root over
+    the pipeline node, run by a StatechartExecutor with a RealTimePacer instead of the py_trees
+    tick loop. Ticks are cheap, so tick often (one transition per node per tick). Its tests
+    use the stored CAS frames in robokudo_test_data; the developer validates it locally against
+    the rosbag baseline (fork-only draft PR #45, never stacked on). The minimal PoC every
+    later wave builds on.
 
-  - id: demo-statechart-proof-of-concept
-    title: "Run demo.py as a statechart on the rosbag"
-    track: demo-port
-    status: not started
-    recommended_model: opus
-    depends_on: [demo-rosbag-baseline, read-frame-node, demo-annotator-nodes]
-    notes: >
-      The demo engine becomes a cramph in standalone mode: RepeatUntil at the root over the
-      pipeline node, run by a StatechartExecutor with a RealTimePacer instead of the py_trees
-      tick loop. Ticks are cheap, so tick often (one transition per node per tick). Passes
-      the baseline's rosbag assertions unchanged. The minimal PoC every later wave builds on.
+    '
+- id: robokudo-perception-executor
+  title: 'RoboKudo''s own executor: join the world, run a given cramph'
+  track: perception-executor
+  status: not started
+  recommended_model: opus
+  depends_on:
+  - demo-statechart-proof-of-concept
+  notes: 'Meeting decision: a dedicated executor fetches the world from the world service,
+    inserts it as the context''s world and executes the cramph it is given. In this wave the
+    cramph comes from the process configuration (standalone mode); fetching it from coraplex
+    comes in the shared-statechart wave. Replaces RoboKudo.run for ported engines. Ask whether
+    its per-tick catch-all (an approved exception) survives or a failed node ends the cramph.
 
-  - id: robokudo-perception-executor
-    title: "RoboKudo's own executor: join the world, run a given cramph"
-    track: perception-executor
-    status: not started
-    recommended_model: opus
-    depends_on: [demo-statechart-proof-of-concept]
-    notes: >
-      Meeting decision: a dedicated executor fetches the world from the world service,
-      inserts it as the context's world and executes the cramph it is given. In this wave
-      the cramph comes from the process configuration (standalone mode); fetching it from
-      coraplex comes in the shared-statechart wave. Replaces RoboKudo.run for ported
-      engines. Ask whether its per-tick catch-all (an approved exception) survives or a
-      failed node ends the cramph.
+    '
+- id: visualization-executor-extension
+  title: GUI and visualizers as an executor extension that outlives each cramph
+  track: perception-executor
+  status: not started
+  recommended_model: sonnet
+  depends_on:
+  - robokudo-perception-executor
+  notes: 'Visualizers are keyed by pipeline name on the blackboard and live in the tree (VisualizationManager
+    as a Parallel sibling). Authors'' proposal: an executor extension that attaches to whichever
+    cramph runs and refreshes the visualizers in after_tick. Key and mouse callbacks of annotators
+    are routed through it.
 
-  - id: visualization-executor-extension
-    title: "GUI and visualizers as an executor extension that outlives each cramph"
-    track: perception-executor
-    status: not started
-    recommended_model: sonnet
-    depends_on: [robokudo-perception-executor]
-    notes: >
-      Visualizers are keyed by pipeline name on the blackboard and live in the tree
-      (VisualizationManager as a Parallel sibling). Authors' proposal: an executor
-      extension that attaches to whichever cramph runs and refreshes the visualizers in
-      after_tick. Key and mouse callbacks of annotators are routed through it.
+    '
+- id: loaded-models-extension
+  title: Load perception models once per process, not per cramph
+  track: perception-executor
+  status: not started
+  recommended_model: opus
+  depends_on:
+  - robokudo-perception-executor
+  notes: 'set_up runs once per context, so YOLO, CLIP or FoundationPose would reload for every
+    cramph. An executor or context extension loads them once and keeps them alive. Open, to
+    decide here: how nodes get a model from it, and whether loading is eager from the process
+    configuration or on first use. Also covers the authors'' gap of setting up nodes before
+    they join, so heavy setup never runs inside a recompile.
 
-  - id: loaded-models-extension
-    title: "Load perception models once per process, not per cramph"
-    track: perception-executor
-    status: not started
-    recommended_model: opus
-    depends_on: [robokudo-perception-executor]
-    notes: >
-      set_up runs once per context, so YOLO, CLIP or FoundationPose would reload for every
-      cramph. An executor or context extension loads them once and keeps them alive.
-      Open, to decide here: how nodes get a model from it, and whether loading is eager from
-      the process configuration or on first use. Also covers the authors' gap of setting up
-      nodes before they join, so heavy setup never runs inside a recompile.
+    '
+- id: cramph-executable-proxies
+  title: Nodes another framework ticks are read as stand-ins, without their class
+  track: node-ownership
+  status: in progress
+  recommended_model: opus
+  repository: cram2/cognitive_robot_abstract_machine
+  branch: statechart-sync/unknown-node-stand-ins
+  pull_request_number: 1037
+  depends_on: []
+  notes: 'Landing through cram2#1037 (Tigul), which replaced the proxy design of closed fork
+    PR #46. A node names its ticking_framework; a reader passes ReadingFramework and builds
+    only the nodes its framework ticks, keeping a StructureCopyNode stand-in for every other
+    one, wherever a node document is read. Frameworks are peers that each tick their own nodes.
+    The rest of the sync is Tigul''s statechart-sync series: owners per node class (cram2#1058),
+    node states by id (cram2#1057), then partitioned ticking.
 
-  - id: cramph-executable-proxies
-    title: "Nodes another framework ticks are read as stand-ins, without their class"
-    track: node-ownership
-    status: in progress
-    recommended_model: opus
-    repository: cram2/cognitive_robot_abstract_machine
-    branch: statechart-sync/unknown-node-stand-ins
-    pull_request_number: 1037
-    depends_on: []
-    notes: >
-      Landing through cram2#1037 (Tigul), which replaced the proxy design of closed fork PR
-      #46. A node names its ticking_framework; a reader passes ReadingFramework and builds
-      only the nodes its framework ticks, keeping a StructureCopyNode stand-in for every
-      other one, wherever a node document is read. Frameworks are peers that each tick
-      their own nodes. The rest of the sync is Tigul's statechart-sync series: owners per
-      node class (cram2#1058), node states by id (cram2#1057), then partitioned ticking.
+    '
+- id: robokudo-hosts-owned-perception-nodes
+  title: RoboKudo hosts the perception nodes of a statechart coraplex sends
+  track: owned-perception
+  status: blocked
+  recommended_model: opus
+  depends_on:
+  - robokudo-perception-executor
+  - cramph-executable-proxies
+  blockers:
+  - Waits for the partitioned-ticking step of Tigul's statechart-sync series (after cram2#1058),
+    so each framework ticks only its own nodes.
+  notes: 'RoboKudo joins Tigul''s statechart-sync series as a framework: its node base class
+    names a RoboKudo ticking_framework (as segmind''s AbstractDetector does in cram2#1058);
+    its executor sets framework_name, reads with ReadingFramework, ticks its own nodes and
+    publishes ReportedNodeStates (cram2#1057). It fetches the cramph from coraplex; a pipeline
+    is one RoboKudo node of the shared chart and a statechart of its own; results go into
+    the twin (cram2#1014). Check WorldModelModifiedDuringMotionError.
 
-  - id: robokudo-hosts-owned-perception-nodes
-    title: "RoboKudo hosts the perception nodes of a statechart coraplex sends"
-    track: owned-perception
-    status: blocked
-    recommended_model: opus
-    depends_on: [robokudo-perception-executor, cramph-executable-proxies]
-    blockers:
-      - "Waits for the partitioned-ticking step of Tigul's statechart-sync series (after cram2#1058), so each framework ticks only its own nodes."
-    notes: >
-      RoboKudo joins Tigul's statechart-sync series as a framework: its node base class
-      names a RoboKudo ticking_framework (as segmind's AbstractDetector does in cram2#1058);
-      its executor sets framework_name, reads with ReadingFramework, ticks its own nodes and
-      publishes ReportedNodeStates (cram2#1057). It fetches the cramph from coraplex; a
-      pipeline is one RoboKudo node of the shared chart and a statechart of its own; results
-      go into the twin (cram2#1014). Check WorldModelModifiedDuringMotionError.
+    '
+- id: remaining-annotator-batches
+  title: Port the remaining core annotators and engine features in batches
+  track: remaining-port
+  status: not started
+  recommended_model: sonnet
+  depends_on:
+  - demo-statechart-proof-of-concept
+  notes: 'Native ports in grouped PRs, shared core and two shells as in wave 1: threaded annotators,
+    model-heavy ones (after the models extension), the rest. Task schedulers (TaskSchedulerBase,
+    IterativeTaskScheduler, QueryBasedScheduler) become expand logic that builds fresh instances.
+    Nested pipelines run as statecharts of their own, each with its own CAS. Exceptions on
+    the blackboard move to failure handling. Split into one item per batch when it starts.
 
-  - id: remaining-annotator-batches
-    title: "Port the remaining core annotators and engine features in batches"
-    track: remaining-port
-    status: not started
-    recommended_model: sonnet
-    depends_on: [demo-statechart-proof-of-concept]
-    notes: >
-      Native ports in grouped PRs, shared core and two shells as in wave 1: threaded
-      annotators, model-heavy ones (after the models extension), the rest. Task schedulers
-      (TaskSchedulerBase, IterativeTaskScheduler, QueryBasedScheduler) become expand logic
-      that builds fresh instances. Nested pipelines run as statecharts of their own, each
-      with its own CAS. Exceptions on the blackboard move to failure handling. Split into
-      one item per batch when it starts.
+    '
+- id: remove-py-trees
+  title: Port the analysis engines and external packages, then remove py_trees
+  track: remaining-port
+  status: not started
+  recommended_model: sonnet
+  depends_on:
+  - remaining-annotator-batches
+  notes: 'Port the remaining analysis engines (36 import py_trees) to cramphs, remove the
+    py_trees shells, the blackboard, the query annotators and the action server checks (the
+    goal is the query, cancelling is an interrupt). Decide whether the external robokudo_*
+    packages (faces, yolo_world, grounded_sam, ...) are ported in this stack or by their owners.
+    api-break: describe the migration for users.
 
-  - id: remove-py-trees
-    title: "Port the analysis engines and external packages, then remove py_trees"
-    track: remaining-port
-    status: not started
-    recommended_model: sonnet
-    depends_on: [remaining-annotator-batches]
-    notes: >
-      Port the remaining analysis engines (36 import py_trees) to cramphs, remove the
-      py_trees shells, the blackboard, the query annotators and the action server checks
-      (the goal is the query, cancelling is an interrupt). Decide whether the external
-      robokudo_* packages (faces, yolo_world, grounded_sam, ...) are ported in this stack or
-      by their owners. api-break: describe the migration for users.
+    '
+landed_item_count: 1
