@@ -1,11 +1,11 @@
-## PR #45 demo-rosbag-baseline (fork, draft) - worktree ~/repos/cognitive_robot_abstract_machine_demo_rosbag_baseline
+## PR #45 demo-rosbag-baseline (fork, permanent draft, local only) - worktree ~/repos/cognitive_robot_abstract_machine_demo_rosbag_baseline
 
 Plan
-- Baseline test of today's demo.py on the breakfast table rosbag (frames 0, 27, 54), reused by the PoC item
+- Keep as a local validation of demo.py on the breakfast table rosbag; never promote, never stack on
 
 Done
-- dataset/breakfast_table_rosbag.py (bag reader, frame publisher, expected outcomes) and test_demo_rosbag_baseline.py, pushed in 08631e8cd4
-- 12 passed locally, 12 skipped without the bag; krrood check clean
+- Baseline test pushed (08631e8cd4): 12 checks pass on frames 0, 27, 54
+- Plan: item done, PoC no longer depends on it, standing rule amended; posted on issue #43
 
 Next
-- User review of draft PR #45; promotion to cram2 is the user's
+- None; reuse locally to validate the PoC
