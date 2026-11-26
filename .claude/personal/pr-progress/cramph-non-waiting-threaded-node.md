@@ -1,11 +1,12 @@
 ## Plan
-- Write failing tests in test/cramph_test/test_statechart/test_threaded_nodes.py (tick does not wait, failures, superseded run discarded)
-- ThreadedNode: start count, failure_types, shared outcome-to-observation method
-- FunctionCall uses the shared method; new BackgroundComputation observes UNKNOWN while running
-- ruff + docformatter + krrood check via pre-commit; run cramph threaded and function-call tests
+- BackgroundComputation (non-waiting threaded node) + ThreadedNode start count, shared outcome observation
+- Tests first in test/cramph_test/test_statechart/test_background_computation.py
 
 ## Done
-- Branch and draft PR #44 opened from main
+- Tests written and shown failing; restart test proven against the old overwrite
+- Implemented in cramph/src/cramph/threaded_nodes.py; cramph_test passes (415, plus 58 ROS-dependent with ROS sourced)
+- krrood format/check clean; committed 9d89822652 and pushed; PR #44 description updated
 
 ## Next
-- Failing tests first
+- Review by the cramph authors (name BackgroundComputation open for review)
+- Then cas-context-and-annotator-node builds ThreadedAnnotatorNode on it
