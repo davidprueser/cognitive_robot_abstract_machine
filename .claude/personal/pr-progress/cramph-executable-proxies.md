@@ -1,12 +1,14 @@
 ### Plan
-- `owner` field on StatechartNode (leaves only; composites refuse an owner); owned nodes write their end behaviour into their JSON
-- `ProxyNode`: end behaviour from the JSON, writes back the JSON it came from, run number per start, latched observation per run
-- `NodeOwnership` context extension (own name + abstract connection); `Statechart` deserialization makes proxies for leaves owned elsewhere
-- Tests first in test/cramph_test/test_statechart/test_proxy_nodes.py with a recording connection
+- Ticking side only: owning_process on leaves, ProxyNode, NodeOwnership extension, abstract connection (done in ea41b8fa5e)
+- Owner side is the next item, cramph-owned-node-runner (stacked on this branch)
 
 ### Done
-- Item split (user confirmed): owner side is new item cramph-owned-node-runner; tracking issue #43 comment posted
-- Branch + draft PR #46 (fork); label `new-feature` missing on fork
+- Item split (user confirmed); tracking issue #43 comment posted
+- Draft PR #46: owning_process field (plain str; composites refuse it), EndBehaviour in owned node JSON, document rewrite into ProxyNode before from_json, run numbers, latched observations, docs section
+- Tests: test_proxy_nodes.py 16 pass; test/cramph_test 911 passed / 2 skipped at ea41b8fa5e
+- Labels: api-break set (ORM schema gains owning_process column + new tables); new-feature missing on fork
 
 ### Next
-- Write failing tests, then implement in a new cramph/src/cramph/ownership.py
+- Discuss the ORM schema change with cramph code owners before review (api-break)
+- Local giskardpy/coraplex QP tests fail on a piqp version mismatch (eps_primal_inf), not this change; CI decides
+- Start cramph-owned-node-runner on top of this branch
