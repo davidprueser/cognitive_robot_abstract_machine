@@ -173,8 +173,11 @@ items:
   - id: cramph-executable-proxies
     title: "Owned nodes in cramph: executable proxies and one ticking process"
     track: node-ownership
-    status: not started
+    status: in progress
     recommended_model: opus
+    branch: cramph-executable-proxies
+    pull_request_number: 46
+    session: local Claude Code session f1ce9f71-6b95-4333-97a9-b0d7c740121d
     depends_on: []
     notes: >
       Authors' problems 1, 2 and 7, ticking side. Nodes get owners; a process holds the real
