@@ -184,36 +184,24 @@ items:
       #46. A node names its ticking_framework; a reader passes ReadingFramework and builds
       only the nodes its framework ticks, keeping a StructureCopyNode stand-in for every
       other one, wherever a node document is read. Frameworks are peers that each tick
-      their own nodes. Left open there: who sets ticking_framework, framework names, and
-      how a stand-in's state reaches the other peers (cramph-ownership-transport).
-
-  - id: cramph-ownership-transport
-    title: "Peers sync the states of the nodes they tick for each other's stand-ins"
-    track: node-ownership
-    status: not started
-    recommended_model: opus
-    depends_on: [cramph-executable-proxies]
-    notes: >
-      Authors' problem 4, on cram2#1037's peer model: each framework ticks its own nodes
-      and every other peer reads them as stand-ins. Decide who sets ticking_framework and
-      how frameworks name themselves; carry each peer's node states to the others' stand-ins,
-      counted only once the reader's world caught up with the sender's StreamPosition, as
-      child choices already are; heartbeats fail the nodes of a dead peer. Lives in cramph
-      with ROS as a soft dependency; reuse giskardpy's generic ROS middleware.
+      their own nodes. The rest of the sync is Tigul's statechart-sync series: owners per
+      node class (cram2#1058), node states by id (cram2#1057), then partitioned ticking.
 
   - id: robokudo-hosts-owned-perception-nodes
     title: "RoboKudo hosts the perception nodes of a statechart coraplex sends"
     track: owned-perception
-    status: not started
+    status: blocked
     recommended_model: opus
-    depends_on: [robokudo-perception-executor, cramph-ownership-transport]
+    depends_on: [robokudo-perception-executor, cramph-executable-proxies]
+    blockers:
+      - "Waits for the partitioned-ticking step of Tigul's statechart-sync series (after cram2#1058), so each framework ticks only its own nodes."
     notes: >
-      Meeting decisions: coraplex sends the statechart to Giskard and RoboKudo; each runs
-      its owned nodes in its own executor. RoboKudo's executor fetches the cramph from
-      coraplex. A pipeline is one RoboKudo-owned node in the shared chart and runs as a
-      statechart of its own. The query comes from the perception node's fields. Results go
-      into the semantic digital twin and reach later nodes as EQL variables (cram2#1014,
-      draft). Check Giskard's WorldModelModifiedDuringMotionError against RoboKudo's writes.
+      RoboKudo joins Tigul's statechart-sync series as a framework: its node base class
+      names a RoboKudo ticking_framework (as segmind's AbstractDetector does in cram2#1058);
+      its executor sets framework_name, reads with ReadingFramework, ticks its own nodes and
+      publishes ReportedNodeStates (cram2#1057). It fetches the cramph from coraplex; a
+      pipeline is one RoboKudo node of the shared chart and a statechart of its own; results
+      go into the twin (cram2#1014). Check WorldModelModifiedDuringMotionError.
 
   - id: remaining-annotator-batches
     title: "Port the remaining core annotators and engine features in batches"
