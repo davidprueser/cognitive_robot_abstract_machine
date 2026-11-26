@@ -171,36 +171,35 @@ items:
       nodes before they join, so heavy setup never runs inside a recompile.
 
   - id: cramph-executable-proxies
-    title: "Owned nodes in cramph: executable proxies and one ticking process"
+    title: "Nodes another framework ticks are read as stand-ins, without their class"
     track: node-ownership
     status: in progress
     recommended_model: opus
-    branch: cramph-executable-proxies
-    pull_request_number: 46
-    session: local Claude Code session f1ce9f71-6b95-4333-97a9-b0d7c740121d
+    repository: cram2/cognitive_robot_abstract_machine
+    branch: statechart-sync/unknown-node-stand-ins
+    pull_request_number: 1037
     depends_on: []
     notes: >
-      Authors' problems 1, 2 and 7, ticking side. Nodes get owners; a process holds the real
-      class only of the nodes it owns. Composites stay real classes everywhere and have no
-      owner; only working leaves become proxies that keep their end behaviour and take their
-      observation from the owner. One process decides every life cycle; a proxy sends its
-      life cycle state with a run number per start to an abstract connection and observes
-      the latest observation reported for its current run, never awaited in a tick.
-      Fresh node instances, no shared nodes. Split at kickoff; owner side:
-      cramph-owned-node-runner.
+      Landing through cram2#1037 (Tigul), which replaced the proxy design of closed fork PR
+      #46. A node names its ticking_framework; a reader passes ReadingFramework and builds
+      only the nodes its framework ticks, keeping a StructureCopyNode stand-in for every
+      other one, wherever a node document is read. Frameworks are peers that each tick
+      their own nodes. Left open there: who sets ticking_framework, framework names, and
+      how a stand-in's state reaches the other peers (cramph-ownership-transport).
 
   - id: cramph-ownership-transport
-    title: "Transport for life cycles and observations between owners"
+    title: "Peers sync the states of the nodes they tick for each other's stand-ins"
     track: node-ownership
     status: not started
     recommended_model: opus
-    depends_on: [cramph-owned-node-runner]
+    depends_on: [cramph-executable-proxies]
     notes: >
-      Authors' problem 4. Life cycle changes flow down to owners, observations flow back.
-      A run counter on every start; observations carry a world StreamPosition and count only
-      once the ticking world caught up, as child choices already do; heartbeats fail the
-      nodes of a dead owner. Lives in cramph with ROS as a soft dependency; reuse the
-      generic parts of giskardpy's ROS middleware rather than duplicating them.
+      Authors' problem 4, on cram2#1037's peer model: each framework ticks its own nodes
+      and every other peer reads them as stand-ins. Decide who sets ticking_framework and
+      how frameworks name themselves; carry each peer's node states to the others' stand-ins,
+      counted only once the reader's world caught up with the sender's StreamPosition, as
+      child choices already are; heartbeats fail the nodes of a dead peer. Lives in cramph
+      with ROS as a soft dependency; reuse giskardpy's generic ROS middleware.
 
   - id: robokudo-hosts-owned-perception-nodes
     title: "RoboKudo hosts the perception nodes of a statechart coraplex sends"
@@ -242,17 +241,3 @@ items:
       (the goal is the query, cancelling is an interrupt). Decide whether the external
       robokudo_* packages (faces, yolo_world, grounded_sam, ...) are ported in this stack or
       by their owners. api-break: describe the migration for users.
-
-  - id: cramph-owned-node-runner
-    title: "The owning process runs its nodes of a statechart another process ticks"
-    track: node-ownership
-    status: not started
-    recommended_model: opus
-    depends_on: [cramph-executable-proxies]
-    notes: >
-      Split from cramph-executable-proxies at kickoff. The owner deserializes the same
-      statechart: its own leaves are real, fresh instances, every other leaf is a proxy.
-      It decides no transition: it follows the life cycle states and run numbers it is
-      sent, runs the matching callbacks, observes its running nodes on its own loop
-      (on_tick or the built observation expression) and reports them. An in-process
-      connection pairs two contexts, so one test runs an owned node end to end without ROS.
