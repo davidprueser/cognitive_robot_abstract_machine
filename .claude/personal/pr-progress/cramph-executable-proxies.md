@@ -1,14 +1,10 @@
 ### Plan
-- Ticking side only: owning_process on leaves, ProxyNode, NodeOwnership extension, abstract connection (done in ea41b8fa5e)
-- Owner side is the next item, cramph-owned-node-runner (stacked on this branch)
+- Item lands through cram2#1037 (ticking_framework + stand-ins); nothing left to build on this branch
 
 ### Done
-- Item split (user confirmed); tracking issue #43 comment posted
-- Draft PR #46: owning_process field (plain str; composites refuse it), EndBehaviour in owned node JSON, document rewrite into ProxyNode before from_json, run numbers, latched observations, docs section
-- Tests: test_proxy_nodes.py 16 pass; test/cramph_test 911 passed / 2 skipped at ea41b8fa5e
-- Labels: api-break set (ORM schema gains owning_process column + new tables); new-feature missing on fork
+- Fork PR #46 closed unmerged (branch kept as reference: ProxyNode, latched observations, run numbers)
+- Plan: item points at cram2#1037; cramph-owned-node-runner removed; cramph-ownership-transport re-scoped to the peer model; tracking issue #43 comment posted
 
 ### Next
-- Discuss the ORM schema change with cramph code owners before review (api-break)
-- Local giskardpy/coraplex QP tests fail on a piqp version mismatch (eps_primal_inf), not this change; CI decides
-- Start cramph-owned-node-runner on top of this branch
+- Follow cram2#1037's review; once it merges the item shows done
+- cramph-ownership-transport starts on top of #1037
