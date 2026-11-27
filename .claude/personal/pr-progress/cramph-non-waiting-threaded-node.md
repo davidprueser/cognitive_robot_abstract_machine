@@ -1,12 +1,12 @@
 ## Plan
-- BackgroundComputation (non-waiting threaded node) + ThreadedNode start count, shared outcome observation
-- Tests first in test/cramph_test/test_statechart/test_background_computation.py
+- FunctionCall observes UNKNOWN instead of waiting (cramph maintainer's request); ThreadedNode start count kept
+- BackgroundComputation removed; tests merged into test_function_call.py
 
 ## Done
-- Tests written and shown failing; restart test proven against the old overwrite
-- Implemented in cramph/src/cramph/threaded_nodes.py; cramph_test passes (415, plus 58 ROS-dependent with ROS sourced)
-- krrood format/check clean; committed 9d89822652 and pushed; PR #44 description updated
+- 80d747f1b6 pushed: FunctionCall non-waiting, BackgroundComputation gone; cramph_test 897 passed with ROS; krrood format/check clean
+- PR #44 title, description and labels (api-break, bug-fix) updated
 
 ## Next
-- Review by the cramph authors (name BackgroundComputation open for review)
-- Then cas-context-and-annotator-node builds ThreadedAnnotatorNode on it
+- Check CI, especially the coraplex FunctionCall tests (coraplex ORM does not generate locally)
+- Finalize with the cramph maintainer; the user merges it, then the PoC items start
+- Open: remove the now unused ThreadedNode.wait_until_finished?
