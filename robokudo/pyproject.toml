@@ -33,6 +33,7 @@ dependencies = [
     "opencv-python>=4.11.0.86",
     "matplotlib>=3.0",
     "setuptools",
+    "cramph>=26.10.0",
     "krrood-core>=26.10.0",
     "krrood-serialization>=26.10.0",
     "semantic_digital_twin>=26.10.0",
@@ -56,6 +57,7 @@ version = {attr = "robokudo._version.__version__"}
 
 [dependency-groups]
 workspace = [
+    "cramph",
     "krrood",
     "krrood_spatial_math",
     "semantic_digital_twin",
