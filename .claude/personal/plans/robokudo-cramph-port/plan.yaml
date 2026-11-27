@@ -47,8 +47,11 @@ items:
 - id: cas-context-and-annotator-node
   title: Annotator node, pipeline node and the CAS as a context extension
   track: demo-port
-  status: not started
+  status: in progress
   recommended_model: opus
+  branch: cas-context-and-annotator-node
+  pull_request_number: 47
+  session: local Claude Code session 8b4e3a4e-6fab-4205-bd6c-7a30467f8cd3
   depends_on: []
   notes: 'Authors'' design: an extension holding the current CAS, added by the pipeline''s
     executor in extend_context; the pipeline node puts a fresh CAS in on every start and reset;
