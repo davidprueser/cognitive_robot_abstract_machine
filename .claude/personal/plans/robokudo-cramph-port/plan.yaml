@@ -44,29 +44,12 @@ tracks:
   name: Remaining annotators, engines and packages
   wave: migration
 items:
-- id: cramph-non-waiting-threaded-node
-  title: A threaded cramph node that observes UNKNOWN instead of waiting for its thread
-  track: cramph-gaps
-  status: in progress
-  recommended_model: sonnet
-  branch: cramph-non-waiting-threaded-node
-  pull_request_number: 44
-  session: local Claude Code session f7568cad-9bdc-47d3-92ed-b404a047233c
-  depends_on: []
-  notes: 'Gap named by the cramph authors: FunctionCall joins its thread in on_tick, which
-    holds up the tick. Add a ThreadedNode variant that observes UNKNOWN while run() works
-    and TRUE/FALSE once it returned or raised. Include a run counter per start, so an outcome
-    from before a restart never overwrites a later one (the ThreadedNode warning). Generic,
-    so it goes in cramph; its own small PR for the cramph authors to review.
-
-    '
 - id: cas-context-and-annotator-node
   title: Annotator node, pipeline node and the CAS as a context extension
   track: demo-port
   status: not started
   recommended_model: opus
-  depends_on:
-  - cramph-non-waiting-threaded-node
+  depends_on: []
   notes: 'Authors'' design: an extension holding the current CAS, added by the pipeline''s
     executor in extend_context; the pipeline node puts a fresh CAS in on every start and reset;
     annotators list it in required_context_extensions. One pipeline per statechart. Decide
@@ -226,4 +209,4 @@ items:
     api-break: describe the migration for users.
 
     '
-landed_item_count: 1
+landed_item_count: 2
