@@ -3,10 +3,9 @@
 - BackgroundComputation removed; tests merged into test_function_call.py
 
 ## Done
-- 80d747f1b6 pushed: FunctionCall non-waiting, BackgroundComputation gone; cramph_test 897 passed with ROS; krrood format/check clean
-- PR #44 title, description and labels (api-break, bug-fix) updated
+- Squashed into 24124716de (force-pushed): FunctionCall non-waiting, wait_until_finished removed; cramph_test 897 passed; krrood clean
+- PR #44 description restructured (one change plus the bug it exposes); labels api-break, bug-fix
 
 ## Next
-- Check CI, especially the coraplex FunctionCall tests (coraplex ORM does not generate locally)
+- Open upstream as a draft so CI runs the coraplex FunctionCall tests (coraplex ORM does not generate locally)
 - Finalize with the cramph maintainer; the user merges it, then the PoC items start
-- Open: remove the now unused ThreadedNode.wait_until_finished?
