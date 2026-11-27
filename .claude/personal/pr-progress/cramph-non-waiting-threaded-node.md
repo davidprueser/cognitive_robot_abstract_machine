@@ -1,11 +1,9 @@
 ## Plan
-- FunctionCall observes UNKNOWN instead of waiting (cramph maintainer's request); ThreadedNode start count kept
-- BackgroundComputation removed; tests merged into test_function_call.py
+- FunctionCall observes UNKNOWN instead of waiting (cramph maintainer's request); ThreadedNode start count kept; wait_until_finished removed
 
 ## Done
-- Squashed into 24124716de (force-pushed): FunctionCall non-waiting, wait_until_finished removed; cramph_test 897 passed; krrood clean
-- PR #44 description restructured (one change plus the bug it exposes); labels api-break, bug-fix
+- Upstream PR cram2#1086 opened from this branch and marked ready; labels api-break, bug-fix
+- CI fix: FunctionCall docstring shortened (5d44273f06); all CI checks green at 5d44273f06, coraplex tests included
 
 ## Next
-- Open upstream as a draft so CI runs the coraplex FunctionCall tests (coraplex ORM does not generate locally)
-- Finalize with the cramph maintainer; the user merges it, then the PoC items start
+- Review by the cramph code owners (ichumuh, Tigul); the user merges it, then the PoC items start
