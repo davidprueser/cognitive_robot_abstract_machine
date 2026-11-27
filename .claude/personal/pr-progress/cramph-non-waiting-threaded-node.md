@@ -1,9 +1,8 @@
 ## Plan
-- FunctionCall observes UNKNOWN instead of waiting (cramph maintainer's request); ThreadedNode start count kept; wait_until_finished removed
+- Done: FunctionCall observes UNKNOWN instead of waiting; ThreadedNode start count; wait_until_finished removed
 
 ## Done
-- Upstream PR cram2#1086 opened from this branch and marked ready; labels api-break, bug-fix
-- CI fix: FunctionCall docstring shortened (5d44273f06); all CI checks green at 5d44273f06, coraplex tests included
+- Merged upstream as cram2#1086 (564a51f56a, 2026-11-27); plan item recorded done and removed from the plan
 
 ## Next
-- Review by the cramph code owners (ichumuh, Tigul); the user merges it, then the PoC items start
+- Close fork draft #44 if the user agrees; the PoC items (cas-context-and-annotator-node first) can start
